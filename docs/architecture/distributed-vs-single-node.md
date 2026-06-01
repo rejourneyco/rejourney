@@ -106,3 +106,6 @@ For the latest internal engineering visuals and deeper operator detail:
 - `dev_docs/allthingscloud.md` (k3s cloud setup diagram)
 
 For a graphics-only architecture page, open [`/docs/architecture/diagrams`](/docs/architecture/diagrams).
+
+For replay billing and future smart capture behavior, open
+[`/docs/architecture/smart-capture-replay-billing`](/docs/architecture/smart-capture-replay-billing).

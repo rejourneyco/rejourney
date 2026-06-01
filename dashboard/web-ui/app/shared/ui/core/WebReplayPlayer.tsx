@@ -41,6 +41,14 @@ function buildReplayKey(events: any[]): string {
     return `${replayEventSignature(first)}:${firstHref}`;
 }
 
+const REPLAY_MASK_PLACEHOLDER_STYLE_RULES = [
+    '.rr-block { color: transparent !important; background-color: #f8fafc !important; background-image: repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.16) 0 10px, rgba(226, 232, 240, 0.36) 10px 20px), linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%) !important; background-repeat: repeat, no-repeat !important; background-size: 28px 28px, cover !important; box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.72) !important; }',
+    '.rr-block.rj-media-mask { background-color: #f0fdfa !important; background-image: repeating-linear-gradient(135deg, rgba(20, 184, 166, 0.18) 0 10px, rgba(204, 251, 241, 0.55) 10px 20px), linear-gradient(135deg, #f8fafc 0%, #ecfeff 100%) !important; box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.55) !important; }',
+    '.rr-block:not(img):not(video):not(canvas):not(svg):not(image) { position: relative !important; display: flex !important; align-items: center !important; justify-content: center !important; }',
+    '.rr-block:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Content masked"; display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 132px !important; min-height: 34px !important; padding: 0 14px !important; border: 1px solid rgba(148, 163, 184, 0.76) !important; border-radius: 999px !important; background: rgba(255, 255, 255, 0.86) !important; color: #334155 !important; font: 800 13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12) !important; }',
+    '.rr-block.rj-media-mask:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Media masked"; border-color: rgba(20, 184, 166, 0.62) !important; color: #0f766e !important; }',
+];
+
 function applyScale(
     root: HTMLElement,
     fitMode: 'contain' | 'width' | 'document-width',
@@ -180,6 +188,7 @@ export default function WebReplayPlayer({
                     strokeStyle: 'rgba(244, 63, 94, 0.82)',
                 },
                 UNSAFE_replayCanvas: true,
+                insertStyleRules: REPLAY_MASK_PLACEHOLDER_STYLE_RULES,
                 triggerFocus: false,
             });
             const initialOffsetMs = Math.max(0, Math.min(initialCurrentTime, initialDurationSeconds || initialCurrentTime) * 1000);

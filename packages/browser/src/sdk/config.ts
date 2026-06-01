@@ -24,6 +24,7 @@ export const DEFAULT_WEB_CONFIG: Required<
     | 'trackLongTasks'
     | 'trackResourceErrors'
     | 'maskAllInputs'
+    | 'imageVideoMasking'
   >
 > & {
   apiUrl: string;
@@ -66,6 +67,7 @@ export const DEFAULT_WEB_CONFIG: Required<
   trackLongTasks: false,
   trackResourceErrors: true,
   maskAllInputs: true,
+  imageVideoMasking: 'none',
   maskInputOptions: {
     password: true,
     email: true,
@@ -212,6 +214,9 @@ export function applyRemoteConfig(local: RejourneyWebConfig, remote: RemoteSdkCo
   const remoteAllowedDomains = remote.webAllowedDomains
     ? normalizeAllowedDomains(remote.webAllowedDomains)
     : undefined;
+  const remoteImageVideoMasking = remote.imageVideoMasking === 'all' || remote.imageVideoMasking === 'none'
+    ? remote.imageVideoMasking
+    : undefined;
 
   return {
     ...local,
@@ -219,6 +224,7 @@ export function applyRemoteConfig(local: RejourneyWebConfig, remote: RemoteSdkCo
     captureReplay: (remoteRecording ?? local.captureReplay) && local.captureReplay !== false,
     allowedDomains: remoteAllowedDomains ?? local.allowedDomains,
     maxSessionDuration,
+    imageVideoMasking: remoteImageVideoMasking ?? local.imageVideoMasking,
     ...(remote.textInputMasking === 'secure_only'
       ? { maskAllInputs: false }
       : remote.textInputMasking === 'all'

@@ -37,6 +37,16 @@ extension AppEnvironment {
                         .tabItem {
                             Label("Map", systemImage: "map")
                         }
+
+                    MediaMaskingTestView()
+                        .tabItem {
+                            Label("Media", systemImage: "photo.on.rectangle.angled")
+                        }
+
+                    NestedVideoTestView()
+                        .tabItem {
+                            Label("Nested Video", systemImage: "play.rectangle.on.rectangle")
+                        }
                 }
                     .modifier(RootViewAppearance())
                     .modelContainer(modelContainer)

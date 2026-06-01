@@ -3,7 +3,11 @@
 import process from 'node:process';
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import pg from 'pg';
-import { evaluateBackupQuality, OBSERVE_ONLY_QUALITY_TIER } from './backup-quality.mjs';
+import {
+  evaluateBackupQuality,
+  OBSERVE_ONLY_QUALITY_TIER,
+  REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER,
+} from './backup-quality.mjs';
 
 const config = {
   databaseUrl: process.env.DATABASE_URL || '',
@@ -591,6 +595,7 @@ async function runBackfillQualityMode() {
   const usable = successes.filter((result) => result.qualityTier === 'usable').length;
   const broken = successes.filter((result) => result.qualityTier === 'broken').length;
   const observeOnly = successes.filter((result) => result.qualityTier === OBSERVE_ONLY_QUALITY_TIER).length;
+  const replayQuotaBillingExhausted = successes.filter((result) => result.qualityTier === REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER).length;
 
   log(
     `${apply ? 'Apply summary' : 'Dry-run summary'}: `
@@ -599,7 +604,8 @@ async function runBackfillQualityMode() {
       + `${usable} usable, `
       + `${lowQuality} low_quality, `
       + `${broken} broken, `
-      + `${observeOnly} observe_only`,
+      + `${observeOnly} observe_only, `
+      + `${replayQuotaBillingExhausted} replay_quota_billing_exhausted`,
   );
 
   console.log(JSON.stringify({
@@ -611,8 +617,11 @@ async function runBackfillQualityMode() {
     lowQuality,
     broken,
     observeOnly,
+    replayQuotaBillingExhausted,
     sampleNonHighQuality: successes
-      .filter((result) => !result.highQuality && result.qualityTier !== OBSERVE_ONLY_QUALITY_TIER)
+      .filter((result) => !result.highQuality
+        && result.qualityTier !== OBSERVE_ONLY_QUALITY_TIER
+        && result.qualityTier !== REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER)
       .slice(0, 20)
       .map((result) => ({
         sessionId: result.sessionId,

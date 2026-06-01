@@ -17,7 +17,7 @@ Or add it directly to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.2.0")
+    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.3.0")
 ],
 targets: [
     .target(
@@ -97,6 +97,7 @@ Project Settings can control Swift recording defaults without shipping a new app
 | Max observability duration | Limits the maximum length of each observability session. |
 | Recording FPS | Defaults to `1 FPS`. Project admins can choose `1`, `2`, or `3 FPS`. If remote config is unavailable, the SDK falls back to local/default capture behavior. |
 | Text input privacy | Defaults to masking all text inputs. Secure-only mode keeps password/secure fields masked and allows other text inputs to appear in debugging replays. |
+| Image/video privacy | Defaults to showing images and videos. When enabled, images and videos are masked together. |
 
 ## Screen Tracking
 
@@ -249,7 +250,7 @@ Custom events are stored per-session and visible in two places:
 
 ## Privacy Controls
 
-Text inputs and camera views are automatically masked by default. Project admins can change the default text input masking level in Project Settings for supported SDK versions. Secure/password fields, camera views, and explicit masks remain protected.
+Text inputs and camera views are automatically masked by default. Images and videos are visible by default so visual replay matches what the user saw. Project admins can change the default text input masking level and enable image/video masking in Project Settings for supported SDK versions. Secure/password fields, camera views, and explicit masks remain protected.
 
 To hide additional sensitive views, use the `mask` and `unmask` APIs:
 
@@ -257,7 +258,7 @@ To hide additional sensitive views, use the `mask` and `unmask` APIs:
 import UIKit
 import Rejourney
 
-// Mask a view — appears as a solid rectangle in replays
+// Mask a view — appears as a privacy placeholder in replays
 Rejourney.mask(balanceLabel)
 
 // Remove masking if needed
@@ -265,6 +266,8 @@ Rejourney.unmask(balanceLabel)
 ```
 
 For SwiftUI, get the underlying `UIView` via a `UIViewRepresentable` wrapper or `introspect`.
+
+Camera, keyboard, image, and video placeholders use the same white treatment with a type-specific icon or label. When image/video masking is enabled remotely, both images and videos are masked together.
 
 #### Native sheets
 

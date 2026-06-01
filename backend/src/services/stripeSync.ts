@@ -108,14 +108,32 @@ async function countSessionsFromTable(
     return result?.count ?? 0;
 }
 
+async function countSessionReplaysFromTable(
+    projectId: string,
+    periodStart: Date,
+    periodEnd: Date
+): Promise<number> {
+    const [result] = await db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(sessions)
+        .where(and(
+            eq(sessions.projectId, projectId),
+            gte(sessions.startedAt, periodStart),
+            lt(sessions.startedAt, periodEnd),
+            isNotNull(sessions.replayQuotaCountedAt)
+        ));
+    return result?.count ?? 0;
+}
+
 /**
- * Rebuild project_usage for the correct current billing period using the
- * sessions table as source of truth.
+ * Repair project_usage for the correct current billing period without lowering
+ * preserved replay usage.
  *
  * Steps:
  * 1. Zero out ALL existing project_usage rows for this project that are NOT
  *    in the correct period (stale wrong-period rows from a desynced anchor).
- * 2. Set the correct-period row to the exact count from the sessions table.
+ * 2. Raise captured-session count to session-table ground truth when needed.
+ * 3. Raise replay usage to counted replay ground truth when needed; never lower.
  *
  * Rows are zeroed rather than deleted to preserve the audit trail.
  * All writes run inside the caller's transaction.
@@ -127,7 +145,7 @@ async function rebuildProjectUsageInTx(
     periodStart: Date,
     periodEnd: Date,
     quotaVersion: number
-): Promise<{ staleRowsZeroed: number; correctCount: number; wasOff: boolean }> {
+): Promise<{ staleRowsZeroed: number; correctCount: number; correctReplayCount: number; wasOff: boolean }> {
     // 1. Delete ghost rows — rows whose period string falls *within* the current
     //    Stripe billing window but doesn't match the correct period string.
     //    These were created by the 30-day anchor math rolling over early inside a
@@ -138,7 +156,12 @@ async function rebuildProjectUsageInTx(
     //    records and are left untouched.
     const periodStartString = correctPeriod; // YYYY-MM-DD — lexicographically safe to compare
     const staleRows = await tx
-        .select({ id: projectUsage.id, period: projectUsage.period, sessions: projectUsage.sessions })
+        .select({
+            id: projectUsage.id,
+            period: projectUsage.period,
+            sessions: projectUsage.sessions,
+            sessionReplays: projectUsage.sessionReplays,
+        })
         .from(projectUsage)
         .where(and(
             eq(projectUsage.projectId, projectId),
@@ -149,7 +172,11 @@ async function rebuildProjectUsageInTx(
         ));
 
     let staleRowsZeroed = 0;
+    let staleSessionsMerged = 0;
+    let staleSessionReplaysMerged = 0;
     for (const row of staleRows) {
+        staleSessionsMerged += row.sessions ?? 0;
+        staleSessionReplaysMerged += row.sessionReplays ?? row.sessions ?? 0;
         await tx
             .delete(projectUsage)
             .where(eq(projectUsage.id, row.id));
@@ -159,15 +186,21 @@ async function rebuildProjectUsageInTx(
             stalePeriod: row.period,
             correctPeriod,
             deletedSessions: row.sessions,
+            deletedSessionReplays: row.sessionReplays,
         }, 'Stripe sync: deleted ghost wrong-period project_usage row');
     }
 
     // 2. Count ground-truth sessions for the correct period
     const correctCount = await countSessionsFromTable(projectId, periodStart, periodEnd);
+    const correctReplayCount = await countSessionReplaysFromTable(projectId, periodStart, periodEnd);
 
     // 3. Read current value in the correct-period row (may not exist yet)
     const [existingRow] = await tx
-        .select({ id: projectUsage.id, sessions: projectUsage.sessions })
+        .select({
+            id: projectUsage.id,
+            sessions: projectUsage.sessions,
+            sessionReplays: projectUsage.sessionReplays,
+        })
         .from(projectUsage)
         .where(and(
             eq(projectUsage.projectId, projectId),
@@ -176,16 +209,22 @@ async function rebuildProjectUsageInTx(
         .limit(1);
 
     const currentCount = existingRow?.sessions ?? 0;
-    const wasOff = currentCount !== correctCount;
+    const currentReplayCount = existingRow?.sessionReplays ?? existingRow?.sessions ?? 0;
+    const nextSessions = Math.max(currentCount + staleSessionsMerged, correctCount);
+    const nextSessionReplays = Math.max(currentReplayCount + staleSessionReplaysMerged, correctReplayCount);
+    const wasOff =
+        currentCount !== nextSessions ||
+        currentReplayCount !== nextSessionReplays ||
+        staleRowsZeroed > 0;
 
     if (wasOff || !existingRow) {
-        // Upsert with the correct count
         await tx
             .insert(projectUsage)
             .values({
                 projectId,
                 period: correctPeriod,
-                sessions: correctCount,
+                sessions: nextSessions,
+                sessionReplays: nextSessionReplays,
                 storageBytes: BigInt(0),
                 requests: 0,
                 quotaVersion,
@@ -193,7 +232,8 @@ async function rebuildProjectUsageInTx(
             .onConflictDoUpdate({
                 target: [projectUsage.projectId, projectUsage.period, projectUsage.quotaVersion],
                 set: {
-                    sessions: correctCount,
+                    sessions: nextSessions,
+                    sessionReplays: nextSessionReplays,
                     updatedAt: new Date(),
                 },
             });
@@ -202,11 +242,15 @@ async function rebuildProjectUsageInTx(
             projectId,
             correctPeriod,
             oldCount: currentCount,
-            newCount: correctCount,
+            oldReplayCount: currentReplayCount,
+            newCount: nextSessions,
+            newReplayCount: nextSessionReplays,
+            staleSessionsMerged,
+            staleSessionReplaysMerged,
         }, 'Stripe sync: project_usage corrected from sessions table');
     }
 
-    return { staleRowsZeroed, correctCount, wasOff };
+    return { staleRowsZeroed, correctCount, correctReplayCount, wasOff };
 }
 
 // =============================================================================
@@ -355,7 +399,7 @@ export async function syncTeamFromStripe(
                 inArray(projectUsage.projectId, projectIds),
                 ne(projectUsage.period, correctPeriod),
                 sql`${projectUsage.period} >= ${correctPeriod}`,
-                sql`${projectUsage.sessions} > 0`
+                sql`(${projectUsage.sessions} > 0 OR ${projectUsage.sessionReplays} > 0)`
             ))
             .limit(1);
 
@@ -364,10 +408,13 @@ export async function syncTeamFromStripe(
         }
 
         if (!usageNeedsRepair) {
-            // Also check if the correct-period row's count diverges from sessions table
+            // Also check if the correct-period row needs to be raised from sessions table.
             for (const project of teamProjects) {
                 const [usageRow] = await db
-                    .select({ sessions: projectUsage.sessions })
+                    .select({
+                        sessions: projectUsage.sessions,
+                        sessionReplays: projectUsage.sessionReplays,
+                    })
                     .from(projectUsage)
                     .where(and(
                         eq(projectUsage.projectId, project.id),
@@ -376,7 +423,11 @@ export async function syncTeamFromStripe(
                     .limit(1);
 
                 const groundTruth = await countSessionsFromTable(project.id, periodStart, periodEnd);
-                if ((usageRow?.sessions ?? 0) !== groundTruth) {
+                const replayGroundTruth = await countSessionReplaysFromTable(project.id, periodStart, periodEnd);
+                if (
+                    (usageRow?.sessions ?? 0) < groundTruth ||
+                    (usageRow?.sessionReplays ?? usageRow?.sessions ?? 0) < replayGroundTruth
+                ) {
                     usageNeedsRepair = true;
                     break;
                 }

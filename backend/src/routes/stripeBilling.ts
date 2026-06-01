@@ -441,33 +441,38 @@ router.get(
             .filter(team => !team.stripeSubscriptionId)
             .map(team => team.id);
 
-        // Calculate total sessions across all free teams
-        // Each team uses its own billing period based on its anchor
-        let totalSessionsUsed = 0;
+        // Calculate total replay usage across all free teams.
+        // Each team uses its own billing period based on its anchor.
+        let totalSessionReplaysUsed = 0;
 
         if (freeTeamIds.length > 0) {
             // Calculate free tier usage across all free teams
             const { calculateOwnerFreeTierUsage } = await import('../services/quotaCheck.js');
-            totalSessionsUsed = await calculateOwnerFreeTierUsage(userId);
+            totalSessionReplaysUsed = await calculateOwnerFreeTierUsage(userId);
         }
 
-        const sessionsRemaining = Math.max(0, FREE_TIER_SESSIONS - totalSessionsUsed);
-        const percentUsed = Math.min(100, Math.round((totalSessionsUsed / FREE_TIER_SESSIONS) * 100));
+        const sessionsRemaining = Math.max(0, FREE_TIER_SESSIONS - totalSessionReplaysUsed);
+        const percentUsed = Math.min(100, Math.round((totalSessionReplaysUsed / FREE_TIER_SESSIONS) * 100));
 
         res.json({
             freeTierSessions: FREE_TIER_SESSIONS,
-            sessionsUsed: totalSessionsUsed,
+            freeTierSessionReplays: FREE_TIER_SESSIONS,
+            sessionsUsed: totalSessionReplaysUsed,
+            sessionReplaysUsed: totalSessionReplaysUsed,
             sessionsRemaining,
+            sessionReplaysRemaining: sessionsRemaining,
             percentUsed,
-            isExhausted: isFreeTierExhausted(totalSessionsUsed),
+            sessionReplayPercentUsed: percentUsed,
+            isExhausted: isFreeTierExhausted(totalSessionReplaysUsed),
             freeTeamCount: freeTeamIds.length,
+            ownedTeamCount: ownedTeams.length,
             totalOwnedTeamCount: ownedTeams.length,
         });
     })
 );
 
 /**
- * Get whether a user can record (based on team plan and session limits)
+ * Get whether a user can record replay data (based on team replay limits)
  */
 export async function canUserRecord(userId: string, teamId: string): Promise<{
     canRecord: boolean;
@@ -496,10 +501,10 @@ export async function canUserRecord(userId: string, teamId: string): Promise<{
 
     const usage = await getTeamSessionUsage(teamId);
 
-    if (usage.isAtLimit) {
+    if (usage.isReplayAtLimit) {
         return {
             canRecord: false,
-            reason: `Session limit reached (${usage.sessionsUsed}/${usage.sessionLimit}). Please upgrade your plan.`,
+            reason: `Session replay limit reached (${usage.sessionReplaysUsed}/${usage.sessionReplayLimit}). Please upgrade your plan.`,
             sessionsRemaining: 0,
             hasPaymentMethod,
         };
@@ -507,7 +512,7 @@ export async function canUserRecord(userId: string, teamId: string): Promise<{
 
     return {
         canRecord: true,
-        sessionsRemaining: usage.sessionsRemaining,
+        sessionsRemaining: usage.sessionReplaysRemaining,
         hasPaymentMethod,
     };
 }
@@ -550,6 +555,7 @@ router.get(
                 displayName: plan.displayName,
                 priceCents: plan.priceCents,
                 sessionLimit: plan.sessionLimit,
+                sessionReplayLimit: plan.sessionLimit,
                 videoRetentionTier: plan.videoRetentionTier,
                 videoRetentionDays: plan.videoRetentionDays,
                 videoRetentionLabel: plan.videoRetentionLabel,
@@ -593,7 +599,7 @@ router.get(
             logger.warn({ err, teamId }, 'Failed to invalidate session cache');
         }
 
-        // Get current session usage
+        // Get current replay quota usage
         const usage = await getTeamSessionUsage(teamId);
 
         // Avoid stale responses (browser 304/ETag caching)
@@ -608,6 +614,7 @@ router.get(
                 displayName: subscription.displayName,
                 priceCents: subscription.priceCents,
                 sessionLimit: subscription.sessionLimit,
+                sessionReplayLimit: subscription.sessionLimit,
                 videoRetentionTier: subscription.videoRetentionTier,
                 videoRetentionDays: subscription.videoRetentionDays,
                 videoRetentionLabel: subscription.videoRetentionLabel,
@@ -620,13 +627,21 @@ router.get(
             },
             usage: {
                 sessionsUsed: usage.sessionsUsed,
+                sessionsCaptured: usage.sessionsCaptured,
+                sessionReplaysUsed: usage.sessionReplaysUsed,
                 sessionLimit: usage.sessionLimit,
+                sessionReplayLimit: usage.sessionReplayLimit,
                 planSessionLimit: usage.planSessionLimit,
+                sessionReplayPlanLimit: usage.sessionReplayPlanLimit,
                 bonusSessionsActive: usage.bonusSessionsActive,
                 sessionsRemaining: usage.sessionsRemaining,
+                sessionReplaysRemaining: usage.sessionReplaysRemaining,
                 percentUsed: usage.percentUsed,
+                sessionReplayPercentUsed: usage.sessionReplayPercentUsed,
                 isAtLimit: usage.isAtLimit,
+                isReplayAtLimit: usage.isReplayAtLimit,
                 isNearLimit: usage.isNearLimit,
+                isReplayNearLimit: usage.isReplayNearLimit,
             },
             billingCycle: {
                 start: subscription.currentPeriodStart?.toISOString() || billingPeriod.start.toISOString(),

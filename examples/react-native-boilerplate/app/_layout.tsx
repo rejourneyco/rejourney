@@ -18,7 +18,6 @@ Rejourney.init('rj_b8c5fe9468c85611ca0facfc78413396', {
   apiUrl: config.apiUrl || 'http://127.0.0.1:3000',
   debug: true,
   autoTrackExpoRouter: false,
-  autoScreenTracking: false,
 });
 
 // Set some initial session metadata for testing

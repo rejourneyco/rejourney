@@ -1038,11 +1038,11 @@ def d_application():
                      12, y, w=12, h=8, unit="short"))
     y += 8
 
-    panels.append(ts("Replay availability over time",
+    panels.append(ts("Replay-eligible availability over time",
                      [(zero('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})'), "replay available"),
                       (zero('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})'), "replay not available")],
                      0, y, w=12, h=8, unit="short"))
-    panels.append(ts("Replay availability by session status",
+    panels.append(ts("Replay-eligible availability by session status",
                      [(zero('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})'), "available — {{status}}"),
                       (zero('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})'), "not available — {{status}}")],
                      12, y, w=12, h=8, unit="short"))

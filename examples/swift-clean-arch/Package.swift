@@ -31,6 +31,7 @@ let package = Package(
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/Localizable.xcstrings"),
+                .process("Resources/Media"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

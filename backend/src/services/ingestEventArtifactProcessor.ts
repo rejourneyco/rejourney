@@ -1,7 +1,8 @@
 import { createHash } from 'crypto';
 import { gunzipSync } from 'zlib';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, anrs, errors, screenTouchHeatmaps, recordingArtifacts } from '../db/client.js';
+import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
 import { normalizeIngestAppVersion, normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
@@ -20,6 +21,23 @@ import {
     extractBackgroundDurationSeconds,
     extractCumulativeBackgroundSeconds,
 } from './sessionClientEvidence.js';
+import {
+    computeMobileFrustrationCounts,
+    getFrustrationTapKind as getFrustrationTapKindForIngest,
+    isKeyboardAreaTelemetryEvent as isKeyboardAreaEventForIngest,
+    MOBILE_FRUSTRATION_COUNTS_VERSION,
+    registerTapForMobileRageInference as registerTapForIngestRageInference,
+    type MobileTapPoint,
+} from '../utils/mobileFrustration.js';
+import { shouldTrustClientFrustrationCountsForPlatform } from './ingestSessionEnd.js';
+
+export {
+    computeMobileFrustrationCounts as computeMobileFrustrationCountsForIngest,
+    MOBILE_FRUSTRATION_COUNTS_VERSION,
+    getFrustrationTapKind as getFrustrationTapKindForIngest,
+    isKeyboardAreaTelemetryEvent as isKeyboardAreaEventForIngest,
+    registerTapForMobileRageInference as registerTapForIngestRageInference,
+} from '../utils/mobileFrustration.js';
 const MAX_SCREEN_PATH_LENGTH = 200;
 const WEB_ATTRIBUTION_METADATA_KEYS = [
     'webReferral',
@@ -49,6 +67,86 @@ const WEB_ATTRIBUTION_METADATA_KEYS = [
     'utm_creative_format',
     'utm_marketing_tactic',
 ] as const;
+
+function toNonNegativeCount(value: unknown): number {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue) || numberValue <= 0) return 0;
+    return Math.floor(numberValue);
+}
+
+export function hasPriorEventArtifactMetrics(metrics: any): boolean {
+    return toNonNegativeCount(metrics?.eventsSizeBytes) > 0;
+}
+
+export function mergeEventArtifactFrustrationCounts(
+    existingMetrics: any,
+    artifactCounts: { rageTapCount: number; deadTapCount: number }
+) {
+    const hasPriorArtifacts = hasPriorEventArtifactMetrics(existingMetrics);
+    // Compatibility note: mobile /session/end metrics from Swift 0.2.x / RN 1.2.x
+    // may include keyboard typing as rage. On the first processed events artifact,
+    // replace any client-reported frustration summary with backend-derived counts.
+    // Later artifacts keep accumulating on the server-derived aggregate.
+    const baseRageTapCount = hasPriorArtifacts ? toNonNegativeCount(existingMetrics?.rageTapCount) : 0;
+    const baseDeadTapCount = hasPriorArtifacts ? toNonNegativeCount(existingMetrics?.deadTapCount) : 0;
+
+    return {
+        rageTapCount: baseRageTapCount + toNonNegativeCount(artifactCounts.rageTapCount),
+        deadTapCount: baseDeadTapCount + toNonNegativeCount(artifactCounts.deadTapCount),
+    };
+}
+
+function extractTelemetryEvents(parsedArtifact: any): any[] {
+    if (Array.isArray(parsedArtifact)) return parsedArtifact;
+    if (Array.isArray(parsedArtifact?.events)) return parsedArtifact.events;
+    return [];
+}
+
+async function recomputeCanonicalMobileFrustrationCounts(params: {
+    sessionId: string;
+    projectId: string;
+    currentArtifactId?: string | null;
+    currentEvents: any[];
+    log: any;
+}): Promise<{ rageTapCount: number; deadTapCount: number } | null> {
+    try {
+        const readyEventArtifacts = await db
+            .select({
+                id: recordingArtifacts.id,
+                s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
+            })
+            .from(recordingArtifacts)
+            .where(and(
+                eq(recordingArtifacts.sessionId, params.sessionId),
+                eq(recordingArtifacts.kind, 'events'),
+                eq(recordingArtifacts.status, 'ready'),
+            ));
+
+        const allEvents = [...params.currentEvents];
+        for (const artifact of readyEventArtifacts) {
+            if (artifact.id === params.currentArtifactId) continue;
+            const artifactData = await downloadFromS3ForArtifact(
+                params.projectId,
+                artifact.s3ObjectKey,
+                artifact.endpointId,
+            );
+            if (!artifactData) {
+                throw new Error(`Ready events artifact missing from S3: ${artifact.id}`);
+            }
+            allEvents.push(...extractTelemetryEvents(parseMaybeGzippedJson(artifactData)));
+        }
+
+        // Mobile compatibility contract: for Swift 0.2.x / RN 1.2.x and newer,
+        // raw event artifacts are the source of truth for frustration counts.
+        // This deliberately overwrites stale client summaries or stale counts
+        // produced by an older worker during rolling/local mixed-version runs.
+        return computeMobileFrustrationCounts(allEvents);
+    } catch (err) {
+        params.log.warn({ err, sessionId: params.sessionId }, 'Failed to recompute canonical mobile frustration counts');
+        return null;
+    }
+}
 
 function parseMaybeGzippedJson(data: Buffer): any {
     const isGzipped = data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
@@ -266,7 +364,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     let observedBackgroundTimeSeconds: number | null = null;
     let earliestClientEventAt: Date | null = null;
     let latestClientEventAt: Date | null = null;
-    const recentTaps: { x: number; y: number; timestamp: number }[] = [];
+    const recentTaps: MobileTapPoint[] = [];
     const screenPath: string[] = [];
     const clickHouseApiEndpointRows: ClickHouseApiEndpointEventRow[] = [];
     const apiEndpointStatsDate = new Date().toISOString().split('T')[0];
@@ -481,36 +579,59 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             if (type.includes('scroll')) scrollCount++;
         } else if (type === 'touch' || type === 'tap' || type === 'click' || gestureType === 'tap' || gestureType === 'single_tap') {
             touchCount++;
+            // Do not let already-shipped Swift 0.2.x / RN 1.2.x keyboard taps
+            // seed rage clusters when those binaries talk to newer backends.
+            const isKeyboardTap = isKeyboardAreaEventForIngest(event);
             const firstSeenMs = eventTimestampMs(event);
             const touchScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
             const tapX = event.x || event.touches?.[0]?.x || 0;
             const tapY = event.y || event.touches?.[0]?.y || 0;
             const tapTime = event.timestamp || 0;
 
-            // Check for rage tap (multiple taps in same area within 500ms)
-            while (recentTaps.length > 0 && tapTime - recentTaps[0].timestamp > 500) recentTaps.shift();
-            const nearbyTaps = recentTaps.filter(t => Math.abs(t.x - tapX) < 50 && Math.abs(t.y - tapY) < 50);
-            const isRageTap = nearbyTaps.length >= 1;
-            if (isRageTap) rageTapCount++;
-            recentTaps.push({ x: tapX, y: tapY, timestamp: tapTime });
+            if (isKeyboardTap) {
+                recentTaps.length = 0;
+            } else {
+                // Match native-package rage semantics for older tap-only
+                // Swift 0.2.x / RN 1.2.x uploads: 3 nearby taps within 1s.
+                const isRageTap = registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
+                if (isRageTap) rageTapCount++;
 
-            // Record touch coordinate for heatmap (if we have a current screen)
-            addHeatmapTouch(touchScreen, tapX, tapY, event, isRageTap, firstSeenMs);
+                // Record touch coordinate for heatmap (if we have a current screen)
+                addHeatmapTouch(touchScreen, tapX, tapY, event, isRageTap, firstSeenMs);
+            }
         } else if (type === 'scroll') {
             scrollCount++;
         } else if (type === 'gesture') {
             gestureCount++;
-            if (gestureType === 'dead_tap') {
-                deadTapCount++;
+            // Native packages may upload explicit `gestureType: rage_tap` or
+            // older inferred tap streams. Handle explicit frustration first so
+            // new SDKs are counted directly and old SDKs still use inference.
+            const isKeyboardGesture = isKeyboardAreaEventForIngest(event);
+            const frustrationTapKind = getFrustrationTapKindForIngest(event);
+            const firstSeenMs = eventTimestampMs(event);
+            const gestureScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
+            const isTapLikeGesture = gestureType === 'tap' || gestureType === 'single_tap' || gestureType === 'double_tap' ||
+                gestureType === 'long_press' || gestureType.includes('tap');
+
+            if (frustrationTapKind) {
+                if (isTapLikeGesture) touchCount++;
+                if (isKeyboardGesture) {
+                    recentTaps.length = 0;
+                } else {
+                    if (frustrationTapKind === 'rage_tap') rageTapCount++;
+                    else deadTapCount++;
+
+                    const firstTouch = Array.isArray(event.touches) && event.touches.length > 0 ? event.touches[0] : null;
+                    const tapX = firstTouch?.x ?? event.x ?? 0;
+                    const tapY = firstTouch?.y ?? event.y ?? 0;
+                    addHeatmapTouch(gestureScreen, tapX, tapY, event, frustrationTapKind === 'rage_tap', firstSeenMs);
+                }
             } else if (gestureType.includes('scroll') || gestureType.includes('swipe')) {
                 scrollCount++;
             }
-            const firstSeenMs = eventTimestampMs(event);
-            const gestureScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
             // Extract touch coordinates from gesture events (iOS SDK sends touches in the touches array)
             // This is critical for heatmap data - gestures with tap-like types have coordinate data
-            if (gestureType === 'tap' || gestureType === 'single_tap' || gestureType === 'double_tap' ||
-                gestureType === 'long_press' || gestureType.includes('tap')) {
+            if (!frustrationTapKind && isTapLikeGesture) {
                 touchCount++;
                 // Extract coordinates from the touches array
                 const touches = event.touches || [];
@@ -520,26 +641,32 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                         const tapY = touch.y || 0;
                         const tapTime = touch.timestamp || event.timestamp || 0;
 
-                        if (gestureScreen) {
-                            // Track for rage tap detection
-                            while (recentTaps.length > 0 && tapTime - recentTaps[0].timestamp > 500) recentTaps.shift();
-                            const nearbyTaps = recentTaps.filter(t => Math.abs(t.x - tapX) < 50 && Math.abs(t.y - tapY) < 50);
-                            const isRageTap = nearbyTaps.length >= 1;
+                        if (isKeyboardGesture) {
+                            recentTaps.length = 0;
+                        } else if (gestureScreen) {
+                            // Track for old native tap streams that did not
+                            // emit explicit rage_tap events. See utility docs.
+                            const isRageTap = registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
                             if (isRageTap) {
                                 rageTapCount++;
                             }
                             addHeatmapTouch(gestureScreen, tapX, tapY, event, isRageTap, firstSeenMs);
-                            recentTaps.push({ x: tapX, y: tapY, timestamp: tapTime });
                         }
                     }
                 } else {
                     // Fallback: try to get coordinates from event directly
                     const tapX = event.x || 0;
                     const tapY = event.y || 0;
-                    addHeatmapTouch(gestureScreen, tapX, tapY, event, false, firstSeenMs);
+                    if (!isKeyboardGesture) {
+                        addHeatmapTouch(gestureScreen, tapX, tapY, event, false, firstSeenMs);
+                    }
                 }
             }
         } else if (type === 'rage_tap' || type === 'rage_click') {
+            if (isKeyboardAreaEventForIngest(event)) {
+                recentTaps.length = 0;
+                continue;
+            }
             rageTapCount++;
             // Also record rage tap coordinates for heatmap
             const firstSeenMs = eventTimestampMs(event);
@@ -548,6 +675,10 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             const tapY = event.y || event.touches?.[0]?.y || 0;
             addHeatmapTouch(rageScreen, tapX, tapY, event, true, firstSeenMs);
         } else if (type === 'dead_tap' || gestureType === 'dead_tap') {
+            if (isKeyboardAreaEventForIngest(event)) {
+                recentTaps.length = 0;
+                continue;
+            }
             deadTapCount++;
         } else if (type === 'api_call' || type === 'network_request') {
             if (shouldExcludeNetworkEventFromProductAnalytics(event)) {
@@ -693,19 +824,38 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     // Update session metrics
     const existingMetrics = metrics || { touchCount: 0, scrollCount: 0, gestureCount: 0, inputCount: 0, rageTapCount: 0, deadTapCount: 0, apiTotalCount: 0, apiSuccessCount: 0, apiErrorCount: 0, errorCount: 0, customEventCount: 0, apiAvgResponseMs: 0, screensVisited: [] };
 
+    const artifactFrustrationCounts = {
+        rageTapCount,
+        deadTapCount,
+    };
+    const canonicalMobileFrustrationCounts = shouldTrustClientFrustrationCountsForPlatform(session.platform)
+        ? null
+        : await recomputeCanonicalMobileFrustrationCounts({
+            sessionId: job.sessionId,
+            projectId,
+            currentArtifactId: job.artifactId,
+            currentEvents: eventsData,
+            log,
+        });
+    const mergedFrustrationCounts = canonicalMobileFrustrationCounts
+        ?? mergeEventArtifactFrustrationCounts(existingMetrics, artifactFrustrationCounts);
+
     const updates: any = {
         touchCount: (existingMetrics.touchCount || 0) + touchCount,
         scrollCount: (existingMetrics.scrollCount || 0) + scrollCount,
         gestureCount: (existingMetrics.gestureCount || 0) + gestureCount,
         inputCount: (existingMetrics.inputCount || 0) + inputCount,
-        rageTapCount: (existingMetrics.rageTapCount || 0) + rageTapCount,
-        deadTapCount: (existingMetrics.deadTapCount || 0) + deadTapCount,
+        rageTapCount: mergedFrustrationCounts.rageTapCount,
+        deadTapCount: mergedFrustrationCounts.deadTapCount,
         apiTotalCount: (existingMetrics.apiTotalCount || 0) + networkTotalCount,
         apiSuccessCount: (existingMetrics.apiSuccessCount || 0) + networkSuccessCount,
         apiErrorCount: (existingMetrics.apiErrorCount || 0) + networkErrorCount,
         errorCount: (existingMetrics.errorCount || 0) + errorCount,
         customEventCount: (existingMetrics.customEventCount || 0) + customEventCount,
     };
+    if (canonicalMobileFrustrationCounts) {
+        updates.frustrationCountsVersion = MOBILE_FRUSTRATION_COUNTS_VERSION;
+    }
 
     if (networkDurationCount > 0) {
         const currentTotalCalls = existingMetrics.apiTotalCount || 0;

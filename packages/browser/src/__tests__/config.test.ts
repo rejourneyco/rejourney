@@ -80,6 +80,15 @@ describe('web config', () => {
     expect(config.maskInputOptions?.text).toBe(false);
   });
 
+  it('applies remote image and video masking', () => {
+    const local = mergeWebConfig('rj_live_test', { imageVideoMasking: 'none' });
+    const config = applyRemoteConfig(local, {
+      imageVideoMasking: 'all',
+    });
+
+    expect(config.imageVideoMasking).toBe('all');
+  });
+
   it('denies browser domains when no allowlist is configured', () => {
     expect(isDomainAllowed('app.example.com', [])).toBe(false);
   });

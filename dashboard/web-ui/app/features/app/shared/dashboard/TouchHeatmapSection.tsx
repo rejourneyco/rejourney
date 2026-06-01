@@ -30,7 +30,7 @@ import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { buildDemoHeatmapOverview } from '~/shared/data/demoHeatmapData';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
-import { getDefaultHeatmapMode } from './heatmapMode';
+import { getAvailableHeatmapModes, getDefaultHeatmapMode } from './heatmapMode';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 const HEATMAP_DETAIL_FETCH_CONCURRENCY = 4;
@@ -169,6 +169,7 @@ function drawTouchHeatmap(
     container: HTMLElement,
     touchHotspots: HeatmapHotspot[],
     mode: HeatmapMode = 'touch',
+    options: { fullWidthAttention?: boolean; fullScreenAttention?: boolean } = {},
 ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -185,14 +186,17 @@ function drawTouchHeatmap(
     if (!touchHotspots || touchHotspots.length === 0) return;
 
     const maxHotspotIntensity = Math.max(1, ...touchHotspots.map((h) => h.intensity));
+    const isMobileAttention = mode === 'attention'
+        && options.fullScreenAttention === true
+        && options.fullWidthAttention === false;
 
-    const scale = 2;
+    const scale = isMobileAttention ? 3 : 2;
     const w = Math.max(1, Math.floor(width / scale));
     const h = Math.max(1, Math.floor(height / scale));
 
     const intensityMap: number[][] = Array.from({ length: h }, () => new Array(w).fill(0));
 
-    if (mode === 'attention') {
+    if (mode === 'attention' && options.fullWidthAttention !== false) {
         // Hotjar-style scroll/attention map: aggregate attention into a vertical profile and
         // wash the full width of each band so whole sections read as "colored in" rather than
         // isolated circular spots.
@@ -219,8 +223,12 @@ function drawTouchHeatmap(
             }
         }
     } else {
-        // Touch/click maps have fewer, broader spots and read best as discrete gaussian blobs.
-        const baseRadius = Math.max(44, Math.min(width, height) * 0.24);
+        // Touch/click maps have fewer, broader spots. Mobile attention gets a wider two-pass
+        // probability field: a local patch plus a soft parafoveal wash, so it reads like attention
+        // over visible content instead of exact tap/fixation dots.
+        const baseRadius = isMobileAttention
+            ? Math.max(58, Math.min(width, height) * 0.23)
+            : Math.max(44, Math.min(width, height) * 0.24);
 
         for (const hotspot of touchHotspots) {
             const centerX = Math.floor(hotspot.x * w);
@@ -228,10 +236,11 @@ function drawTouchHeatmap(
             const weight = hotspot.intensity / maxHotspotIntensity;
 
             const radius = Math.max(16, baseRadius / scale);
-            const minX = Math.max(0, Math.floor(centerX - radius));
-            const maxX = Math.min(w - 1, Math.ceil(centerX + radius));
-            const minY = Math.max(0, Math.floor(centerY - radius));
-            const maxY = Math.min(h - 1, Math.ceil(centerY + radius));
+            const broadRadius = isMobileAttention ? radius * 2.35 : radius;
+            const minX = Math.max(0, Math.floor(centerX - broadRadius));
+            const maxX = Math.min(w - 1, Math.ceil(centerX + broadRadius));
+            const minY = Math.max(0, Math.floor(centerY - broadRadius));
+            const maxY = Math.min(h - 1, Math.ceil(centerY + broadRadius));
 
             for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
@@ -239,10 +248,17 @@ function drawTouchHeatmap(
                     const dy = y - centerY;
                     const distSquared = dx * dx + dy * dy;
                     const radiusSquared = radius * radius;
-                    if (distSquared <= radiusSquared) {
-                        const sigma = radius * 0.28;
+                    if (distSquared <= broadRadius * broadRadius) {
+                        const sigma = radius * (isMobileAttention ? 0.48 : 0.28);
                         const falloff = Math.exp(-distSquared / (2 * sigma * sigma));
-                        intensityMap[y][x] += weight * falloff;
+                        if (distSquared <= radiusSquared) {
+                            intensityMap[y][x] += weight * falloff;
+                        }
+                        if (isMobileAttention) {
+                            const broadSigma = broadRadius * 0.5;
+                            const broadFalloff = Math.exp(-distSquared / (2 * broadSigma * broadSigma));
+                            intensityMap[y][x] += weight * broadFalloff * 0.34;
+                        }
                     }
                 }
             }
@@ -256,6 +272,21 @@ function drawTouchHeatmap(
         }
     }
     if (maxIntensity <= 0) return;
+
+    let normalizationMax = maxIntensity;
+    if (isMobileAttention) {
+        const positiveValues: number[] = [];
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (intensityMap[y][x] > 0) positiveValues.push(intensityMap[y][x]);
+            }
+        }
+        if (positiveValues.length > 0) {
+            positiveValues.sort((a, b) => a - b);
+            const percentileIndex = Math.min(positiveValues.length - 1, Math.floor(positiveValues.length * 0.985));
+            normalizationMax = Math.max(positiveValues[percentileIndex], maxIntensity * 0.42, 0.0001);
+        }
+    }
 
     const offscreen = document.createElement('canvas');
     offscreen.width = w;
@@ -289,8 +320,11 @@ function drawTouchHeatmap(
 
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const normalized = Math.min(1, intensityMap[y][x] / maxIntensity);
-            const t = Math.pow(normalized, mode === 'attention' ? 0.95 : 0.62);
+            const normalized = Math.min(1, intensityMap[y][x] / normalizationMax);
+            const visibleNormalized = isMobileAttention
+                ? Math.max(0.09, normalized)
+                : normalized;
+            const t = Math.pow(visibleNormalized, isMobileAttention ? 0.86 : mode === 'attention' ? 0.95 : 0.62);
             const [r, g, b, a] = getHeatmapColor(t);
             const idx = (y * w + x) * 4;
             data[idx] = r;
@@ -312,6 +346,13 @@ type ConfidenceType = 'high' | 'medium' | 'low';
 type PriorityType = 'critical' | 'high' | 'watch';
 type HeatmapViewerMode = 'auto' | 'web' | 'mobile';
 type ResolvedHeatmapViewer = Exclude<HeatmapViewerMode, 'auto'>;
+type AttentionHoverState = {
+    left: number;
+    top: number;
+    avgMs: number;
+    pct: number | null;
+    mode: ResolvedHeatmapViewer;
+};
 
 interface PreviewHeatmapScreen {
     name: string;
@@ -444,8 +485,16 @@ const formatDwellDuration = (ms: number): string => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
+const formatAttentionHoverDuration = (ms: number, mode: ResolvedHeatmapViewer): string => {
+    if (mode === 'web') return formatDwellDuration(ms);
+    if (!Number.isFinite(ms) || ms <= 0) return '0.0s';
+    if (ms < 10_000) return `${Math.max(0.1, ms / 1000).toFixed(1)}s`;
+    if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+    return formatDwellDuration(ms);
+};
+
 const formatHeatmapModeLabel = (mode: HeatmapMode, viewer: ResolvedHeatmapViewer): string => {
-    if (viewer !== 'web') return 'Touch map';
+    if (viewer !== 'web') return mode === 'attention' ? 'Attention map' : 'Touch map';
     return mode === 'attention' ? 'Attention map' : 'Touch map';
 };
 
@@ -660,7 +709,7 @@ const HeatmapPreview: React.FC<{
 
     const resolvedViewer = resolveHeatmapViewer(screen, viewerMode, projectPlatforms);
     const isWebViewer = resolvedViewer === 'web';
-    const previewScreen = isWebViewer && heatmapMode === 'attention' && attentionData
+    const previewScreen = heatmapMode === 'attention' && attentionData
         ? {
             ...screen,
             pageWidth: attentionData.pageWidth ?? screen.pageWidth,
@@ -934,7 +983,7 @@ const HeatmapPreview: React.FC<{
     const firstViewportImageStyle = isWebViewer && !useImageAsFullDocument
         ? { height: `${frameDimensions.viewportPercent}%` }
         : undefined;
-    const activeHotspots = isWebViewer && heatmapMode === 'attention'
+    const activeHotspots = heatmapMode === 'attention'
         ? (attentionData?.hotspots || [])
         : (screen.touchHotspots || []);
     const visibleHotspots = useMemo(() => {
@@ -948,7 +997,10 @@ const HeatmapPreview: React.FC<{
         const overlay = overlayRef.current;
         if (!canvas || !overlay) return;
 
-        const draw = () => drawTouchHeatmap(canvas, overlay, visibleHotspots, isWebViewer ? heatmapMode : 'touch');
+        const draw = () => drawTouchHeatmap(canvas, overlay, visibleHotspots, heatmapMode, {
+            fullWidthAttention: isWebViewer,
+            fullScreenAttention: heatmapMode === 'attention' && !isWebViewer,
+        });
         draw();
 
         window.addEventListener('resize', draw);
@@ -956,21 +1008,20 @@ const HeatmapPreview: React.FC<{
     }, [visibleHotspots, imageLoaded, blobUrl, frameDimensions.viewportPercent, frameDimensions.dataViewportFraction, heatmapMode, isWebViewer]);
 
     const topDots = useMemo(
-        () => isWebViewer && heatmapMode === 'attention'
+        () => heatmapMode === 'attention'
             ? []
             : [...visibleHotspots].sort((a, b) => b.intensity - a.intensity).slice(0, 10),
-        [visibleHotspots, isWebViewer, heatmapMode],
+        [visibleHotspots, heatmapMode],
     );
 
-    const attentionInteractive = isWebViewer
-        && heatmapMode === 'attention'
+    const attentionInteractive = heatmapMode === 'attention'
         && !tile
         && (attentionData?.sampledSessions ?? 0) > 0
         && (
             (attentionData?.dwellByDepth?.some((value) => value > 0) ?? false)
             || visibleHotspots.some((hotspot) => (hotspot.kind ?? 'attention') === 'attention' && (hotspot.dwellMs ?? 0) > 0)
         );
-    const [attentionHover, setAttentionHover] = useState<{ left: number; top: number; avgMs: number; pct: number | null } | null>(null);
+    const [attentionHover, setAttentionHover] = useState<AttentionHoverState | null>(null);
 
     useEffect(() => {
         setAttentionHover(null);
@@ -979,28 +1030,70 @@ const HeatmapPreview: React.FC<{
     const handleAttentionHover = (event: React.MouseEvent<HTMLDivElement>) => {
         if (!attentionInteractive || !attentionData) return;
         const rect = event.currentTarget.getBoundingClientRect();
-        if (rect.height <= 0) return;
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const relX = (event.clientX - rect.left) / rect.width;
         const relY = (event.clientY - rect.top) / rect.height;
-        // A scroll/attention band is one viewport tall: engaged time for a fixation is spread across
-        // the whole viewport at that scroll depth, so summing over a viewport-sized window recovers it.
-        const band = Math.min(1, Math.max(0.06, frameDimensions.dataViewportFraction || 1));
-        const lo = relY - band / 2;
-        const hi = relY + band / 2;
-        // Prefer the dense depth profile (every dwell point, all sampled sessions) over the sparse
-        // top-hotspot list, which drops most of the read-band dwell and reads as zeros at most depths.
-        const profile = attentionData.dwellByDepth ?? [];
         let dwellSum = 0;
-        if (profile.length > 0) {
-            const loIdx = Math.max(0, Math.floor(lo * profile.length));
-            const hiIdx = Math.min(profile.length - 1, Math.ceil(hi * profile.length) - 1);
-            for (let i = loIdx; i <= hiIdx; i += 1) dwellSum += profile[i] ?? 0;
-        } else {
-            for (const hotspot of attentionData.hotspots) {
-                if ((hotspot.kind ?? 'attention') !== 'attention') continue;
-                if (hotspot.y < lo || hotspot.y > hi) continue;
-                dwellSum += hotspot.dwellMs ?? 0;
+
+        if (isWebViewer) {
+            // A web scroll/attention band is one viewport tall: engaged time is spread across the
+            // viewport at that scroll depth, so summing over a viewport-sized window recovers it.
+            const band = Math.min(1, Math.max(0.06, frameDimensions.dataViewportFraction || 1));
+            const lo = relY - band / 2;
+            const hi = relY + band / 2;
+            const profile = attentionData.dwellByDepth ?? [];
+            if (profile.length > 0) {
+                const loIdx = Math.max(0, Math.floor(lo * profile.length));
+                const hiIdx = Math.min(profile.length - 1, Math.ceil(hi * profile.length) - 1);
+                for (let i = loIdx; i <= hiIdx; i += 1) dwellSum += profile[i] ?? 0;
+            } else {
+                for (const hotspot of attentionData.hotspots) {
+                    if ((hotspot.kind ?? 'attention') !== 'attention') continue;
+                    if (hotspot.y < lo || hotspot.y > hi) continue;
+                    dwellSum += hotspot.dwellMs ?? 0;
+                }
             }
+        } else {
+            const profile = attentionData.dwellByDepth ?? [];
+            const profileTotal = profile.reduce((sum, value) => sum + value, 0);
+            const hotspotDwellTotal = attentionData.hotspots.reduce((sum, hotspot) => sum + Math.max(0, hotspot.dwellMs ?? 0), 0);
+            const sparseCompensation = hotspotDwellTotal > 0 && profileTotal > hotspotDwellTotal
+                ? Math.max(1, Math.min(8, profileTotal / hotspotDwellTotal))
+                : 1;
+            const localSigma = Math.max(72, Math.min(rect.width, rect.height) * 0.32);
+            let weightedDwell = 0;
+            let weightSum = 0;
+            let nearestDwell = 0;
+            let nearestDistance = Number.POSITIVE_INFINITY;
+            for (const hotspot of attentionData.hotspots) {
+                const dwell = hotspot.dwellMs ?? 0;
+                if (dwell <= 0) continue;
+                const dx = (hotspot.x - relX) * rect.width;
+                const dy = (hotspot.y - relY) * rect.height;
+                const distSquared = dx * dx + dy * dy;
+                const weight = Math.exp(-distSquared / (2 * localSigma * localSigma));
+                weightedDwell += dwell * weight;
+                weightSum += weight;
+                if (distSquared < nearestDistance) {
+                    nearestDistance = distSquared;
+                    nearestDwell = dwell;
+                }
+            }
+            let depthBandDwell = 0;
+            if (profile.length > 0) {
+                const band = 0.18;
+                const loIdx = Math.max(0, Math.floor((relY - band / 2) * profile.length));
+                const hiIdx = Math.min(profile.length - 1, Math.ceil((relY + band / 2) * profile.length) - 1);
+                for (let i = loIdx; i <= hiIdx; i += 1) depthBandDwell += profile[i] ?? 0;
+                depthBandDwell *= 0.34;
+            }
+            const screenBaseline = profileTotal > 0 ? profileTotal / Math.max(10, profile.length * 0.12) : 0;
+            const neighborhoodDwell = weightedDwell * sparseCompensation;
+            dwellSum = weightSum > 0.03
+                ? Math.max(neighborhoodDwell, depthBandDwell, screenBaseline * 0.32)
+                : Math.max(nearestDwell * sparseCompensation * 0.24, depthBandDwell, screenBaseline * 0.32);
         }
+
         const avgMs = dwellSum / Math.max(attentionData.sampledSessions, 1);
         const avgSessionDurationMs = attentionData.avgSessionDurationMs ?? 0;
         const pct = avgSessionDurationMs > 0
@@ -1011,6 +1104,7 @@ const HeatmapPreview: React.FC<{
             top: event.clientY - rect.top,
             avgMs,
             pct,
+            mode: isWebViewer ? 'web' : 'mobile',
         });
     };
     const widthClass = tile
@@ -1145,10 +1239,21 @@ const HeatmapPreview: React.FC<{
                 >
                     {attentionHover && (
                         <>
-                            <span
-                                className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-slate-900/40"
-                                style={{ top: `${attentionHover.top}px` }}
-                            />
+                            {attentionHover.mode === 'web' ? (
+                                <span
+                                    className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-slate-900/40"
+                                    style={{ top: `${attentionHover.top}px` }}
+                                />
+                            ) : (
+                                <span
+                                    className="pointer-events-none absolute h-12 w-12 rounded-full border-2 border-dashed border-slate-950/45 bg-white/10"
+                                    style={{
+                                        left: `${attentionHover.left}px`,
+                                        top: `${attentionHover.top}px`,
+                                        transform: 'translate(-50%, -50%)',
+                                    }}
+                                />
+                            )}
                             <div
                                 className="pointer-events-none absolute z-30 w-max max-w-[180px] rounded-lg border-2 border-black bg-white px-3 py-2 shadow-neo-sm"
                                 style={{
@@ -1157,8 +1262,12 @@ const HeatmapPreview: React.FC<{
                                     transform: `translate(${attentionHover.left > 180 ? 'calc(-100% - 14px)' : '14px'}, -50%)`,
                                 }}
                             >
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Avg time spent</p>
-                                <p className="text-lg font-black tabular-nums text-slate-900">{formatDwellDuration(attentionHover.avgMs)}</p>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                    {attentionHover.mode === 'mobile' ? 'Est Duration' : 'Avg time spent'}
+                                </p>
+                                <p className="text-lg font-black tabular-nums text-slate-900">
+                                    {formatAttentionHoverDuration(attentionHover.avgMs, attentionHover.mode)}
+                                </p>
                                 <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">% of session length</p>
                                 <p className="text-sm font-black tabular-nums text-cyan-600">
                                     {attentionHover.pct === null ? '--' : `${attentionHover.pct.toFixed(2)}%`}
@@ -1483,14 +1592,12 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         : selectedScreen;
     const activeScreen = displayedScreen ?? selectedScreen;
     const isVersionSnapshotSelected = Boolean(selectedVersionEntry);
-    // Web attention is fetched per-version, so it stays available when a version snapshot is
-    // selected. Mobile version snapshots only carry touch data, so keep forcing touch there.
-    const effectiveHeatmapMode: HeatmapMode = isVersionSnapshotSelected && selectedViewer !== 'web' ? 'touch' : heatmapMode;
+    const effectiveHeatmapMode: HeatmapMode = heatmapMode;
     const attentionAppVersion = (() => {
         const raw = selectedVersionEntry?.version.appVersion ?? null;
         return raw && raw !== 'All versions' ? raw : null;
     })();
-    const attentionKey = selectedScreen ? `${selectedScreen.name}::${attentionAppVersion ?? 'all'}` : null;
+    const attentionKey = selectedScreen ? `${selectedViewer}:${selectedScreen.name}::${attentionAppVersion ?? 'all'}` : null;
     const selectedAttention = attentionKey ? attentionByScreen[attentionKey] ?? null : null;
     const selectedAttentionError = attentionKey ? attentionErrors[attentionKey] ?? null : null;
     const selectedAttentionLoading = Boolean(attentionKey && attentionLoadingFor === attentionKey);
@@ -1499,7 +1606,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             ? `v${selectedVersionEntry?.version.appVersion} attention map`
             : `v${selectedVersionEntry?.version.appVersion} touch map`
         : formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer);
-    const attentionStatus = selectedViewer === 'web' && effectiveHeatmapMode === 'attention'
+    const attentionStatus = effectiveHeatmapMode === 'attention'
         ? selectedAttentionLoading
             ? { state: 'loading' as const, label: 'Building attention' }
             : selectedAttentionError
@@ -1508,6 +1615,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     ? { state: 'muted' as const, label: selectedAttention.reason }
                     : null
         : null;
+    const availableHeatmapModes = getAvailableHeatmapModes(selectedViewer);
 
     useEffect(() => {
         if (!selectedScreenName) return;
@@ -1516,7 +1624,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     const attentionScreenName = selectedScreen?.name ?? null;
     useEffect(() => {
-        if (!attentionKey || !attentionScreenName || selectedViewer !== 'web' || effectiveHeatmapMode !== 'attention') return;
+        if (!attentionKey || !attentionScreenName || effectiveHeatmapMode !== 'attention') return;
         if (attentionByScreenRef.current[attentionKey] || attentionInFlightRef.current.has(attentionKey)) return;
         if (!selectedProject?.id && !isDemoMode) return;
 
@@ -1534,12 +1642,17 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
         const projectId = selectedProject?.id || 'demo-project';
         const range = getInsightsRangeFromTimeFilter(timeRange);
-        getWebAttentionHeatmap(projectId, screenNameForFetch, range, platform, versionForFetch)
+        const attentionPlatform = selectedViewer === 'web'
+            ? 'web'
+            : platform === 'ios' || platform === 'android'
+                ? platform
+                : 'mobile';
+        getWebAttentionHeatmap(projectId, screenNameForFetch, range, attentionPlatform, versionForFetch)
             .then((result) => {
                 setAttentionByScreen((current) => ({ ...current, [key]: result }));
             })
             .catch((error: unknown) => {
-                heatmapDebug('Failed to build web attention heatmap', { screenName: screenNameForFetch, appVersion: versionForFetch, error });
+                heatmapDebug('Failed to build attention heatmap', { screenName: screenNameForFetch, appVersion: versionForFetch, selectedViewer, error });
                 setAttentionErrors((current) => ({ ...current, [key]: 'Attention map unavailable' }));
             })
             .finally(() => {
@@ -1626,7 +1739,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 showLegend
                                 viewerMode="auto"
                                 projectPlatforms={projectPlatforms}
-                                heatmapMode={selectedViewer === 'web' ? effectiveHeatmapMode : 'touch'}
+                                heatmapMode={effectiveHeatmapMode}
                                 attentionData={selectedAttention}
                             />
                             {attentionStatus?.state === 'loading' && (
@@ -1646,41 +1759,33 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             <div className="heatmap-side-title">
                                 <span className="heatmap-eyebrow">Map type</span>
                             </div>
-                            {selectedViewer === 'web' && (
+                            {availableHeatmapModes.length > 1 && (
                                 <div className="heatmap-mode-control heatmap-side-mode-control" role="group" aria-label="Heatmap mode">
-                                    <button
-                                        type="button"
-                                        onClick={() => setHeatmapMode('attention')}
-                                        className={effectiveHeatmapMode === 'attention' ? 'is-active' : ''}
-                                    >
-                                        <Eye className="h-4 w-4" />
-                                        Attention
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setHeatmapMode('touch')}
-                                        className={effectiveHeatmapMode === 'touch' ? 'is-active' : ''}
-                                    >
-                                        <MousePointer2 className="h-4 w-4" />
-                                        Touch
-                                    </button>
+                                    {availableHeatmapModes.map((mode) => (
+                                        <button
+                                            key={mode}
+                                            type="button"
+                                            onClick={() => setHeatmapMode(mode)}
+                                            className={effectiveHeatmapMode === mode ? 'is-active' : ''}
+                                        >
+                                            {mode === 'attention' ? <Eye className="h-4 w-4" /> : <MousePointer2 className="h-4 w-4" />}
+                                            {mode === 'attention' ? 'Attention' : 'Touch'}
+                                        </button>
+                                    ))}
                                 </div>
                             )}
-                            {selectedViewer === 'web' && (
-                                <p className="heatmap-side-note">
-                                    {effectiveHeatmapMode === 'attention'
+                            <p className="heatmap-side-note">
+                                {effectiveHeatmapMode === 'attention'
+                                    ? selectedViewer === 'web'
                                         ? 'Where visitors looked and lingered, weighted by dwell time and read depth.'
-                                        : 'Where visitors clicked and tapped across the page.'}
-                                </p>
-                            )}
-                            {selectedViewer !== 'web' && (
-                                <p className="heatmap-side-note">Where users tapped across this screen.</p>
-                            )}
+                                        : 'Where users looked and lingered, weighted by dwell, screen structure, scroll behavior, and touch intent.'
+                                    : selectedViewer === 'web'
+                                        ? 'Where visitors clicked and tapped across the page.'
+                                        : 'Where users tapped across this screen.'}
+                            </p>
                             {selectedVersionEntry && (
                                 <p className="heatmap-side-note">
-                                    {selectedViewer === 'web'
-                                        ? `Scoped to v${selectedVersionEntry.version.appVersion} sessions.`
-                                        : 'Version snapshots use touch hotspots.'}
+                                    Scoped to v{selectedVersionEntry.version.appVersion} sessions.
                                 </p>
                             )}
                         </section>
@@ -1740,7 +1845,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                     onClick={() => setSelectedVersionKey('current')}
                                 >
                                     <span>Current aggregate</span>
-                                    <em>{selectedViewer === 'web' ? formatHeatmapModeLabel(heatmapMode, selectedViewer) : 'Touch map'}</em>
+                                    <em>{formatHeatmapModeLabel(heatmapMode, selectedViewer)}</em>
                                 </button>
                                 {selectedVersionOptions.map(({ key, version, screen }) => (
                                     <button
@@ -1751,7 +1856,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                         onClick={() => setSelectedVersionKey(key)}
                                     >
                                         <span>v{version.appVersion}</span>
-                                        <em>{selectedViewer === 'web' ? formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer) : 'Version snapshot'}</em>
+                                        <em>{formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer)}</em>
                                     </button>
                                 ))}
                             </div>

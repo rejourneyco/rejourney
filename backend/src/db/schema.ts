@@ -194,6 +194,7 @@ export const projects = pgTable(
         rejourneyEnabled: boolean('rejourney_enabled').default(true).notNull(),
         recordingEnabled: boolean('recording_enabled').default(true).notNull(),
         textInputMasking: varchar('text_input_masking', { length: 32 }).default('all').notNull(),
+        imageVideoMasking: varchar('image_video_masking', { length: 32 }).default('none').notNull(),
         recordingFps: integer('recording_fps').default(1).notNull(),
         maxRecordingMinutes: integer('max_recording_minutes').default(10).notNull(),
         webMaxObservabilityMinutes: integer('web_max_observability_minutes').default(30).notNull(),
@@ -377,6 +378,14 @@ export const sessions = pgTable(
 
         // Canonical replay availability flag used by the ingest lifecycle
         replayAvailable: boolean('replay_available').default(false).notNull(),
+        /**
+         * Set when replay was disabled by the server because the team's replay quota
+         * was already exhausted. Analytics artifacts are still accepted, but visual
+         * replay artifacts are not expected. This is intentionally separate from
+         * observe_only, which is controlled by customer consent/configuration.
+         */
+        replayQuotaBillingExhausted: boolean('replay_quota_billing_exhausted').default(false).notNull(),
+        replayQuotaCountedAt: timestamp('replay_quota_counted_at'),
 
         // Geo location
         geoCity: varchar('geo_city', { length: 100 }),
@@ -398,10 +407,10 @@ export const sessions = pgTable(
         isSampledIn: boolean('is_sampled_in').default(true).notNull(),
 
         /**
-         * Set to true when the SDK session was started with observeOnly:true (or equivalent
-         * server-side recordingEnabled:false). No screenshot artifacts should be uploaded for
-         * this session, but non-visual artifacts still back up and retain under the normal
-         * backup ledger rules.
+         * Set to true when the SDK session was started with observeOnly:true (or an
+         * equivalent customer/project observe-only setting). Replay quota exhaustion is
+         * tracked separately by replay_quota_billing_exhausted so teams can distinguish
+         * quota behavior from customer consent/configuration.
          * Defaults to false for full backward compat with older SDK versions that do not
          * send the x-rj-observe-only header.
          */
@@ -422,6 +431,9 @@ export const sessions = pgTable(
         index('sessions_archive_replay_idx')
             .on(table.projectId, table.startedAt)
             .where(sql`${table.replayAvailable} = true`),
+        index('sessions_replay_quota_counted_idx')
+            .on(table.projectId, table.replayQuotaCountedAt)
+            .where(sql`${table.replayQuotaCountedAt} IS NOT NULL`),
         /** Speeds “first session for device” checks on the archive list */
         index('sessions_project_device_started_idx').on(table.projectId, table.deviceId, table.startedAt),
         /** Speeds first-session checks (resolveArchiveFirstSessionIds), new_user filter NOT EXISTS, and live-badge visitor EXISTS — all use coalesce(device_id, anonymous_hash, user_display_id) */
@@ -471,6 +483,7 @@ export const sessionMetrics = pgTable('session_metrics', {
     apiAvgResponseMs: doublePrecision('api_avg_response_ms').default(0).notNull(),
     rageTapCount: integer('rage_tap_count').default(0).notNull(),
     deadTapCount: integer('dead_tap_count').default(0).notNull(),
+    frustrationCountsVersion: integer('frustration_counts_version').default(0).notNull(),
     screensVisited: text('screens_visited').array().default(sql`ARRAY[]::text[]`),
     interactionScore: doublePrecision('interaction_score').default(0).notNull(),
     explorationScore: doublePrecision('exploration_score').default(0).notNull(),
@@ -681,6 +694,7 @@ export const projectUsage = pgTable(
         projectId: uuid('project_id').notNull().references(() => projects.id),
         period: varchar('period', { length: 10 }).notNull(),
         sessions: integer('sessions').default(0).notNull(),
+        sessionReplays: integer('session_replays').default(0).notNull(),
         storageBytes: bigint('storage_bytes', { mode: 'bigint' }).default(sql`0`).notNull(),
         requests: integer('requests').default(0).notNull(),
         quotaVersion: integer('quota_version').default(1).notNull(),
@@ -698,6 +712,7 @@ export const billingUsage = pgTable(
         teamId: uuid('team_id').notNull().references(() => teams.id),
         period: varchar('period', { length: 10 }).notNull(),
         sessions: integer('sessions').default(0).notNull(),
+        sessionReplays: integer('session_replays').default(0).notNull(),
         storageBytes: bigint('storage_bytes', { mode: 'bigint' }).default(sql`0`).notNull(),
         requests: integer('requests').default(0).notNull(),
         amountCents: integer('amount_cents'),
@@ -752,7 +767,7 @@ export const stripeWebhookEvents = pgTable(
 
 /**
  * Billing Notifications - track sent alerts
- * Types: 'session_limit_80', 'session_limit_100', 'payment_failed'
+ * Types include replay usage warnings ('warning_80', 'limit_100') and payment alerts.
  */
 export const billingNotifications = pgTable(
     'billing_notifications',
@@ -762,6 +777,7 @@ export const billingNotifications = pgTable(
         userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }), // For user-level (free tier) notifications
         type: varchar('type', { length: 50 }).notNull(),
         period: varchar('period', { length: 10 }).notNull(), // YYYY-MM
+        dedupeKey: text('dedupe_key'),
         metadata: json('metadata'), // e.g., { amountCents: 45 } for sub_50_rollover
         sentAt: timestamp('sent_at').defaultNow().notNull(),
     },
@@ -769,6 +785,9 @@ export const billingNotifications = pgTable(
         index('billing_notifications_team_period_idx').on(table.teamId, table.period),
         index('billing_notifications_user_period_idx').on(table.userId, table.period),
         index('billing_notifications_type_idx').on(table.type),
+        uniqueIndex('billing_notifications_dedupe_key_unique')
+            .on(table.dedupeKey)
+            .where(sql`${table.dedupeKey} IS NOT NULL`),
     ]
 );
 

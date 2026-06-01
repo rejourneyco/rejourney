@@ -1,11 +1,11 @@
 import type { HeatmapMode } from '~/shared/api/client';
 
-export function getDefaultHeatmapMode(viewer: 'web' | 'mobile'): HeatmapMode {
-    return viewer === 'web' ? 'attention' : 'touch';
+export function getDefaultHeatmapMode(_viewer: 'web' | 'mobile'): HeatmapMode {
+    return 'attention';
 }
 
-export function getAvailableHeatmapModes(viewer: 'web' | 'mobile'): HeatmapMode[] {
-    return viewer === 'web' ? ['attention', 'touch'] : ['touch'];
+export function getAvailableHeatmapModes(_viewer: 'web' | 'mobile'): HeatmapMode[] {
+    return ['attention', 'touch'];
 }
 
 export function getWebDocumentRatio(pageWidth?: number | null, pageHeight?: number | null, viewportWidth = 1440, viewportHeight = 900): number {

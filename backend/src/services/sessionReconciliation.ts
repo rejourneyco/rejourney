@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
+import { incrementProjectSessionReplayIfNeeded } from './quotaCheck.js';
 import { enqueueSessionBackupCandidate } from './sessionBackupQueue.js';
 import {
     deriveSessionPresentationState,
@@ -77,6 +78,9 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     }
 
     if (session.status === 'completed') {
+        if (session.replayAvailable) {
+            await incrementProjectSessionReplayIfNeeded(sessionId);
+        }
         return {
             sessionId,
             replayAvailable: Boolean(session.replayAvailable),
@@ -115,7 +119,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         .limit(1);
     const maxRecordingMinutes = selectMaxObservabilityMinutes(project, session.platform);
 
-    const replayAvailable = readyScreenshotCount > 0 || readyWebReplayCount > 0;
+    const replayAvailable = !session.replayQuotaBillingExhausted && (readyScreenshotCount > 0 || readyWebReplayCount > 0);
 
     const normalizedStatus = session.status === 'pending' ? 'processing' : session.status;
     const latestClientEvidenceEndMs = Math.max(
@@ -207,6 +211,10 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
             })
             .where(eq(sessionMetrics.sessionId, sessionId));
     });
+
+    if (replayAvailable) {
+        await incrementProjectSessionReplayIfNeeded(sessionId);
+    }
 
     let backupQueued = false;
     if (shouldFinalize) {
@@ -364,7 +372,10 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
             group by ra.session_id
         )
         update ${sessions} s
-        set replay_available = coalesce(replay.has_replay, false)
+        set replay_available = case
+            when coalesce(s.replay_quota_billing_exhausted, false) then false
+            else coalesce(replay.has_replay, false)
+        end
         from replay
         where s.id = replay.session_id
     `);
@@ -372,12 +383,13 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
     await db.execute(sql`
         update ${sessions} s
         set replay_available = false
-        where not exists (
-            select 1
-            from ${recordingArtifacts} ra
-            where ra.session_id = s.id
-              and ra.kind in ('screenshots', 'rrweb')
-              and ra.status = 'ready'
+        where coalesce(s.replay_quota_billing_exhausted, false)
+           or not exists (
+                select 1
+                from ${recordingArtifacts} ra
+                where ra.session_id = s.id
+                  and ra.kind in ('screenshots', 'rrweb')
+                  and ra.status = 'ready'
         )
     `);
 

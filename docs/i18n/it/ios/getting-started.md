@@ -17,7 +17,7 @@ Oppure aggiungilo direttamente al tuo `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.2.0")
+    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.3.0")
 ],
 targets: [
     .target(

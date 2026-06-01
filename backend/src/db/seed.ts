@@ -209,6 +209,7 @@ async function main() {
                 rejourneyEnabled: true,
                 recordingEnabled: true,
                 textInputMasking: 'all',
+                imageVideoMasking: 'none',
                 recordingFps: 1,
                 sampleRate: 100,
                 maxRecordingMinutes: 10,

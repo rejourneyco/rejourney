@@ -35,6 +35,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="replay-lab"
+        options={{
+          title: 'Replay Lab',
+          tabBarIcon: ({ color }) => <AntDesign name="video-camera" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="map"
         options={{
           title: 'Map',

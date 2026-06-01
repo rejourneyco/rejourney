@@ -23,18 +23,31 @@ enum RejourneyNetworkEventFilter {
         "/api/ingest",
         "/upload/artifacts"
     ]
-    private static var apiBaseURLString = normalizeBaseURLString("https://api.rejourney.co")
+    private static let maxRegisteredInternalURLs = 200
+    private static var apiBasePath = normalizeBasePath("https://api.rejourney.co")
+    private static var registeredInternalURLs: [String] = []
 
     static func configure(apiURLString: String) {
         lock.lock()
-        apiBaseURLString = normalizeBaseURLString(apiURLString)
+        apiBasePath = normalizeBasePath(apiURLString)
+        registeredInternalURLs.removeAll()
+        lock.unlock()
+    }
+
+    static func registerInternalURL(urlString: String) {
+        guard let normalized = normalizeURLString(urlString) else { return }
+        lock.lock()
+        if !registeredInternalURLs.contains(normalized) {
+            registeredInternalURLs.append(normalized)
+            if registeredInternalURLs.count > maxRegisteredInternalURLs {
+                registeredInternalURLs.removeFirst(registeredInternalURLs.count - maxRegisteredInternalURLs)
+            }
+        }
         lock.unlock()
     }
 
     static func shouldIgnore(url: URL) -> Bool {
-        let absoluteString = url.absoluteString
-        let configuredBase = currentAPIBaseURLString()
-        if !configuredBase.isEmpty && absoluteString.contains(configuredBase) {
+        if isRegisteredInternalURL(url) {
             return true
         }
 
@@ -56,19 +69,62 @@ enum RejourneyNetworkEventFilter {
     }
 
     private static func shouldIgnore(path: String) -> Bool {
-        internalPathPrefixes.contains { prefix in
-            path == prefix || path.hasPrefix("\(prefix)/")
+        let normalizedPath = normalizePath(path)
+        let basePath = currentAPIBasePath()
+        let prefixes: [String]
+        if basePath.isEmpty {
+            prefixes = internalPathPrefixes
+        } else {
+            prefixes = internalPathPrefixes + internalPathPrefixes.map { normalizePath("\(basePath)\($0)") }
+        }
+
+        return prefixes.contains { prefix in
+            normalizedPath == prefix || normalizedPath.hasPrefix("\(prefix)/")
         }
     }
 
-    private static func currentAPIBaseURLString() -> String {
+    private static func isRegisteredInternalURL(_ url: URL) -> Bool {
+        guard let normalized = normalizeURL(url) else { return false }
         lock.lock()
         defer { lock.unlock() }
-        return apiBaseURLString
+        return registeredInternalURLs.contains(normalized)
     }
 
-    private static func normalizeBaseURLString(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    private static func currentAPIBasePath() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return apiBasePath
+    }
+
+    private static func normalizeBasePath(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let url = URL(string: trimmed) ?? URL(string: "https://\(trimmed)")
+        guard let path = url?.path, !path.isEmpty, path != "/" else { return "" }
+        return normalizePath(path)
+    }
+
+    private static func normalizePath(_ value: String) -> String {
+        let path = value.hasPrefix("/") ? value : "/\(value)"
+        guard path.count > 1 else { return "/" }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmed.isEmpty ? "/" : "/\(trimmed)"
+    }
+
+    private static func normalizeURLString(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed) else {
+            return trimmed.components(separatedBy: "#").first
+        }
+        return normalizeURL(url)
+    }
+
+    private static func normalizeURL(_ url: URL) -> String? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString.components(separatedBy: "#").first
+        }
+        components.fragment = nil
+        return components.string
     }
 }

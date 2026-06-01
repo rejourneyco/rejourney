@@ -163,7 +163,8 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     ? (userName.length > 20 ? `${userName.substring(0, 18)}...` : userName)
     : (userEmail.length > 20 ? `${userEmail.substring(0, 18)}...` : userEmail);
 
-  const sessionsUsed = teamUsage?.sessionsUsed ?? 0;
+  const sessionReplaysUsed = teamUsage?.sessionReplaysUsed ?? teamUsage?.sessionsUsed ?? 0;
+  const sessionsCaptured = teamUsage?.sessionsCaptured ?? sessionReplaysUsed;
 
   const planLabel = user?.isSelfHosted
     ? 'Self-Hosted'
@@ -313,12 +314,14 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* Plan / Usage - Team usage this month */}
         {user && currentTeam && (
           <Link
-            to={`${pathPrefix}/team`}
+            to={`${pathPrefix}/billing`}
             className="hidden h-8 min-w-8 shrink-0 items-center justify-center border border-emerald-100 bg-emerald-50 px-2 shadow-sm transition-all hover:border-emerald-200 hover:bg-emerald-100 active:shadow-none lg:flex"
-            title={`${currentTeam.name} - ${planLabel} plan - ${sessionsUsed.toLocaleString()} sessions this month`}
-            aria-label={`${currentTeam.name} team usage`}
+            title={`${currentTeam.name} - ${planLabel} plan - ${sessionReplaysUsed.toLocaleString()} session replays, ${sessionsCaptured.toLocaleString()} sessions captured this period. Open Plan & Billing.`}
+            aria-label={`Open Plan & Billing for ${currentTeam.name}`}
           >
-            <span className="text-xs font-black text-black">{sessionsUsed.toLocaleString()}</span>
+            <span className="text-xs font-black text-black">
+              R {sessionReplaysUsed.toLocaleString()} / S {sessionsCaptured.toLocaleString()}
+            </span>
           </Link>
         )}
 

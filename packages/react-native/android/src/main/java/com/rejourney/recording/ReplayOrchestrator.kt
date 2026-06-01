@@ -95,6 +95,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     var responsivenessCaptureEnabled: Boolean = true
     var consoleCaptureEnabled: Boolean = true
     var maskTextInputsByDefault: Boolean = true
+    var maskImagesAndVideosByDefault: Boolean = false
     var captureNativeSheets: Boolean = true
     var wifiRequired: Boolean = false
     var hierarchyCaptureEnabled: Boolean = true
@@ -545,6 +546,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         responsivenessCaptureEnabled = (cfg["captureANR"] as? Boolean) ?: true
         consoleCaptureEnabled = (cfg["captureLogs"] as? Boolean) ?: true
         maskTextInputsByDefault = (cfg["textInputMasking"] as? String) != "secure_only"
+        maskImagesAndVideosByDefault = (cfg["imageVideoMasking"] as? String) == "all"
         captureNativeSheets = (cfg["captureNativeSheets"] as? Boolean) ?: true
         wifiRequired = (cfg["wifiOnly"] as? Boolean) ?: false
         frameBundleSize = (cfg["screenshotBatchSize"] as? Int) ?: 3

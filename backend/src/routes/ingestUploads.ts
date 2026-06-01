@@ -19,7 +19,7 @@ import {
 } from '../middleware/rateLimit.js';
 import { updateDeviceUsage } from '../services/recording.js';
 import { ensureIngestSession, maybeBackfillSessionStartedAt } from '../services/ingestSessionLifecycle.js';
-import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
+import { checkBillingStatus, getTeamSessionUsage, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
 import {
     completeArtifactUpload,
@@ -47,6 +47,11 @@ import {
 } from '../services/sessionIngestImmutability.js';
 import { selectMaxObservabilityMinutes } from '../services/sessionTiming.js';
 const router = Router();
+
+type ReplayBillingGate = {
+    replayQuotaBillingExhausted: boolean;
+    reason?: string;
+};
 
 function logIngestPresignSkip(meta: {
     route: string;
@@ -93,7 +98,28 @@ function samplingSkipReason(project: { sampleRate?: number | null; recordingEnab
     return null;
 }
 
-async function findExistingProjectSession(projectId: string, sessionId?: string | null) {
+async function resolveReplayBillingGate(teamId: string): Promise<ReplayBillingGate> {
+    const billingStatus = await checkBillingStatus(teamId);
+    if (!billingStatus.canRecord) {
+        throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
+    }
+
+    const usage = await getTeamSessionUsage(teamId);
+    if (!usage.isReplayAtLimit) {
+        return { replayQuotaBillingExhausted: false };
+    }
+
+    return {
+        replayQuotaBillingExhausted: true,
+        reason: `Replay quota reached (${usage.sessionReplaysUsed}/${usage.sessionReplayLimit}). Analytics will continue without replay.`,
+    };
+}
+
+async function findExistingProjectSession(
+    projectId: string,
+    sessionId?: string | null,
+    options: { hydrateCacheHit?: boolean } = {},
+) {
     if (!sessionId) {
         return null;
     }
@@ -102,7 +128,7 @@ async function findExistingProjectSession(projectId: string, sessionId?: string 
     // after the first. We cache "this sessionId is valid for this projectId" for
     // 1 hour — subsequent chunks of the same session all hit Redis instead of DB.
     const cachedExists = await getSessionExistsCache(projectId, sessionId);
-    if (cachedExists) {
+    if (cachedExists && !options.hydrateCacheHit) {
         // Return a minimal stub — callers only use this to skip billing/limit checks.
         // ensureIngestSession will fetch (or reuse) the full row via its own logic.
         return { id: sessionId, projectId } as any;
@@ -220,16 +246,9 @@ router.post(
             return;
         }
 
-        if (!existingSession) {
-            // Billing check and session-limit check are independent — run together.
-            const [billingStatus] = await Promise.all([
-                checkBillingStatus(teamId),
-                checkAndEnforceSessionLimit(teamId),
-            ]);
-            if (!billingStatus.canRecord) {
-                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
-            }
-        }
+        const replayBillingGate = existingSession
+            ? { replayQuotaBillingExhausted: Boolean(existingSession.replayQuotaBillingExhausted) }
+            : await resolveReplayBillingGate(teamId);
 
         // Pass the already-fetched session so ensureIngestSession skips its own SELECT.
         const { session, created: isNewSession } = await ensureIngestSession(projectId, sessionId, req, {
@@ -246,17 +265,19 @@ router.post(
             connectionSaveData: data.connectionSaveData,
             deviceId: deviceAuthId || undefined,
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
-        }, undefined, existingSession);
+        }, {
+            replayQuotaBillingExhausted: replayBillingGate.replayQuotaBillingExhausted,
+        }, existingSession);
 
         assertSessionAcceptsNewIngestWork(session);
 
         if (isNewSession && project.rejourneyEnabled) {
             incrementProjectSessionCount(projectId, teamId, 1)
                 .then(() => {
-                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Captured session counted for usage');
                 })
                 .catch((err) => {
-                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment captured session count');
                 });
 
             updateDeviceUsage(deviceAuthId || session.deviceId || null, projectId, {
@@ -481,7 +502,7 @@ router.post(
                 endpoint: 'segment/presign',
             }),
             db.select().from(projects).where(eq(projects.id, projectId)).limit(1),
-            findExistingProjectSession(projectId, data.sessionId),
+            findExistingProjectSession(projectId, data.sessionId, { hydrateCacheHit: true }),
         ]);
 
         if (!project) {
@@ -525,14 +546,39 @@ router.post(
             return;
         }
 
-        if (!existingSession) {
-            const [billingStatus] = await Promise.all([
-                checkBillingStatus(teamId),
-                checkAndEnforceSessionLimit(teamId),
-            ]);
-            if (!billingStatus.canRecord) {
-                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
-            }
+        const replayBillingGate = existingSession
+            ? { replayQuotaBillingExhausted: Boolean(existingSession.replayQuotaBillingExhausted), reason: 'Replay quota reached. Analytics will continue without replay.' }
+            : await resolveReplayBillingGate(teamId);
+        if (replayBillingGate.replayQuotaBillingExhausted) {
+            const { session } = await ensureIngestSession(projectId, data.sessionId, req, {
+                platform: 'web',
+                deviceModel: data.deviceModel || 'browser',
+                appVersion: data.appVersion,
+                osVersion: data.osVersion,
+                os: data.os,
+                browser: data.browser,
+                browserVersion: data.browserVersion,
+                networkType: data.networkType,
+                effectiveConnectionType: data.effectiveConnectionType,
+                connectionSaveData: data.connectionSaveData,
+                deviceId: deviceId || undefined,
+                sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
+            }, {
+                replayQuotaBillingExhausted: true,
+            }, existingSession);
+            logIngestPresignSkip({
+                route: '/api/ingest/rrweb/presign',
+                projectId,
+                reason: 'replay_quota_billing_exhausted',
+                sessionId: data.sessionId,
+                kind: 'rrweb',
+            });
+            res.json({
+                skipUpload: true,
+                sessionId: session.id,
+                reason: replayBillingGate.reason || 'Replay quota reached. Analytics will continue without replay.',
+            });
+            return;
         }
 
         let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
@@ -624,10 +670,10 @@ router.post(
         if (isNewSession && project.rejourneyEnabled) {
             incrementProjectSessionCount(projectId, teamId, 1)
                 .then(() => {
-                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Captured session counted for usage');
                 })
                 .catch((err) => {
-                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment captured session count');
                 });
 
             updateDeviceUsage(deviceId || session.deviceId || null, projectId, {
@@ -865,7 +911,7 @@ router.post(
                 endpoint: 'segment/presign',
             }),
             projectPromise,
-            findExistingProjectSession(projectId, data.sessionId),
+            findExistingProjectSession(projectId, data.sessionId, { hydrateCacheHit: true }),
         ]);
 
         if (!project) {
@@ -909,16 +955,9 @@ router.post(
             return;
         }
 
-        if (!existingSession) {
-            // Billing check and session-limit check are independent — run together.
-            const [billingStatus] = await Promise.all([
-                checkBillingStatus(teamId),
-                checkAndEnforceSessionLimit(teamId),
-            ]);
-            if (!billingStatus.canRecord) {
-                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
-            }
-        }
+        const replayBillingGate = existingSession
+            ? { replayQuotaBillingExhausted: Boolean(existingSession.replayQuotaBillingExhausted), reason: 'Replay quota reached. Analytics will continue without replay.' }
+            : await resolveReplayBillingGate(teamId);
 
         // Pass the already-fetched session so ensureIngestSession skips its own SELECT.
         let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
@@ -927,7 +966,9 @@ router.post(
             appVersion: data.appVersion,
             deviceId: segmentDeviceId || undefined,
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
-        }, undefined, existingSession);
+        }, {
+            replayQuotaBillingExhausted: replayBillingGate.replayQuotaBillingExhausted,
+        }, existingSession);
 
         const startTimeInt = Math.floor(Number(data.startTime));
         const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
@@ -943,10 +984,10 @@ router.post(
         if (isNewSession && project.rejourneyEnabled) {
             incrementProjectSessionCount(projectId, teamId, 1)
                 .then(() => {
-                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Captured session counted for usage');
                 })
                 .catch((err) => {
-                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment captured session count');
                 });
 
             updateDeviceUsage(segmentDeviceId || session.deviceId || null, projectId, {
@@ -966,6 +1007,22 @@ router.post(
                 skipUpload: true,
                 sessionId: data.sessionId,
                 reason: 'Session sampled out - recording disabled for this session',
+            });
+            return;
+        }
+
+        if (data.kind === 'screenshots' && session.replayQuotaBillingExhausted) {
+            logIngestPresignSkip({
+                route: '/api/ingest/segment/presign',
+                projectId,
+                reason: 'replay_quota_billing_exhausted',
+                sessionId: data.sessionId,
+                kind: data.kind,
+            });
+            res.json({
+                skipUpload: true,
+                sessionId: session.id,
+                reason: replayBillingGate.reason || 'Replay quota reached. Analytics will continue without replay.',
             });
             return;
         }

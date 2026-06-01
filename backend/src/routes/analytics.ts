@@ -4751,7 +4751,12 @@ router.get(
         }
 
         const engagementPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all' ? req.query.platform : undefined;
-        const cacheKey = `analytics:user-engagement-trends:${projectIds.sort().join(',')}:${timeRange || 'all'}:${engagementPlatform || 'all'}`;
+        // Summary mode reads from the pre-aggregated appDailyStats rollup, which keeps
+        // wide windows (30d/90d) fast for high-volume projects instead of scanning raw
+        // sessions. The rollup has no per-platform engagement split, so a platform
+        // filter forces the exact (raw-scan) path.
+        const responseMode = req.query.mode === 'summary' && !engagementPlatform ? 'summary' : 'full';
+        const cacheKey = `analytics:user-engagement-trends:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${engagementPlatform || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -4761,6 +4766,54 @@ router.get(
         const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
         const startedAfter = new Date();
         startedAfter.setDate(startedAfter.getDate() - days);
+
+        if (responseMode === 'summary') {
+            const lastRolledUpDate = await getLastRolledUpDate();
+            const conditions = [
+                inArray(appDailyStats.projectId, projectIds),
+                lte(appDailyStats.date, lastRolledUpDate),
+                gte(appDailyStats.date, startedAfter.toISOString().split('T')[0]),
+            ];
+
+            const dailyRows = await db
+                .select({
+                    date: appDailyStats.date,
+                    bouncers: appDailyStats.totalBouncers,
+                    casuals: appDailyStats.totalCasuals,
+                    explorers: appDailyStats.totalExplorers,
+                    loyalists: appDailyStats.totalLoyalists,
+                })
+                .from(appDailyStats)
+                .where(and(...conditions))
+                .orderBy(asc(appDailyStats.date));
+
+            // Multiple projects can share a date; collapse them into one row per day.
+            const byDate = new Map<string, { bouncers: number; casuals: number; explorers: number; loyalists: number }>();
+            const totals = { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
+            for (const row of dailyRows) {
+                const bucket = byDate.get(row.date) ?? { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
+                bucket.bouncers += Number(row.bouncers || 0);
+                bucket.casuals += Number(row.casuals || 0);
+                bucket.explorers += Number(row.explorers || 0);
+                bucket.loyalists += Number(row.loyalists || 0);
+                byDate.set(row.date, bucket);
+            }
+
+            const daily = Array.from(byDate.entries())
+                .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+                .map(([date, seg]) => {
+                    totals.bouncers += seg.bouncers;
+                    totals.casuals += seg.casuals;
+                    totals.explorers += seg.explorers;
+                    totals.loyalists += seg.loyalists;
+                    return { date, ...seg };
+                });
+
+            const summaryResult = { daily, totals };
+            await redis.set(cacheKey, JSON.stringify(summaryResult), 'EX', CACHE_TTL);
+            res.json(summaryResult);
+            return;
+        }
 
         const engagementPlatformCond = engagementPlatform === 'mobile'
             ? sql` AND ${sessions.platform} IN ('ios', 'android')`

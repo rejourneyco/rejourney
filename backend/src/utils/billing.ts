@@ -1,13 +1,13 @@
 /**
  * Billing Constants and Pure Functions
  * 
- * This module contains pure utility functions for session-based billing.
+ * This module contains pure utility functions for replay-based billing.
  * 
  * NOTE: Billing plans are now managed via Stripe Products/Prices.
  * Use the stripeProducts service for plan-related operations.
  * 
  * This module provides:
- * - Session usage calculations
+ * - Replay quota usage calculations
  * - Free tier constants (per-user tracking)
  * - Billing period utilities
  * - Formatting helpers
@@ -36,7 +36,7 @@ export interface FreeTierAllocation {
 // =============================================================================
 
 /**
- * Free tier session limit (per user across all owned teams)
+ * Free tier session replay limit (per user across all owned teams)
  * This is the only "plan" that's not in Stripe - tracked locally.
  */
 export const FREE_TIER_SESSIONS = 5000;
@@ -47,14 +47,14 @@ export const FREE_TIER_SESSIONS = 5000;
 export const WARNING_THRESHOLD_PERCENT = 80;
 
 // =============================================================================
-// Session Usage Functions
+// Replay Usage Functions
 // =============================================================================
 
 /**
- * Calculate session usage statistics
+ * Calculate replay quota usage statistics
  * 
- * @param used - Sessions used in current period
- * @param limit - Session limit for the plan
+ * @param used - Session replays used in current period
+ * @param limit - Session replay limit for the plan
  * @returns Usage statistics including remaining, percent, and status flags
  */
 export function calculateSessionUsage(used: number, limit: number): SessionUsage {
@@ -72,10 +72,10 @@ export function calculateSessionUsage(used: number, limit: number): SessionUsage
 }
 
 /**
- * Calculate how many sessions of a new recording count against free tier vs billable
+ * Calculate how many replays count against free tier vs billable
  * 
- * @param currentFreeTierUsed - Sessions already used from user's free tier
- * @param newSessions - New sessions to allocate (typically 1)
+ * @param currentFreeTierUsed - Session replays already used from user's free tier
+ * @param newSessions - New replays to allocate (typically 1)
  * @returns Breakdown of free vs billable sessions
  */
 export function calculateFreeTierAllocation(
@@ -92,7 +92,7 @@ export function calculateFreeTierAllocation(
 /**
  * Check if a user has exhausted their free tier
  * 
- * @param freeTierSessionsUsed - Sessions used from free tier
+ * @param freeTierSessionsUsed - Session replays used from free tier
  * @returns true if free tier is exhausted
  */
 export function isFreeTierExhausted(freeTierSessionsUsed: number): boolean {
@@ -102,7 +102,7 @@ export function isFreeTierExhausted(freeTierSessionsUsed: number): boolean {
 /**
  * Get free tier usage status for a user
  * 
- * @param freeTierSessionsUsed - Sessions used from free tier
+ * @param freeTierSessionsUsed - Session replays used from free tier
  * @returns Usage statistics for free tier
  */
 export function getFreeTierUsage(freeTierSessionsUsed: number): SessionUsage {
@@ -110,11 +110,11 @@ export function getFreeTierUsage(freeTierSessionsUsed: number): SessionUsage {
 }
 
 /**
- * Check if a team can record based on session limit
+ * Check if a team can record replay data based on replay quota.
  * 
- * @param sessionsUsed - Sessions used this period
- * @param sessionLimit - Plan's session limit
- * @returns true if team can record (under limit)
+ * @param sessionsUsed - Backward-compatible alias for session replays used this period
+ * @param sessionLimit - Backward-compatible alias for the plan's replay limit
+ * @returns true if team can record replay data (under limit)
  */
 export function canRecord(sessionsUsed: number, sessionLimit: number): boolean {
     return sessionsUsed < sessionLimit;
@@ -141,17 +141,22 @@ export function getCurrentBillingPeriod(): string {
  * @returns Period string in format YYYY-MM-DD (anchor date of current cycle)
  */
 export function getTeamBillingPeriod(anchor: Date | null): string {
-    const now = new Date();
+    return getTeamBillingPeriodForDate(anchor, new Date());
+}
 
+/**
+ * Get the billing period string containing a specific date for a team anchor.
+ */
+export function getTeamBillingPeriodForDate(anchor: Date | null, date: Date): string {
     // If no anchor, use first of current month (legacy behavior)
     if (!anchor) {
-        return getCurrentBillingPeriod();
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     }
 
     // Calculate which 30-day cycle we're in
     const anchorTime = anchor.getTime();
-    const nowTime = now.getTime();
-    const daysSinceAnchor = Math.floor((nowTime - anchorTime) / (1000 * 60 * 60 * 24));
+    const dateTime = date.getTime();
+    const daysSinceAnchor = Math.floor((dateTime - anchorTime) / (1000 * 60 * 60 * 24));
 
     // How many complete 30-day cycles have passed?
     const cycleNumber = Math.floor(daysSinceAnchor / 30);
@@ -176,17 +181,28 @@ export function getEffectiveBillingPeriod(
     stripeCurrentPeriodStart: Date | null,
     stripeCurrentPeriodEnd: Date | null
 ): string {
-    const now = new Date();
+    return getEffectiveBillingPeriodForDate(anchor, stripeCurrentPeriodStart, stripeCurrentPeriodEnd, new Date());
+}
+
+/**
+ * Get the authoritative billing period string containing a specific date.
+ */
+export function getEffectiveBillingPeriodForDate(
+    anchor: Date | null,
+    stripeCurrentPeriodStart: Date | null,
+    stripeCurrentPeriodEnd: Date | null,
+    date: Date
+): string {
     if (
         stripeCurrentPeriodStart &&
         stripeCurrentPeriodEnd &&
-        now >= stripeCurrentPeriodStart &&
-        now < stripeCurrentPeriodEnd
+        date >= stripeCurrentPeriodStart &&
+        date < stripeCurrentPeriodEnd
     ) {
         const d = stripeCurrentPeriodStart;
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
-    return getTeamBillingPeriod(anchor);
+    return getTeamBillingPeriodForDate(anchor, date);
 }
 
 /**

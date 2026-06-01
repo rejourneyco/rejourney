@@ -9,7 +9,7 @@ const PLATFORM_LENS_OPTIONS: {
     title: string;
     icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
 }[] = [
-    { value: 'all', label: 'All sessions', shortLabel: 'All', title: 'Show web, iOS, and Android session data', icon: MonitorSmartphone },
+    { value: 'all', label: 'All', shortLabel: 'All', title: 'Show web, iOS, and Android session data', icon: MonitorSmartphone },
     { value: 'mobile', label: 'Mobile', shortLabel: 'Mobile', title: 'Show iOS and Android session data', icon: Smartphone },
     { value: 'web', label: 'Web', shortLabel: 'Web', title: 'Show web session data', icon: Monitor },
 ];
@@ -36,7 +36,7 @@ export const PlatformLensFilter: React.FC<PlatformLensFilterProps> = ({
                 <div
                     role="group"
                     aria-label="Session platform"
-                    className="grid min-w-0 grid-cols-3 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm"
+                    className="grid min-w-0 grid-cols-3 overflow-hidden rounded-md border border-slate-200 bg-white"
                 >
                     {PLATFORM_LENS_OPTIONS.map((option) => {
                         const selected = value === option.value;
@@ -51,16 +51,16 @@ export const PlatformLensFilter: React.FC<PlatformLensFilterProps> = ({
                                 aria-pressed={selected}
                                 disabled={!available}
                                 title={available ? option.title : `${option.label} is not configured for this project`}
-                                className={`inline-flex h-9 min-w-0 items-center justify-center gap-1.5 border-r border-slate-200 px-2 text-[11px] font-bold uppercase leading-none transition-colors last:border-r-0 sm:min-w-[74px] sm:px-3
+                                className={`inline-flex h-8 min-w-0 items-center justify-center gap-1 border-r border-slate-200 px-2 text-[10px] font-bold uppercase leading-none transition-colors last:border-r-0 sm:min-w-[58px] sm:px-2.5
                                 ${available
                                     ? selected
-                                        ? 'bg-slate-950 text-white'
+                                        ? 'bg-slate-900 text-white'
                                         : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                                     : 'cursor-not-allowed bg-white text-slate-300'
                                 }
                                 `}
                             >
-                                <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <Icon className="h-3 w-3 shrink-0" aria-hidden />
                                 <span className="truncate sm:hidden">{option.shortLabel}</span>
                                 <span className="hidden truncate sm:inline">{option.label}</span>
                             </button>

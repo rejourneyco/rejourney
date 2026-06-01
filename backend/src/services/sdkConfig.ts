@@ -9,6 +9,7 @@ export type SdkConfigProject = {
     rejourneyEnabled: boolean;
     recordingEnabled: boolean;
     textInputMasking?: string | null;
+    imageVideoMasking?: string | null;
     recordingFps?: number | null;
     sampleRate?: number | null;
     maxRecordingMinutes?: number | null;
@@ -18,6 +19,7 @@ export type SdkConfigProject = {
 type SdkBillingConfig = {
     billingBlocked?: boolean;
     billingReason?: string;
+    replayQuotaBillingExhausted?: boolean;
 };
 
 export function buildSdkConfigResponse(
@@ -26,6 +28,7 @@ export function buildSdkConfigResponse(
 ) {
     const sampleRate = Math.max(0, Math.min(100, project.sampleRate ?? 100));
     const textInputMasking = project.textInputMasking === 'secure_only' ? 'secure_only' : 'all';
+    const imageVideoMasking = project.imageVideoMasking === 'all' ? 'all' : 'none';
     const recordingFps = Math.max(1, Math.min(3, Math.round(project.recordingFps ?? 1)));
     const maxRecordingMinutes = Math.max(
         1,
@@ -37,6 +40,7 @@ export function buildSdkConfigResponse(
     );
     const billingBlocked = Boolean(billing.billingBlocked);
     const billingReason = typeof billing.billingReason === 'string' ? billing.billingReason : undefined;
+    const replayQuotaBillingExhausted = Boolean(billing.replayQuotaBillingExhausted);
     const webAllowedDomains = normalizeWebAllowedDomains([
         ...(project.webAllowedDomains ?? []),
         ...(project.webDomain ? [project.webDomain] : []),
@@ -53,14 +57,16 @@ export function buildSdkConfigResponse(
             }
             : {}),
         rejourneyEnabled: project.rejourneyEnabled,
-        recordingEnabled: project.recordingEnabled,
+        recordingEnabled: project.recordingEnabled && !replayQuotaBillingExhausted,
         textInputMasking,
+        imageVideoMasking,
         recordingFps,
         maxRecordingMinutes,
         webMaxObservabilityMinutes,
         sampleRate,
         billingBlocked,
         billingReason,
+        replayQuotaBillingExhausted,
     };
 
     if (!project.rejourneyEnabled) {

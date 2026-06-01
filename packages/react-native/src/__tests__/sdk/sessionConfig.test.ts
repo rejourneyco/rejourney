@@ -133,16 +133,18 @@ describe('sessionConfig', () => {
       expect(opts).not.toHaveProperty('captureLogs');
     });
 
-    it('forwards effective recording and text masking options to native', () => {
+    it('forwards effective recording and masking options to native', () => {
       expect(
         buildNativeStartOptions({}, 'u1', undefined, undefined, {
           captureScreen: false,
           textInputMasking: 'secure_only',
+          imageVideoMasking: 'all',
           recordingFps: 3,
         })
       ).toMatchObject({
         captureScreen: false,
         textInputMasking: 'secure_only',
+        imageVideoMasking: 'all',
         fps: 3,
       });
     });

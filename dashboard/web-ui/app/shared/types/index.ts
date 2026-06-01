@@ -40,6 +40,7 @@ export interface Project {
   rejourneyEnabled?: boolean;
   recordingEnabled: boolean;
   textInputMasking?: 'all' | 'secure_only';
+  imageVideoMasking?: 'none' | 'all';
   recordingFps?: number;
   sampleRate?: number;
   maxRecordingMinutes?: number;

@@ -32,6 +32,9 @@ export function RejourneyClient() {
         ignoreBots: false,
         recordAutomation: true,
         trackConsoleLogs: true,
+        rrweb: {
+          inlineImages: true,
+        },
       }}
     />
   );

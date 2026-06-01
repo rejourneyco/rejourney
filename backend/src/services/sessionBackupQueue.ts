@@ -53,7 +53,10 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
               AND artifact_stats.ready_artifact_count > 0
               AND (
                 (
-                    COALESCE(s.observe_only, false) = true
+                    (
+                        COALESCE(s.observe_only, false) = true
+                        OR COALESCE(s.replay_quota_billing_exhausted, false) = true
+                    )
                     AND artifact_stats.ready_events_count > 0
                     AND artifact_stats.ready_screenshots_count = 0
                     AND artifact_stats.ready_rrweb_count = 0
@@ -64,6 +67,7 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
                 )
                 OR (
                     COALESCE(s.observe_only, false) = false
+                    AND COALESCE(s.replay_quota_billing_exhausted, false) = false
                     AND artifact_stats.ready_events_count > 0
                     AND (
                         artifact_stats.ready_rrweb_count > 0

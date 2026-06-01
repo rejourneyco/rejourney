@@ -18,6 +18,11 @@ declare module '../../../scripts/k8s/backup-quality.mjs' {
      * artifact set matches the non-visual profile.
      */
     export const OBSERVE_ONLY_QUALITY_TIER: string;
+    /**
+     * Quality tier used for successfully backed up replay-quota-exhausted sessions
+     * whose artifact set matches the non-visual profile.
+     */
+    export const REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER: string;
 
     export function evaluateBackupQuality(input: {
         manifest: unknown;

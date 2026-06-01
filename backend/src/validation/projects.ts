@@ -46,6 +46,7 @@ const appIdentifierSchema = z
     );
 
 const textInputMaskingSchema = z.enum(['all', 'secure_only']);
+const imageVideoMaskingSchema = z.enum(['none', 'all']);
 const recordingFpsSchema = z.number().int().min(1).max(3);
 const mobileMaxObservabilityMinutesSchema = z.number().int().min(1).max(10);
 const webMaxObservabilityMinutesSchema = z.number().int().min(1).max(30);
@@ -74,6 +75,7 @@ export const createProjectSchema = z.object({
     rejourneyEnabled: z.boolean().optional().default(true),
     recordingEnabled: z.boolean().optional().default(true),
     textInputMasking: textInputMaskingSchema.optional().default('all'),
+    imageVideoMasking: imageVideoMaskingSchema.optional().default('none'),
     recordingFps: recordingFpsSchema.optional().default(1),
     sampleRate: z.number().int().min(0).max(100).optional().default(100),
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional().default(10),
@@ -104,6 +106,7 @@ export const updateProjectSchema = z.object({
     rejourneyEnabled: z.boolean().optional(),
     recordingEnabled: z.boolean().optional(),
     textInputMasking: textInputMaskingSchema.optional(),
+    imageVideoMasking: imageVideoMaskingSchema.optional(),
     recordingFps: recordingFpsSchema.optional(),
     sampleRate: z.number().int().min(0).max(100).optional(),
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional(),

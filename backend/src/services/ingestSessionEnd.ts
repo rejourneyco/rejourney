@@ -10,6 +10,31 @@ export type SessionDurationBreakdown = {
     durationSeconds: number;
 };
 
+export type SessionEndMetricsMergeOptions = {
+    trustClientFrustrationCounts?: boolean;
+};
+
+export function shouldTrustClientFrustrationCountsForPlatform(platform: unknown): boolean {
+    const normalized = String(platform || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+    // Swift 0.2.x and RN 1.2.x can report keyboard typing as client-side rage
+    // in /session/end metrics. Mobile event artifacts are the compatibility
+    // source of truth because the backend can filter UIKit keyboard labels there.
+    return ![
+        'ios',
+        'android',
+        'swift',
+        'swiftui',
+        'expo',
+        'rn',
+        'react-native',
+        'reactnative',
+        'react-native-ios',
+        'react-native-android',
+        'mobile',
+        'native',
+    ].includes(normalized);
+}
+
 export function normalizeLifecycleVersion(value: unknown): number {
     return Math.max(1, toNonNegativeInt(value) ?? 1);
 }
@@ -37,7 +62,10 @@ export function calculateSessionDurationBreakdown(
     };
 }
 
-export function buildSessionEndMetricsMergeSet(metrics: any): Record<string, unknown> {
+export function buildSessionEndMetricsMergeSet(
+    metrics: any,
+    options: SessionEndMetricsMergeOptions = {}
+): Record<string, unknown> {
     const updates: Record<string, unknown> = {};
     if (!metrics || typeof metrics !== 'object') {
         return updates;
@@ -53,8 +81,10 @@ export function buildSessionEndMetricsMergeSet(metrics: any): Record<string, unk
     if (inputCount !== undefined) updates.inputCount = inputCount;
     const errorCount = toNonNegativeInt(metrics.errorCount);
     if (errorCount !== undefined) updates.errorCount = errorCount;
-    const rageTapCount = toNonNegativeInt(metrics.rageTapCount);
-    if (rageTapCount !== undefined) updates.rageTapCount = rageTapCount;
+    if (options.trustClientFrustrationCounts !== false) {
+        const rageTapCount = toNonNegativeInt(metrics.rageTapCount);
+        if (rageTapCount !== undefined) updates.rageTapCount = rageTapCount;
+    }
     const apiSuccessCount = toNonNegativeInt(metrics.apiSuccessCount);
     if (apiSuccessCount !== undefined) updates.apiSuccessCount = apiSuccessCount;
     const apiErrorCount = toNonNegativeInt(metrics.apiErrorCount);
@@ -83,7 +113,10 @@ export function buildSessionEndMetricsMergeSet(metrics: any): Record<string, unk
     return updates;
 }
 
-export function summarizeSessionEndMetrics(metrics: any): Record<string, number> {
+export function summarizeSessionEndMetrics(
+    metrics: any,
+    options: SessionEndMetricsMergeOptions = {}
+): Record<string, number> {
     if (!metrics || typeof metrics !== 'object') {
         return {};
     }
@@ -94,7 +127,7 @@ export function summarizeSessionEndMetrics(metrics: any): Record<string, number>
         gestureCount: toNonNegativeInt(metrics.gestureCount),
         inputCount: toNonNegativeInt(metrics.inputCount),
         errorCount: toNonNegativeInt(metrics.errorCount),
-        rageTapCount: toNonNegativeInt(metrics.rageTapCount),
+        rageTapCount: options.trustClientFrustrationCounts === false ? undefined : toNonNegativeInt(metrics.rageTapCount),
         crashCount: toNonNegativeInt(metrics.crashCount),
         anrCount: toNonNegativeInt(metrics.anrCount),
         apiTotalCount: toNonNegativeInt(metrics.apiTotalCount),

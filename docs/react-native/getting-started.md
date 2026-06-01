@@ -35,7 +35,17 @@ Requires no provider wrapping. Recording starts immediately.
 
 ## Remote Recording Settings
 
-Project Settings can control React Native recording defaults without shipping a new app build. Supported SDK versions read the remote recording FPS setting on session start; the default is 1 FPS, and project admins can choose 1, 2, or 3 FPS. If the remote config is unavailable, the SDK falls back to local/default capture behavior.
+Project Settings can control React Native recording defaults without shipping a new app build. Supported SDK versions read remote settings each time `Rejourney.start()` is called. If the remote config is temporarily unavailable, the SDK uses the last cached config when available, otherwise it falls back to local/default capture behavior. Older SDK versions ignore unknown remote settings.
+
+| Setting | Behavior |
+|---|---|
+| Rejourney enabled | Master remote kill switch. When disabled, no session data is captured. |
+| Recording enabled | Controls visual replay capture. When disabled, telemetry can still be collected without screenshots. |
+| Sample rate | Defaults to `100%`. Sampled-out sessions return before native replay capture, uploads, or other package work starts. |
+| Max observability duration | Limits the maximum length of each observability session. |
+| Recording FPS | Defaults to `1 FPS`. Project admins can choose `1`, `2`, or `3 FPS`. |
+| Text input privacy | Defaults to masking all text inputs. Secure-only mode keeps password/secure fields masked and allows other text inputs to appear in debugging replays. |
+| Image/video privacy | Defaults to showing images and videos. When enabled, images and videos are masked together. |
 
 ## Screen Tracking
 
@@ -221,7 +231,7 @@ Rejourney.setMetadata({
 
 ## Privacy Controls
 
-Text inputs and camera views are automatically masked by default. Project admins can change the default text input masking level in Project Settings for supported SDK versions; older SDK versions ignore that remote setting and keep their existing masking behavior. Secure/password fields, camera views, and explicit masks remain protected.
+Text inputs and camera views are automatically masked by default. Images and videos are visible by default so visual replay matches what the user saw. Project admins can change the default text input masking level and enable image/video masking in Project Settings for supported SDK versions; older SDK versions ignore those remote settings and keep their existing masking behavior. Secure/password fields, camera views, and explicit masks remain protected.
 
 To manually hide additional sensitive UI, wrap components in the `Mask` component:
 
@@ -233,7 +243,7 @@ import { Mask } from '@rejourneyco/react-native';
 </Mask>
 ```
 
-Masked content appears as a solid rectangle in replays and is never captured at the source.
+Masked content appears as a privacy placeholder in replays and is never captured at the source. Camera, keyboard, image, and video placeholders use the same white treatment with a type-specific icon or label. When image/video masking is enabled remotely, both images and videos are masked together.
 
 ### User Consent & GDPR
 
@@ -307,3 +317,57 @@ When enabled, all telemetry is collected but no screenshots are taken — sessio
 > const userOptedOutOfRecording = await getUserPreference('noRecording');
 > Rejourney.init('pk_live_your_public_key', { observeOnly: userOptedOutOfRecording });
 > ```
+
+## Configuration Reference
+
+Most apps only need `init()` and `start()`. Use options when you need a local fallback, privacy gate, or self-hosted endpoint. Remote Project Settings take precedence for recording FPS and privacy defaults when they are available.
+
+```javascript
+Rejourney.init('pk_live_your_public_key', {
+  apiUrl: 'https://api.rejourney.co',
+  enabled: true,
+  observeOnly: false,
+  captureFPS: 1,
+  maxSessionDuration: 600000,
+  captureQuality: 'medium',
+  wifiOnly: false,
+  captureNativeSheets: true,
+  trackConsoleLogs: true,
+  collectGeoLocation: true,
+  collectDeviceInfo: true,
+  autoTrackNetwork: true,
+  networkIgnoreUrls: ['analytics.example.com'],
+  networkCaptureSizes: true,
+  autoTrackExpoRouter: true,
+  detectRageTaps: true,
+  rageTapThreshold: 3,
+  rageTapTimeWindow: 500,
+  rageTapRadius: 50,
+  disableInDev: false,
+  debug: false
+});
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `apiUrl` | `string` | `https://api.rejourney.co` | Override for self-hosted deployments |
+| `enabled` | `boolean` | `true` | Local kill switch for the SDK |
+| `observeOnly` | `boolean` | `false` | Collect telemetry only, no visual recording |
+| `captureFPS` | `number` | `1` | Local capture FPS fallback. Remote Project Settings recording FPS takes precedence when available |
+| `maxSessionDuration` | `number` | `600000` | Local maximum session duration in milliseconds |
+| `captureQuality` | `'low' \| 'medium' \| 'high'` | `'medium'` | Screenshot JPEG quality preset |
+| `wifiOnly` | `boolean` | `false` | Prefer uploading session data on Wi-Fi only |
+| `captureNativeSheets` | `boolean` | `true` | Include app-owned native sheet/dialog windows in visual replay when the OS permits capture |
+| `trackConsoleLogs` | `boolean` | `true` | Capture console logs for the session |
+| `collectGeoLocation` | `boolean` | `true` | Collect IP-derived geolocation |
+| `collectDeviceInfo` | `boolean` | `true` | Collect device and environment metadata |
+| `autoTrackNetwork` | `boolean` | `true` | Intercept fetch/XHR requests for network capture |
+| `networkIgnoreUrls` | `(string \| RegExp)[]` | `[]` | Ignore matching URLs during network capture |
+| `networkCaptureSizes` | `boolean` | `true` | Capture request and response body sizes |
+| `autoTrackExpoRouter` | `boolean` | `true` | Enable automatic Expo Router screen tracking |
+| `detectRageTaps` | `boolean` | `true` | Enable rage tap detection |
+| `rageTapThreshold` | `number` | `3` | Number of taps required to detect a rage tap |
+| `rageTapTimeWindow` | `number` | `500` | Rage tap detection window in milliseconds |
+| `rageTapRadius` | `number` | `50` | Rage tap clustering radius in points/dp |
+| `disableInDev` | `boolean` | `false` | Disable recording in development builds |
+| `debug` | `boolean` | `false` | Print verbose SDK logs to the console |

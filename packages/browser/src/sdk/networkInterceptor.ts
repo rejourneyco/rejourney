@@ -22,19 +22,79 @@ const INTERNAL_NETWORK_PATH_PREFIXES = [
   '/api/ingest',
   '/upload/artifacts',
 ] as const;
+const MAX_REGISTERED_INTERNAL_URLS = 200;
+
+const registeredInternalUrls = new Set<string>();
+const registeredInternalUrlOrder: string[] = [];
+
+function normalizePath(path: string): string {
+  const withLeadingSlash = path.startsWith('/') ? path : `/${path}`;
+  return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, '') : withLeadingSlash;
+}
+
+function basePathForUrl(url: string | undefined): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://rejourney.local');
+    return parsed.pathname && parsed.pathname !== '/' ? normalizePath(parsed.pathname) : '';
+  } catch {
+    return '';
+  }
+}
 
 function pathForUrl(url: string): string {
   try {
     const parsed = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://rejourney.local');
-    return `${parsed.pathname}${parsed.search}`;
+    return normalizePath(parsed.pathname || '/');
   } catch {
-    return url;
+    return normalizePath((url.split('?')[0] || url).split('#')[0] || '/');
+  }
+}
+
+function normalizeUrlForComparison(url: string): string | null {
+  try {
+    const parsed = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://rejourney.local');
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    const trimmed = url.trim();
+    const withoutHash = trimmed.split('#')[0];
+    return withoutHash || null;
+  }
+}
+
+function hasInternalPathPrefix(path: string, config: RejourneyWebConfig): boolean {
+  const normalizedPath = normalizePath(path);
+  const apiBasePath = basePathForUrl(config.apiUrl);
+  const prefixes = apiBasePath
+    ? [
+        ...INTERNAL_NETWORK_PATH_PREFIXES,
+        ...INTERNAL_NETWORK_PATH_PREFIXES.map((prefix) => normalizePath(`${apiBasePath}${prefix}`)),
+      ]
+    : INTERNAL_NETWORK_PATH_PREFIXES;
+
+  return prefixes.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+}
+
+function isRegisteredInternalUrl(url: string): boolean {
+  const normalizedUrl = normalizeUrlForComparison(url);
+  return Boolean(normalizedUrl && registeredInternalUrls.has(normalizedUrl));
+}
+
+export function registerInternalNetworkUrl(url: string): void {
+  const normalizedUrl = normalizeUrlForComparison(url);
+  if (!normalizedUrl || registeredInternalUrls.has(normalizedUrl)) return;
+  registeredInternalUrls.add(normalizedUrl);
+  registeredInternalUrlOrder.push(normalizedUrl);
+
+  while (registeredInternalUrlOrder.length > MAX_REGISTERED_INTERNAL_URLS) {
+    const evicted = registeredInternalUrlOrder.shift();
+    if (evicted) registeredInternalUrls.delete(evicted);
   }
 }
 
 export function shouldIgnoreNetworkUrl(url: string, config: RejourneyWebConfig): boolean {
-  const urlPath = pathForUrl(url);
-  if (INTERNAL_NETWORK_PATH_PREFIXES.some((prefix) => urlPath === prefix || urlPath.startsWith(`${prefix}/`))) {
+  if (isRegisteredInternalUrl(url) || hasInternalPathPrefix(pathForUrl(url), config)) {
     return true;
   }
 

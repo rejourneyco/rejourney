@@ -55,6 +55,20 @@ $RNAppsFlyerStrictMode=false
       :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
     )
 
+    # Keep regenerated pod targets aligned with the app minimum iOS target.
+    # VisionCamera 4.x contains Swift that uses iOS 13 APIs; if CocoaPods or
+    # Xcode index state leaves that pod on an older target, Xcode reports bogus
+    # `UIWindowScene` availability errors even though the app targets iOS 15.1.
+    minimum_ios_target = podfile_properties['ios.deploymentTarget'] || '15.1'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        current_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        next if current_target && Gem::Version.new(current_target) >= Gem::Version.new(minimum_ios_target)
+
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_target
+      end
+    end
+
     # This is necessary for Xcode 14, because it signs resource bundles by default
     # when building for devices.
     installer.target_installation_results.pod_target_installation_results

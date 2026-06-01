@@ -28,6 +28,7 @@ function apiProjectToProject(apiProject: ApiProject): Project {
     rejourneyEnabled: apiProject.rejourneyEnabled ?? true,
     recordingEnabled: apiProject.recordingEnabled,
     textInputMasking: apiProject.textInputMasking,
+    imageVideoMasking: apiProject.imageVideoMasking,
     recordingFps: apiProject.recordingFps,
     sampleRate: apiProject.sampleRate,
     maxRecordingMinutes: apiProject.maxRecordingMinutes,

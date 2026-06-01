@@ -397,8 +397,16 @@ export interface DeviceInfo {
   screenWidth: number;
   /** Screen height */
   screenHeight: number;
+  /** Physical screen width in hardware pixels, when provided by native SDKs */
+  screenWidthPixels?: number;
+  /** Physical screen height in hardware pixels, when provided by native SDKs */
+  screenHeightPixels?: number;
+  /** Native screen scale / density */
+  screenScale?: number;
   /** Pixel density */
   pixelRatio: number;
+  /** Coordinate space used by screenWidth/screenHeight and touch coordinates */
+  coordinateSpace?: 'pt' | 'dp' | 'css_px';
   /** App version */
   appVersion?: string;
   /** App bundle/package ID */

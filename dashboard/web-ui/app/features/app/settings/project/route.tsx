@@ -4,6 +4,7 @@ import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useAuth } from '~/shared/providers/AuthContext';
+import { ImageIcon, Video } from 'lucide-react';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
@@ -30,6 +31,7 @@ interface SettingsProps {
 }
 
 type TextInputMasking = 'all' | 'secure_only';
+type ImageVideoMasking = 'none' | 'all';
 type RecordingFps = 1 | 2 | 3;
 type ProjectSettingsTone = 'blue' | 'emerald' | 'amber' | 'rose' | 'slate';
 
@@ -230,6 +232,10 @@ const normalizeTextInputMasking = (value: unknown): TextInputMasking => (
   value === 'secure_only' ? 'secure_only' : 'all'
 );
 
+const normalizeImageVideoMasking = (value: unknown): ImageVideoMasking => (
+  value === 'all' ? 'all' : 'none'
+);
+
 const normalizeRecordingFps = (value: unknown): RecordingFps => {
   const numericValue = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 1;
   return Math.min(3, Math.max(1, numericValue)) as RecordingFps;
@@ -299,6 +305,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const [rejourneyEnabled, setRejourneyEnabled] = useState<boolean>(true);
   const [recordingEnabled, setRecordingEnabled] = useState<boolean>(true);
   const [textInputMasking, setTextInputMasking] = useState<TextInputMasking>('all');
+  const [imageVideoMasking, setImageVideoMasking] = useState<ImageVideoMasking>('none');
   const [webAllowedDomainsText, setWebAllowedDomainsText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingWebDomains, setIsSavingWebDomains] = useState(false);
@@ -309,6 +316,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const [isSavingRejourney, setIsSavingRejourney] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
   const [isSavingMasking, setIsSavingMasking] = useState(false);
+  const [isSavingMediaMasking, setIsSavingMediaMasking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [webDomainsSaveError, setWebDomainsSaveError] = useState<string | null>(null);
   const [durationSaveError, setDurationSaveError] = useState<string | null>(null);
@@ -318,10 +326,12 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const [rejourneySaveError, setRejourneySaveError] = useState<string | null>(null);
   const [recordingSaveError, setRecordingSaveError] = useState<string | null>(null);
   const [maskingSaveError, setMaskingSaveError] = useState<string | null>(null);
+  const [mediaMaskingSaveError, setMediaMaskingSaveError] = useState<string | null>(null);
   const pendingMaxRecordingMinutesRef = useRef<number | null>(null);
   const pendingWebMaxObservabilityMinutesRef = useRef<number | null>(null);
   const pendingSampleRateRef = useRef<number | null>(null);
   const pendingTextInputMaskingRef = useRef<TextInputMasking | null>(null);
+  const pendingImageVideoMaskingRef = useRef<ImageVideoMasking | null>(null);
   const pendingRecordingFpsRef = useRef<RecordingFps | null>(null);
   const maxRecordingMinutesDraftRef = useRef<number | null>(null);
   const webMaxObservabilityMinutesDraftRef = useRef<number | null>(null);
@@ -386,6 +396,12 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     if (pendingMasking && sourceMasking === pendingMasking) {
       pendingTextInputMaskingRef.current = null;
     }
+    const sourceMediaMasking = normalizeImageVideoMasking(nextProject?.imageVideoMasking);
+    const pendingMediaMasking = pendingImageVideoMaskingRef.current;
+    const mediaMasking = pendingMediaMasking && sourceMediaMasking !== pendingMediaMasking ? pendingMediaMasking : sourceMediaMasking;
+    if (pendingMediaMasking && sourceMediaMasking === pendingMediaMasking) {
+      pendingImageVideoMaskingRef.current = null;
+    }
     const sourceMaxRecordingMinutes = normalizeMaxRecordingMinutes(nextProject?.maxRecordingMinutes);
     const pendingMaxRecordingMinutes = pendingMaxRecordingMinutesRef.current;
     const resolvedMaxRecordingMinutes = pendingMaxRecordingMinutes && sourceMaxRecordingMinutes !== pendingMaxRecordingMinutes
@@ -428,6 +444,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     setProject({
       ...nextProject,
       textInputMasking: masking,
+      imageVideoMasking: mediaMasking,
       maxRecordingMinutes: resolvedMaxRecordingMinutes,
       webMaxObservabilityMinutes: resolvedWebMaxObservabilityMinutes,
       sampleRate: resolvedSampleRate,
@@ -448,6 +465,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     setRejourneyEnabled((nextProject as any).rejourneyEnabled ?? true);
     setRecordingEnabled(nextProject.recordingEnabled ?? true);
     setTextInputMasking(masking);
+    setImageVideoMasking(mediaMasking);
     setWebAllowedDomainsText(formatWebAllowedDomainsInput(normalizedWebAllowedDomains));
     setWebDomainsSaveError(null);
   };
@@ -927,6 +945,31 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     }
   };
 
+  const handleImageVideoMaskingChange = async (mode: ImageVideoMasking) => {
+    if (!project || mode === imageVideoMasking) {
+      return;
+    }
+    const previous = imageVideoMasking;
+    try {
+      setIsSavingMediaMasking(true);
+      setMediaMaskingSaveError(null);
+      pendingImageVideoMaskingRef.current = mode;
+      setImageVideoMasking(mode);
+      const updatedProject = await updateProject(project.id, { imageVideoMasking: mode });
+      const confirmedMode = normalizeImageVideoMasking(updatedProject.imageVideoMasking ?? mode);
+      pendingImageVideoMaskingRef.current = confirmedMode;
+      setProject({ ...project, ...updatedProject, imageVideoMasking: confirmedMode });
+      setImageVideoMasking(confirmedMode);
+      await refreshSessions();
+    } catch (err) {
+      pendingImageVideoMaskingRef.current = null;
+      setMediaMaskingSaveError(err instanceof Error ? err.message : 'Failed to update image and video masking');
+      setImageVideoMasking(previous);
+    } finally {
+      setIsSavingMediaMasking(false);
+    }
+  };
+
   const handleCreateApiKey = async () => {
     if (!isSelfHosted) return;
     if (!project) return;
@@ -1075,7 +1118,12 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     ? project.platforms.map((platform: string) => String(platform))
     : [];
   const platformCountLabel = platformLabels.length === 1 ? '1 platform' : `${platformLabels.length} platforms`;
-  const privacyTone: ProjectSettingsTone = textInputMasking === 'all' ? 'emerald' : 'amber';
+  const privacyTone: ProjectSettingsTone = textInputMasking === 'all' || imageVideoMasking === 'all' ? 'emerald' : 'amber';
+  const privacyStatusLabel = isSavingMasking || isSavingMediaMasking
+    ? 'Saving'
+    : textInputMasking === 'all' || imageVideoMasking === 'all'
+      ? 'Privacy controls'
+      : 'Debug detail';
   const navItems = [
     { href: '#project-profile', label: 'Project Profile' },
     { href: '#sdk-intake', label: 'SDK Intake' },
@@ -1353,7 +1401,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <RangeSetting
-                  label="Mobile replay length"
+                  label="Max Mobile Replay"
                   value={displayedMaxRecordingMinutes}
                   unit=" min"
                   min={1}
@@ -1366,7 +1414,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   onCommit={() => void commitMaxRecordingMinutesDraft()}
                 />
                 <RangeSetting
-                  label="Web observability length"
+                  label="Max Web Replay"
                   value={displayedWebMaxObservabilityMinutes}
                   unit=" min"
                   min={1}
@@ -1392,7 +1440,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   onCommit={() => void commitSampleRateDraft()}
                 />
                 <RangeSetting
-                  label="Mobile recording FPS"
+                  label="Recording FPS [Mobile Only]"
                   value={displayedRecordingFps}
                   unit=" fps"
                   min={1}
@@ -1411,8 +1459,8 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
           <SettingsSection
             id="privacy"
             title="Privacy"
-            description="Choose the default masking posture for text fields in replay."
-            action={<StatusPill label={isSavingMasking ? 'Saving' : textInputMasking === 'all' ? 'Privacy first' : 'Debug detail'} tone={privacyTone} />}
+            description="Choose the default masking posture for text fields, images, and videos in replay."
+            action={<StatusPill label={privacyStatusLabel} tone={privacyTone} />}
           >
             <SettingRow
               title="Text input masking"
@@ -1461,6 +1509,60 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
               {maskingSaveError && (
                 <p className="mt-3 text-xs font-semibold text-red-600">
                   {maskingSaveError}
+                </p>
+              )}
+            </SettingRow>
+            <SettingRow
+              title="Image and video masking"
+              description="Keep media visible by default, or mask images and videos together across mobile and web replay."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  aria-pressed={imageVideoMasking === 'all'}
+                  onClick={() => handleImageVideoMaskingChange('all')}
+                  disabled={!canEdit || isSavingMediaMasking}
+                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${imageVideoMasking === 'all' ? 'dashboard-inner-surface border-emerald-300 bg-emerald-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900">Mask Images and Videos</span>
+                    {imageVideoMasking === 'all' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  </div>
+                  <div className="grid grid-cols-[1fr_0.72fr] gap-2">
+                    <div className="flex h-16 items-center justify-center gap-2 rounded border border-slate-200 bg-white text-slate-900">
+                      <ImageIcon aria-hidden="true" size={18} />
+                      <span className="text-xs font-semibold">Image</span>
+                    </div>
+                    <div className="flex h-16 items-center justify-center gap-2 rounded border border-slate-200 bg-white text-slate-900">
+                      <Video aria-hidden="true" size={18} />
+                      <span className="text-xs font-semibold">Video</span>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={imageVideoMasking === 'none'}
+                  onClick={() => handleImageVideoMaskingChange('none')}
+                  disabled={!canEdit || isSavingMediaMasking}
+                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${imageVideoMasking === 'none' ? 'dashboard-inner-surface border-amber-300 bg-amber-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900">Show Images and Videos</span>
+                    {imageVideoMasking === 'none' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  </div>
+                  <div className="grid grid-cols-[1fr_0.72fr] gap-2">
+                    <div className="flex h-16 items-center justify-center rounded border border-slate-200 bg-sky-100 text-sky-700">
+                      <ImageIcon aria-hidden="true" size={22} />
+                    </div>
+                    <div className="flex h-16 items-center justify-center rounded border border-slate-200 bg-rose-100 text-rose-700">
+                      <Video aria-hidden="true" size={22} />
+                    </div>
+                  </div>
+                </button>
+              </div>
+              {mediaMaskingSaveError && (
+                <p className="mt-3 text-xs font-semibold text-red-600">
+                  {mediaMaskingSaveError}
                 </p>
               )}
             </SettingRow>

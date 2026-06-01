@@ -45,6 +45,7 @@ public final class ReplayOrchestrator: NSObject {
     @objc public var responsivenessCaptureEnabled: Bool = true
     @objc public var consoleCaptureEnabled: Bool = true
     @objc public var maskTextInputsByDefault: Bool = true
+    @objc public var maskImagesAndVideosByDefault: Bool = false
     @objc public var captureNativeSheets: Bool = true
     @objc public var wifiRequired: Bool = false
     @objc public var hierarchyCaptureEnabled: Bool = true
@@ -445,9 +446,6 @@ public final class ReplayOrchestrator: NSObject {
         _attachLifecycle()
         _saveRecovery()
         _startRecoveryCheckpointTimer()
-
-        // Record app startup time
-        _recordAppStartup()
     }
 
     private func _recordAppStartup() {
@@ -470,6 +468,7 @@ public final class ReplayOrchestrator: NSObject {
         responsivenessCaptureEnabled = cfg["captureANR"] as? Bool ?? true
         consoleCaptureEnabled = cfg["captureLogs"] as? Bool ?? true
         maskTextInputsByDefault = (cfg["textInputMasking"] as? String) != "secure_only"
+        maskImagesAndVideosByDefault = (cfg["imageVideoMasking"] as? String) == "all"
         captureNativeSheets = cfg["captureNativeSheets"] as? Bool ?? true
         wifiRequired = cfg["wifiOnly"] as? Bool ?? false
         frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 3
@@ -553,6 +552,11 @@ public final class ReplayOrchestrator: NSObject {
             )
             TelemetryPipeline.shared.prepareForNewSession(sid)
         }
+
+        // Record after prepareForNewSession clears stale buffered events. When
+        // this lived in _initSession, the new session ring was wiped immediately
+        // afterward and iOS sessions silently lost their app_startup event.
+        _recordAppStartup()
 
         // Reactivate the dispatcher in case it was halted from a previous session
         SegmentDispatcher.shared.activate()

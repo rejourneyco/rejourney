@@ -18,12 +18,14 @@ describe('SDK config response', () => {
             rejourneyEnabled: true,
             recordingEnabled: true,
             textInputMasking: 'all',
+            imageVideoMasking: 'none',
             recordingFps: 1,
             maxRecordingMinutes: 10,
             webMaxObservabilityMinutes: 30,
             sampleRate: 100,
             billingBlocked: false,
             billingReason: undefined,
+            replayQuotaBillingExhausted: false,
         });
     });
 
@@ -32,6 +34,7 @@ describe('SDK config response', () => {
             {
                 ...baseProject,
                 textInputMasking: 'secure_only',
+                imageVideoMasking: 'all',
                 recordingFps: 9,
                 sampleRate: 250,
                 maxRecordingMinutes: 99,
@@ -48,12 +51,30 @@ describe('SDK config response', () => {
             rejourneyEnabled: true,
             recordingEnabled: true,
             textInputMasking: 'secure_only',
+            imageVideoMasking: 'all',
             recordingFps: 3,
             maxRecordingMinutes: 10,
             webMaxObservabilityMinutes: 30,
             sampleRate: 100,
             billingBlocked: true,
             billingReason: 'free tier exhausted',
+            replayQuotaBillingExhausted: false,
+        });
+    });
+
+    it('turns replay quota exhaustion into analytics-only config for existing SDKs', () => {
+        expect(buildSdkConfigResponse(
+            baseProject,
+            {
+                replayQuotaBillingExhausted: true,
+                billingReason: 'Replay quota reached',
+            }
+        )).toMatchObject({
+            rejourneyEnabled: true,
+            recordingEnabled: false,
+            billingBlocked: false,
+            billingReason: 'Replay quota reached',
+            replayQuotaBillingExhausted: true,
         });
     });
 
@@ -63,6 +84,7 @@ describe('SDK config response', () => {
             rejourneyEnabled: false,
             recordingEnabled: true,
             textInputMasking: 'unknown-from-newer-dashboard',
+            imageVideoMasking: 'unknown-from-newer-dashboard',
             sampleRate: null,
             maxRecordingMinutes: null,
             webMaxObservabilityMinutes: null,
@@ -73,12 +95,14 @@ describe('SDK config response', () => {
             rejourneyEnabled: false,
             recordingEnabled: false,
             textInputMasking: 'all',
+            imageVideoMasking: 'none',
             recordingFps: 1,
             maxRecordingMinutes: 10,
             webMaxObservabilityMinutes: 30,
             sampleRate: 100,
             billingBlocked: false,
             billingReason: undefined,
+            replayQuotaBillingExhausted: false,
             disabled: true,
             reason: 'Rejourney disabled by project admin',
         });

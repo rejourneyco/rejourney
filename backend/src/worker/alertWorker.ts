@@ -27,9 +27,9 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let workerShouldRun = true;
 
 // Thresholds
-const ERROR_SPIKE_THRESHOLD = 2.0; // 2x increase triggers alert
+const ERROR_SPIKE_THRESHOLD = 1.3; // 30%+ increase triggers alert
 const LATENCY_SPIKE_THRESHOLD = 2.0; // 2x increase triggers alert
-const MIN_SESSIONS_FOR_ALERT = 5; // Minimum sessions in period to trigger alert
+const MIN_SESSIONS_FOR_ALERT = 5; // Minimum sessions in baseline AND current window to trigger alert
 const RUN_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
 interface ProjectMetrics {
@@ -83,15 +83,10 @@ async function checkForSpikes(): Promise<void> {
         }
 
         for (const current of currentMetrics) {
-            // Skip if not enough sessions
-            if (current.sessionCount < MIN_SESSIONS_FOR_ALERT) {
-                continue;
-            }
-
             const baseline = baselineLookup.get(current.projectId);
-            if (!baseline || baseline.sessionCount < MIN_SESSIONS_FOR_ALERT) {
-                continue;
-            }
+            // Both windows need enough sessions to avoid single-session noise
+            if (current.sessionCount < MIN_SESSIONS_FOR_ALERT) continue;
+            if (!baseline || baseline.sessionCount < MIN_SESSIONS_FOR_ALERT) continue;
 
             // Check error rate spike
             if (baseline.errorRate > 0 && current.errorRate > 0) {

@@ -268,7 +268,8 @@ private final class GestureAggregator: NSObject {
     /// and text input focus / keyboard appearance is never delayed.
     func processTouch(_ touch: UITouch, in window: UIWindow) {
         let touchId = ObjectIdentifier(touch)
-        let location = touch.location(in: window)
+        let localLocation = touch.location(in: window)
+        let location = _replayLocation(for: touch, in: window)
         let now = CFAbsoluteTimeGetCurrent()
         
         switch touch.phase {
@@ -292,7 +293,7 @@ private final class GestureAggregator: NSObject {
             
             if state.isPanning && (now - state.lastReportTime) >= _panThrottleInterval {
                 state.lastReportTime = now
-                let (target, _) = _resolveTarget(at: location, in: window)
+                let (target, _) = _resolveTarget(at: localLocation, in: window)
                 recorder?.reportPan(location: location, target: target)
             }
             
@@ -309,7 +310,7 @@ private final class GestureAggregator: NSObject {
                 let dy = location.y - state.startLocation.y
                 let velocity = CGPoint(x: dx / dt, y: dy / dt)
                 
-                let (target, _) = _resolveTarget(at: location, in: window)
+                let (target, _) = _resolveTarget(at: localLocation, in: window)
                 let vec = SwipeVector.from(velocity: velocity)
                 if vec != .none {
                     recorder?.reportSwipe(location: location, direction: vec, target: target)
@@ -319,9 +320,12 @@ private final class GestureAggregator: NSObject {
                 ReplayOrchestrator.shared.logScrollAction()
             } else if duration < _tapMaxDuration && state.maxDistance < _tapMaxDistance {
                 // Tap — short duration, small movement
-                let (target, isInteractive) = _resolveTarget(at: location, in: window)
-
-                if TelemetryPipeline.shared.isKeyboardVisible {
+                let (target, isInteractive) = _resolveTarget(at: localLocation, in: window)
+                // RN SDK 1.2.x binaries may coexist with newer backends for a
+                // long time. Treat keyboard-area touches as interactive only so
+                // current native code never emits rage/dead taps for typing; the
+                // backend keeps accepting old event shapes separately.
+                if _isKeyboardAreaTouch(window: window, replayLocation: location) {
                     _recentTaps.removeAll()
                     recorder?.reportTap(location: location, target: target, isInteractive: true)
                     return
@@ -346,7 +350,7 @@ private final class GestureAggregator: NSObject {
                 }
             } else if duration >= _longPressMinDuration && state.maxDistance < _tapMaxDistance {
                 // Long press — held without significant movement
-                let (target, _) = _resolveTarget(at: location, in: window)
+                let (target, _) = _resolveTarget(at: localLocation, in: window)
                 recorder?.reportLongPress(location: location, target: target)
             }
             
@@ -361,6 +365,35 @@ private final class GestureAggregator: NSObject {
     private func _pruneOldTaps(now: CFAbsoluteTime, window: CFAbsoluteTime) {
         let cutoff = now - window
         _recentTaps.removeAll { $0.time < cutoff }
+    }
+
+    private func _replayLocation(for touch: UITouch, in window: UIWindow) -> CGPoint {
+        let location = touch.location(in: window)
+        guard
+            let keyWindow = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow }),
+            keyWindow !== window
+        else {
+            return location
+        }
+
+        let converted = window.convert(location, to: keyWindow)
+        guard converted.x.isFinite, converted.y.isFinite else { return location }
+        return converted
+    }
+
+    private func _isKeyboardAreaTouch(window: UIWindow, replayLocation: CGPoint) -> Bool {
+        let className = String(describing: type(of: window))
+        if className.contains("UIRemoteKeyboardWindow") ||
+            className.contains("UITextEffectsWindow") ||
+            className.contains("UIInputSetHostView") ||
+            className.contains("UIKeyboard") {
+            return true
+        }
+
+        return TelemetryPipeline.shared.isPointInsideKeyboardArea(replayLocation)
     }
     
     private func _resolveTarget(at point: CGPoint, in window: UIWindow) -> (label: String, isInteractive: Bool) {
@@ -413,15 +446,16 @@ private final class GestureAggregator: NSObject {
         // Text inputs
         if view is UITextField || view is UITextView { return true }
         
-        // React Native Pressable / TouchableOpacity / Button set accessible={true}
-        // which maps to isAccessibilityElement = true.  Plain View defaults to false.
+        // Keep this for RN 1.2.x compatibility: Pressable / TouchableOpacity /
+        // Button commonly rely on `isAccessibilityElement`, unlike SwiftUI
+        // static containers in the native Swift package.
         if view.isAccessibilityElement {
             return true
         }
-        
+
         // Explicit accessibility role indicating interactivity
         let traits = view.accessibilityTraits
-        if traits.contains(.button) || traits.contains(.link) {
+        if traits.contains(.button) || traits.contains(.link) || traits.contains(.adjustable) {
             return true
         }
         

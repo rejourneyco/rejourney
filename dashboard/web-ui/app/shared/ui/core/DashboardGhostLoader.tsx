@@ -71,7 +71,7 @@ const GA4CardGhost: React.FC<{ className?: string; minHeight?: string; children:
   </div>
 );
 
-const GeneralGhostBody: React.FC = () => (
+export const GeneralGhostBody: React.FC = () => (
   <div className="mx-auto w-full max-w-[1560px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6">
     {/* Momentum KPI cards — matches grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 */}
     <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">

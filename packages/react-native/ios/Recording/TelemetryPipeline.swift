@@ -76,6 +76,7 @@ public final class TelemetryPipeline: NSObject {
     private var _lastResponseTs: Int64 = 0
     private let _keyboardStateLock = NSLock()
     private var _isKeyboardVisible = false
+    private var _keyboardScreenFrame: CGRect?
 
     @objc public var isKeyboardVisible: Bool {
         _keyboardStateLock.lock()
@@ -83,11 +84,29 @@ public final class TelemetryPipeline: NSObject {
         _keyboardStateLock.unlock()
 
         guard !cached, Thread.isMainThread else { return cached }
-        let scanned = _hasVisibleKeyboardWindow()
-        if scanned {
-            _setKeyboardVisible(true)
+        if let frame = _visibleKeyboardScreenFrame() {
+            _setKeyboardVisible(true, frame: frame)
+            return true
         }
-        return scanned
+        return false
+    }
+
+    func isPointInsideKeyboardArea(_ point: CGPoint) -> Bool {
+        _keyboardStateLock.lock()
+        let cachedVisible = _isKeyboardVisible
+        let cachedFrame = _keyboardScreenFrame
+        _keyboardStateLock.unlock()
+
+        if cachedVisible, let frame = cachedFrame, frame.insetBy(dx: -8, dy: -8).contains(point) {
+            return true
+        }
+
+        guard Thread.isMainThread, let scannedFrame = _visibleKeyboardScreenFrame() else {
+            return false
+        }
+
+        _setKeyboardVisible(true, frame: scannedFrame)
+        return scannedFrame.insetBy(dx: -8, dy: -8).contains(point)
     }
     
     /// Call this when haptic feedback, animations, or other UI responses occur.
@@ -115,15 +134,17 @@ public final class TelemetryPipeline: NSObject {
         
         NotificationCenter.default.addObserver(self, selector: #selector(_appSuspending), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(_appSuspending), name: UIApplication.willTerminateNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(_keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(_keyboardDidShow), name: UIResponder.keyboardDidShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(_keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(_keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(_keyboardDidHide), name: UIResponder.keyboardDidHideNotification, object: nil)
         if Thread.isMainThread {
-            _setKeyboardVisible(_hasVisibleKeyboardWindow())
+            let frame = _visibleKeyboardScreenFrame()
+            _setKeyboardVisible(frame != nil, frame: frame)
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self._setKeyboardVisible(self._hasVisibleKeyboardWindow())
+                let frame = self._visibleKeyboardScreenFrame()
+                self._setKeyboardVisible(frame != nil, frame: frame)
             }
         }
     }
@@ -266,40 +287,77 @@ public final class TelemetryPipeline: NSObject {
         }
     }
 
-    @objc private func _keyboardWillShow() {
-        _setKeyboardVisible(true)
+    @objc private func _keyboardWillShow(_ notification: Notification) {
+        _setKeyboardVisible(true, frame: _keyboardScreenFrame(from: notification))
         _cancelDeadTapTimer()
     }
 
-    @objc private func _keyboardDidShow() {
-        _setKeyboardVisible(true)
+    @objc private func _keyboardDidShow(_ notification: Notification) {
+        _setKeyboardVisible(true, frame: _keyboardScreenFrame(from: notification) ?? _visibleKeyboardScreenFrame())
         _cancelDeadTapTimer()
     }
 
     @objc private func _keyboardDidHide() {
-        _setKeyboardVisible(_hasVisibleKeyboardWindow())
+        _lastResponseTs = _ts()
+        let frame = _visibleKeyboardScreenFrame()
+        _setKeyboardVisible(frame != nil, frame: frame)
     }
 
-    private func _setKeyboardVisible(_ visible: Bool) {
+    private func _setKeyboardVisible(_ visible: Bool, frame: CGRect? = nil) {
         _keyboardStateLock.lock()
         _isKeyboardVisible = visible
+        _keyboardScreenFrame = visible ? frame : nil
         _keyboardStateLock.unlock()
     }
 
-    private func _hasVisibleKeyboardWindow() -> Bool {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .contains { window in
-                guard !window.isHidden, window.alpha > 0.01, window.bounds.width > 0, window.bounds.height > 0 else {
-                    return false
-                }
-                let className = String(describing: type(of: window))
-                return className.contains("UIRemoteKeyboardWindow") ||
-                    className.contains("UITextEffectsWindow") ||
-                    className.contains("UIInputSetHostView") ||
-                    className.contains("UIKeyboard")
+    private func _keyboardScreenFrame(from notification: Notification) -> CGRect? {
+        guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else {
+            return nil
+        }
+        guard frame.width > 0, frame.height > 0 else { return nil }
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite, frame.width.isFinite, frame.height.isFinite else { return nil }
+        guard !frame.origin.x.isNaN, !frame.origin.y.isNaN, !frame.width.isNaN, !frame.height.isNaN else { return nil }
+        return _keyboardFrameInKeyWindow(fromScreenFrame: frame)
+    }
+
+    private func _visibleKeyboardScreenFrame() -> CGRect? {
+        var combined: CGRect?
+        for window in UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows }) {
+            guard !window.isHidden, window.alpha > 0.01, window.bounds.width > 0, window.bounds.height > 0 else {
+                continue
             }
+            let className = String(describing: type(of: window))
+            guard className.contains("UIRemoteKeyboardWindow") ||
+                className.contains("UITextEffectsWindow") ||
+                className.contains("UIInputSetHostView") ||
+                className.contains("UIKeyboard") else {
+                continue
+            }
+            let screenRect = window.convert(window.bounds, to: nil)
+            guard let rect = _keyboardFrameInKeyWindow(fromScreenFrame: screenRect) else { continue }
+            guard rect.width > 0, rect.height > 0 else { continue }
+            guard rect.origin.x.isFinite, rect.origin.y.isFinite, rect.width.isFinite, rect.height.isFinite else { continue }
+            combined = combined.map { $0.union(rect) } ?? rect
+        }
+        return combined
+    }
+
+    private func _keyboardFrameInKeyWindow(fromScreenFrame frame: CGRect) -> CGRect? {
+        guard let keyWindow = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow }) else {
+            return frame
+        }
+
+        let converted = keyWindow.convert(frame, from: keyWindow.screen.coordinateSpace)
+        let clipped = converted.intersection(keyWindow.bounds)
+        guard clipped.width > 0, clipped.height > 0 else { return nil }
+        guard clipped.origin.x.isFinite, clipped.origin.y.isFinite, clipped.width.isFinite, clipped.height.isFinite else { return nil }
+        guard !clipped.origin.x.isNaN, !clipped.origin.y.isNaN, !clipped.width.isNaN, !clipped.height.isNaN else { return nil }
+        return clipped
     }
     
     private func _endBackgroundTask() {
@@ -463,7 +521,9 @@ public final class TelemetryPipeline: NSObject {
         }
         
         let device = UIDevice.current
-        let bounds = UIScreen.main.bounds
+        let screen = UIScreen.main
+        let bounds = screen.bounds
+        let scale = screen.scale
         
         // Get current network state from orchestrator
         let networkType = ReplayOrchestrator.shared.currentNetworkType
@@ -491,7 +551,11 @@ public final class TelemetryPipeline: NSObject {
             "appId": appId,
             "screenWidth": Int(bounds.width),
             "screenHeight": Int(bounds.height),
-            "screenScale": Int(UIScreen.main.scale),
+            "screenWidthPixels": Int(bounds.width * scale),
+            "screenHeightPixels": Int(bounds.height * scale),
+            "screenScale": scale,
+            "pixelRatio": scale,
+            "coordinateSpace": "pt",
             "systemName": device.systemName,
             "name": device.name
         ]
@@ -564,7 +628,7 @@ public final class TelemetryPipeline: NSObject {
         
         // Skip dead tap detection for interactive elements (buttons, touchables, etc.)
         // These are expected to respond, so we don't need to track "no response" as dead.
-        if isInteractive || isKeyboardVisible {
+        if isInteractive {
             // Interactive elements are assumed to respond — no dead tap timer needed
             return
         }
@@ -579,7 +643,7 @@ public final class TelemetryPipeline: NSObject {
             guard let self = self else { return }
             self._deadTapTimer = nil
             // Only fire dead tap if no response event occurred since this tap
-            if !self.isKeyboardVisible && self._lastResponseTs <= self._lastTapTs {
+            if self._lastResponseTs <= self._lastTapTs {
                 self.recordDeadTapEvent(label: self._lastTapLabel, x: self._lastTapX, y: self._lastTapY)
                 ReplayOrchestrator.shared.incrementDeadTapTally()
             }
@@ -590,22 +654,28 @@ public final class TelemetryPipeline: NSObject {
     
     @objc public func recordRageTapEvent(label: String, x: UInt64, y: UInt64, count: Int) {
         _cancelDeadTapTimer()
-        guard !isKeyboardVisible else { return }
+        // Version-skew guard: RN SDK 1.2.x event shapes remain backend-compatible,
+        // but current native builds must never emit frustration events for taps
+        // inside the system keyboard area.
+        guard !isPointInsideKeyboardArea(CGPoint(x: CGFloat(x), y: CGFloat(y))) else { return }
+        let timestamp = _ts()
         _enqueue([
             "type": "gesture",
             "gestureType": "rage_tap",
-            "timestamp": _ts(),
+            "timestamp": timestamp,
             "label": label,
             "x": x,
             "y": y,
             "count": count,
             "frustrationKind": "rage_tap",
-            "touches": [["x": x, "y": y, "timestamp": _ts()]]
+            "touches": [["x": x, "y": y, "timestamp": timestamp]]
         ])
     }
     
     @objc public func recordDeadTapEvent(label: String, x: UInt64, y: UInt64) {
-        guard !isKeyboardVisible else { return }
+        // See recordRageTapEvent: keyboard-region taps are normal typing, not
+        // rage/dead taps, even when backend and package versions differ.
+        guard !isPointInsideKeyboardArea(CGPoint(x: CGFloat(x), y: CGFloat(y))) else { return }
         _enqueue([
             "type": "gesture",
             "gestureType": "dead_tap",

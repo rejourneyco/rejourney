@@ -18,9 +18,23 @@ final class RejourneyTests: XCTestCase {
         defer { RejourneyNetworkEventFilter.configure(apiURLString: "https://api.rejourney.co") }
 
         XCTAssertTrue(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://example.com/rejourney/api/sdk/config"))))
+        XCTAssertTrue(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://example.com/rejourney/api/ingest/presign"))))
+        XCTAssertTrue(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://example.com/rejourney/upload/artifacts/artifact_123"))))
         XCTAssertTrue(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://upload.example.com/upload/artifacts/artifact_123"))))
+        XCTAssertFalse(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://example.com/rejourney/api/orders"))))
+        XCTAssertFalse(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://example.com/rejourneyish/api/ingest/presign"))))
         XCTAssertFalse(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://app.example.com/api/orders"))))
         XCTAssertFalse(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: "https://app.example.com/api/ingestor"))))
+    }
+
+    func testNetworkEventFilterIgnoresRegisteredPresignedUploadUrls() throws {
+        RejourneyNetworkEventFilter.configure(apiURLString: "https://api.rejourney.co")
+        defer { RejourneyNetworkEventFilter.configure(apiURLString: "https://api.rejourney.co") }
+
+        let uploadUrl = "https://s3.example.com/rejourney-bucket/session/events.gz?X-Amz-Signature=abc"
+        XCTAssertFalse(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: uploadUrl))))
+        RejourneyNetworkEventFilter.registerInternalURL(urlString: uploadUrl)
+        XCTAssertTrue(RejourneyNetworkEventFilter.shouldIgnore(url: try XCTUnwrap(URL(string: uploadUrl))))
     }
 
     func testRemoteConfigFetchSendsNativeHeadersAndParsesConfig() async {
@@ -30,6 +44,7 @@ final class RejourneyTests: XCTestCase {
           "rejourneyEnabled": true,
           "recordingEnabled": false,
           "textInputMasking": "secure_only",
+          "imageVideoMasking": "all",
           "recordingFps": 3,
           "sampleRate": 25,
           "maxRecordingMinutes": 7
@@ -59,6 +74,7 @@ final class RejourneyTests: XCTestCase {
         XCTAssertEqual(config.projectId, "proj_123")
         XCTAssertFalse(config.recordingEnabled)
         XCTAssertEqual(config.textInputMasking, "secure_only")
+        XCTAssertEqual(config.imageVideoMasking, "all")
         XCTAssertEqual(config.recordingFps, 3)
         XCTAssertEqual(config.sampleRate, 25)
         XCTAssertEqual(config.maxRecordingMinutes, 7)
@@ -174,6 +190,7 @@ final class RejourneyTests: XCTestCase {
             ),
             recordingEnabled: true,
             textInputMasking: "secure_only",
+            imageVideoMasking: "all",
             recordingFps: 3
         ).nativeDictionary
 
@@ -184,6 +201,7 @@ final class RejourneyTests: XCTestCase {
         XCTAssertEqual(settings["collectGeoLocation"] as? Bool, false)
         XCTAssertEqual(settings["captureNativeSheets"] as? Bool, false)
         XCTAssertEqual(settings["textInputMasking"] as? String, "secure_only")
+        XCTAssertEqual(settings["imageVideoMasking"] as? String, "all")
         XCTAssertEqual(settings["observeOnly"] as? Bool, false)
 
         let telemetryOnlySettings = RejourneyCaptureSettings(
@@ -296,6 +314,25 @@ final class RejourneyTests: XCTestCase {
         let rects = RedactionMask().computeRects(windows: [window])
 
         XCTAssertTrue(rects.isEmpty)
+    }
+
+    @MainActor
+    func testRedactionMaskTracksAutoMaskedViewMovementBeforeCacheExpiry() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 240, height: 240))
+        let field = UITextField(frame: CGRect(x: 20, y: 30, width: 140, height: 36))
+
+        window.addSubview(field)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+
+        let mask = RedactionMask()
+        let initialRect = mask.computeRects(windows: [window]).first
+        field.frame.origin.y = 96
+        window.layoutIfNeeded()
+        let movedRect = mask.computeRects(windows: [window]).first
+
+        XCTAssertEqual(initialRect?.origin.y, 30)
+        XCTAssertEqual(movedRect?.origin.y, 96)
     }
 
     @MainActor

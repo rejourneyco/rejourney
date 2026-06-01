@@ -560,6 +560,7 @@ class SegmentDispatcher private constructor() {
     }
     
     private suspend fun uploadToS3(url: String, payload: ByteArray): Boolean {
+        RejourneyNetworkEventFilter.registerInternalUrl(url)
         val mediaType = "application/gzip".toMediaType()
         
         val request = Request.Builder()

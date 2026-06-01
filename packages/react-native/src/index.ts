@@ -692,6 +692,7 @@ export const Rejourney: RejourneyAPI = {
           buildNativeStartOptions(_storedConfig, userId, apiUrl, publicKey, {
             captureScreen: effectiveRecordingEnabled,
             textInputMasking: effectiveRemoteConfig.textInputMasking,
+            imageVideoMasking: effectiveRemoteConfig.imageVideoMasking,
             recordingFps: _remoteConfig ? effectiveRemoteConfig.recordingFps : undefined,
           })
         )
@@ -781,11 +782,6 @@ export const Rejourney: RejourneyAPI = {
           // RejourneyNetworkInterceptor on Android) are supplementary — they capture
           // native-originated HTTP calls that bypass JS fetch(), but cannot intercept
           // RN's own networking since it creates its NSURLSession/OkHttpClient at init time.
-          const ignoreUrls: (string | RegExp)[] = [
-            apiUrl,
-            ...(_storedConfig?.networkIgnoreUrls || []),
-          ];
-
           getNetworkInterceptor().initNetworkInterceptor(
             (request: NetworkRequestParams) => {
               getAutoTracking().trackAPIRequest(
@@ -797,7 +793,8 @@ export const Rejourney: RejourneyAPI = {
               Rejourney.logNetworkRequest(request);
             },
             {
-              ignoreUrls,
+              apiUrl,
+              ignoreUrls: _storedConfig?.networkIgnoreUrls || [],
               captureSizes: _storedConfig?.networkCaptureSizes !== false,
             }
           );

@@ -169,6 +169,36 @@ describe('backup-quality evaluator', () => {
         expect(result.qualityReason.expectedArtifactKinds).toEqual(['events']);
     });
 
+    it('classifies replay-quota-exhausted backups with a dedicated quality tier', () => {
+        const result = evaluateBackupQuality({
+            manifest: buildManifest({
+                session: {
+                    replayQuotaBillingExhausted: true,
+                },
+                artifacts: [
+                    { kind: 'events', startTime: 0, endTime: 4_000 },
+                    { kind: 'hierarchy', startTime: 0, endTime: 4_000 },
+                ],
+                backupArtifacts: [
+                    { kind: 'events', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                    { kind: 'hierarchy', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                ],
+            }),
+            plannedArtifactCount: 2,
+            artifactCount: 2,
+            actualR2ArtifactCount: 2,
+            actualR2ObjectCount: 3,
+            manifestPresent: true,
+        });
+
+        expect(result.highQuality).toBe(false);
+        expect(result.qualityTier).toBe('replay_quota_billing_exhausted');
+        expect(result.qualityReason.reasons).toEqual([]);
+        expect(result.qualityReason.observeOnly).toBe(false);
+        expect(result.qualityReason.replayQuotaBillingExhausted).toBe(true);
+        expect(result.qualityReason.expectedArtifactKinds).toEqual(['events', 'hierarchy']);
+    });
+
     it('marks observe-only backups with screenshots as broken', () => {
         const result = evaluateBackupQuality({
             manifest: buildManifest({

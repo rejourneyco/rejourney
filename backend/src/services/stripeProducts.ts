@@ -6,7 +6,7 @@
  * 
  * Key concepts:
  * - Plans are Stripe Products with associated Prices
- * - Session limits are stored in Stripe Price metadata (session_limit)
+ * - Session replay limits are stored in Stripe Price metadata (legacy key: session_limit)
  * - Subscriptions track which Price a team is on
  * - Custom enterprise pricing uses custom Stripe Prices
  */
@@ -37,7 +37,7 @@ export interface StripePlan {
     productId: string;
     name: string;           // Product name (e.g., 'Starter')
     displayName: string;    // Display name
-    sessionLimit: number;   // From price metadata
+    sessionLimit: number;   // Replay limit from legacy price metadata key session_limit
     videoRetentionTier: number;
     videoRetentionDays: number;
     videoRetentionLabel: string;
@@ -109,7 +109,7 @@ interface DerivedPlanChangePreview {
 // Constants
 // =============================================================================
 
-// Free tier session limit (for users without a subscription)
+// Free tier session replay limit (for users without a subscription)
 export const FREE_TIER_SESSIONS = 5000;
 
 // Standard plan names for ordering
@@ -202,7 +202,7 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                     productMetadata: null,
                 };
 
-            // Skip prices without session_limit metadata
+            // Skip prices without the legacy replay-limit metadata key.
             const sessionLimit = price.metadata?.session_limit;
             if (!sessionLimit) {
                 const skipDetails = {
@@ -478,17 +478,17 @@ export function derivePlanChangePreviewState(
             warnings.push(`You'll enter payment details and confirm any required authentication in secure Stripe Checkout.`);
             warnings.push(`You'll be charged $${(chargeAmountCents / 100).toFixed(2)} when checkout completes.`);
         }
-        warnings.push('Unused sessions from your free tier will not carry over.');
+        warnings.push('Unused session replay quota from your free tier will not carry over.');
     } else if (changeType === 'upgrade') {
         if (!hasPaymentMethod && requiresPaymentMethod) {
             warnings.push('You must add a payment method before upgrading to a paid plan.');
         } else if (chargeAmountCents > 0) {
             warnings.push(`You'll be charged $${(chargeAmountCents / 100).toFixed(2)} now.`);
         }
-        warnings.push('Your billing cycle will reset and unused sessions will not carry over.');
+        warnings.push('Your billing cycle will reset and unused session replay quota will not carry over.');
     } else if (changeType === 'downgrade') {
         warnings.push(`Your downgrade will take effect on ${currentSub.currentPeriodEnd?.toLocaleDateString() || 'the next billing cycle'}.`);
-        warnings.push(`You'll keep your current ${currentSub.sessionLimit.toLocaleString()} session limit until then.`);
+        warnings.push(`You'll keep your current ${currentSub.sessionLimit.toLocaleString()} session replay limit until then.`);
     }
 
     return {
@@ -735,7 +735,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         const price = item.price;
         const product = price.product as Stripe.Product;
 
-        // Get session limit from price metadata
+        // Get replay limit from legacy price metadata.
         const sessionLimit = parseInt(price.metadata?.session_limit || '0') || FREE_TIER_SESSIONS;
         const retentionTier = normalizeVideoRetentionTier(parseVideoRetentionTier(price.metadata?.retention_tier));
         const videoRetention = await getVideoRetentionDetailsForTier(retentionTier);
@@ -914,7 +914,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
 }
 
 /**
- * Get session limit for a team
+ * Get session replay limit for a team
  */
 export async function getTeamSessionLimit(teamId: string): Promise<number> {
     const sub = await getTeamSubscription(teamId);
@@ -1082,7 +1082,7 @@ export async function previewPlanChange(
             requiresPaymentMethod,
             hasPaymentMethod,
             currentUsage: {
-                sessionsUsed: 0, // TODO: Get from billing_usage
+                sessionsUsed: 0, // Backward-compatible alias for session replay usage.
                 sessionLimit: currentSub.sessionLimit,
                 daysRemainingInCycle,
             },
@@ -1295,7 +1295,7 @@ export async function executePlanChange(
 
             const newPeriod = getTeamBillingPeriod(newAnchor);
 
-            // Reset session count to 0 for this team by clearing projectUsage for the new period
+            // Clear any accidental usage rows for the newly reset billing period.
             // Get all projects for this team
             const teamProjects = await db
                 .select({ id: projects.id })
@@ -1442,7 +1442,7 @@ export async function executePlanChange(
         .set(updateData)
         .where(eq(teams.id, teamId));
 
-    // Invalidate Redis cache for session limits (needed for all plan changes)
+    // Invalidate Redis cache for replay limits (needed for all plan changes)
     try {
         const { invalidateSessionCache } = await import('./quotaCheck.js');
         await invalidateSessionCache(teamId);

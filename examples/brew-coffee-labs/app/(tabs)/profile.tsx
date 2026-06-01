@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View,
     Text,
@@ -18,6 +18,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase.js'; // Your Supabase client instance
 import { getCurrentSupabaseToken } from '../../authUtils';
@@ -27,6 +30,8 @@ import Rejourney, { Mask } from '@rejourneyco/react-native';
 
 // Assume Cloudflare Worker URL is still used for *uploading*, not validation
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://your-worker-name.your-subdomain.workers.dev';
+const BREW_NESTED_VIDEO_SOURCE = require('../../assets/media/brew-nested-video-demo.mp4');
+const BREW_NESTED_VIDEO_POSTER = require('../../assets/media/brew-video-poster.png');
 
 const COLORS = {
     white: '#FFFFFF',
@@ -65,6 +70,13 @@ export default function ProfileScreen() {
     const [isSubmitting, setIsSubmitting] = useState(false); // Separate state for actions like save/upload/logout
     const [loadingMessage, setLoadingMessage] = useState('Loading profile...'); // Keep for logging/debug
     const [activeNativeSheet, setActiveNativeSheet] = useState<NativeSheetDemo | null>(null);
+    const [isNestedVideoPlaying, setIsNestedVideoPlaying] = useState(false);
+    const [showNestedVideoPoster, setShowNestedVideoPoster] = useState(true);
+    const nestedVideoPlayer = useVideoPlayer(BREW_NESTED_VIDEO_SOURCE, (player) => {
+        player.loop = true;
+        player.muted = true;
+        player.volume = 0;
+    });
 
     // --- Refactored Validation Function to use Supabase Edge Function ---
     const validateProfileContentWithEdgeFunction = async (
@@ -580,6 +592,54 @@ export default function ProfileScreen() {
         setActiveNativeSheet(null);
     };
 
+    const handleNestedVideoTap = useCallback(() => {
+        if (isSubmitting || isLoading) return;
+
+        const nextPlaying = !isNestedVideoPlaying;
+        setShowNestedVideoPoster(false);
+        if (nextPlaying) {
+            nestedVideoPlayer.play();
+        } else {
+            nestedVideoPlayer.pause();
+        }
+        setIsNestedVideoPlaying(nextPlaying);
+        Rejourney.logEvent('native_sheet_nested_video_toggled', {
+            playing: nextPlaying,
+            screen: 'profile',
+        });
+    }, [isLoading, isNestedVideoPlaying, isSubmitting, nestedVideoPlayer]);
+
+    const handleNestedVideoLongPress = useCallback(() => {
+        if (isSubmitting || isLoading) return;
+
+        nestedVideoPlayer.pause();
+        nestedVideoPlayer.currentTime = 0;
+        setIsNestedVideoPlaying(false);
+        setShowNestedVideoPoster(true);
+        Rejourney.logEvent('native_sheet_nested_video_reset', {
+            screen: 'profile',
+        });
+    }, [isLoading, isSubmitting, nestedVideoPlayer]);
+
+    const nestedVideoTapGesture = useMemo(
+        () => Gesture.Tap().runOnJS(true).onEnd((_event, success) => {
+            if (success) handleNestedVideoTap();
+        }),
+        [handleNestedVideoTap]
+    );
+
+    const nestedVideoLongPressGesture = useMemo(
+        () => Gesture.LongPress().minDuration(450).runOnJS(true).onEnd((_event, success) => {
+            if (success) handleNestedVideoLongPress();
+        }),
+        [handleNestedVideoLongPress]
+    );
+
+    const nestedVideoGesture = useMemo(
+        () => Gesture.Exclusive(nestedVideoLongPressGesture, nestedVideoTapGesture),
+        [nestedVideoLongPressGesture, nestedVideoTapGesture]
+    );
+
     const completePaymentDemo = () => {
         closeNativeSheetDemo();
         setTimeout(() => {
@@ -946,6 +1006,55 @@ export default function ProfileScreen() {
                             <Text style={[styles.settingText, (isSubmitting || isLoading) && styles.textDisabled]}>Alert Dialog</Text>
                             <Feather name="chevron-right" size={18} color={(isSubmitting || isLoading) ? COLORS.mediumGray : COLORS.darkGray} />
                         </TouchableOpacity>
+
+                        <View style={styles.nestedVideoTestCard}>
+                            <View style={styles.nestedVideoHeader}>
+                                <View style={[styles.settingIconContainer, styles.mediaTestIcon, (isSubmitting || isLoading) && styles.disabledItemVisual]}>
+                                    <Feather name="film" size={20} color={(isSubmitting || isLoading) ? COLORS.mediumGray : COLORS.coffee} />
+                                </View>
+                                <View style={styles.nestedVideoTitleGroup}>
+                                    <Text style={[styles.nestedVideoTitle, (isSubmitting || isLoading) && styles.textDisabled]}>Nested Video Button</Text>
+                                    <Text style={[styles.nestedVideoSubtitle, (isSubmitting || isLoading) && styles.textDisabled]}>expo-video with expo-image poster</Text>
+                                </View>
+                            </View>
+
+                            <GestureDetector gesture={nestedVideoGesture}>
+                                <View
+                                    collapsable={false}
+                                    style={[styles.nestedVideoOuterShell, (isSubmitting || isLoading) && styles.disabledItem]}
+                                >
+                                    <View collapsable={false} style={styles.nestedVideoMiddleShell}>
+                                        <View collapsable={false} style={styles.nestedVideoInnerShell}>
+                                            <VideoView
+                                                player={nestedVideoPlayer}
+                                                style={styles.nestedVideo}
+                                                nativeControls={false}
+                                                contentFit="cover"
+                                                allowsFullscreen={false}
+                                                allowsPictureInPicture={false}
+                                                pointerEvents="none"
+                                            />
+                                            {showNestedVideoPoster && (
+                                                <ExpoImage
+                                                    source={BREW_NESTED_VIDEO_POSTER}
+                                                    style={styles.nestedVideoPoster}
+                                                    contentFit="cover"
+                                                    transition={160}
+                                                    pointerEvents="none"
+                                                />
+                                            )}
+                                            <View style={styles.nestedVideoScrim} pointerEvents="none" />
+                                            <View style={styles.nestedVideoButtonOverlay} pointerEvents="none">
+                                                <Feather name={isNestedVideoPlaying ? 'pause' : 'play'} size={18} color={COLORS.white} />
+                                                <Text style={styles.nestedVideoButtonText}>
+                                                    {isNestedVideoPlaying ? 'Pause Video' : 'Play Video'}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </View>
+                            </GestureDetector>
+                        </View>
                     </View>
 
                     {/* Account Settings */}
@@ -1287,6 +1396,81 @@ const styles = StyleSheet.create({
     },
     brewTestIcon: {
         backgroundColor: '#F3ECE6',
+    },
+    mediaTestIcon: {
+        backgroundColor: '#F3ECE6',
+    },
+    nestedVideoTestCard: {
+        borderTopWidth: 1,
+        borderTopColor: COLORS.lightGray,
+        paddingTop: 16,
+        paddingBottom: 12,
+    },
+    nestedVideoHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    nestedVideoTitleGroup: {
+        flex: 1,
+    },
+    nestedVideoTitle: {
+        fontSize: 15,
+        color: COLORS.black,
+        fontWeight: '600',
+    },
+    nestedVideoSubtitle: {
+        fontSize: 12,
+        color: COLORS.darkGray,
+        marginTop: 2,
+        fontWeight: '500',
+    },
+    nestedVideoOuterShell: {
+        marginTop: 14,
+        padding: 10,
+        borderRadius: 24,
+        backgroundColor: '#F3ECE6',
+        borderWidth: 1,
+        borderColor: '#E4D3C4',
+    },
+    nestedVideoMiddleShell: {
+        padding: 8,
+        borderRadius: 20,
+        backgroundColor: '#FFF8F0',
+    },
+    nestedVideoInnerShell: {
+        height: 240,
+        borderRadius: 16,
+        overflow: 'hidden',
+        backgroundColor: COLORS.black,
+    },
+    nestedVideo: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    nestedVideoPoster: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    nestedVideoScrim: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.16)',
+    },
+    nestedVideoButtonOverlay: {
+        position: 'absolute',
+        left: 18,
+        right: 18,
+        bottom: 18,
+        minHeight: 46,
+        borderRadius: 23,
+        backgroundColor: 'rgba(0, 0, 0, 0.72)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingHorizontal: 18,
+    },
+    nestedVideoButtonText: {
+        color: COLORS.white,
+        fontSize: 14,
+        fontWeight: '700',
     },
     nativeSheetContainer: {
         flex: 1,

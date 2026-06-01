@@ -12,6 +12,7 @@ import { getCurrentUrl, getDocument, getNavigator } from './browser.js';
 import { enqueueChunk, listQueuedChunks, removeQueuedChunk, type QueuedUploadChunk } from './storage.js';
 import { logger } from './logger.js';
 import { normalizeBaseUrl } from './config.js';
+import { registerInternalNetworkUrl } from './networkInterceptor.js';
 import type {
   EventArtifactEnvelope,
   RejourneyEvent,
@@ -91,6 +92,7 @@ async function postJson(url: string, body: unknown, headers: HeadersInit): Promi
 }
 
 async function putPayload(url: string, payload: Uint8Array): Promise<void> {
+  registerInternalNetworkUrl(url);
   const uploadBuffer = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer;
   const body: BodyInit = typeof Blob !== 'undefined'
     ? new Blob([uploadBuffer], { type: 'application/json' })

@@ -8,9 +8,9 @@ describe('heatmapMode', () => {
         expect(getAvailableHeatmapModes('web')).toEqual(['attention', 'touch']);
     });
 
-    it('keeps mobile screens touch-only', () => {
-        expect(getDefaultHeatmapMode('mobile')).toBe('touch');
-        expect(getAvailableHeatmapModes('mobile')).toEqual(['touch']);
+    it('defaults mobile screens to attention maps while keeping touch available', () => {
+        expect(getDefaultHeatmapMode('mobile')).toBe('attention');
+        expect(getAvailableHeatmapModes('mobile')).toEqual(['attention', 'touch']);
     });
 
     it('preserves long web document ratios', () => {

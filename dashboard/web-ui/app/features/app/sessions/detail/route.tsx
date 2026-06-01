@@ -4,6 +4,7 @@ import {
     ArrowLeft,
     ChevronRight,
     ChevronLeft,
+    ChevronDown,
     VideoOff,
     Clock,
     Smartphone,
@@ -19,9 +20,9 @@ import {
     AlertTriangle,
     Play,
     Pause,
-    SkipBack,
-    SkipForward,
     RotateCcw,
+    RotateCw,
+    Loader2,
     Layers,
     Move,
     Maximize2,
@@ -37,6 +38,7 @@ import {
     Check,
     Copy,
     Database,
+    UserRound,
 } from 'lucide-react';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { api } from '~/shared/api/client';
@@ -54,6 +56,9 @@ import {
     buildCompressedBackgroundGaps,
     compressReplayEvents,
     compressReplayTimestamp,
+    expandCompressedReplayTimestamp,
+    formatBackgroundGapDuration,
+    isTimestampInsideCompressedBackgroundGap,
 } from '~/shared/lib/replayTimeCompression';
 import { useSessionData } from '~/shared/providers/SessionContext';
 
@@ -65,6 +70,7 @@ interface SessionEvent {
     id?: string;
     type: string;
     name?: string;
+    label?: string;
     timestamp: number;
     properties?: Record<string, any>;
     payload?: Record<string, any>;
@@ -77,6 +83,9 @@ interface SessionEvent {
     gestureType?: string;
     frustrationKind?: string;
     targetLabel?: string;
+    x?: number;
+    y?: number;
+    count?: number;
     touches?: Array<{ x: number; y: number; force?: number }>;
     level?: 'log' | 'warn' | 'error' | string;
     message?: string;
@@ -552,10 +561,24 @@ const formatCountCompact = (count: number): string => {
     return String(Math.round(count));
 };
 
+// Upper bound for any playback clock. Real replay sessions never approach this,
+// so it doubles as a guard against absolute timestamps (epoch seconds/ms) leaking
+// in where a relative offset is expected — those would otherwise render as an
+// absurd minute count (e.g. an epoch value formatting as "29667882:55").
+const MAX_PLAYBACK_CLOCK_SECONDS = 24 * 60 * 60; // 24h
+
 const formatPlaybackClock = (seconds: number): string => {
-    if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    if (!Number.isFinite(seconds)) return '00:00';
+    // Clamp negatives to 0 and cap implausibly large values so a stray absolute
+    // timestamp can never produce a giant, impossible clock readout.
+    const clamped = Math.min(Math.max(0, seconds), MAX_PLAYBACK_CLOCK_SECONDS);
+    const totalSecs = Math.floor(clamped);
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hrs > 0) {
+        return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
@@ -818,7 +841,9 @@ const getEventTargetSummary = (event: SessionEvent): string | null => {
     const name = toDisplayString(event.name);
     const candidates = [
         event.targetLabel,
+        event.label,
         properties.targetLabel,
+        properties.label,
         properties.target,
         properties.accessibilityLabel,
         properties.elementLabel,
@@ -837,17 +862,52 @@ const getEventTargetSummary = (event: SessionEvent): string | null => {
 };
 
 const getEventTouchSummary = (event: SessionEvent): string | null => {
+    const firstTouch = getEventFirstTouchPoint(event);
+    if (!firstTouch) return null;
+
+    const rawTouches = event.touches || event.properties?.touches || event.payload?.touches || [];
+    const touches = Array.isArray(rawTouches) ? rawTouches : [];
+    const point = `x ${Math.round(firstTouch.x)}, y ${Math.round(firstTouch.y)}`;
+    return touches.length > 1 ? `${touches.length} touches at ${point}` : `Touch at ${point}`;
+};
+
+const getEventFirstTouchPoint = (event: SessionEvent): { x: number; y: number } | null => {
     const rawTouches = event.touches || event.properties?.touches || event.payload?.touches || [];
     const touches = Array.isArray(rawTouches) ? rawTouches : [];
     const firstTouch = touches[0];
-    if (!firstTouch) return null;
 
-    const x = Number(firstTouch.x);
-    const y = Number(firstTouch.y);
+    const x = Number(firstTouch?.x ?? event.x ?? event.properties?.x ?? event.payload?.x);
+    const y = Number(firstTouch?.y ?? event.y ?? event.properties?.y ?? event.payload?.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+};
 
-    const point = `x ${Math.round(x)}, y ${Math.round(y)}`;
-    return touches.length > 1 ? `${touches.length} touches at ${point}` : `Touch at ${point}`;
+const isKeyboardAreaEvent = (event: SessionEvent): boolean => {
+    // Dashboard-side mirror of backend compatibility logic. Already-shipped
+    // Swift 0.2.x / RN 1.2.x sessions may only have UIKit keyboard labels in
+    // raw touch artifacts; filter those from replay rage inference without
+    // hiding ordinary app UI that mentions keyboards.
+    const properties = event.properties || {};
+    const payload = event.payload || {};
+    const labelText = [
+        event.label,
+        event.name,
+        event.targetLabel,
+        properties.label,
+        properties.targetLabel,
+        properties.target,
+        payload.label,
+        payload.targetLabel,
+        payload.target,
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+    return labelText.includes('uikeyboard') ||
+        labelText.includes('uiinputset') ||
+        labelText.includes('uitexteffects') ||
+        labelText.includes('uiremotekeyboard');
 };
 
 const getEventScreenSummary = (event: SessionEvent): string | null => {
@@ -889,6 +949,17 @@ const getReadablePropertiesSummary = (properties: Record<string, any> | undefine
         });
 
     return parts.length > 0 ? parts.join(' · ') : null;
+};
+
+const canNavigateToReplaySession = (session: any): boolean => {
+    if (!session) return false;
+    if (session.canOpenReplay !== undefined) return Boolean(session.canOpenReplay);
+    if (session.replayAvailable === false || session.recordingDeleted || session.isReplayExpired) return false;
+    if (session.replayAvailable === true) return true;
+    if (session.hasSuccessfulRecording !== undefined) return Boolean(session.hasSuccessfulRecording);
+    if (session.hasRecording !== undefined) return Boolean(session.hasRecording);
+    if (session.playbackMode && session.playbackMode !== 'none') return true;
+    return Number(session.stats?.screenshotSegmentCount ?? 0) > 0;
 };
 
 const getActivityEventDetail = (event: SessionEvent): string | null => {
@@ -1037,6 +1108,10 @@ const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string;
 };
 
 const PLAYBACK_STATE_COMMIT_INTERVAL_MS = 250;
+const REPLAY_SKIP_SECONDS = 10;
+// Failsafe: if the next screenshot frame still hasn't decoded after this long while
+// buffering, resume playback anyway so a single broken/slow frame can't hang the replay.
+const MAX_BUFFER_STALL_MS = 8000;
 const MAX_TIMELINE_MARKERS = 36;
 const TIMELINE_MARKER_DEFAULT_TRACK_WIDTH_PX = 900;
 const TIMELINE_MARKER_BASE_SPACING_PX = 64;
@@ -1187,13 +1262,23 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Replay player state
     const [isPlaying, setIsPlaying] = useState(false);
-    const [playbackRate, setPlaybackRate] = useState(2);
+    const [playbackRate, setPlaybackRate] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
     const [showTouchOverlay, setShowTouchOverlay] = useState(true);
     const [touchEvents, setTouchEvents] = useState<OverlayTouchEvent[]>([]);
     const [activitySearch, setActivitySearch] = useState<string>('');
     const [isDragging, setIsDragging] = useState(false);
     const [hoveredMarker, setHoveredMarker] = useState<TimelineHoveredMarker | null>(null);
+    // True while playback is paused waiting on the upcoming screenshot frame to
+    // finish decoding (or rrweb segments to download). Keeps the progress bar from
+    // racing ahead of what's actually painted.
+    const [isBuffering, setIsBuffering] = useState(false);
+    const isBufferingRef = useRef(false);
+    const bufferStallStartRef = useRef<number>(0);
+    // Scrubber hover preview: a frame thumbnail + timestamp bubble that follows the cursor.
+    const [scrubPreview, setScrubPreview] = useState<{ leftPercent: number; time: number; frameUrl: string | null } | null>(null);
+    // Timeline marker categories the user has hidden via the legend, to de-clutter the scrubber.
+    const [hiddenMarkerCategories, setHiddenMarkerCategories] = useState<Set<TimelineMarkerCategory>>(() => new Set());
     const [progressTrackWidth, setProgressTrackWidth] = useState(0);
     const [terminalCopied, setTerminalCopied] = useState(false);
     const [timelineCopied, setTimelineCopied] = useState(false);
@@ -1202,6 +1287,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [userIdCopied, setUserIdCopied] = useState(false);
     const [sessionIdCopied, setSessionIdCopied] = useState(false);
     const [replayUrlCopied, setReplayUrlCopied] = useState(false);
+    const [showHeaderDetails, setShowHeaderDetails] = useState(false);
     const [archiveNeighborSessions, setArchiveNeighborSessions] = useState<any[]>([]);
 
     // DOM Inspector state
@@ -1561,35 +1647,58 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         };
     }, []);
 
-    // Detect rage taps for touch overlay and timeline
-    // This detects 3+ taps in same area within 1.5s as rage taps
+    // Detect rage taps for touch overlay and timeline.
+    // This mirrors native SDK behavior: 3+ taps in the same area within 1s.
     const detectedRageTaps = useMemo(() => {
         const sessionEvents = fullSession?.events || [];
+        const existingRageTaps = sessionEvents.filter((e) => {
+            const type = normalizeEventType(e.type);
+            return type === 'rage_tap' || getEventGestureKind(e) === 'rage_tap';
+        });
         const taps = sessionEvents.filter(e => {
+            // Keep replay inference compatible with older native SDKs that only
+            // emitted `type: "touch", gestureType: "tap"` while ensuring
+            // keyboard-area taps never become rage indicators.
+            if (isKeyboardAreaEvent(e)) return false;
+            const type = normalizeEventType(e.type);
             const gestureKind = getEventGestureKind(e);
-            return e.type === 'gesture' && (gestureKind === 'tap' || gestureKind === 'double_tap');
+            return (type === 'gesture' || type === 'touch' || type === 'tap') &&
+                (gestureKind === 'tap' || gestureKind === 'double_tap');
         });
         const rageTaps: SessionEvent[] = [];
 
         for (let i = 0; i < taps.length; i++) {
             const current = taps[i];
-            const rawCurrentTouches = current.touches || current.properties?.touches || [];
-            const currentTouches = Array.isArray(rawCurrentTouches) ? rawCurrentTouches : [];
-            const currentPos = currentTouches[0] || { x: 0, y: 0 };
+            const currentPos = getEventFirstTouchPoint(current);
+            if (!currentPos) continue;
             let count = 1;
 
             for (let j = i + 1; j < taps.length; j++) {
                 const next = taps[j];
-                if (next.timestamp - current.timestamp > 1500) break;
-                const rawNextTouches = next.touches || next.properties?.touches || [];
-                const nextTouches = Array.isArray(rawNextTouches) ? rawNextTouches : [];
-                const nextPos = nextTouches[0] || { x: 0, y: 0 };
+                if (next.timestamp - current.timestamp > 1000) break;
+                const nextPos = getEventFirstTouchPoint(next);
+                if (!nextPos) continue;
                 const dist = Math.sqrt(Math.pow(nextPos.x - currentPos.x, 2) + Math.pow(nextPos.y - currentPos.y, 2));
                 if (dist <= 50) count++;
             }
 
             if (count >= 3) {
-                rageTaps.push({ ...current, type: 'rage_tap', frustrationKind: 'rage_tap' });
+                const alreadyHasRageMarker = existingRageTaps.some((rageEvent) => {
+                    const ragePos = getEventFirstTouchPoint(rageEvent);
+                    if (!ragePos) return false;
+                    const dist = Math.sqrt(Math.pow(ragePos.x - currentPos.x, 2) + Math.pow(ragePos.y - currentPos.y, 2));
+                    return Math.abs(rageEvent.timestamp - current.timestamp) <= 1000 && dist <= 50;
+                });
+                if (!alreadyHasRageMarker) {
+                    rageTaps.push({
+                        ...current,
+                        id: `client_inferred_rage_${current.id || current.timestamp}`,
+                        type: 'rage_tap',
+                        gestureType: 'rage_tap',
+                        frustrationKind: 'rage_tap',
+                        count,
+                    });
+                }
                 i += count - 1;
             }
         }
@@ -1859,7 +1968,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Also filter out frames that fall outside the session window —
     // cross-session frame leakage can cause frames from a previous
     // session to appear, producing flickering during playback.
-    const screenshotFrames = useMemo(() => {
+    const rawScreenshotFrames = useMemo(() => {
         const rawFrames = fullSession?.screenshotFrames || [];
         if (rawFrames.length === 0 || !fullSession?.startTime) return [];
 
@@ -1876,6 +1985,73 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             .sort((a, b) => a.timestamp - b.timestamp)
             .map((f, idx) => ({ ...f, index: idx }));
     }, [fullSession?.screenshotFrames, fullSession?.startTime, fullSession?.endTime]);
+
+    const screenshotRawEndMs = useMemo(() => {
+        const sessionStart = fullSession?.startTime || 0;
+        if (!sessionStart) return null;
+
+        const candidates: number[] = [];
+        const addCandidate = (value: unknown) => {
+            if (typeof value === 'number' && Number.isFinite(value) && value > sessionStart) {
+                candidates.push(value);
+            }
+        };
+
+        addCandidate(fullSession?.endTime);
+        addCandidate(sessionStart + durationSeconds * 1000);
+        if (
+            typeof fullSession?.playableDuration === 'number' &&
+            Number.isFinite(fullSession.playableDuration) &&
+            fullSession.playableDuration > 0 &&
+            typeof fullSession?.backgroundTime === 'number' &&
+            Number.isFinite(fullSession.backgroundTime) &&
+            fullSession.backgroundTime > 0
+        ) {
+            addCandidate(sessionStart + (durationSeconds + fullSession.backgroundTime) * 1000);
+        }
+
+        const lastFrameTimestamp = rawScreenshotFrames[rawScreenshotFrames.length - 1]?.timestamp;
+        addCandidate(lastFrameTimestamp);
+        if (typeof lastFrameTimestamp === 'number') {
+            addCandidate(lastFrameTimestamp + 500);
+        }
+
+        return candidates.length > 0 ? Math.max(...candidates) : null;
+    }, [durationSeconds, fullSession?.backgroundTime, fullSession?.endTime, fullSession?.playableDuration, fullSession?.startTime, rawScreenshotFrames]);
+
+    const screenshotReplayBackgroundGaps = useMemo(() => (
+        buildCompressedBackgroundGaps(allTimelineEvents, fullSession?.startTime || 0, undefined, {
+            terminalEndMs: screenshotRawEndMs,
+        })
+    ), [allTimelineEvents, fullSession?.startTime, screenshotRawEndMs]);
+
+    const screenshotFrames = useMemo(() => {
+        const sessionStart = fullSession?.startTime || 0;
+        if (rawScreenshotFrames.length === 0 || !sessionStart) return [];
+
+        return rawScreenshotFrames
+            .filter((frame) => !isTimestampInsideCompressedBackgroundGap(frame.timestamp, screenshotReplayBackgroundGaps))
+            .map((frame) => {
+                const compressedTimestamp = compressReplayTimestamp(frame.timestamp, screenshotReplayBackgroundGaps);
+                return {
+                    ...frame,
+                    rawRelativeTime: frame.relativeTime,
+                    relativeTime: Math.max(0, (compressedTimestamp - sessionStart) / 1000),
+                };
+            })
+            .sort((a, b) => a.relativeTime - b.relativeTime || a.timestamp - b.timestamp)
+            .map((frame, index) => ({ ...frame, index }));
+    }, [fullSession?.startTime, rawScreenshotFrames, screenshotReplayBackgroundGaps]);
+
+    const screenshotReplayDurationSeconds = useMemo(() => {
+        const sessionStart = fullSession?.startTime || 0;
+        if (!sessionStart || screenshotReplayBackgroundGaps.length === 0 || typeof screenshotRawEndMs !== 'number') {
+            return durationSeconds;
+        }
+
+        const compressedEnd = compressReplayTimestamp(screenshotRawEndMs, screenshotReplayBackgroundGaps);
+        return Math.max(0, (compressedEnd - sessionStart) / 1000);
+    }, [durationSeconds, fullSession?.startTime, screenshotRawEndMs, screenshotReplayBackgroundGaps]);
 
     const visualReplayPreparing = Boolean(
         fullSession?.playbackMode === 'screenshots' &&
@@ -2023,21 +2199,53 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return () => observer.disconnect();
     }, [playbackMode]);
 
-    const playbackDurationSeconds = playbackMode === 'rrweb' ? webReplayDurationSeconds : durationSeconds;
+    const playbackDurationSeconds = playbackMode === 'rrweb'
+        ? webReplayDurationSeconds
+        : playbackMode === 'screenshots'
+            ? screenshotReplayDurationSeconds
+            : durationSeconds;
     const replayClockBaseTime = playbackMode === 'rrweb'
         ? Number(compressedRrwebReplayEvents[0]?.timestamp) || replayBaseTime
         : replayBaseTime;
     const eventTimestampToPlaybackSeconds = useCallback((timestamp: number) => {
         const playbackTimestamp = playbackMode === 'rrweb'
             ? compressReplayTimestamp(timestamp, webReplayBackgroundGaps)
-            : timestamp;
+            : playbackMode === 'screenshots'
+                ? compressReplayTimestamp(timestamp, screenshotReplayBackgroundGaps)
+                : timestamp;
         return Math.max(0, (playbackTimestamp - replayClockBaseTime) / 1000);
-    }, [playbackMode, replayClockBaseTime, webReplayBackgroundGaps]);
+    }, [playbackMode, replayClockBaseTime, screenshotReplayBackgroundGaps, webReplayBackgroundGaps]);
     const eventFitsPlaybackWindow = useCallback((event: SessionEvent) => {
         if (playbackDurationSeconds <= 0) return false;
         const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
         return Number.isFinite(playbackTime) && playbackTime >= 0 && playbackTime <= playbackDurationSeconds + 0.05;
     }, [eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
+
+    const currentPlaybackRawTimestamp = useMemo(() => {
+        const sessionStart = fullSession?.startTime || replayBaseTime;
+        const playbackTimestamp = sessionStart + currentPlaybackTime * 1000;
+        if (playbackMode === 'screenshots') {
+            return expandCompressedReplayTimestamp(playbackTimestamp, screenshotReplayBackgroundGaps);
+        }
+        return playbackTimestamp;
+    }, [currentPlaybackTime, fullSession?.startTime, playbackMode, replayBaseTime, screenshotReplayBackgroundGaps]);
+
+    const currentPlaybackRawTimeSeconds = useMemo(() => {
+        const sessionStart = fullSession?.startTime || replayBaseTime;
+        return Math.max(0, (currentPlaybackRawTimestamp - sessionStart) / 1000);
+    }, [currentPlaybackRawTimestamp, fullSession?.startTime, replayBaseTime]);
+
+    const activeScreenshotBackgroundGap = useMemo(() => {
+        if (playbackMode !== 'screenshots' || screenshotReplayBackgroundGaps.length === 0) return null;
+        const sessionStart = fullSession?.startTime || 0;
+        if (!sessionStart) return null;
+
+        const playbackTimestamp = sessionStart + currentPlaybackTime * 1000;
+        if (!Number.isFinite(playbackTimestamp)) return null;
+        return screenshotReplayBackgroundGaps.find((gap) => (
+            playbackTimestamp >= gap.compressedStartAt && playbackTimestamp <= gap.compressedEndAt
+        )) ?? null;
+    }, [currentPlaybackTime, fullSession?.startTime, playbackMode, screenshotReplayBackgroundGaps]);
 
     // Has any visual recording?
     const hasRecording = playbackMode !== 'none' || visualReplayPreparing || rrwebReplayPreparing || rrwebReplayFailed || hasRrwebReplayReference;
@@ -2379,19 +2587,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Effect: Keyboard shortcut for play/pause
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore if user is typing in an input/textarea
-            if (e.target !== document.body) return;
+            const target = e.target instanceof HTMLElement ? e.target : null;
+            const isEditableTarget = !!target && (
+                ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+                || target.isContentEditable
+                || !!target.closest('[contenteditable="true"]')
+            );
+            if (isEditableTarget) return;
             if (playbackMode === 'none') return;
 
             if (e.code === 'Space') {
+                if (target?.closest('button, a, [role="button"]')) return;
                 e.preventDefault();
                 togglePlayPause();
             } else if (e.code === 'ArrowLeft') {
                 e.preventDefault();
-                skip(-5);
+                skip(-REPLAY_SKIP_SECONDS);
             } else if (e.code === 'ArrowRight') {
                 e.preventDefault();
-                skip(5);
+                skip(REPLAY_SKIP_SECONDS);
             }
         };
 
@@ -2413,6 +2627,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastPreloadCenterIndexRef.current = -1;
         lastPlaybackClockLabelRef.current = '';
         screenshotFrameCacheRef.current.clear();
+        isBufferingRef.current = false;
+        setIsBuffering(false);
+        setScrubPreview(null);
         syncPlaybackChrome(0);
     }, [id]);
 
@@ -2460,8 +2677,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             return;
         }
 
-        const sessionStartTime = fullSession.startTime || 0;
-        const currentAbsoluteTime = sessionStartTime + currentPlaybackTime * 1000;
+        const currentAbsoluteTime = currentPlaybackRawTimestamp;
         const screenWidth = deviceWidth;
         const screenHeight = deviceHeight;
 
@@ -2469,25 +2685,33 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             .filter((e) => {
                 const eventTime = e.timestamp;
                 const timeDiff = currentAbsoluteTime - eventTime;
-                const isGestureEvent = e.type === 'touch' || e.type === 'gesture';
+                const type = normalizeEventType(e.type);
+                const gestureKind = getEventGestureKind(e);
+                const isFrustrationTap = type === 'rage_tap' || type === 'dead_tap' ||
+                    gestureKind === 'rage_tap' || gestureKind === 'dead_tap';
+                const isGestureEvent = type === 'touch' || type === 'gesture' || isFrustrationTap;
                 const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
                 const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
                 // Use wider window for gesture events (swipe/scroll need more time to be visible)
-                const maxAge = (e.type === 'gesture') ? 1500 : 1000;
+                const maxAge = isFrustrationTap ? 1800 : (type === 'gesture') ? 1500 : 1000;
                 return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < maxAge;
             })
             .map((e) => {
                 const rawTouchArray = e.touches || e.properties?.touches || [];
                 const touchArray = Array.isArray(rawTouchArray) ? rawTouchArray : [];
-                let gestureType = e.gestureType || e.properties?.gestureType || 'tap';
+                const type = normalizeEventType(e.type);
+                const gestureKind = getEventGestureKind(e);
+                let gestureType = e.gestureType || e.properties?.gestureType || e.frustrationKind || e.properties?.frustrationKind || 'tap';
                 const props = e.properties || {};
 
                 // Check if this is a rage tap
                 const isRageTapEvent = detectedRageTaps.some(rt =>
                     Math.abs(rt.timestamp - e.timestamp) < 100
                 );
-                if (isRageTapEvent && gestureType.includes('tap')) {
+                if (type === 'rage_tap' || gestureKind === 'rage_tap' || (isRageTapEvent && gestureType.includes('tap'))) {
                     gestureType = 'rage_tap';
+                } else if (type === 'dead_tap' || gestureKind === 'dead_tap') {
+                    gestureType = 'dead_tap';
                 }
 
                 const validTouches = touchArray
@@ -2510,7 +2734,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     timestamp: e.timestamp,
                     gestureType,
                     touches: validTouches,
-                    targetLabel: e.targetLabel || props.targetLabel,
+                    targetLabel: e.targetLabel || e.label || props.targetLabel || props.label,
                     duration: props.duration || (e as any).duration,
                     velocity: props.velocity || (e as any).velocity,
                     maxForce: props.maxForce || (e as any).maxForce,
@@ -2520,7 +2744,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             .filter((e): e is OverlayTouchEvent => e !== null);
 
         setTouchEvents(recentTouchEvents);
-    }, [playbackMode, fullSession, currentPlaybackTime, showTouchOverlay, detectedRageTaps, deviceWidth, deviceHeight]);
+    }, [playbackMode, fullSession, currentPlaybackRawTimestamp, showTouchOverlay, detectedRageTaps, deviceWidth, deviceHeight]);
 
     const drawScreenshotFrame = useCallback((frameIndex: number) => {
         if (playbackMode !== 'screenshots' || !canvasRef.current || screenshotFrames.length === 0) {
@@ -2579,6 +2803,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 cancelAnimationFrame(screenshotAnimationRef.current);
                 screenshotAnimationRef.current = null;
             }
+            if (isBufferingRef.current) {
+                isBufferingRef.current = false;
+                setIsBuffering(false);
+            }
             return;
         }
 
@@ -2586,7 +2814,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastPlaybackUiUpdateRef.current = lastFrameTimeRef.current;
         syncPlaybackChrome(currentPlaybackTimeRef.current);
         warmScreenshotFramesAround(currentFrameIndexRef.current, 'low');
-        if (durationSeconds <= 0) {
+        if (playbackDurationSeconds <= 0) {
             setIsPlaying(false);
             currentPlaybackTimeRef.current = 0;
             syncPlaybackChrome(0);
@@ -2597,10 +2825,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
             lastFrameTimeRef.current = now;
 
-            // Advance current playback time using our master clock (ref)
+            // Tentative next playback time (committed only once the frame it lands on
+            // is actually decoded — see the buffering gate below).
             const nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
-            currentPlaybackTimeRef.current = nextPlaybackTime;
-            syncPlaybackChrome(nextPlaybackTime);
 
             // Robust frame selection: Binary search for the closest frame at or before nextPlaybackTime
             let left = 0;
@@ -2617,6 +2844,39 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 }
             }
 
+            // Buffering gate: never let the clock/progress bar advance onto a frame
+            // whose image hasn't decoded yet. Instead, freeze on the current frame,
+            // bump the missing frame to high priority, and resume once it's ready.
+            // A failsafe timeout prevents a single broken frame from hanging forever.
+            if (targetIdx !== currentFrameIndexRef.current) {
+                const targetImg = ensureScreenshotFrameImage(screenshotFrames[targetIdx], 'high');
+                const targetReady = !!targetImg && targetImg.complete && targetImg.naturalWidth > 0;
+                if (!targetReady) {
+                    if (!isBufferingRef.current) {
+                        isBufferingRef.current = true;
+                        bufferStallStartRef.current = now;
+                        setIsBuffering(true);
+                    }
+                    warmScreenshotFramesAround(targetIdx, 'high');
+                    if (now - bufferStallStartRef.current < MAX_BUFFER_STALL_MS) {
+                        // Hold position — do not commit nextPlaybackTime.
+                        syncPlaybackChrome(currentPlaybackTimeRef.current);
+                        screenshotAnimationRef.current = requestAnimationFrame(tick);
+                        return;
+                    }
+                    // Failsafe expired: fall through and advance anyway.
+                }
+            }
+
+            if (isBufferingRef.current) {
+                isBufferingRef.current = false;
+                setIsBuffering(false);
+            }
+
+            // Commit the advanced clock now that the target frame is ready.
+            currentPlaybackTimeRef.current = nextPlaybackTime;
+            syncPlaybackChrome(nextPlaybackTime);
+
             if (targetIdx !== currentFrameIndexRef.current) {
                 currentFrameIndexRef.current = targetIdx;
                 drawScreenshotFrame(targetIdx);
@@ -2624,7 +2884,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
 
             // Loop back to the start when playback reaches the end.
-            if (nextPlaybackTime >= durationSeconds) {
+            if (nextPlaybackTime >= playbackDurationSeconds) {
                 currentPlaybackTimeRef.current = 0;
                 currentFrameIndexRef.current = 0;
                 setCurrentPlaybackTime(0);
@@ -2661,10 +2921,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         isPlaying,
         screenshotFrames,
         playbackRate,
-        durationSeconds,
+        playbackDurationSeconds,
         drawScreenshotFrame,
         syncPlaybackChrome,
         warmScreenshotFramesAround,
+        ensureScreenshotFrameImage,
     ]);
 
     // Browser replay clock. rrweb renders its own DOM; this keeps our controls
@@ -2768,11 +3029,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         seekToScreenshotFrame(clampedTime);
     }, [playbackDurationSeconds, playbackMode, seekToScreenshotFrame, syncPlaybackChrome]);
 
+    // Step exactly one screenshot frame forward/back (pauses playback for precise inspection).
+    const stepFrame = useCallback((delta: number) => {
+        if (playbackMode !== 'screenshots' || screenshotFrames.length === 0) return;
+        setIsPlaying(false);
+        const nextIdx = Math.max(0, Math.min(currentFrameIndexRef.current + delta, screenshotFrames.length - 1));
+        const frameTime = screenshotFrames[nextIdx]?.relativeTime ?? 0;
+        seekToScreenshotFrame(frameTime);
+    }, [playbackMode, screenshotFrames, seekToScreenshotFrame]);
+
     const formatPlaybackTime = formatPlaybackClock;
 
-    // Progress percentage
+    // Progress percentage (progress fill/thumb positions are driven imperatively by
+    // syncPlaybackChrome; effectiveDuration is still used for the time readout).
     const effectiveDuration = playbackDurationSeconds;
-    const progressPercent = effectiveDuration > 0 ? (currentPlaybackTime / effectiveDuration) * 100 : 0;
 
     const activityTabs = useMemo(() => {
         const counts = {
@@ -2862,7 +3132,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             if (!normalizedSearch) return true;
 
             const name = (e.name || '').toLowerCase();
-            const target = (e.targetLabel || e.properties?.targetLabel || '').toLowerCase();
+            const target = (e.targetLabel || e.label || e.properties?.targetLabel || e.properties?.label || '').toLowerCase();
             const url = (e.properties?.url || e.properties?.urlPath || '').toLowerCase();
             const props = JSON.stringify(e.properties || {}).toLowerCase();
             const message = (e.message || e.properties?.message || '').toLowerCase();
@@ -2927,7 +3197,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const timelineMarkers = useMemo(() => {
         const markerActivity = filteredActivity.filter((event) => (
-            !isAppForegroundEvent(event) && eventFitsPlaybackWindow(event)
+            !isAppForegroundEvent(event)
+            && eventFitsPlaybackWindow(event)
+            && !hiddenMarkerCategories.has(getTimelineMarkerCategory(event))
         ));
 
         if (playbackDurationSeconds <= 0) return [];
@@ -2999,10 +3271,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             const time = eventTimestampToPlaybackSeconds(event.timestamp);
             if (time < 0 || time > playbackDurationSeconds + 0.05) return;
             const category = getTimelineMarkerCategory(event);
-            if (category === 'api') {
+            if (category === 'api' || category === 'background') {
                 const counts = createTimelineMarkerCounts();
-                counts.api = 1;
-                standaloneMarkers.push(toMarkerView(event, index, 1, counts, `marker-api-${index}-${event.timestamp}`));
+                counts[category] = 1;
+                standaloneMarkers.push(toMarkerView(event, index, 1, counts, `marker-${category}-${index}-${event.timestamp}`));
                 return;
             }
             const bucket = getTimelineBucket(time);
@@ -3051,11 +3323,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return [...clusteredMarkers, ...standaloneMarkers].sort((a, b) => (
             a.percent - b.percent || a.sourceIndex - b.sourceIndex
         ));
-    }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds, progressTrackWidth]);
+    }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds, progressTrackWidth, hiddenMarkerCategories]);
 
     const handleTimelineMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-        if (isDragging || timelineMarkers.length === 0) {
+        if (isDragging) {
             setHoveredMarker((current) => (current ? null : current));
+            setScrubPreview(null);
             return;
         }
 
@@ -3067,6 +3340,30 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
         const pointerX = event.clientX - rect.left;
         if (pointerX < 0 || pointerX > rect.width) {
+            setHoveredMarker((current) => (current ? null : current));
+            setScrubPreview(null);
+            return;
+        }
+
+        // Scrub preview: time bubble (both modes) + a frame thumbnail (screenshots only).
+        if (playbackDurationSeconds > 0) {
+            const ratio = pointerX / rect.width;
+            const previewTime = ratio * playbackDurationSeconds;
+            let frameUrl: string | null = null;
+            if (playbackMode === 'screenshots' && screenshotFrames.length > 0) {
+                let lo = 0;
+                let hi = screenshotFrames.length - 1;
+                while (lo < hi) {
+                    const mid = Math.floor((lo + hi + 1) / 2);
+                    if (screenshotFrames[mid].relativeTime <= previewTime) lo = mid;
+                    else hi = mid - 1;
+                }
+                frameUrl = screenshotFrames[lo]?.url || null;
+            }
+            setScrubPreview({ leftPercent: ratio * 100, time: previewTime, frameUrl });
+        }
+
+        if (timelineMarkers.length === 0) {
             setHoveredMarker((current) => (current ? null : current));
             return;
         }
@@ -3110,10 +3407,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 ? current
                 : { ...nearestMarker, x: nearestMarker.percent };
         });
-    }, [isDragging, timelineMarkers]);
+    }, [isDragging, timelineMarkers, playbackDurationSeconds, playbackMode, screenshotFrames]);
 
     const clearTimelineHover = useCallback(() => {
         setHoveredMarker((current) => (current ? null : current));
+        setScrubPreview(null);
     }, []);
 
     // Keep the activity stream synced with playback. Only scroll the inner
@@ -3156,8 +3454,47 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         'unknown'
     ).toLowerCase();
     const isWebSession = platform === 'web';
+    const shortestDeviceSide = Math.min(deviceWidth, deviceHeight);
+    const longestDeviceSide = Math.max(deviceWidth, deviceHeight);
+    const deviceSideRatio = longestDeviceSide / Math.max(1, shortestDeviceSide);
+    const isTabletReplayDevice = !isWebSession &&
+        shortestDeviceSide >= 600 &&
+        longestDeviceSide >= 900 &&
+        deviceSideRatio <= 1.7;
+    const replayDeviceSizingVars = {
+        '--replay-device-fit-width': replayDeviceFitWidth,
+        ...(isTabletReplayDevice ? {
+            '--replay-device-base-width': '900px',
+            '--replay-device-base-viewport-width': '92vw',
+            '--replay-device-narrow-width': '900px',
+            '--replay-device-narrow-viewport-width': '92vw',
+            '--replay-device-min-width': '360px',
+            '--replay-device-fluid-width': '82cqw',
+            '--replay-device-max-width': '900px',
+            '--replay-device-compact-min-width': '320px',
+            '--replay-device-compact-fluid-width': '80cqw',
+            '--replay-device-compact-max-width': '820px',
+        } : {}),
+    } as React.CSSProperties;
+    const screenshotReplayShellMaxWidthClass = isTabletReplayDevice
+        ? 'max-w-[900px] xl:max-w-none'
+        : 'max-w-[360px] xl:max-w-none';
     const webEnvironment = isWebSession ? getWebSessionEnvironment(fullSession || session) : null;
     const appVersion = fullSession?.appVersion || fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
+    const rawOsVersion = fullSession?.deviceInfo?.osVersion || fullSession?.deviceInfo?.systemVersion || (session as any)?.osVersion || '';
+    const platformLabel = platform === 'ios'
+        ? 'iOS'
+        : platform === 'android'
+            ? 'Android'
+            : platform === 'web'
+                ? 'Web'
+                : titleCaseToken(platform || 'unknown');
+    const headerOsLabel = isWebSession && webEnvironment
+        ? webEnvironment.osLabel
+        : `${platformLabel}${rawOsVersion ? ` ${rawOsVersion}` : ''}`;
+    const headerOsTitle = isWebSession && webEnvironment
+        ? webEnvironment.osTitle
+        : headerOsLabel;
     const headerDeviceLabel = isWebSession && webEnvironment
         ? `${webEnvironment.browserLabel} on ${webEnvironment.osLabel}`
         : deviceModel;
@@ -3311,18 +3648,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             ? rawReplayUserId
             : anonymousFallback;
     const replayUserIdLabel = replayUserIdCopyValue || 'Anonymous';
-    const replayUserIdShown =
-        replayUserIdLabel.length > 7 ? `${replayUserIdLabel.slice(0, 7)}…` : replayUserIdLabel;
+    const replayUserIdShown = replayUserIdLabel;
     const canCopyReplayUserId = Boolean(replayUserIdCopyValue);
 
     // Calculate metrics
     const metrics = fullSession?.metrics || {};
-    const rageTapCount =
-        metrics.rageTapCount ??
-        fullSession?.rageTapCount ??
-        session?.rageTapCount ??
-        detectedRageTaps.length ??
-        0;
+    const timelineRageTapCount = allTimelineEvents.filter((event) => getEventGestureKind(event) === 'rage_tap').length;
+    const hasLoadedTimelineEvents = Boolean(fullSession && Array.isArray(fullSession.events));
+    const rageTapCount = hasLoadedTimelineEvents
+        ? timelineRageTapCount
+        : (
+            metrics.rageTapCount ??
+            fullSession?.rageTapCount ??
+            session?.rageTapCount ??
+            detectedRageTaps.length ??
+            0
+        );
 
     const recordedScreens =
         fullSession?.screensVisited ??
@@ -3456,7 +3797,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const sessionRiskGauge = Math.max(6, Math.min(100, issueSignalsPerMinute * 28));
 
     const formatEventTime = (timestamp: number) => {
-        const elapsed = Math.max(0, (timestamp - replayBaseTime) / 1000);
+        // Guard against non-finite or absolute-epoch timestamps slipping in: clamp
+        // to [0, MAX] so a single bad event time can't render an impossible clock.
+        const rawElapsed = Number.isFinite(timestamp) ? (timestamp - replayBaseTime) / 1000 : 0;
+        const elapsed = Math.min(Math.max(0, rawElapsed), MAX_PLAYBACK_CLOCK_SECONDS);
         const mins = Math.floor(elapsed / 60);
         const secs = Math.floor(elapsed % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -3465,10 +3809,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const playbackDisabled = !hasRecording || visualReplayPreparing || isReplayExpired || Boolean(replayUnavailableReason);
     const sortedSessions = [...sessions].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     const currentSessionIndex = sortedSessions.findIndex((item) => item.id === id);
-    const previousSessionId = currentSessionIndex > 0 ? sortedSessions[currentSessionIndex - 1]?.id : null;
-    const nextSessionId = currentSessionIndex >= 0 && currentSessionIndex < sortedSessions.length - 1
-        ? sortedSessions[currentSessionIndex + 1]?.id
-        : null;
+    const findReplayNeighborSessionId = (direction: -1 | 1): string | null => {
+        if (currentSessionIndex < 0) return null;
+        for (let index = currentSessionIndex + direction; index >= 0 && index < sortedSessions.length; index += direction) {
+            const candidate = sortedSessions[index];
+            if (canNavigateToReplaySession(candidate)) {
+                return candidate.id || null;
+            }
+        }
+        return null;
+    };
+    const previousSessionId = findReplayNeighborSessionId(-1);
+    const nextSessionId = findReplayNeighborSessionId(1);
 
     const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
         if (!search.trim() || !text) return <>{text}</>;
@@ -3541,7 +3893,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
 
     const downloadDOMHierarchy = () => {
-        const absoluteTime = (fullSession?.startTime || 0) + currentPlaybackTime * 1000;
+        const absoluteTime = currentPlaybackRawTimestamp;
         const currentHierarchy = hierarchySnapshots.reduce((prev, curr) =>
             Math.abs(curr.timestamp - absoluteTime) < Math.abs(prev.timestamp - absoluteTime) ? curr : prev
             , hierarchySnapshots[0]);
@@ -3552,7 +3904,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         const url = URL.createObjectURL(file);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-dom-${Math.round(currentPlaybackTime)}s.json`;
+        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-dom-${Math.round(currentPlaybackRawTimeSeconds)}s.json`;
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
@@ -3560,7 +3912,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
 
     const copyDOMHierarchy = async () => {
-        const absoluteTime = (fullSession?.startTime || 0) + currentPlaybackTime * 1000;
+        const absoluteTime = currentPlaybackRawTimestamp;
         const currentHierarchy = hierarchySnapshots.reduce((prev, curr) =>
             Math.abs(curr.timestamp - absoluteTime) < Math.abs(prev.timestamp - absoluteTime) ? curr : prev
             , hierarchySnapshots[0]);
@@ -3661,132 +4013,141 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     return (
         <div className="rejourney-replay-workbench replay-workbench-page flex min-h-screen flex-col bg-[#f8fafd] xl:h-full xl:min-h-0 xl:overflow-hidden">
-            <div className="replay-workbench-header border-b-2 border-black bg-[#f8fafc] md:sticky md:top-0 md:z-40 xl:shrink-0">
-                <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-3 py-3 sm:px-4 xl:flex-row xl:items-center xl:justify-between xl:gap-2 xl:py-2">
-                    <div className="flex w-full min-w-0 flex-1 items-start gap-3">
+            <div className="replay-workbench-header border-b border-slate-200 bg-white md:sticky md:top-0 md:z-40 xl:shrink-0">
+                <div className="replay-header-shell mx-auto flex w-full max-w-[1920px] items-center gap-2 px-3 py-1.5 sm:px-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         <button
                             onClick={handleBackClick}
-                            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-white text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+                            className="replay-header-icon-button flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white text-slate-900 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow"
                             aria-label="Back to sessions"
+                            title="Back to sessions"
                         >
-                            <ArrowLeft className="h-4 w-4" />
+                            <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
                         </button>
 
-                        <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="w-full truncate text-sm font-black uppercase text-black sm:w-auto sm:text-base md:text-lg">Replay Workbench</h1>
-                                <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto">
-                                    <span className="border-2 border-black bg-[#67e8f9] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
-                                        {isWebSession ? webEnvironment?.browserLabel : platform.toUpperCase()}
+                        <div className="flex min-w-0 items-center gap-2">
+                            <h1 className="truncate text-[15px] font-black text-slate-950 sm:text-base">Replay Workbench</h1>
+                            <div className="hidden shrink-0 items-center gap-1 sm:flex">
+                                <span className="replay-header-chip bg-[#e0f2fe] text-slate-950">
+                                    {isWebSession ? webEnvironment?.browserLabel : platform.toUpperCase()}
+                                </span>
+                                {isWebSession && webEnvironment ? (
+                                    <span className="replay-header-chip bg-[#fce7f3] text-slate-950">
+                                        {webEnvironment.osLabel}
                                     </span>
-                                    {isWebSession && webEnvironment ? (
-                                        <span className="border-2 border-black bg-[#f9a8d4] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
-                                            {webEnvironment.osLabel}
-                                        </span>
-                                    ) : appVersion && (
-                                        <span className="border-2 border-black bg-[#f9a8d4] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
-                                            v{appVersion}
-                                        </span>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={copySessionId}
-                                        className="inline-flex max-w-[140px] items-center gap-1 truncate border-2 border-black bg-white px-2 py-0.5 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo sm:max-w-[220px] md:max-w-full"
-                                        title={`${id} — click to copy`}
-                                        aria-label={`Copy session ID: ${id}`}
-                                    >
-                                        <span className="min-w-0 truncate font-mono text-[9px] font-bold text-black md:text-[10px]">
-                                            {(id || '').slice(0, 20)}
-                                        </span>
-                                        <span className="shrink-0 text-slate-500" aria-hidden>
-                                            {sessionIdCopied ? (
-                                                <Check className="h-3 w-3 text-emerald-600" strokeWidth={2.25} />
-                                            ) : (
-                                                <Copy className="h-3 w-3" strokeWidth={2.25} />
-                                            )}
-                                        </span>
-                                    </button>
-                                </div>
-                                <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto">
-                                {canCopyReplayUserId ? (
-                                    <button
-                                        type="button"
-                                        onClick={copyReplayUserId}
-                                        className="inline-flex max-w-full min-w-0 items-center gap-1 border-2 border-black bg-white px-2 py-0.5 text-left shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
-                                        title={`${replayUserIdLabel} — click to copy`}
-                                        aria-label={`Copy user ID: ${replayUserIdLabel}`}
-                                    >
-                                        <span className="text-[9px] font-black uppercase text-slate-600 md:text-[10px]">
-                                            UID
-                                        </span>
-                                        <span className="min-w-0 truncate font-mono text-[9px] font-semibold text-black md:text-[10px]">{replayUserIdShown}</span>
-                                        <span className="shrink-0 text-slate-500" aria-hidden>
-                                            {userIdCopied ? (
-                                                <Check className="h-3 w-3 text-emerald-600" strokeWidth={2.25} />
-                                            ) : (
-                                                <Copy className="h-3 w-3" strokeWidth={2.25} />
-                                            )}
-                                        </span>
-                                    </button>
-                                ) : (
-                                    <span
-                                        className="inline-flex max-w-full min-w-0 items-center gap-1 border-2 border-black bg-white px-2 py-0.5 shadow-neo-sm"
-                                        title={replayUserIdLabel}
-                                    >
-                                        <span className="text-[9px] font-black uppercase text-slate-600 md:text-[10px]">
-                                            UID
-                                        </span>
-                                        <span className="min-w-0 truncate font-mono text-[9px] font-semibold text-black md:text-[10px]">{replayUserIdShown}</span>
+                                ) : appVersion && (
+                                    <span className="replay-header-chip bg-[#fce7f3] text-slate-950">
+                                        v{appVersion}
                                     </span>
                                 )}
-                                </div>
-                            </div>
-
-                            <div className="mt-1.5 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden text-[10px] text-slate-600 md:text-[11px]">
-                                <div className="flex min-w-0 max-w-full items-center gap-1.5">
-                                    <Clock className="h-3.5 w-3.5" />
-                                    <span className="min-w-0 truncate">{new Date(startTime).toLocaleString()}</span>
-                                </div>
-                                <div className="flex min-w-0 max-w-full items-center gap-1.5">
-	                                    {isWebSession ? <MonitorSmartphone className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
-                                    <span className="min-w-0 truncate" title={headerDeviceTitle}>{headerDeviceLabel}</span>
-                                </div>
-                                <div className="flex min-w-0 max-w-full items-center gap-1.5">
-                                    <MapPin className="h-3.5 w-3.5" />
-                                    <span className="min-w-0 truncate">{sessionLocationWithFlag}</span>
-                                </div>
-                                <span className="font-mono font-semibold text-slate-700">
+                                <span className="replay-header-chip replay-header-duration-chip">
                                     {durationMinutes}m {durationSecs.toString().padStart(2, '0')}s
                                 </span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+                    <div className="replay-header-actions relative flex shrink-0 items-center gap-1.5">
                         <button
-                            onClick={() => previousSessionId && navigate(`${pathPrefix}/sessions/${previousSessionId}`)}
+                            type="button"
+                            onClick={() => setShowHeaderDetails((open) => !open)}
                             onMouseDown={(event) => event.preventDefault()}
-                            disabled={!previousSessionId}
-                            className={`flex h-9 min-w-0 items-center justify-center gap-1.5 border-2 border-black px-3 text-xs font-black uppercase shadow-neo-sm transition-all ${previousSessionId
-                                ? 'bg-white text-black hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                : 'cursor-not-allowed bg-slate-100 text-slate-400'
-                                }`}
+                            className="replay-header-details-button"
+                            aria-expanded={showHeaderDetails}
+                            aria-haspopup="menu"
+                            aria-controls="replay-header-details"
+                            title="Session details menu"
                         >
-                            <ChevronLeft className="h-3.5 w-3.5" />
-                            Prev
+                            <UserRound className="h-3.5 w-3.5" strokeWidth={2.25} />
+                            <span className="hidden sm:inline">Details</span>
+                            <ChevronDown
+                                className={`h-3.5 w-3.5 transition-transform ${showHeaderDetails ? 'rotate-180' : ''}`}
+                                strokeWidth={2.5}
+                                aria-hidden="true"
+                            />
                         </button>
-                        <button
-                            onClick={() => nextSessionId && navigate(`${pathPrefix}/sessions/${nextSessionId}`)}
-                            onMouseDown={(event) => event.preventDefault()}
-                            disabled={!nextSessionId}
-                            className={`flex h-9 min-w-0 items-center justify-center gap-1.5 border-2 border-black px-3 text-xs font-black uppercase shadow-neo-sm transition-all ${nextSessionId
-                                ? 'bg-white text-black hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                : 'cursor-not-allowed bg-slate-100 text-slate-400'
-                                }`}
-                        >
-                            Next
-                            <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
+
+                        <div className="replay-header-session-nav grid grid-cols-2 overflow-hidden border border-slate-200 bg-slate-50 shadow-sm">
+                            <button
+                                onClick={() => previousSessionId && navigate(`${pathPrefix}/sessions/${previousSessionId}`)}
+                                onMouseDown={(event) => event.preventDefault()}
+                                disabled={!previousSessionId}
+                                className={`replay-header-nav-button border-r border-slate-200 ${previousSessionId
+                                    ? 'bg-white text-slate-900 hover:bg-slate-50'
+                                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                    }`}
+                                aria-label="Previous session"
+                                title="Previous session"
+                            >
+                                <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                <span className="hidden md:inline">Prev</span>
+                            </button>
+                            <button
+                                onClick={() => nextSessionId && navigate(`${pathPrefix}/sessions/${nextSessionId}`)}
+                                onMouseDown={(event) => event.preventDefault()}
+                                disabled={!nextSessionId}
+                                className={`replay-header-nav-button ${nextSessionId
+                                    ? 'bg-white text-slate-900 hover:bg-slate-50'
+                                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                    }`}
+                                aria-label="Next session"
+                                title="Next session"
+                            >
+                                <span className="hidden md:inline">Next</span>
+                                <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            </button>
+                        </div>
+
+                        {showHeaderDetails && (
+                            <div id="replay-header-details" className="replay-header-details-popover" role="menu">
+                                <div className="replay-header-detail-row">
+                                    <span>Started</span>
+                                    <strong>{new Date(startTime).toLocaleString()}</strong>
+                                </div>
+                                <div className="replay-header-detail-row">
+                                    <span>Device</span>
+                                    <strong title={headerDeviceTitle}>{headerDeviceLabel}</strong>
+                                </div>
+                                <div className="replay-header-detail-row">
+                                    <span>OS</span>
+                                    <strong title={headerOsTitle}>{headerOsLabel}</strong>
+                                </div>
+                                <div className="replay-header-detail-row">
+                                    <span>Location</span>
+                                    <strong>{sessionLocationWithFlag}</strong>
+                                </div>
+                                <div className="replay-header-detail-row">
+                                    <span>Session</span>
+                                    <button
+                                        type="button"
+                                        onClick={copySessionId}
+                                        className="replay-header-detail-copy"
+                                        title={`${id} — click to copy`}
+                                        aria-label={`Copy session ID: ${id}`}
+                                    >
+                                        <span>{id || 'Unknown'}</span>
+                                        {sessionIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                    </button>
+                                </div>
+                                <div className="replay-header-detail-row">
+                                    <span>User ID</span>
+                                    {canCopyReplayUserId ? (
+                                        <button
+                                            type="button"
+                                            onClick={copyReplayUserId}
+                                            className="replay-header-detail-copy"
+                                            title={`${replayUserIdLabel} — click to copy`}
+                                            aria-label={`Copy user ID: ${replayUserIdLabel}`}
+                                        >
+                                            <span>{replayUserIdShown}</span>
+                                            {userIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                        </button>
+                                    ) : (
+                                        <strong>{replayUserIdShown}</strong>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -3838,10 +4199,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                         </div>
                         )}
 
-                        <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
+	                        <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
 	                            <div
-		                                className={`mx-auto flex w-full items-center justify-center xl:h-full xl:min-h-0 ${playbackMode === 'rrweb' ? 'max-w-none' : isWebSession ? 'max-w-[1080px] xl:max-w-[1120px]' : 'max-w-[360px] xl:max-w-none'}`}
-	                                style={{ '--replay-device-fit-width': replayDeviceFitWidth } as React.CSSProperties}
+	                                className={`mx-auto flex w-full items-center justify-center xl:h-full xl:min-h-0 ${playbackMode === 'rrweb' ? 'max-w-none' : isWebSession ? 'max-w-[1080px] xl:max-w-[1120px]' : screenshotReplayShellMaxWidthClass}`}
+	                                style={replayDeviceSizingVars}
 	                            >
 	                                {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
 	                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
@@ -3935,7 +4296,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                     </div>
                                                 </div>
                                             )}
-                                            <div className="min-h-[360px] flex-1 xl:min-h-0">
+                                            <div className="relative min-h-[360px] flex-1 xl:min-h-0">
                                                 <WebReplayPlayer
                                                     events={compressedRrwebReplayEvents}
                                                     replayKey={id}
@@ -3945,6 +4306,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                     durationSeconds={webReplayDurationSeconds}
                                                     backgroundGaps={webReplayBackgroundGaps}
                                                 />
+                                                {isPlaying && rrwebSegmentsLoading && (
+                                                    <div className="pointer-events-none absolute bottom-3 left-1/2 z-30 -translate-x-1/2">
+                                                        <span className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1.5 text-xs font-black uppercase text-black shadow-neo-sm">
+                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                            Buffering
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -3996,9 +4365,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                             events={touchEvents}
                                                             deviceWidth={deviceWidth}
                                                             deviceHeight={deviceHeight}
-                                                            currentTime={(fullSession?.startTime || 0) + currentPlaybackTime * 1000}
+                                                            currentTime={currentPlaybackRawTimestamp}
                                                             visibleWindowMs={800}
                                                         />
+                                                    )}
+
+                                                    {activeScreenshotBackgroundGap && (
+                                                        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
+                                                            <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">
+                                                                <div className="text-xs font-black uppercase tracking-wide text-slate-300">App in background</div>
+                                                                <div className="mt-2 text-lg font-black">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {isBuffering && (
+                                                        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-slate-950/30">
+                                                            <span className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1.5 text-xs font-black uppercase text-black shadow-neo-sm">
+                                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                Buffering
+                                                            </span>
+                                                        </div>
                                                     )}
 
                                                     <div className="pointer-events-none absolute bottom-2 left-1/2 h-1 w-28 -translate-x-1/2 rounded-full bg-slate-900/30" />
@@ -4020,59 +4407,105 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                         {playbackMode !== 'none' ? (
                             <>
-                                <div className="border-b-2 border-black bg-white px-3 py-2 xl:shrink-0 xl:px-4 xl:py-1.5">
+                                <div className="border-b-2 border-black bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                         {/* Primary Controls */}
                                         <div className="replay-controls-primary flex items-center justify-center gap-1.5 sm:justify-start">
+                                            {playbackMode === 'screenshots' && (
+                                                <button
+                                                    onClick={() => stepFrame(-1)}
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    disabled={playbackDisabled}
+                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition sm:flex ${playbackDisabled
+                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
+                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                        }`}
+                                                    title="Previous frame"
+                                                    aria-label="Previous frame"
+                                                    data-tooltip="Previous frame"
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </button>
+                                            )}
                                             <button
-                                                onClick={restart}
+                                                onClick={() => skip(-REPLAY_SKIP_SECONDS)}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`flex h-7 w-7 items-center justify-center border-2 transition ${playbackDisabled
+                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
                                                     ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
                                                     : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                                     }`}
-                                                title="Restart"
+                                                title="Back 10 seconds (Left arrow)"
+                                                aria-label="Back 10 seconds"
+                                                data-tooltip="Back 10 seconds"
                                             >
-                                                <RotateCcw className="h-3 w-3" />
-                                            </button>
-                                            <button
-                                                onClick={() => skip(-5)}
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                disabled={playbackDisabled}
-                                                className={`flex h-7 w-7 items-center justify-center border-2 transition ${playbackDisabled
-                                                    ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                    }`}
-                                                title="Back 5s"
-                                            >
-                                                <SkipBack className="h-3 w-3" />
+                                                <span className="relative flex h-5 w-5 items-center justify-center">
+                                                    <RotateCcw className="h-4 w-4" />
+                                                    <span className="absolute text-[8px] font-black leading-none">10</span>
+                                                </span>
                                             </button>
                                             <button
                                                 onClick={togglePlayPause}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`flex h-8 w-8 items-center justify-center border-2 border-black text-black shadow-neo-sm transition-all ${playbackDisabled
+                                                className={`replay-control-button replay-control-button-primary flex h-11 w-11 items-center justify-center border-2 border-black text-black shadow-neo-sm transition-all ${playbackDisabled
                                                     ? 'cursor-not-allowed bg-slate-300 text-slate-200'
                                                     : isPlaying
-                                                        ? 'bg-[#f9a8d4] hover:-translate-y-0.5 hover:shadow-neo'
-                                                        : 'bg-[#67e8f9] hover:-translate-y-0.5 hover:shadow-neo'
+                                                        ? 'bg-[#fde047] hover:-translate-y-0.5 hover:shadow-neo'
+                                                        : 'bg-[#86efac] hover:-translate-y-0.5 hover:shadow-neo'
                                                     }`}
-                                                title={isPlaying ? 'Pause' : 'Play'}
+                                                title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                                                aria-label={isPlaying ? 'Pause' : 'Play'}
+                                                data-tooltip={isPlaying ? 'Pause' : 'Play'}
                                             >
-                                                {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}
+                                                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
                                             </button>
                                             <button
-                                                onClick={() => skip(5)}
+                                                onClick={() => skip(REPLAY_SKIP_SECONDS)}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`flex h-7 w-7 items-center justify-center border-2 transition ${playbackDisabled
+                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
                                                     ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
                                                     : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                                     }`}
-                                                title="Forward 5s"
+                                                title="Forward 10 seconds (Right arrow)"
+                                                aria-label="Forward 10 seconds"
+                                                data-tooltip="Forward 10 seconds"
                                             >
-                                                <SkipForward className="h-3 w-3" />
+                                                <span className="relative flex h-5 w-5 items-center justify-center">
+                                                    <RotateCw className="h-4 w-4" />
+                                                    <span className="absolute text-[8px] font-black leading-none">10</span>
+                                                </span>
+                                            </button>
+                                            {playbackMode === 'screenshots' && (
+                                                <button
+                                                    onClick={() => stepFrame(1)}
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    disabled={playbackDisabled}
+                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition sm:flex ${playbackDisabled
+                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
+                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                        }`}
+                                                    title="Next frame"
+                                                    aria-label="Next frame"
+                                                    data-tooltip="Next frame"
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={restart}
+                                                onMouseDown={(event) => event.preventDefault()}
+                                                disabled={playbackDisabled}
+                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
+                                                    ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
+                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                    }`}
+                                                title="Restart replay"
+                                                aria-label="Restart replay"
+                                                data-tooltip="Restart replay"
+                                            >
+                                                <RefreshCw className="h-4 w-4" />
                                             </button>
                                         </div>
 
@@ -4137,16 +4570,39 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                                 <div className="select-none bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4">
                                     <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
-                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8px] font-black uppercase text-black">
-                                            <span className="flex items-center gap-0.5"><RouteIcon className="h-2.5 w-2.5 text-[#8b5cf6]" />Nav</span>
-                                            <span className="flex items-center gap-0.5"><Hand className="h-2.5 w-2.5 text-[#3b82f6]" />Gestures</span>
-                                            <span className="flex items-center gap-0.5"><Zap className="h-2.5 w-2.5 text-[#f43f5e]" />Rage</span>
-                                            <span className="flex items-center gap-0.5"><CircleX className="h-2.5 w-2.5 text-[#64748b]" />Dead</span>
-                                            <span className="flex items-center gap-0.5"><span className="h-3 w-1 rounded-full bg-[#15803d]" />API</span>
-                                            <span className="flex items-center gap-0.5"><span className="font-mono text-[8px] font-black leading-none text-[#db2777]">Zzz</span>Background</span>
+                                        <div className="flex flex-wrap items-center gap-1 text-[10px] font-black uppercase text-black">
+                                            {([
+                                                { category: 'navigation', label: 'Nav', icon: <RouteIcon className="h-2.5 w-2.5 text-[#8b5cf6]" /> },
+                                                { category: 'gesture', label: 'Gestures', icon: <Hand className="h-2.5 w-2.5 text-[#3b82f6]" /> },
+                                                { category: 'rageTap', label: 'Rage', icon: <Zap className="h-2.5 w-2.5 text-[#f43f5e]" /> },
+                                                { category: 'deadTap', label: 'Dead', icon: <CircleX className="h-2.5 w-2.5 text-[#64748b]" /> },
+                                                { category: 'api', label: 'API', icon: <span className="h-3 w-1 rounded-full bg-[#15803d]" /> },
+                                                { category: 'background', label: 'Background', icon: <span className="font-mono text-[8px] font-black leading-none text-[#db2777]">Zzz</span> },
+                                            ] as Array<{ category: TimelineMarkerCategory; label: string; icon: React.ReactNode }>).map(({ category, label, icon }) => {
+                                                const hidden = hiddenMarkerCategories.has(category);
+                                                return (
+                                                    <button
+                                                        key={category}
+                                                        type="button"
+                                                        aria-pressed={!hidden}
+                                                        title={hidden ? `Show ${label} markers` : `Hide ${label} markers`}
+                                                        onClick={() => setHiddenMarkerCategories((prev) => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(category)) next.delete(category); else next.add(category);
+                                                            return next;
+                                                        })}
+                                                        className={`flex items-center gap-0.5 border px-1.5 py-0.5 transition ${hidden
+                                                            ? 'border-slate-300 bg-white text-slate-400 line-through opacity-60'
+                                                            : 'border-black bg-white text-black shadow-neo-sm hover:bg-[#ecfeff]'
+                                                            }`}
+                                                    >
+                                                        {icon}{label}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                         <span className="text-[9px] font-bold uppercase text-slate-600">
-                                            Click icons to seek
+                                            Click bar to seek · markers to jump
                                         </span>
                                     </div>
 
@@ -4163,7 +4619,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <div
                                                 ref={progressFillRef}
                                                 className="h-full w-full origin-left bg-slate-950 will-change-transform"
-                                                style={{ transform: `scaleX(${progressPercent / 100})` }}
+                                                // Owned imperatively by syncPlaybackChrome (60fps). A constant initial
+                                                // value keeps React from overwriting it with stale state on re-render,
+                                                // which previously caused the progress bar to stutter during playback.
+                                                style={{ transform: 'scaleX(0)' }}
                                             />
                                         </div>
 
@@ -4206,10 +4665,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                         : 'h-3 w-1 border';
 
                                             return (
-                                                <span
-                                                    key={markerKey}
-                                                    aria-hidden="true"
-                                                    className={`replay-timeline-marker pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${markerShellSize} ${isFrustration || hasAnyFrictionInCluster
+	                                                <span
+	                                                    key={markerKey}
+	                                                    role="button"
+	                                                    tabIndex={-1}
+	                                                    aria-label="Jump to this event"
+	                                                    onMouseDown={(e) => {
+	                                                        // Prevent the parent track's drag-seek; jump straight to the event.
+	                                                        e.stopPropagation();
+                                                        e.preventDefault();
+                                                        handleSeekToTime(marker.time);
+                                                    }}
+                                                    className={`replay-timeline-marker pointer-events-auto cursor-pointer absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${markerShellSize} ${isFrustration || hasAnyFrictionInCluster
                                                         ? 'z-30'
                                                         : isFaultMarker || hasFaultInCluster
                                                             ? 'z-[25]'
@@ -4272,11 +4739,33 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             />
                                         )}
 
+	                                        {scrubPreview && !isDragging && !hoveredMarker && (
+	                                            <div
+	                                                className="pointer-events-none absolute bottom-full z-50 mb-2 -translate-x-1/2 flex flex-col items-center"
+                                                style={{ left: `${scrubPreview.leftPercent}%` }}
+                                            >
+                                                {scrubPreview.frameUrl && (
+                                                    <img
+                                                        src={scrubPreview.frameUrl}
+                                                        alt=""
+                                                        loading="eager"
+                                                        decoding="async"
+                                                        className="mb-1 h-28 w-auto border-2 border-black bg-slate-900 object-contain shadow-neo-sm"
+                                                        style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
+                                                    />
+                                                )}
+                                                <span className="border-2 border-black bg-white px-1.5 py-0.5 font-mono text-[10px] font-black text-black shadow-neo-sm">
+                                                    {formatPlaybackClock(scrubPreview.time)}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         <div
                                             ref={progressThumbRef}
-                                            className={`absolute top-1/2 z-40 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white bg-slate-950 shadow transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-105'
+                                            className={`absolute top-1/2 z-40 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-110'
                                                 }`}
-                                            style={{ left: `${progressPercent}%`, willChange: 'left' }}
+                                            // left is owned imperatively by syncPlaybackChrome; constant initial value.
+                                            style={{ left: '0%', willChange: 'left' }}
                                         />
                                     </div>
                                 </div>
@@ -4614,7 +5103,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         {hierarchySnapshots.length > 0 ? (
                                             <DOMInspector
                                                 hierarchySnapshots={hierarchySnapshots}
-                                                currentTime={currentPlaybackTime}
+                                                currentTime={currentPlaybackRawTimeSeconds}
                                                 sessionStartTime={fullSession?.startTime || 0}
                                                 deviceWidth={deviceWidth}
                                                 deviceHeight={deviceHeight}

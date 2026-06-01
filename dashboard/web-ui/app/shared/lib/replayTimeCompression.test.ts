@@ -3,6 +3,7 @@ import {
     buildCompressedBackgroundGaps,
     compressReplayEvents,
     compressReplayTimestamp,
+    expandCompressedReplayTimestamp,
     formatBackgroundGapDuration,
 } from './replayTimeCompression';
 
@@ -25,6 +26,18 @@ describe('replay time compression', () => {
         });
         expect(compressReplayTimestamp(311_000, gaps)).toBe(13_000);
         expect(compressReplayTimestamp(321_000, gaps)).toBe(23_000);
+    });
+
+    it('expands compressed playback timestamps back to raw timeline timestamps', () => {
+        const gaps = buildCompressedBackgroundGaps([
+            { type: 'app_background', timestamp: 10_000 },
+            { type: 'app_foreground', timestamp: 70_000 },
+        ], 0);
+
+        expect(expandCompressedReplayTimestamp(5_000, gaps)).toBe(5_000);
+        expect(expandCompressedReplayTimestamp(11_000, gaps)).toBe(11_000);
+        expect(expandCompressedReplayTimestamp(12_000, gaps)).toBe(70_000);
+        expect(expandCompressedReplayTimestamp(22_000, gaps)).toBe(80_000);
     });
 
     it('holds the replay still by dropping rrweb-style events inside the gap', () => {

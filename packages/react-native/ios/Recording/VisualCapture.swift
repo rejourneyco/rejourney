@@ -19,6 +19,7 @@ import Foundation
 import QuartzCore
 import Accelerate
 import AVFoundation
+import CoreImage
 
 @objc(VisualCapture)
 public final class VisualCapture: NSObject {
@@ -43,7 +44,15 @@ public final class VisualCapture: NSObject {
     private var _redactionMask: RedactionMask
     private var _framesDiskPath: URL?
     private var _currentSessionId: String?
+    private let _ciContext = CIContext(options: nil)
+    private var _videoOutputs: [ObjectIdentifier: AVPlayerItemVideoOutput] = [:]
+    private var _videoFrameGenerators: [ObjectIdentifier: AVAssetImageGenerator] = [:]
+    private let _placeholderFillColor = UIColor.white
+    private let _placeholderForegroundColor = UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 0.86)
+    private let _maxVideoLayerScanDepth = 120
     @objc public private(set) var captureGeneration: Int = 0
+    private var _keyboardPlaceholderRect: CGRect?
+    private let _keyboardQuietDelaySec: CFAbsoluteTime = 0.45
     
     // Use OperationQueue like industry standard - serialized, utility QoS
     private let _encodeQueue: OperationQueue = {
@@ -85,6 +94,30 @@ public final class VisualCapture: NSObject {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(_handleKeyboardWillShow(_:)),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(_handleKeyboardWillHide(_:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(_handleKeyboardDidShow(_:)),
+            name: UIResponder.keyboardDidShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(_handleKeyboardDidHide),
+            name: UIResponder.keyboardDidHideNotification,
+            object: nil
+        )
     }
     
     @objc private func _handleBackground() {
@@ -101,6 +134,38 @@ public final class VisualCapture: NSObject {
         // Resume capturing when app comes back to foreground
         if _stateMachine.currentState == .capturing {
             _startCaptureTimer()
+        }
+    }
+
+    @objc private func _handleKeyboardWillShow(_ notification: Notification) {
+        _keyboardPlaceholderRect = _keyboardPlaceholderRect(from: notification)
+        _redactionMask.invalidateCache()
+    }
+
+    @objc private func _handleKeyboardWillHide(_ notification: Notification) {
+        _keyboardPlaceholderRect = nil
+        _redactionMask.invalidateCache()
+    }
+
+    @objc private func _handleKeyboardDidShow(_ notification: Notification) {
+        _keyboardPlaceholderRect = _keyboardPlaceholderRect(from: notification) ?? _keyboardPlaceholderRect
+        _redactionMask.invalidateCache()
+
+        if _stateMachine.currentState == .capturing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + _keyboardQuietDelaySec) { [weak self] in
+                self?._captureFrame(forced: true)
+            }
+        }
+    }
+
+    @objc private func _handleKeyboardDidHide() {
+        _keyboardPlaceholderRect = nil
+        _redactionMask.invalidateCache()
+
+        if _stateMachine.currentState == .capturing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + _keyboardQuietDelaySec) { [weak self] in
+                self?._captureFrame(forced: true)
+            }
         }
     }
     
@@ -271,7 +336,14 @@ public final class VisualCapture: NSObject {
             guard bounds.width.isFinite && bounds.height.isFinite else { return }
             
             let captureWindows = _captureWindows(primary: window)
-            let redactionRegions = _redactionMask.computeRegions(windows: captureWindows)
+            var redactionRegions: [RedactionRegion] = []
+            if ReplayOrchestrator.shared.maskImagesAndVideosByDefault {
+                redactionRegions.append(contentsOf: _videoLayerMaskRegions(windows: captureWindows))
+            }
+            redactionRegions.append(contentsOf: _redactionMask.computeRegions(windows: captureWindows))
+            if ReplayOrchestrator.shared.maskImagesAndVideosByDefault {
+                redactionRegions.append(contentsOf: _redactionMask.computeMediaRegions(windows: captureWindows))
+            }
             let scale = max(1.0, captureScale)
             let scaledSize = CGSize(width: bounds.width / scale, height: bounds.height / scale)
             guard scaledSize.width >= 1, scaledSize.height >= 1 else {
@@ -287,24 +359,34 @@ public final class VisualCapture: NSObject {
             for captureWindow in captureWindows {
                 let drawRect = captureWindow === window ? bounds : captureWindow.frame
                 captureWindow.drawHierarchy(in: drawRect, afterScreenUpdates: false)
+                if !ReplayOrchestrator.shared.maskImagesAndVideosByDefault {
+                    _compositeVideoLayers(in: captureWindow, context: context, snapshotScale: scale)
+                }
             }
             
             // Apply redactions inline while context is open
             if !redactionRegions.isEmpty {
-                // Use fully opaque black for privacy masks (no transparency)
-                context.setFillColor(UIColor.black.cgColor)
                 for region in redactionRegions {
                     let r = region.rect
                     // Skip invalid rects that could cause CoreGraphics errors
                     guard r.width > 0 && r.height > 0 else { continue }
                     guard r.origin.x.isFinite && r.origin.y.isFinite && r.width.isFinite && r.height.isFinite else { continue }
                     guard !r.origin.x.isNaN && !r.origin.y.isNaN && !r.width.isNaN && !r.height.isNaN else { continue }
+                    context.setFillColor(_placeholderFillColor(for: region.kind).cgColor)
                     context.fill(r)
                     if region.kind == .camera {
                         _drawCameraMaskIndicator(in: r, context: context)
+                    } else if region.kind == .image || region.kind == .video {
+                        _drawMediaMaskIndicator(in: r, kind: region.kind, context: context)
+                    } else if region.kind == .textInput {
+                        _drawTextInputMaskIndicator(in: r)
+                    } else if region.kind == .generic {
+                        _drawGenericMaskIndicator(in: r)
                     }
                 }
             }
+
+            _drawKeyboardPlaceholderIfNeeded(in: context, window: window)
             
             guard let image = UIGraphicsGetImageFromCurrentImageContext() else {
                 UIGraphicsEndImageContext()
@@ -377,7 +459,7 @@ public final class VisualCapture: NSObject {
                     return true
                 }
                 let className = String(describing: type(of: window))
-                if ReplayOrchestrator.shared.maskTextInputsByDefault && _isKeyboardOrTextInputWindow(className) {
+                if _isKeyboardOrTextInputWindow(className) {
                     return false
                 }
                 return window.screen == primary.screen
@@ -398,6 +480,137 @@ public final class VisualCapture: NSObject {
         className.contains("UIKeyboard")
     }
 
+    private func _keyWindow() -> UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })
+    }
+
+    private func _keyboardPlaceholderRect(from notification: Notification) -> CGRect? {
+        guard let screenFrame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else {
+            return nil
+        }
+
+        guard let window = _keyWindow() else {
+            return screenFrame.width > 0 && screenFrame.height > 0 ? screenFrame : nil
+        }
+
+        let windowFrame = window.convert(screenFrame, from: window.screen.coordinateSpace)
+        let clipped = windowFrame.intersection(window.bounds)
+        guard clipped.width > 0, clipped.height > 0 else { return nil }
+        guard clipped.origin.x.isFinite, clipped.origin.y.isFinite, clipped.width.isFinite, clipped.height.isFinite else { return nil }
+        guard !clipped.origin.x.isNaN, !clipped.origin.y.isNaN, !clipped.width.isNaN, !clipped.height.isNaN else { return nil }
+        return clipped
+    }
+
+    private func _keyboardPlaceholderRect(in window: UIWindow) -> CGRect? {
+        guard let rect = _keyboardPlaceholderRect else { return nil }
+        let clipped = rect.intersection(window.bounds)
+        guard clipped.width > 0, clipped.height > 0 else { return nil }
+        guard clipped.origin.x.isFinite, clipped.origin.y.isFinite, clipped.width.isFinite, clipped.height.isFinite else { return nil }
+        guard !clipped.origin.x.isNaN, !clipped.origin.y.isNaN, !clipped.width.isNaN, !clipped.height.isNaN else { return nil }
+        return clipped
+    }
+
+    private func _drawKeyboardPlaceholderIfNeeded(in context: CGContext, window: UIWindow) {
+        guard let rect = _keyboardPlaceholderRect(in: window) else { return }
+
+        context.saveGState()
+        context.setFillColor(_placeholderFillColor.cgColor)
+        context.fill(rect)
+        _drawKeyboardPlaceholderLabel(in: rect)
+        context.restoreGState()
+    }
+
+    private func _placeholderFillColor(for kind: RedactionMaskKind) -> UIColor {
+        switch kind {
+        case .camera, .image, .video:
+            return _placeholderFillColor
+        case .textInput:
+            return _placeholderFillColor
+        case .generic:
+            return _placeholderFillColor
+        }
+    }
+
+    private func _drawGenericMaskIndicator(in rect: CGRect) {
+        guard rect.width >= 36, rect.height >= 20 else { return }
+
+        let label = "Mask" as NSString
+        let horizontalPadding = CGFloat(8)
+        var fontSize = min(CGFloat(18), max(CGFloat(10), rect.height * 0.34))
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: UIColor.black
+        ]
+        var textSize = label.size(withAttributes: attributes)
+        while textSize.width > rect.width - horizontalPadding * 2, fontSize > 8 {
+            fontSize -= 1
+            attributes[.font] = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+            textSize = label.size(withAttributes: attributes)
+        }
+        guard textSize.width <= rect.width - horizontalPadding * 2 else { return }
+
+        let textRect = CGRect(
+            x: rect.midX - textSize.width / 2,
+            y: rect.midY - textSize.height / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
+        label.draw(in: textRect, withAttributes: attributes)
+    }
+
+    private func _drawKeyboardPlaceholderLabel(in rect: CGRect) {
+        guard rect.width >= 56, rect.height >= 36 else { return }
+
+        // Product compatibility note: camera/image/video masks use icons, but
+        // the keyboard placeholder is intentionally text-only. That keeps
+        // replays consistent across old RN 1.2.x recordings and newer
+        // backend/dashboard renders where the keyboard itself is never captured.
+        let label = "Keyboard" as NSString
+        let fontSize = min(CGFloat(34), max(CGFloat(16), rect.height * 0.12))
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: _placeholderForegroundColor
+        ]
+        let textSize = label.size(withAttributes: attributes)
+        let textRect = CGRect(
+            x: rect.midX - textSize.width / 2,
+            y: rect.midY - textSize.height / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
+        label.draw(in: textRect, withAttributes: attributes)
+    }
+
+    private func _drawTextInputMaskIndicator(in rect: CGRect) {
+        guard rect.width >= 48, rect.height >= 24 else { return }
+
+        let label = "Txt Input" as NSString
+        let horizontalPadding = CGFloat(8)
+        var fontSize = min(CGFloat(18), max(CGFloat(10), rect.height * 0.34))
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: UIColor.black
+        ]
+        var textSize = label.size(withAttributes: attributes)
+        while textSize.width > rect.width - horizontalPadding * 2, fontSize > 8 {
+            fontSize -= 1
+            attributes[.font] = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+            textSize = label.size(withAttributes: attributes)
+        }
+        guard textSize.width <= rect.width - horizontalPadding * 2 else { return }
+
+        let textRect = CGRect(
+            x: rect.midX - textSize.width / 2,
+            y: rect.midY - textSize.height / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
+        label.draw(in: textRect, withAttributes: attributes)
+    }
+
     private func _drawCameraMaskIndicator(in rect: CGRect, context: CGContext) {
         let minSide = min(rect.width, rect.height)
         guard minSide >= 44 else { return }
@@ -412,7 +625,7 @@ public final class VisualCapture: NSObject {
             height: bodyHeight
         )
         let lineWidth = max(CGFloat(2), iconSize * 0.06)
-        let strokeColor = UIColor.white.withAlphaComponent(0.82)
+        let strokeColor = _placeholderForegroundColor
 
         context.saveGState()
         strokeColor.setStroke()
@@ -452,6 +665,330 @@ public final class VisualCapture: NSObject {
         )
         UIBezierPath(ovalIn: dot).fill()
         context.restoreGState()
+    }
+
+    private func _drawMediaMaskIndicator(in rect: CGRect, kind: RedactionMaskKind, context: CGContext) {
+        guard rect.width >= 56, rect.height >= 36 else { return }
+
+        let label = (kind == .video ? "Video masked" : "Image masked") as NSString
+        let fontSize = min(CGFloat(18), max(CGFloat(11), min(rect.width, rect.height) * 0.12))
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: _placeholderForegroundColor
+        ]
+        let textSize = label.size(withAttributes: attributes)
+        let iconSize = min(CGFloat(34), max(CGFloat(18), rect.height * 0.22))
+        let showText = rect.width >= iconSize + 8 + textSize.width + 16
+        let totalWidth = showText ? iconSize + 8 + textSize.width : iconSize
+        let startX = rect.midX - totalWidth / 2
+        let centerY = rect.midY
+        let iconRect = CGRect(x: startX, y: centerY - iconSize / 2, width: iconSize, height: iconSize)
+
+        context.saveGState()
+        if kind == .video {
+            _drawVideoIcon(in: iconRect)
+        } else {
+            _drawImageIcon(in: iconRect)
+        }
+
+        if showText {
+            let textRect = CGRect(
+                x: iconRect.maxX + 8,
+                y: centerY - textSize.height / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            label.draw(in: textRect, withAttributes: attributes)
+        }
+        context.restoreGState()
+    }
+
+    private func _drawImageIcon(in rect: CGRect) {
+        _placeholderForegroundColor.setStroke()
+        _placeholderForegroundColor.setFill()
+        let lineWidth = max(CGFloat(1.8), rect.width * 0.08)
+        let framePath = UIBezierPath(roundedRect: rect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), cornerRadius: max(CGFloat(3), rect.width * 0.12))
+        framePath.lineWidth = lineWidth
+        framePath.stroke()
+
+        let dotRadius = max(CGFloat(1.8), rect.width * 0.08)
+        let dot = CGRect(
+            x: rect.minX + rect.width * 0.72 - dotRadius,
+            y: rect.minY + rect.height * 0.28 - dotRadius,
+            width: dotRadius * 2,
+            height: dotRadius * 2
+        )
+        UIBezierPath(ovalIn: dot).fill()
+
+        let mountainPath = UIBezierPath()
+        mountainPath.move(to: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.2))
+        mountainPath.addLine(to: CGPoint(x: rect.minX + rect.width * 0.42, y: rect.minY + rect.height * 0.52))
+        mountainPath.addLine(to: CGPoint(x: rect.minX + rect.width * 0.55, y: rect.minY + rect.height * 0.66))
+        mountainPath.addLine(to: CGPoint(x: rect.minX + rect.width * 0.72, y: rect.minY + rect.height * 0.46))
+        mountainPath.addLine(to: CGPoint(x: rect.maxX - rect.width * 0.14, y: rect.maxY - rect.height * 0.2))
+        mountainPath.lineWidth = lineWidth
+        mountainPath.lineJoinStyle = .round
+        mountainPath.stroke()
+    }
+
+    private func _drawVideoIcon(in rect: CGRect) {
+        _placeholderForegroundColor.setStroke()
+        _placeholderForegroundColor.setFill()
+        let lineWidth = max(CGFloat(1.8), rect.width * 0.08)
+        let body = CGRect(
+            x: rect.minX,
+            y: rect.minY + rect.height * 0.18,
+            width: rect.width * 0.66,
+            height: rect.height * 0.64
+        ).insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+        let bodyPath = UIBezierPath(roundedRect: body, cornerRadius: max(CGFloat(3), rect.width * 0.1))
+        bodyPath.lineWidth = lineWidth
+        bodyPath.stroke()
+
+        let lensPath = UIBezierPath()
+        lensPath.move(to: CGPoint(x: body.maxX + lineWidth / 2, y: rect.midY - rect.height * 0.18))
+        lensPath.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.26))
+        lensPath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * 0.26))
+        lensPath.addLine(to: CGPoint(x: body.maxX + lineWidth / 2, y: rect.midY + rect.height * 0.18))
+        lensPath.close()
+        lensPath.fill()
+    }
+
+    private func _videoLayerMaskRegions(windows: [UIWindow]) -> [RedactionRegion] {
+        var regions: [RedactionRegion] = []
+        for window in windows {
+            _visitVideoLayers(in: window) { _layer, region in
+                guard region.clipRect.width > 1, region.clipRect.height > 1 else { return }
+                regions.append(RedactionRegion(rect: region.clipRect, kind: .video))
+            }
+        }
+        return regions
+    }
+
+    private func _compositeVideoLayers(in window: UIWindow, context: CGContext, snapshotScale: CGFloat) {
+        guard let baseImage = UIGraphicsGetImageFromCurrentImageContext()?.cgImage else { return }
+
+        _visitVideoLayers(in: window) { [weak self] layer, region in
+            guard let self else { return }
+            guard region.clipRect.width > 1, region.clipRect.height > 1 else { return }
+            guard self._regionLooksMostlyBlack(in: baseImage, rect: region.clipRect, snapshotScale: snapshotScale) else { return }
+            guard let frame = self._currentVideoFrame(for: layer) else { return }
+            let drawRect = self._videoDrawRect(for: frame, in: region.layerBoundsRect, videoGravity: layer.videoGravity)
+            context.saveGState()
+            context.clip(to: region.clipRect)
+            context.interpolationQuality = .high
+            // UIKit's snapshot context is top-left oriented because it is created
+            // by UIGraphicsBeginImageContextWithOptions/drawHierarchy. Drawing the
+            // raw CGImage directly with CGContext uses Quartz image coordinates and
+            // flips AVPlayerLayer frames in replay even though the user sees the
+            // VideoView upright. UIImage.draw applies UIKit's coordinate handling.
+            UIImage(cgImage: frame, scale: 1, orientation: .up).draw(in: drawRect)
+            context.restoreGState()
+        }
+    }
+
+    private func _visitVideoLayers(in view: UIView, depth: Int = 0, body: (AVPlayerLayer, VideoLayerRegion) -> Void) {
+        guard depth < _maxVideoLayerScanDepth else { return }
+        guard !view.isHidden, view.alpha > 0.01 else { return }
+        guard let window = (view as? UIWindow) ?? view.window else { return }
+        if let clipRect = _viewClipRect(view, in: window) {
+            _visitVideoLayers(in: view.layer, window: window, clipRect: clipRect, depth: depth, body: body)
+        }
+        for subview in view.subviews {
+            _visitVideoLayers(in: subview, depth: depth + 1, body: body)
+        }
+    }
+
+    private func _visitVideoLayers(in layer: CALayer, window: UIWindow, clipRect: CGRect, depth: Int, body: (AVPlayerLayer, VideoLayerRegion) -> Void) {
+        guard depth < _maxVideoLayerScanDepth else { return }
+        if let playerLayer = layer as? AVPlayerLayer, let region = _videoLayerRegion(playerLayer, in: window, clipRect: clipRect) {
+            body(playerLayer, region)
+        }
+        for sublayer in layer.sublayers ?? [] {
+            if sublayer.delegate is UIView {
+                continue
+            }
+            _visitVideoLayers(in: sublayer, window: window, clipRect: clipRect, depth: depth + 1, body: body)
+        }
+    }
+
+    private func _viewClipRect(_ view: UIView, in window: UIWindow) -> CGRect? {
+        guard view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let rect = view.layer.convert(view.layer.bounds, to: window.layer).intersection(window.bounds)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        guard rect.origin.x.isFinite, rect.origin.y.isFinite, rect.width.isFinite, rect.height.isFinite else { return nil }
+        return rect
+    }
+
+    private func _videoLayerRegion(_ layer: AVPlayerLayer, in window: UIWindow, clipRect: CGRect) -> VideoLayerRegion? {
+        guard layer.bounds.width > 0, layer.bounds.height > 0 else { return nil }
+        var convertedBoundsRect = layer.convert(layer.bounds, to: window.layer)
+        var convertedClipRect = layer.convert(layer.bounds, to: window.layer).intersection(window.bounds).intersection(clipRect)
+        if window.isKeyWindow {
+            return _validVideoLayerRegion(layerBoundsRect: convertedBoundsRect, clipRect: convertedClipRect)
+        }
+        convertedBoundsRect = convertedBoundsRect.offsetBy(dx: window.frame.origin.x, dy: window.frame.origin.y)
+        convertedClipRect = convertedClipRect.offsetBy(dx: window.frame.origin.x, dy: window.frame.origin.y)
+        return _validVideoLayerRegion(layerBoundsRect: convertedBoundsRect, clipRect: convertedClipRect)
+    }
+
+    private func _validVideoLayerRegion(layerBoundsRect: CGRect, clipRect: CGRect) -> VideoLayerRegion? {
+        guard layerBoundsRect.width > 0, layerBoundsRect.height > 0, clipRect.width > 0, clipRect.height > 0 else { return nil }
+        guard layerBoundsRect.origin.x.isFinite, layerBoundsRect.origin.y.isFinite,
+              layerBoundsRect.width.isFinite, layerBoundsRect.height.isFinite else { return nil }
+        guard clipRect.origin.x.isFinite, clipRect.origin.y.isFinite, clipRect.width.isFinite, clipRect.height.isFinite else { return nil }
+        return VideoLayerRegion(layerBoundsRect: layerBoundsRect, clipRect: clipRect)
+    }
+
+    private func _videoDrawRect(for frame: CGImage, in layerBoundsRect: CGRect, videoGravity: AVLayerVideoGravity) -> CGRect {
+        // Do not draw into AVPlayerLayer.videoRect here. For aspect-fill layers it
+        // can represent the visible clipped bounds, and stretching the raw frame
+        // into that rect distorts portrait videos in replay.
+        let frameSize = CGSize(width: frame.width, height: frame.height)
+        guard frameSize.width > 0, frameSize.height > 0 else {
+            return layerBoundsRect
+        }
+        if videoGravity == .resize {
+            return layerBoundsRect
+        }
+
+        let widthScale = layerBoundsRect.width / frameSize.width
+        let heightScale = layerBoundsRect.height / frameSize.height
+        let scale = videoGravity == .resizeAspectFill ? max(widthScale, heightScale) : min(widthScale, heightScale)
+        guard scale.isFinite, scale > 0 else {
+            return layerBoundsRect
+        }
+
+        let size = CGSize(width: frameSize.width * scale, height: frameSize.height * scale)
+        return CGRect(
+            x: layerBoundsRect.midX - size.width / 2,
+            y: layerBoundsRect.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func _currentVideoFrame(for layer: AVPlayerLayer) -> CGImage? {
+        if #available(iOS 16.0, *), let pixelBuffer = layer.displayedPixelBuffer(), let image = _cgImage(from: pixelBuffer) {
+            return image
+        }
+        guard let item = layer.player?.currentItem else { return nil }
+        let output = _videoOutput(for: item)
+        var displayTime = CMTime.zero
+        let hostTime = CACurrentMediaTime()
+        let currentTime = item.currentTime()
+        let outputTime = output.itemTime(forHostTime: hostTime)
+        let candidateTimes = [currentTime, outputTime].filter { $0.isValid && !$0.isIndefinite }
+
+        for time in candidateTimes {
+            if let pixelBuffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: &displayTime) {
+                return _cgImage(from: pixelBuffer)
+            }
+        }
+
+        return _assetVideoFrame(for: item, at: currentTime)
+    }
+
+    private func _cgImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        return _ciContext.createCGImage(image, from: image.extent)
+    }
+
+    private func _assetVideoFrame(for item: AVPlayerItem, at time: CMTime) -> CGImage? {
+        guard item.status == .readyToPlay else { return nil }
+        let generator = _videoFrameGenerator(for: item)
+        var requestedTime = time
+        if item.duration.isValid, !item.duration.isIndefinite, item.duration.seconds.isFinite, item.duration.seconds > 0 {
+            let maxTime = CMTimeSubtract(item.duration, CMTime(seconds: 0.05, preferredTimescale: 600))
+            if CMTimeCompare(requestedTime, item.duration) >= 0 {
+                requestedTime = maxTime
+            }
+        }
+        guard requestedTime.isValid, !requestedTime.isIndefinite else { return nil }
+        return try? generator.copyCGImage(at: requestedTime, actualTime: nil)
+    }
+
+    private func _videoFrameGenerator(for item: AVPlayerItem) -> AVAssetImageGenerator {
+        let identifier = ObjectIdentifier(item)
+        if let generator = _videoFrameGenerators[identifier] {
+            return generator
+        }
+
+        if _videoFrameGenerators.count > 16 {
+            _videoFrameGenerators.removeAll()
+        }
+        let generator = AVAssetImageGenerator(asset: item.asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
+        _videoFrameGenerators[identifier] = generator
+        return generator
+    }
+
+    private func _videoOutput(for item: AVPlayerItem) -> AVPlayerItemVideoOutput {
+        let identifier = ObjectIdentifier(item)
+        if let output = _videoOutputs[identifier] {
+            if !item.outputs.contains(where: { $0 === output }) {
+                item.add(output)
+            }
+            return output
+        }
+
+        if _videoOutputs.count > 16 {
+            _videoOutputs.removeAll()
+        }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ])
+        item.add(output)
+        _videoOutputs[identifier] = output
+        return output
+    }
+
+    private func _regionLooksMostlyBlack(in image: CGImage, rect: CGRect, snapshotScale: CGFloat) -> Bool {
+        let scale = max(CGFloat(1.0), snapshotScale)
+        let imageBounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let cropRect = CGRect(
+            x: rect.origin.x / scale,
+            y: rect.origin.y / scale,
+            width: rect.width / scale,
+            height: rect.height / scale
+        ).integral.intersection(imageBounds)
+        guard cropRect.width >= 2, cropRect.height >= 2, let crop = image.cropping(to: cropRect) else {
+            return true
+        }
+
+        let sampleSide = 16
+        var pixels = [UInt8](repeating: 0, count: sampleSide * sampleSide * 4)
+        guard let sampleContext = CGContext(
+            data: &pixels,
+            width: sampleSide,
+            height: sampleSide,
+            bitsPerComponent: 8,
+            bytesPerRow: sampleSide * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return true
+        }
+        sampleContext.interpolationQuality = .low
+        sampleContext.draw(crop, in: CGRect(x: 0, y: 0, width: sampleSide, height: sampleSide))
+
+        var blackCount = 0
+        var visibleCount = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let red = pixels[index]
+            let green = pixels[index + 1]
+            let blue = pixels[index + 2]
+            let alpha = pixels[index + 3]
+            guard alpha > 16 else { continue }
+            visibleCount += 1
+            if red < 28 && green < 28 && blue < 28 {
+                blackCount += 1
+            }
+        }
+        guard visibleCount > 0 else { return true }
+        return Double(blackCount) / Double(visibleCount) > 0.82
     }
 
     
@@ -666,13 +1203,13 @@ private final class CaptureStateMachine {
     private var _state: CaptureState = .idle
     private let _lock = NSLock()
     
-    var currentState: CaptureState {
+    fileprivate var currentState: CaptureState {
         _lock.lock()
         defer { _lock.unlock() }
         return _state
     }
     
-    func transition(to target: CaptureState) -> Bool {
+    fileprivate func transition(to target: CaptureState) -> Bool {
         _lock.lock()
         defer { _lock.unlock() }
         switch (_state, target) {
@@ -687,12 +1224,20 @@ private final class CaptureStateMachine {
 
 private enum RedactionMaskKind {
     case generic
+    case textInput
     case camera
+    case image
+    case video
 }
 
 private struct RedactionRegion {
     let rect: CGRect
     let kind: RedactionMaskKind
+}
+
+private struct VideoLayerRegion {
+    let layerBoundsRect: CGRect
+    let clipRect: CGRect
 }
 
 private final class RedactionMask {
@@ -702,11 +1247,17 @@ private final class RedactionMask {
     // Cache the hierarchy scan results to avoid scanning every frame.
     // The full recursive scan runs String(describing: type(of:)) reflection
     // on every view in the key window, which is expensive in React Native
-    // hierarchies (thousands of views). Caching for ~1s is safe because
-    // sensitive views (text inputs, cameras) don't appear/disappear at 3fps.
-    private var _cachedAutoRegions: [RedactionRegion] = []
+    // hierarchies (thousands of views). Cache view references, not rects:
+    // rects must be recomputed every frame so masks follow scrolling and
+    // pull-to-refresh transforms instead of staying at stale coordinates.
+    private struct WeakRegionRef {
+        weak var view: UIView?
+        let kind: RedactionMaskKind
+    }
+    private var _cachedAutoViews: [WeakRegionRef] = []
     private var _lastScanTime: CFAbsoluteTime = 0
     private let _scanCacheDurationSec: CFAbsoluteTime = 0.5
+    private let _maxSensitiveScanDepth = 120
     
     private var _observers: [Any] = []
     
@@ -745,10 +1296,13 @@ private final class RedactionMask {
         "RCTMultilineTextInputView", 
         "RCTTextInput",
         "RCTBaseTextInputView",
+        "RCTTextInputComponentView",
         "RCTUITextField",
         // Expo text inputs
         "EXTextInput"
     ]
+    private let _minimumMediaMaskSide: CGFloat = 44
+    private let _minimumMediaMaskArea: CGFloat = 2_500
     
     func add(_ view: UIView) {
         _lock.lock()
@@ -762,7 +1316,7 @@ private final class RedactionMask {
         _explicitViews.remove(view)
     }
     
-    func computeRegions(windows: [UIWindow]? = nil) -> [RedactionRegion] {
+    fileprivate func computeRegions(windows: [UIWindow]? = nil) -> [RedactionRegion] {
         _lock.lock()
         let explicitViews = _explicitViews.allObjects
         _lock.unlock()
@@ -772,27 +1326,48 @@ private final class RedactionMask {
         
         // 1. Add explicitly registered views (always fresh — these are few)
         for v in explicitViews {
-            if let rect = _viewRect(v) {
+            if let rect = _maskRect(v) {
                 regions.append(RedactionRegion(rect: rect, kind: .generic))
             }
         }
         
         // 2. Auto-detect sensitive views from a cached hierarchy scan.
         //    The full recursive scan is expensive (String(describing:) reflection
-        //    on every view) so we cache results for ~1s. Explicit views above
-        //    are always re-evaluated, so newly focused inputs still get masked.
+        //    on every view) so we cache sensitive view refs for ~0.5s. Rects are
+        //    always re-evaluated, so moving list content stays covered.
         let now = CFAbsoluteTimeGetCurrent()
         if now - _lastScanTime >= _scanCacheDurationSec {
-            _cachedAutoRegions.removeAll()
+            _cachedAutoViews.removeAll()
             let scanWindows = windows ?? _keyWindow().map { [$0] } ?? []
             for window in scanWindows {
-                _scanForSensitiveViews(in: window, regions: &_cachedAutoRegions)
+                _scanForSensitiveViews(in: window, views: &_cachedAutoViews)
             }
             _lastScanTime = now
         }
-        regions.append(contentsOf: _cachedAutoRegions)
+        for ref in _cachedAutoViews {
+            guard let view = ref.view, let rect = _maskRect(view) else { continue }
+            regions.append(RedactionRegion(rect: rect, kind: ref.kind))
+        }
         
         return regions
+    }
+
+    fileprivate func computeMediaRegions(windows: [UIWindow]) -> [RedactionRegion] {
+        var regions: [RedactionRegion] = []
+        for window in windows {
+            _scanForMediaViews(in: window, regions: &regions)
+        }
+        return regions
+    }
+
+    private func _maskRect(_ v: UIView) -> CGRect? {
+        // Prefer the current rendered layer position. During pull-to-refresh and
+        // other scroll animations UIKit can render a view at its presentation
+        // layer position before model-layer coordinates settle.
+        if let rect = _viewRectAnimationSafe(v) {
+            return rect
+        }
+        return _viewRect(v)
     }
     
     private func _viewRect(_ v: UIView) -> CGRect? {
@@ -881,11 +1456,12 @@ private final class RedactionMask {
             .first { $0.isKeyWindow }
     }
     
-    private func _scanForSensitiveViews(in view: UIView, regions: inout [RedactionRegion], depth: Int = 0) {
+    private func _scanForSensitiveViews(in view: UIView, views: inout [WeakRegionRef], depth: Int = 0) {
         // Limit recursion depth to avoid scanning deep hierarchies.
         // Expo Router + React Navigation stack/tab navigators create 25+ levels
-        // before reaching screen content, so 20 was too shallow to find Mask wrappers.
-        guard depth < 60 else { return }
+        // before reaching screen content, and nested RNGH + Expo media wrappers can
+        // push content deeper still.
+        guard depth < _maxSensitiveScanDepth else { return }
         
         // Skip hidden, transparent, or zero-sized views entirely
         guard !view.isHidden && view.alpha > 0.01 else { return }
@@ -910,22 +1486,44 @@ private final class RedactionMask {
         // of a Mask wrapper (e.g. when the view has active animation keys during map
         // loading or a screen transition).
         if let maskKind = _maskKind(view) {
-            // Primary: full validation path (skips views with active animation keys)
-            if let rect = _viewRect(view) {
-                regions.append(RedactionRegion(rect: rect, kind: maskKind))
-            } else if let rect = _viewRectAnimationSafe(view) {
-                // Fallback for views currently animating (e.g. Mask wrapper on a map
-                // page where map load triggers CoreAnimation layout updates on parent
-                // views). Uses CALayer.presentation() for the current rendered frame
-                // instead of skipping the view entirely.
-                regions.append(RedactionRegion(rect: rect, kind: maskKind))
-            }
+            views.append(WeakRegionRef(view: view, kind: maskKind))
             return // Always stop — never recurse into children of a masked view
         }
 
         // Recurse into subviews
         for subview in view.subviews {
-            _scanForSensitiveViews(in: subview, regions: &regions, depth: depth + 1)
+            _scanForSensitiveViews(in: subview, views: &views, depth: depth + 1)
+        }
+    }
+
+    private func _scanForMediaViews(in view: UIView, regions: inout [RedactionRegion], depth: Int = 0) {
+        guard depth < _maxSensitiveScanDepth else { return }
+        guard !view.isHidden && view.alpha > 0.01 else { return }
+        guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
+
+        let className = String(describing: type(of: view))
+        if className.contains("UIRemoteKeyboardWindow") ||
+           className.contains("UITextEffectsWindow") ||
+           className.contains("UIInputSetHostView") ||
+           className.contains("UIKeyboard") {
+            return
+        }
+
+        let regionCountBeforeChildren = regions.count
+        for subview in view.subviews {
+            _scanForMediaViews(in: subview, regions: &regions, depth: depth + 1)
+        }
+        if regions.count > regionCountBeforeChildren {
+            return
+        }
+
+        if let mediaKind = _mediaMaskKind(view, className: className), let rect = _maskRect(view) {
+            // Expo Video wraps AVPlayerViewController and Expo Image wraps
+            // SDAnimatedImageView through several RN/Gesture Handler views. This
+            // uncached media-only pass keeps those poster/player views covered when
+            // the general sensitive-view cache misses a newly-mounted media subtree.
+            regions.append(RedactionRegion(rect: rect, kind: mediaKind))
+            return
         }
     }
     
@@ -942,18 +1540,18 @@ private final class RedactionMask {
         
         // Secure fields are always masked, even when ordinary text input masking is relaxed.
         if let textField = view as? UITextField, textField.isSecureTextEntry {
-            return .generic
+            return .textInput
         }
 
         // 1. Mask ALL text input fields by default (privacy first)
         // This includes password fields, instructions, notes, etc.
         if view is UITextField {
-            return ReplayOrchestrator.shared.maskTextInputsByDefault ? .generic : nil
+            return ReplayOrchestrator.shared.maskTextInputsByDefault ? .textInput : nil
         }
         
         // 2. Mask ALL text views (multiline inputs like instructions, notes, etc.)
         if view is UITextView {
-            return ReplayOrchestrator.shared.maskTextInputsByDefault ? .generic : nil
+            return ReplayOrchestrator.shared.maskTextInputsByDefault ? .textInput : nil
         }
         
         // 3. Check class name against known sensitive types
@@ -962,12 +1560,17 @@ private final class RedactionMask {
             return _isCameraView(view, className: className) ? .camera : .generic
         }
         if ReplayOrchestrator.shared.maskTextInputsByDefault && _textInputClassNames.contains(className) {
-            return .generic
+            return .textInput
         }
 
         // 4. Check camera previews separately so the replay can annotate them.
         if _isCameraView(view, className: className) {
             return .camera
+        }
+
+        if ReplayOrchestrator.shared.maskImagesAndVideosByDefault,
+           let mediaKind = _mediaMaskKind(view, className: className) {
+            return mediaKind
         }
 
         return nil
@@ -994,5 +1597,58 @@ private final class RedactionMask {
         }
 
         return false
+    }
+
+    private func _isImageOrVideoView(_ view: UIView, className: String? = nil) -> Bool {
+        return _mediaMaskKind(view, className: className) != nil
+    }
+
+    private func _mediaMaskKind(_ view: UIView, className: String? = nil) -> RedactionMaskKind? {
+        if _isCameraView(view, className: className) {
+            return nil
+        }
+        // RN/expo icon renderers often use UIImageView internally. Keep remote
+        // image/video masking scoped to content-sized media so tab icons,
+        // button icons, and glyph assets do not get redacted as user photos.
+        guard _isContentSizedMediaView(view) else {
+            return nil
+        }
+        if view is UIImageView {
+            return .image
+        }
+
+        let resolvedClassName = className ?? String(describing: type(of: view))
+        let lowerClassName = resolvedClassName.lowercased()
+        if _classNameLooksLikeVideoView(lowerClassName) {
+            return .video
+        }
+        if _classNameLooksLikeImageView(lowerClassName) {
+            return .image
+        }
+        return nil
+    }
+
+    private func _isContentSizedMediaView(_ view: UIView) -> Bool {
+        let bounds = view.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        guard bounds.width.isFinite, bounds.height.isFinite else { return false }
+        guard !bounds.width.isNaN, !bounds.height.isNaN else { return false }
+        let minSide = min(bounds.width, bounds.height)
+        let area = bounds.width * bounds.height
+        return minSide >= _minimumMediaMaskSide && area >= _minimumMediaMaskArea
+    }
+
+    private func _classNameLooksLikeImageView(_ lowerClassName: String) -> Bool {
+        lowerClassName == "imageview" ||
+        lowerClassName.hasSuffix(".imageview") ||
+        lowerClassName.hasSuffix("imageview") ||
+        lowerClassName.contains("expoimage") ||
+        lowerClassName.contains("sdanimatedimage")
+    }
+
+    private func _classNameLooksLikeVideoView(_ lowerClassName: String) -> Bool {
+        lowerClassName == "videoview" ||
+        lowerClassName.hasSuffix(".videoview") ||
+        lowerClassName.hasSuffix("videoview")
     }
 }

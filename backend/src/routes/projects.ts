@@ -62,6 +62,7 @@ function getProjectAuditState(project: {
     rejourneyEnabled?: boolean | null;
     recordingEnabled?: boolean | null;
     textInputMasking?: string | null;
+    imageVideoMasking?: string | null;
     recordingFps?: number | null;
     sampleRate?: number | null;
     maxRecordingMinutes?: number | null;
@@ -77,6 +78,7 @@ function getProjectAuditState(project: {
         rejourneyEnabled: project.rejourneyEnabled ?? null,
         recordingEnabled: project.recordingEnabled ?? null,
         textInputMasking: project.textInputMasking ?? 'all',
+        imageVideoMasking: project.imageVideoMasking ?? 'none',
         recordingFps: project.recordingFps ?? 1,
         sampleRate: project.sampleRate ?? null,
         maxRecordingMinutes: project.maxRecordingMinutes ?? null,
@@ -1206,6 +1208,7 @@ router.post(
                     rejourneyEnabled: data.rejourneyEnabled ?? true,
                     recordingEnabled: data.recordingEnabled ?? true,
                     textInputMasking: data.textInputMasking ?? 'all',
+                    imageVideoMasking: data.imageVideoMasking ?? 'none',
                     recordingFps: data.recordingFps ?? 1,
                     sampleRate: data.sampleRate ?? 100,
                     maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
@@ -1400,6 +1403,7 @@ router.put(
         if (data.rejourneyEnabled !== undefined) updateData.rejourneyEnabled = data.rejourneyEnabled;
         if (data.recordingEnabled !== undefined) updateData.recordingEnabled = data.recordingEnabled;
         if (data.textInputMasking !== undefined) updateData.textInputMasking = data.textInputMasking;
+        if (data.imageVideoMasking !== undefined) updateData.imageVideoMasking = data.imageVideoMasking;
         if (data.recordingFps !== undefined) updateData.recordingFps = data.recordingFps;
         if (data.sampleRate !== undefined) updateData.sampleRate = data.sampleRate;
         if (data.maxRecordingMinutes !== undefined) updateData.maxRecordingMinutes = data.maxRecordingMinutes;
@@ -1418,12 +1422,13 @@ router.put(
             data.recordingEnabled !== undefined ||
             data.rejourneyEnabled !== undefined ||
             data.textInputMasking !== undefined ||
+            data.imageVideoMasking !== undefined ||
             data.webDomain !== undefined ||
             data.webAllowedDomains !== undefined;
 
         if (shouldInvalidateConfig) {
             try {
-                await getRedis().del(`sdk:config:${project.publicKey}`, `sdk:config:v2:${project.publicKey}`, `sdk:config:v3:${project.publicKey}`, `sdk:config:v4:${project.publicKey}`, `sdk:config:v5:${project.publicKey}`);
+                await getRedis().del(`sdk:config:${project.publicKey}`, `sdk:config:v2:${project.publicKey}`, `sdk:config:v3:${project.publicKey}`, `sdk:config:v4:${project.publicKey}`, `sdk:config:v5:${project.publicKey}`, `sdk:config:v6:${project.publicKey}`);
             } catch {
                 // ignore cache errors
             }
@@ -1583,7 +1588,7 @@ router.delete(
         });
 
         try {
-            await getRedis().del(`sdk:config:${projectResult.project.publicKey}`, `sdk:config:v2:${projectResult.project.publicKey}`, `sdk:config:v3:${projectResult.project.publicKey}`, `sdk:config:v4:${projectResult.project.publicKey}`);
+            await getRedis().del(`sdk:config:${projectResult.project.publicKey}`, `sdk:config:v2:${projectResult.project.publicKey}`, `sdk:config:v3:${projectResult.project.publicKey}`, `sdk:config:v4:${projectResult.project.publicKey}`, `sdk:config:v5:${projectResult.project.publicKey}`, `sdk:config:v6:${projectResult.project.publicKey}`);
         } catch {
             // ignore cache errors
         }

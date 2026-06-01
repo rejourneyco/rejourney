@@ -31,9 +31,14 @@ import {
 import { Link, useNavigate } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import {
-    getDashboardOverview,
     getDashboardOverviewHeavy,
+    getGeoSummary,
+    getGrowthObservability,
+    getInsightsTrends,
+    getObservabilityDeepMetrics,
+    getRetentionCohorts,
     getSessionsPaginated,
+    getUserEngagementTrends,
     GeoSummary,
     GrowthObservability,
     InsightsTrends,
@@ -53,7 +58,6 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { RecordingSession } from '~/shared/types';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { DEMO_REPLAY_SESSION_IDS, getDemoReplayCoverPhotoUrl } from '~/shared/data/demoData';
 
@@ -723,6 +727,86 @@ const GA4Card: React.FC<{
     </div>
 );
 
+type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+type GeneralSectionKey = 'trends' | 'observability' | 'deepMetrics' | 'engagement' | 'geo' | 'retention';
+
+const GENERAL_SECTION_KEYS: GeneralSectionKey[] = [
+    'trends',
+    'observability',
+    'deepMetrics',
+    'engagement',
+    'geo',
+    'retention',
+];
+
+const GENERAL_SECTION_LABELS: Record<GeneralSectionKey, string> = {
+    trends: 'activity trends',
+    observability: 'observability',
+    deepMetrics: 'deep metrics',
+    engagement: 'engagement segments',
+    geo: 'geographic activity',
+    retention: 'retention cohorts',
+};
+
+function buildGeneralSectionStatuses(status: LoadStatus): Record<GeneralSectionKey, LoadStatus> {
+    return GENERAL_SECTION_KEYS.reduce((acc, key) => {
+        acc[key] = status;
+        return acc;
+    }, {} as Record<GeneralSectionKey, LoadStatus>);
+}
+
+const GhostBlock: React.FC<{ className?: string }> = ({ className = '' }) => (
+    <div
+        aria-hidden="true"
+        className={`animate-pulse rounded-none border border-white/80 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] ${className}`.trim()}
+    />
+);
+
+const MomentumCardGhostGrid: React.FC = () => (
+    <section aria-busy="true">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`momentum-ghost-${index}`} className="min-w-0 rounded-xl border border-[#dadce0] bg-white p-4 sm:p-5">
+                    <GhostBlock className="h-3 w-28" />
+                    <GhostBlock className="mt-3 h-8 w-20" />
+                    <GhostBlock className="mt-4 h-6 w-24 rounded-full" />
+                </div>
+            ))}
+        </div>
+    </section>
+);
+
+const GA4CardGhost: React.FC<{
+    title: string;
+    className?: string;
+    accentClassName?: string;
+    minHeight?: string;
+    rows?: number;
+}> = ({
+    title,
+    className = '',
+    accentClassName = 'bg-[#67e8f9]',
+    minHeight = '240px',
+    rows = 4,
+}) => (
+    <GA4Card title={title} className={className} accentClassName={accentClassName}>
+        <div className="flex flex-1 flex-col justify-between gap-4" style={{ minHeight }} aria-busy="true">
+            <div className="space-y-3">
+                {Array.from({ length: rows }).map((_, index) => (
+                    <div key={`row-${index}`} className="flex items-center gap-3">
+                        <GhostBlock className="h-8 w-8 shrink-0" />
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                            <GhostBlock className="h-3 w-full" />
+                            <GhostBlock className="h-2 w-3/4" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <GhostBlock className="h-24 w-full" />
+        </div>
+    </GA4Card>
+);
+
 type TrendChartRow = {
     dateKey: string;
     sessions: number;
@@ -1158,9 +1242,12 @@ export const GeneralOverview: React.FC = () => {
         [platformLens, selectedProject?.id],
     );
 
-    const [isLoading, setIsLoading] = useState(true);
-    const [isHeavyLoading, setIsHeavyLoading] = useState(true);
-    const [partialError, setPartialError] = useState<string | null>(null);
+    const [sectionStatus, setSectionStatus] = useState<Record<GeneralSectionKey, LoadStatus>>(
+        () => buildGeneralSectionStatuses('idle'),
+    );
+    const [failedSections, setFailedSections] = useState<string[]>([]);
+    const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+    const [isTopUsersLoading, setIsTopUsersLoading] = useState(false);
     const [topUsersFromBackend, setTopUsersFromBackend] = useState<TopUserEntry[]>([]);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [overviewObs, setOverviewObs] = useState<GrowthObservability | null>(null);
@@ -1184,8 +1271,8 @@ export const GeneralOverview: React.FC = () => {
 
     useEffect(() => {
         if (!selectedProject?.id) {
-            setIsLoading(false);
-            setPartialError(null);
+            setSectionStatus(buildGeneralSectionStatuses('idle'));
+            setFailedSections([]);
             setTrends(null);
             setOverviewObs(null);
             setDeepMetrics(null);
@@ -1196,40 +1283,98 @@ export const GeneralOverview: React.FC = () => {
         }
 
         let isCancelled = false;
-        setIsLoading(true);
-        setPartialError(null);
+        const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
+        const observabilityRange = timeRange === 'all' ? undefined : timeRange;
+        const observabilityMode = normalizedPlatform ? 'full' : 'summary';
 
-        getDashboardOverview(selectedProject.id, timeRange, platform)
-            .then((overviewData) => {
+        setSectionStatus(buildGeneralSectionStatuses('loading'));
+        setFailedSections([]);
+        setTrends(null);
+        setOverviewObs(null);
+        setDeepMetrics(null);
+        setEngagementTrends(null);
+        setGeoSummary(null);
+        setRetentionCohortRows([]);
+
+        const markReady = (key: GeneralSectionKey) => {
+            setSectionStatus((current) => ({ ...current, [key]: 'ready' }));
+        };
+        const markFailed = (key: GeneralSectionKey) => {
+            const label = GENERAL_SECTION_LABELS[key];
+            setSectionStatus((current) => ({ ...current, [key]: 'error' }));
+            setFailedSections((current) => current.includes(label) ? current : [...current, label]);
+        };
+
+        getInsightsTrends(selectedProject.id, timeRange, normalizedPlatform)
+            .then((data) => {
                 if (isCancelled) return;
-
-                setTrends(overviewData.trends || null);
-                setOverviewObs(overviewData.overviewObs || null);
-                setDeepMetrics(overviewData.deepMetrics || null);
-                setEngagementTrends(overviewData.engagementTrends || null);
-                setGeoSummary(overviewData.geoSummary || null);
-                setRetentionCohortRows(overviewData.retention?.rows || []);
-
-                if (overviewData.failedSections?.length) {
-                    setPartialError(`Some widgets unavailable (${overviewData.failedSections.join(', ')}).`);
-                } else {
-                    setPartialError(null);
-                }
+                setTrends(data || null);
+                markReady('trends');
             })
             .catch(() => {
                 if (isCancelled) return;
                 setTrends(null);
-                setOverviewObs(null);
-                setDeepMetrics(null);
-                setEngagementTrends(null);
-                setGeoSummary(null);
-                setRetentionCohortRows([]);
-                setPartialError('General overview unavailable.');
+                markFailed('trends');
+            });
+
+        getGrowthObservability(selectedProject.id, observabilityRange, observabilityMode, normalizedPlatform)
+            .then((data) => {
+                if (isCancelled) return;
+                setOverviewObs(data || null);
+                markReady('observability');
             })
-            .finally(() => {
-                if (!isCancelled) {
-                    setIsLoading(false);
-                }
+            .catch(() => {
+                if (isCancelled) return;
+                setOverviewObs(null);
+                markFailed('observability');
+            });
+
+        getObservabilityDeepMetrics(selectedProject.id, observabilityRange, observabilityMode, normalizedPlatform)
+            .then((data) => {
+                if (isCancelled) return;
+                setDeepMetrics(data || null);
+                markReady('deepMetrics');
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setDeepMetrics(null);
+                markFailed('deepMetrics');
+            });
+
+        getUserEngagementTrends(selectedProject.id, observabilityRange, normalizedPlatform, observabilityMode)
+            .then((data) => {
+                if (isCancelled) return;
+                setEngagementTrends(data || null);
+                markReady('engagement');
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setEngagementTrends(null);
+                markFailed('engagement');
+            });
+
+        getGeoSummary(selectedProject.id, observabilityRange)
+            .then((data) => {
+                if (isCancelled) return;
+                setGeoSummary(data || null);
+                markReady('geo');
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setGeoSummary(null);
+                markFailed('geo');
+            });
+
+        getRetentionCohorts(selectedProject.id, timeRange, normalizedPlatform)
+            .then((data) => {
+                if (isCancelled) return;
+                setRetentionCohortRows(data?.rows || []);
+                markReady('retention');
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setRetentionCohortRows([]);
+                markFailed('retention');
             });
 
         return () => {
@@ -1239,29 +1384,27 @@ export const GeneralOverview: React.FC = () => {
 
     useEffect(() => {
         if (!selectedProject?.id) {
-            setIsHeavyLoading(false);
             setSessions([]);
-            setTopUsersFromBackend([]);
+            setIsSessionsLoading(false);
             return;
         }
 
         let isCancelled = false;
-        setIsHeavyLoading(true);
+        setIsSessionsLoading(true);
+        setSessions([]);
 
-        getDashboardOverviewHeavy(selectedProject.id, timeRange, platform)
+        getDashboardOverviewHeavy(selectedProject.id, timeRange, platform, 'sessions')
             .then((heavyData) => {
                 if (isCancelled) return;
                 setSessions((heavyData.sessions || []) as RecordingSession[]);
-                setTopUsersFromBackend(heavyData.topUsers || []);
             })
             .catch(() => {
                 if (isCancelled) return;
                 setSessions([]);
-                setTopUsersFromBackend([]);
             })
             .finally(() => {
                 if (!isCancelled) {
-                    setIsHeavyLoading(false);
+                    setIsSessionsLoading(false);
                 }
             });
 
@@ -1269,6 +1412,37 @@ export const GeneralOverview: React.FC = () => {
             isCancelled = true;
         };
     }, [selectedProject?.id, timeRange, platform]);
+
+    useEffect(() => {
+        if (!selectedProject?.id || isDemoMode) {
+            setTopUsersFromBackend([]);
+            setIsTopUsersLoading(false);
+            return;
+        }
+
+        let isCancelled = false;
+        setIsTopUsersLoading(true);
+        setTopUsersFromBackend([]);
+
+        getDashboardOverviewHeavy(selectedProject.id, timeRange, platform, 'topUsers')
+            .then((heavyData) => {
+                if (isCancelled) return;
+                setTopUsersFromBackend(heavyData.topUsers || []);
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setTopUsersFromBackend([]);
+            })
+            .finally(() => {
+                if (!isCancelled) {
+                    setIsTopUsersLoading(false);
+                }
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isDemoMode, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -1953,9 +2127,31 @@ export const GeneralOverview: React.FC = () => {
         );
     }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, referralSummary.total, isMobileLens]);
 
-    if (isLoading && selectedProject?.id) {
-        return <DashboardGhostLoader variant="general" />;
-    }
+    const isSectionLoading = useCallback(
+        (key: GeneralSectionKey) => sectionStatus[key] === 'idle' || sectionStatus[key] === 'loading',
+        [sectionStatus],
+    );
+    const isAnyOverviewSectionPending = useMemo(
+        () => GENERAL_SECTION_KEYS.some((key) => sectionStatus[key] === 'idle' || sectionStatus[key] === 'loading'),
+        [sectionStatus],
+    );
+    const isTopUsersSectionLoading = isDemoMode ? isSessionsLoading : isTopUsersLoading;
+    const isAnyCardLoading = isAnyOverviewSectionPending
+        || isReferralLoading
+        || isSessionsLoading
+        || isTopUsersSectionLoading;
+    const isTrendsLoading = isSectionLoading('trends');
+    const isObservabilityLoading = isSectionLoading('observability');
+    const isDeepMetricsLoading = isSectionLoading('deepMetrics');
+    const isEngagementLoading = isSectionLoading('engagement');
+    const isGeoLoading = isSectionLoading('geo');
+    const isRetentionLoading = isSectionLoading('retention');
+    const isMomentumLoading = isTrendsLoading || isObservabilityLoading || isDeepMetricsLoading;
+    const partialError = failedSections.length > 0
+        ? `Some widgets unavailable (${failedSections.join(', ')}).`
+        : null;
+    const showSetupEmptyState = Boolean(selectedProject?.id) && !isAnyCardLoading && !hasData;
+    const showDashboardCards = Boolean(selectedProject?.id) && !showSetupEmptyState;
 
     return (
         <div className="rejourney-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-[#202124]">
@@ -1976,13 +2172,13 @@ export const GeneralOverview: React.FC = () => {
                     </div>
                 )}
 
-                {!isLoading && partialError && (
+                {partialError && (
                     <div className="border-2 border-black bg-[#f9a8d4] p-4 text-sm font-bold text-black shadow-neo-sm">
                         {partialError}
                     </div>
                 )}
 
-                {!isLoading && selectedProject?.id && !hasData && (
+                {showSetupEmptyState && (
                     <div className="dashboard-surface overflow-hidden rounded-lg border border-[#dadce0] bg-white shadow-sm">
                         <div className="border-b border-[#dadce0] bg-[#e6f4ea] px-4 py-4 sm:px-5">
                             <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase text-[#137333]">
@@ -2000,7 +2196,7 @@ export const GeneralOverview: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleCopyProjectKey}
-                                disabled={!selectedProject.publicKey}
+                                disabled={!selectedProject?.publicKey}
                                 className="flex min-h-11 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-2.5 text-center text-xs font-semibold leading-snug text-[#202124] transition-colors hover:border-[#137333] hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <Copy className="h-4 w-4 shrink-0" />
@@ -2064,9 +2260,11 @@ export const GeneralOverview: React.FC = () => {
                     </div>
                 )}
 
-                {!isLoading && hasData && (
+                {showDashboardCards && (
                     <>
-                        {momentumCards.length > 0 && (
+                        {isMomentumLoading ? (
+                            <MomentumCardGhostGrid />
+                        ) : momentumCards.length > 0 && (
                             <section>
                                 <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
                                     {momentumCards.map((card, index) => {
@@ -2092,6 +2290,9 @@ export const GeneralOverview: React.FC = () => {
 
                         <div className="soft-border-scope space-y-4 sm:space-y-5">
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                                {isTrendsLoading ? (
+                                    <GA4CardGhost title="User activity over time" className="xl:col-span-5" accentClassName="bg-[#67e8f9]" minHeight="210px" />
+                                ) : (
                                 <GA4Card title="User activity over time" className="xl:col-span-5" accentClassName="bg-[#67e8f9]">
                                 <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
@@ -2140,7 +2341,11 @@ export const GeneralOverview: React.FC = () => {
                                     </ResponsiveContainer>
                                 </div>
                                 </GA4Card>
+                                )}
 
+                                {isTrendsLoading ? (
+                                    <GA4CardGhost title="Active users snapshot" className="xl:col-span-3" accentClassName="bg-[#86efac]" minHeight="210px" rows={3} />
+                                ) : (
                                 <GA4Card title="Active users snapshot" className="xl:col-span-3" accentClassName="bg-[#86efac]">
                                 <div className="mt-1 text-center">
                                     <div className="text-3xl font-extrabold leading-none text-black">{formatCompact(activitySummary.latestDau)}</div>
@@ -2167,7 +2372,16 @@ export const GeneralOverview: React.FC = () => {
                                         <span>TOP COUNTRIES</span>
                                         <span>SESSIONS</span>
                                     </div>
-                                    {topCountries.length > 0 ? topCountries.map((country) => (
+                                    {isGeoLoading ? (
+                                        <div className="space-y-1.5">
+                                            {Array.from({ length: 4 }).map((_, index) => (
+                                                <div key={index} className="flex justify-between gap-2">
+                                                    <GhostBlock className="h-3 w-20" />
+                                                    <GhostBlock className="h-3 w-8" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : topCountries.length > 0 ? topCountries.map((country) => (
                                         <div key={country.country} className="flex justify-between text-xs font-bold text-slate-700 py-0.5">
                                             <span>{country.country}</span>
                                             <span className="font-extrabold text-black">{formatCompact(country.count)}</span>
@@ -2183,6 +2397,7 @@ export const GeneralOverview: React.FC = () => {
                                     </Link>
                                 </div>
                                 </GA4Card>
+                                )}
 
                                 <GA4Card
                                     title="Referral sources"
@@ -2276,6 +2491,9 @@ export const GeneralOverview: React.FC = () => {
                                 )}
                                 </GA4Card>
 
+                                {isTrendsLoading ? (
+                                    <GA4CardGhost title="Active users by version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]" minHeight="210px" rows={3} />
+                                ) : (
                                 <GA4Card title="Active users by version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]">
                                 <div className="h-[180px]">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -2318,7 +2536,11 @@ export const GeneralOverview: React.FC = () => {
                                     </Link>
                                 </div>
                                 </GA4Card>
+                                )}
 
+                                {isEngagementLoading ? (
+                                    <GA4CardGhost title="User engagement mix" className="xl:col-span-8" accentClassName="bg-[#67e8f9]" minHeight="250px" />
+                                ) : (
                                 <GA4Card title="User engagement mix" className="xl:col-span-8" accentClassName="bg-[#67e8f9]">
                                 <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
@@ -2417,9 +2639,13 @@ export const GeneralOverview: React.FC = () => {
                                     </div>
                                 )}
                                 </GA4Card>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                            {isDeepMetricsLoading ? (
+                                <GA4CardGhost title="Stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]" minHeight="120px" rows={3} />
+                            ) : (
                             <GA4Card title="Stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
                                 <div className="-mx-1 overflow-x-auto px-1">
                                     <table className="mt-1 min-w-[360px] w-full text-xs">
@@ -2460,7 +2686,11 @@ export const GeneralOverview: React.FC = () => {
                                     </table>
                                 </div>
                             </GA4Card>
+                            )}
 
+                            {isTrendsLoading ? (
+                                <GA4CardGhost title="Average engagement time per active user" className="xl:col-span-4" accentClassName="bg-[#67e8f9]" minHeight="160px" rows={2} />
+                            ) : (
                             <GA4Card title="Average engagement time per active user" className="xl:col-span-4" accentClassName="bg-[#67e8f9]">
                                 <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
                                     <div>
@@ -2469,7 +2699,9 @@ export const GeneralOverview: React.FC = () => {
                                     <div>
                                         <span className="dashboard-label">Engaged user share</span>
                                         <div className="dashboard-value-md">
-                                            {engagedUserShare === null ? 'N/A' : `${engagedUserShare.toFixed(1)}%`}
+                                            {isEngagementLoading ? (
+                                                <GhostBlock className="h-7 w-20" />
+                                            ) : engagedUserShare === null ? 'N/A' : `${engagedUserShare.toFixed(1)}%`}
                                         </div>
                                     </div>
                                 </div>
@@ -2505,7 +2737,11 @@ export const GeneralOverview: React.FC = () => {
                                     </ResponsiveContainer>
                                 </div>
                             </GA4Card>
+                            )}
 
+                            {isTrendsLoading ? (
+                                <GA4CardGhost title="User retention" className="xl:col-span-4" accentClassName="bg-[#86efac]" minHeight="210px" rows={2} />
+                            ) : (
                             <GA4Card title="User retention" className="xl:col-span-4" accentClassName="bg-[#86efac]">
                                 <div className="h-[180px]">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -2543,7 +2779,11 @@ export const GeneralOverview: React.FC = () => {
                                     Last {retentionChartData.length} points
                                 </div>
                             </GA4Card>
+                            )}
 
+                            {isRetentionLoading ? (
+                                <GA4CardGhost title="Retention cohorts" className="xl:col-span-12" accentClassName="bg-[#c4b5fd]" minHeight="190px" rows={4} />
+                            ) : (
                             <GA4Card title="Retention cohorts" className="xl:col-span-12" accentClassName="bg-[#c4b5fd]">
                                 <div className="mb-2 text-[10px] text-slate-400">
                                     Weekly user retention by first active week (Week 0 to Week 5)
@@ -2593,9 +2833,13 @@ export const GeneralOverview: React.FC = () => {
                                     Week 0 = first active week for that cohort
                                 </div>
                             </GA4Card>
+                            )}
                             </div>
 
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                            {isObservabilityLoading ? (
+                                <GA4CardGhost title="Custom Events" className="xl:col-span-5" accentClassName="bg-[#f9a8d4]" minHeight="210px" rows={5} />
+                            ) : (
                             <GA4Card title="Custom Events" className="xl:col-span-5" accentClassName="bg-[#f9a8d4]">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
@@ -2623,7 +2867,11 @@ export const GeneralOverview: React.FC = () => {
                                     </div>
                                 )}
                             </GA4Card>
+                            )}
 
+                            {isObservabilityLoading ? (
+                                <GA4CardGhost title="Custom event usage over time" className="xl:col-span-7" accentClassName="bg-[#c4b5fd]" minHeight="300px" rows={4} />
+                            ) : (
                             <GA4Card
                                 title="Custom event usage over time"
                                 className="xl:col-span-7"
@@ -2791,6 +3039,7 @@ export const GeneralOverview: React.FC = () => {
                                     </div>
                                 )}
                             </GA4Card>
+                            )}
                             </div>
 
                             <section className="space-y-4">
@@ -2799,11 +3048,11 @@ export const GeneralOverview: React.FC = () => {
                                     <h2 className="border-2 border-black bg-[#86efac] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Top Users</h2>
                                 </div>
                                 <NeoBadge variant="info" size="sm" className="rounded-none border-black bg-white text-black shadow-neo-sm">
-                                    {isHeavyLoading ? '…' : `${topUsers.length}/20 users`}
+                                    {isTopUsersSectionLoading ? '...' : `${topUsers.length}/20 users`}
                                 </NeoBadge>
                             </div>
 
-                            {isHeavyLoading ? (
+                            {isTopUsersSectionLoading ? (
                                 <div className="h-[180px] animate-pulse border-2 border-black bg-white shadow-neo" />
                             ) : topUsers.length === 0 ? (
                                 <EmptyStateCard
@@ -2960,11 +3209,11 @@ export const GeneralOverview: React.FC = () => {
                                     </p>
                                 </div>
                                 <NeoBadge variant="neutral" size="sm" className="rounded-none border-black bg-white text-black shadow-neo-sm">
-                                    {isHeavyLoading ? '…' : `${recommendedSessions.length} picks`}
+                                    {isSessionsLoading ? '...' : `${recommendedSessions.length} picks`}
                                 </NeoBadge>
                             </div>
 
-                            {isHeavyLoading ? (
+                            {isSessionsLoading ? (
                                 <div className="h-[200px] animate-pulse border-2 border-black bg-white shadow-neo" />
                             ) : recommendedSessions.length === 0 ? (
                                 <EmptyStateCard

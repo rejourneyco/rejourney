@@ -84,6 +84,7 @@ export const demoProjects: Project[] = [
         publicKey: 'rj_XXXXXXXX',
         rejourneyEnabled: true,
         recordingEnabled: true,
+        imageVideoMasking: 'none',
         recordingFps: 1,
         sampleRate: 100,
         maxRecordingMinutes: 10,

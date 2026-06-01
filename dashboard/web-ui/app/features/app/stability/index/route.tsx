@@ -13,15 +13,19 @@ import {
   Play,
   Search,
   Smartphone,
+  TrendingUp,
+  Wifi,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   api,
   type ANRRecord,
+  type ApiErrorSpikeRecord,
   type CrashOverviewGroup,
   type CrashReport,
   type ErrorOverviewGroup,
   getANRsOverview,
+  getApiErrorSpikes,
   getCrashesOverview,
   getErrorsOverview,
 } from '~/shared/api/client';
@@ -39,7 +43,7 @@ import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 
-type StabilityIssueKind = 'crashes' | 'errors' | 'anrs';
+type StabilityIssueKind = 'crashes' | 'errors' | 'anrs' | 'api_spikes';
 
 type StabilityIssueRow =
   | {
@@ -97,16 +101,34 @@ type StabilityIssueRow =
       searchText: string;
       focusKeys: string[];
       source: ANRRecord;
+    }
+  | {
+      key: string;
+      kind: 'api_spikes';
+      title: string;
+      subtitle: string;
+      firstSeen: string;
+      lastOccurred: string;
+      eventCount: number;
+      userCount: number;
+      deviceModel: string;
+      deviceLabel: string;
+      appVersion: string;
+      replaySessionId: null;
+      canOpenReplay: false;
+      searchText: string;
+      focusKeys: string[];
+      source: ApiErrorSpikeRecord;
     };
 
-const KIND_ORDER: StabilityIssueKind[] = ['crashes', 'errors', 'anrs'];
+const KIND_ORDER: StabilityIssueKind[] = ['crashes', 'errors', 'anrs', 'api_spikes'];
 
 const KIND_META: Record<
   StabilityIssueKind,
   {
     label: string;
     plural: string;
-    badge: 'danger' | 'warning' | 'anr';
+    badge: 'danger' | 'warning' | 'anr' | 'info';
     icon: React.ElementType;
     dotClass: string;
     rowClass: string;
@@ -156,6 +178,19 @@ const KIND_META: Record<
     detailCardClass: 'bg-violet-50/50 border-violet-200',
     detailTextClass: 'text-violet-700',
   },
+  api_spikes: {
+    label: 'API Spike',
+    plural: 'API Spikes',
+    badge: 'info',
+    icon: TrendingUp,
+    dotClass: 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.5)]',
+    rowClass: 'bg-sky-50/25',
+    hoverDotClass: 'group-hover/row:bg-sky-400',
+    textClass: 'text-sky-700',
+    badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
+    detailCardClass: 'bg-sky-50/50 border-sky-200',
+    detailTextClass: 'text-sky-700',
+  },
 };
 
 const formatCompact = (value: number): string => {
@@ -179,6 +214,7 @@ const parseKinds = (raw: string | null): Set<StabilityIssueKind> => {
     if (normalized === 'crash') valid.add('crashes');
     if (normalized === 'error') valid.add('errors');
     if (normalized === 'anr') valid.add('anrs');
+    if (normalized === 'api_spike' || normalized === 'api spike') valid.add('api_spikes');
     if (KIND_ORDER.includes(normalized as StabilityIssueKind)) {
       valid.add(normalized as StabilityIssueKind);
     }
@@ -309,6 +345,74 @@ const buildAnrRow = (anr: ANRRecord): StabilityIssueRow => {
   };
 };
 
+const buildApiSpikeRow = (spike: ApiErrorSpikeRecord): StabilityIssueRow => ({
+  key: `api_spike:${spike.id}`,
+  kind: 'api_spikes',
+  title: `API error rate +${spike.percentIncrease}%`,
+  subtitle: `${spike.currentRate.toFixed(1)}% error rate vs ${spike.previousRate.toFixed(1)}% baseline · ${spike.affectedSessions} API calls`,
+  firstSeen: spike.detectedAt,
+  lastOccurred: spike.detectedAt,
+  eventCount: spike.affectedSessions,
+  userCount: 0,
+  deviceModel: '',
+  deviceLabel: '',
+  appVersion: '',
+  replaySessionId: null,
+  canOpenReplay: false,
+  searchText: ['api spike', 'api error', spike.topEndpoints.map(e => `${e.method} ${e.endpoint}`).join(' ')].join(' ').toLowerCase(),
+  focusKeys: [spike.id],
+  source: spike,
+});
+
+// Inline sparkline SVG for the API error rate trend
+const ApiSpikeTrendline: React.FC<{ spike: ApiErrorSpikeRecord; height?: number }> = ({ spike, height = 32 }) => {
+  const { trend } = spike;
+  if (trend.length < 2) return null;
+
+  const width = 160;
+  const pad = 2;
+  const rates = trend.map(t => t.errorRate);
+  const maxRate = Math.max(...rates, 1);
+  const pts = rates.map((r, i) => {
+    const x = pad + (i / (rates.length - 1)) * (width - pad * 2);
+    const y = pad + (1 - r / maxRate) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  // Find the spike peak index (highest error rate)
+  const peakIdx = rates.indexOf(Math.max(...rates));
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="shrink-0 overflow-visible">
+      {/* fill area under line */}
+      <path
+        d={`M${pts[0]} ${pts.slice(1).map(p => `L${p}`).join(' ')} L${(pad + (rates.length - 1) / (rates.length - 1) * (width - pad * 2)).toFixed(1)},${height - pad} L${pad},${height - pad} Z`}
+        fill="rgba(14,165,233,0.12)"
+      />
+      {/* trend line */}
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke="#0ea5e9"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* peak dot */}
+      {peakIdx >= 0 && (
+        <circle
+          cx={parseFloat(pts[peakIdx].split(',')[0])}
+          cy={parseFloat(pts[peakIdx].split(',')[1])}
+          r={3}
+          fill="#ef4444"
+          stroke="white"
+          strokeWidth="1"
+        />
+      )}
+    </svg>
+  );
+};
+
 export const Stability: React.FC = () => {
   const { selectedProject, projectsLoading } = useSessionData();
   const { isDemoMode } = useDemoMode();
@@ -327,6 +431,7 @@ export const Stability: React.FC = () => {
   const [crashGroups, setCrashGroups] = useState<CrashOverviewGroup[]>([]);
   const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [anrs, setAnrs] = useState<ANRRecord[]>([]);
+  const [apiSpikes, setApiSpikes] = useState<ApiErrorSpikeRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
   const [crashDetails, setCrashDetails] = useState<Record<string, CrashReport | null>>({});
@@ -349,7 +454,8 @@ export const Stability: React.FC = () => {
       getCrashesOverview(projectId, timeRange, platform),
       getErrorsOverview(projectId, timeRange, platform),
       getANRsOverview(projectId, timeRange, platform),
-    ]).then(([crashesResult, errorsResult, anrsResult]) => {
+      getApiErrorSpikes(projectId, timeRange),
+    ]).then(([crashesResult, errorsResult, anrsResult, spikesResult]) => {
       if (cancelled) return;
 
       if (crashesResult.status === 'fulfilled') setCrashGroups(crashesResult.value.groups || []);
@@ -369,6 +475,9 @@ export const Stability: React.FC = () => {
         console.error('Failed to fetch ANRs overview:', anrsResult.reason);
         setAnrs([]);
       }
+
+      if (spikesResult.status === 'fulfilled') setApiSpikes(spikesResult.value.spikes || []);
+      else setApiSpikes([]);
     }).finally(() => {
       if (!cancelled) setIsLoading(false);
     });
@@ -383,14 +492,15 @@ export const Stability: React.FC = () => {
       ...crashGroups.map(buildCrashRow),
       ...errorGroups.map(buildErrorRow),
       ...anrs.map(buildAnrRow),
+      ...apiSpikes.map(buildApiSpikeRow),
     ].sort((a, b) => getTimestampMs(b.lastOccurred) - getTimestampMs(a.lastOccurred));
-  }, [crashGroups, errorGroups, anrs]);
+  }, [crashGroups, errorGroups, anrs, apiSpikes]);
 
   const kindCounts = useMemo(() => {
     return allRows.reduce<Record<StabilityIssueKind, number>>((acc, row) => {
       acc[row.kind] += 1;
       return acc;
-    }, { crashes: 0, errors: 0, anrs: 0 });
+    }, { crashes: 0, errors: 0, anrs: 0, api_spikes: 0 });
   }, [allRows]);
 
   const filteredRows = useMemo(() => {
@@ -709,7 +819,133 @@ export const Stability: React.FC = () => {
       );
     }
 
-    const threadState = row.source.threadState;
+    if (row.kind === 'api_spikes') {
+    const spike = row.source;
+    return (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
+        <div className="flex flex-col gap-4 lg:col-span-3">
+          {/* Trend chart */}
+          <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
+                <TrendingUp size={14} className="text-sky-500" />
+                API Error Rate — 90 min window
+              </h4>
+              <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                {spike.previousRate.toFixed(1)}% → {spike.currentRate.toFixed(1)}% (+{spike.percentIncrease}%)
+              </span>
+            </div>
+            <div className="flex items-end gap-1 px-4 py-5">
+              {spike.trend.length > 1 ? (
+                <div className="w-full">
+                  <svg
+                    viewBox={`0 0 ${spike.trend.length * 20} 60`}
+                    preserveAspectRatio="none"
+                    className="h-20 w-full"
+                  >
+                    {(() => {
+                      const maxRate = Math.max(...spike.trend.map(t => t.errorRate), 1);
+                      const pts = spike.trend.map((t, i) => {
+                        const x = i * 20 + 10;
+                        const y = 4 + (1 - t.errorRate / maxRate) * 52;
+                        return { x, y, t };
+                      });
+                      const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y.toFixed(1)}`).join(' ');
+                      const fillD = `${pathD} L${pts[pts.length - 1].x},60 L${pts[0].x},60 Z`;
+                      return (
+                        <>
+                          <path d={fillD} fill="rgba(14,165,233,0.1)" />
+                          <path d={pathD} fill="none" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          {pts.map((p, i) => (
+                            <rect key={i} x={p.x - 8} y={0} width={16} height={60} fill="transparent">
+                              <title>{`${new Date(p.t.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — ${p.t.errorRate.toFixed(1)}% error rate (${p.t.errorCount}/${p.t.totalCount})`}</title>
+                            </rect>
+                          ))}
+                          {/* peak marker */}
+                          {(() => {
+                            const peak = pts.reduce((a, b) => b.t.errorRate > a.t.errorRate ? b : a, pts[0]);
+                            return peak ? <circle cx={peak.x} cy={peak.y} r={4} fill="#ef4444" stroke="white" strokeWidth="1.5" /> : null;
+                          })()}
+                        </>
+                      );
+                    })()}
+                  </svg>
+                  <div className="mt-1 flex justify-between text-[9px] font-medium text-slate-400">
+                    <span>{new Date(spike.trend[0].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="font-bold text-red-500">Peak: {Math.max(...spike.trend.map(t => t.errorRate)).toFixed(1)}%</span>
+                    <span>{new Date(spike.trend[spike.trend.length - 1].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Not enough data to render trend.</p>
+              )}
+            </div>
+          </NeoCard>
+
+          {/* Top failing endpoints */}
+          {spike.topEndpoints.length > 0 && (
+            <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
+                  <Wifi size={14} className="text-sky-500" />
+                  Top Failing Endpoints
+                </h4>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {spike.topEndpoints.map((ep, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                    <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500">
+                      {ep.method}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-700" title={ep.endpoint}>
+                      {ep.endpoint}
+                    </span>
+                    <span className="shrink-0 rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-red-700">
+                      {ep.errorCount} errors
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </NeoCard>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4 lg:col-span-1">
+          <NeoCard variant="flat" className="border-sky-200 bg-sky-50/50 p-4 shadow-sm">
+            <h4 className="mb-3 border-b border-sky-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-sky-600">
+              Spike Properties
+            </h4>
+            <dl className="space-y-3 text-xs">
+              <div>
+                <dt className="mb-0.5 text-slate-500">Detected At</dt>
+                <dd className="font-medium text-slate-800">{new Date(spike.detectedAt).toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt className="mb-0.5 text-slate-500">Error Rate</dt>
+                <dd className="font-medium text-slate-800">{spike.currentRate.toFixed(1)}% <span className="text-slate-400">(was {spike.previousRate.toFixed(1)}%)</span></dd>
+              </div>
+              <div>
+                <dt className="mb-0.5 text-slate-500">Increase</dt>
+                <dd className="font-bold text-red-600">+{spike.percentIncrease}%</dd>
+              </div>
+              <div>
+                <dt className="mb-0.5 text-slate-500">API Calls in Window</dt>
+                <dd className="font-medium text-slate-800">{spike.affectedSessions.toLocaleString()}</dd>
+              </div>
+            </dl>
+          </NeoCard>
+          <NeoCard variant="flat" className="border-slate-200 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">What Is This?</p>
+            <p className="text-xs leading-relaxed text-slate-600">
+              An API error rate spike means more HTTP 4xx/5xx responses than normal from your app's network calls — not a crash or JS exception. Check your sessions from this time window for affected traffic.
+            </p>
+          </NeoCard>
+        </div>
+      </div>
+    );
+  }
+
+  const threadState = row.source.threadState;
     return (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
         <div className="flex flex-col gap-4 lg:col-span-3">
@@ -934,12 +1170,16 @@ export const Stability: React.FC = () => {
                     </div>
 
                     <div className="hidden w-32 shrink-0 md:block">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400" title={row.deviceModel}>
-                          {row.deviceLabel}
-                        </span>
-                        <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400">v{row.appVersion}</span>
-                      </div>
+                      {row.kind === 'api_spikes' ? (
+                        <ApiSpikeTrendline spike={row.source} height={28} />
+                      ) : (
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400" title={row.deviceModel}>
+                            {row.deviceLabel}
+                          </span>
+                          <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400">v{row.appVersion}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="hidden w-24 text-right sm:block">

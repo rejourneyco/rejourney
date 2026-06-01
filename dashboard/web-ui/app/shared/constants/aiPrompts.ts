@@ -245,7 +245,7 @@ INSTALLATION:
 Add the Rejourney Swift package in Xcode via File → Add Package Dependencies and enter:
   https://github.com/rejourneyco/rejourney
 Or add to Package.swift:
-  .package(url: "https://github.com/rejourneyco/rejourney", from: "0.2.0")
+  .package(url: "https://github.com/rejourneyco/rejourney", from: "0.3.0")
 Requires iOS 15.1 or later.
 
 SETUP — add to your @main App struct (SwiftUI):

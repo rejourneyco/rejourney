@@ -19,6 +19,7 @@ package com.rejourney.recording
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.URI
+import java.util.LinkedHashSet
 
 object RejourneyNetworkEventFilter {
     private val internalPathPrefixes = listOf(
@@ -26,17 +27,33 @@ object RejourneyNetworkEventFilter {
         "/api/ingest",
         "/upload/artifacts"
     )
+    private const val maxRegisteredInternalUrls = 200
 
     @Volatile
-    private var apiBaseUrl: String = normalizeBaseUrl("https://api.rejourney.co")
+    private var apiBasePath: String = normalizeBasePath("https://api.rejourney.co")
+    private val registeredInternalUrls = LinkedHashSet<String>()
 
     fun configure(apiUrl: String?) {
-        apiBaseUrl = normalizeBaseUrl(apiUrl ?: "https://api.rejourney.co")
+        apiBasePath = normalizeBasePath(apiUrl ?: "https://api.rejourney.co")
+        synchronized(registeredInternalUrls) {
+            registeredInternalUrls.clear()
+        }
+    }
+
+    fun registerInternalUrl(url: String?) {
+        val normalized = normalizeComparableUrl(url) ?: return
+        synchronized(registeredInternalUrls) {
+            if (registeredInternalUrls.add(normalized)) {
+                while (registeredInternalUrls.size > maxRegisteredInternalUrls) {
+                    val first = registeredInternalUrls.iterator().next()
+                    registeredInternalUrls.remove(first)
+                }
+            }
+        }
     }
 
     fun shouldIgnore(url: HttpUrl): Boolean {
-        val configuredBase = apiBaseUrl
-        if (configuredBase.isNotEmpty() && url.toString().contains(configuredBase)) {
+        if (isRegisteredInternalUrl(url.toString())) {
             return true
         }
         return shouldIgnorePath(url.encodedPath)
@@ -44,8 +61,7 @@ object RejourneyNetworkEventFilter {
 
     fun shouldIgnore(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
-        val configuredBase = apiBaseUrl
-        if (configuredBase.isNotEmpty() && url.contains(configuredBase)) {
+        if (isRegisteredInternalUrl(url)) {
             return true
         }
         return shouldIgnorePath(pathForUrl(url))
@@ -60,8 +76,16 @@ object RejourneyNetworkEventFilter {
     }
 
     private fun shouldIgnorePath(path: String): Boolean {
-        return internalPathPrefixes.any { prefix ->
-            path == prefix || path.startsWith("$prefix/")
+        val normalizedPath = normalizePath(path)
+        val basePath = apiBasePath
+        val prefixes = if (basePath.isBlank()) {
+            internalPathPrefixes
+        } else {
+            internalPathPrefixes + internalPathPrefixes.map { prefix -> normalizePath("$basePath$prefix") }
+        }
+
+        return prefixes.any { prefix ->
+            normalizedPath == prefix || normalizedPath.startsWith("$prefix/")
         }
     }
 
@@ -74,7 +98,36 @@ object RejourneyNetworkEventFilter {
         }
     }
 
-    private fun normalizeBaseUrl(value: String): String {
-        return value.trim().trimEnd('/')
+    private fun isRegisteredInternalUrl(value: String): Boolean {
+        val normalized = normalizeComparableUrl(value) ?: return false
+        return synchronized(registeredInternalUrls) {
+            registeredInternalUrls.contains(normalized)
+        }
+    }
+
+    private fun normalizeBasePath(value: String): String {
+        val trimmed = value.trim()
+        if (trimmed.isBlank()) return ""
+        val parsed = trimmed.toHttpUrlOrNull() ?: "https://$trimmed".toHttpUrlOrNull()
+        val path = parsed?.encodedPath
+            ?: try {
+                URI(trimmed).rawPath ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+        return if (path.isBlank() || path == "/") "" else normalizePath(path)
+    }
+
+    private fun normalizePath(value: String): String {
+        val withLeadingSlash = if (value.startsWith("/")) value else "/$value"
+        val trimmed = withLeadingSlash.trim('/')
+        return if (trimmed.isBlank()) "/" else "/$trimmed"
+    }
+
+    private fun normalizeComparableUrl(value: String?): String? {
+        val trimmed = value?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val parsed = trimmed.toHttpUrlOrNull()
+        return parsed?.newBuilder()?.fragment(null)?.build()?.toString()
+            ?: trimmed.substringBefore('#')
     }
 }

@@ -854,7 +854,7 @@ router.get(
     '/retention-cohorts',
     sessionAuth,
     asyncHandler(async (req, res) => {
-        const { projectId, timeRange } = req.query;
+        const { projectId, timeRange, platform } = req.query;
 
         const projectIds = projectId
             ? [projectId as string]
@@ -870,7 +870,8 @@ router.get(
         }
 
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
-        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v1`;
+        const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
+        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v2`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -909,6 +910,11 @@ router.get(
         const conditions = [inArray(sessions.projectId, projectIds)];
         if (startedAfter) {
             conditions.push(gte(sessions.startedAt, startedAfter));
+        }
+        if (normalizedPlatform === 'mobile') {
+            conditions.push(inArray(sessions.platform, ['ios', 'android']));
+        } else if (normalizedPlatform) {
+            conditions.push(eq(sessions.platform, normalizedPlatform));
         }
 
         const activityRows = await db

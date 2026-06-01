@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeWebConfig } from '../sdk/config.js';
-import { shouldIgnoreNetworkUrl } from '../sdk/networkInterceptor.js';
+import { registerInternalNetworkUrl, shouldIgnoreNetworkUrl } from '../sdk/networkInterceptor.js';
 
 describe('web network interceptor ignores Rejourney internals', () => {
   it('ignores ingest routes and upload relay URLs across hosts', () => {
@@ -32,5 +32,28 @@ describe('web network interceptor ignores Rejourney internals', () => {
     expect(shouldIgnoreNetworkUrl('https://app.example.com/api/projects?team=alpha', config)).toBe(false);
     expect(shouldIgnoreNetworkUrl('https://app.example.com/api/sdk/config', config)).toBe(true);
     expect(shouldIgnoreNetworkUrl('https://app.example.com/api/ingest/presign', config)).toBe(true);
+  });
+
+  it('ignores Rejourney routes under a self-hosted API base path only', () => {
+    const config = mergeWebConfig('rj_live_test', {
+      apiUrl: 'https://example.com/rejourney/',
+    });
+
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/sdk/config', config)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/ingest/presign', config)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/upload/artifacts/artifact_123', config)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/orders', config)).toBe(false);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourneyish/api/ingest/presign', config)).toBe(false);
+  });
+
+  it('ignores dynamically registered presigned upload URLs', () => {
+    const config = mergeWebConfig('rj_live_test', {
+      apiUrl: 'https://api.rejourney.co',
+    });
+    const uploadUrl = 'https://s3.example.com/rejourney-bucket/session/events.gz?X-Amz-Signature=abc';
+
+    expect(shouldIgnoreNetworkUrl(uploadUrl, config)).toBe(false);
+    registerInternalNetworkUrl(uploadUrl);
+    expect(shouldIgnoreNetworkUrl(uploadUrl, config)).toBe(true);
   });
 });

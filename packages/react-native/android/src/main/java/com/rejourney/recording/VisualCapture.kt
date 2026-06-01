@@ -24,20 +24,29 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.view.PixelCopy
+import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.utility.gzipCompress
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.lang.ref.WeakReference
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -84,6 +93,11 @@ class VisualCapture private constructor(private val context: Context) {
         private set
     
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val pixelCopyThread = HandlerThread("rejourney-pixel-copy").apply { start() }
+    private val pixelCopyHandler = Handler(pixelCopyThread.looper)
+    private val placeholderFillColor = Color.WHITE
+    private val placeholderForegroundColor = Color.rgb(15, 23, 42)
+    private val maxGpuSurfaceScanDepth = 120
     
     // Use single thread executor for encoding (industry standard)
     private val encodeExecutor = Executors.newSingleThreadExecutor()
@@ -285,17 +299,22 @@ class VisualCapture private constructor(private val context: Context) {
                 DiagnosticLog.trace("[VisualCapture] captureFrame skipped - activity not in foreground")
                 return
             }
-            val bounds = Rect()
-            decorView.getWindowVisibleDisplayFrame(bounds)
+            val bounds = captureBounds(decorView)
             
             if (bounds.width() <= 0 || bounds.height() <= 0) return
             
-            val redactionRegions = redactionMask.computeRegions(decorViews = captureRoots)
+            val redactionRegions = if (ReplayOrchestrator.shared?.maskImagesAndVideosByDefault == true) {
+                redactionMask.computeRegions(decorViews = captureRoots) +
+                    redactionMask.computeMediaRegions(decorViews = captureRoots)
+            } else {
+                redactionMask.computeRegions(decorViews = captureRoots)
+            }
+            val keyboardPlaceholderRect = keyboardPlaceholderRect(decorView, bounds)
             
             val pixelDensity = activity.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
             val screenScale = 1.25f * pixelDensity
-            val scaledWidth = (bounds.width() / screenScale).toInt()
-            val scaledHeight = (bounds.height() / screenScale).toInt()
+            val scaledWidth = max(1, (bounds.width() / screenScale).toInt())
+            val scaledHeight = max(1, (bounds.height() / screenScale).toInt())
             
             // 1. Draw the View tree (captures everything except GPU surfaces)
             val bitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
@@ -314,12 +333,14 @@ class VisualCapture private constructor(private val context: Context) {
             // 2. Composite GPU surfaces (TextureView/SurfaceView) on top.
             //    decorView.draw() renders these as black; we grab their pixels
             //    directly and paint them at the correct position.
-            for (root in captureRoots) {
-                val offset = rootOffsetFromDecor(decorView, root)
-                compositeGpuSurfaces(root, canvas, screenScale, offset.first, offset.second)
+            if (ReplayOrchestrator.shared?.maskImagesAndVideosByDefault != true) {
+                for (root in captureRoots) {
+                    val offset = rootOffsetFromDecor(decorView, root)
+                    compositeGpuSurfaces(root, canvas, bitmap, screenScale, offset.first, offset.second)
+                }
             }
             
-            processCapture(bitmap, redactionRegions, screenScale, frameStart, force)
+            processCapture(bitmap, redactionRegions, keyboardPlaceholderRect, screenScale, frameStart, force)
             
         } catch (e: Exception) {
             DiagnosticLog.fault("Frame capture failed: ${e.message}")
@@ -341,13 +362,67 @@ class VisualCapture private constructor(private val context: Context) {
                 val root = candidate as? View ?: continue
                 if (root === decorView || !root.isShown || root.width <= 0 || root.height <= 0) continue
                 if (root.context?.packageName != activity.packageName) continue
-                if (orchestrator?.maskTextInputsByDefault != false && isKeyboardRoot(root)) continue
+                if (isKeyboardRoot(root)) continue
                 roots.add(root)
             }
         } catch (e: Exception) {
             DiagnosticLog.trace("[VisualCapture] Native sheet root discovery unavailable: ${e.message}")
         }
         return roots.distinct()
+    }
+
+    private fun captureBounds(decorView: View): Rect {
+        val root = decorView.rootView ?: decorView
+        val width = when {
+            root.width > 0 -> root.width
+            decorView.width > 0 -> decorView.width
+            else -> 0
+        }
+        val height = when {
+            root.height > 0 -> root.height
+            decorView.height > 0 -> decorView.height
+            else -> 0
+        }
+        if (width > 0 && height > 0) {
+            return Rect(0, 0, width, height)
+        }
+
+        val visibleFrame = Rect()
+        decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        return Rect(0, 0, visibleFrame.width(), visibleFrame.height())
+    }
+
+    private fun keyboardPlaceholderRect(decorView: View, captureBounds: Rect): Rect? {
+        val width = captureBounds.width()
+        val height = captureBounds.height()
+        if (width <= 0 || height <= 0) return null
+
+        ViewCompat.getRootWindowInsets(decorView)?.let { insets ->
+            if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+                val keyboardHeight = imeInsets.bottom.coerceIn(0, height)
+                if (keyboardHeight > height * 0.05f) {
+                    return Rect(
+                        captureBounds.left,
+                        captureBounds.bottom - keyboardHeight,
+                        captureBounds.right,
+                        captureBounds.bottom
+                    )
+                }
+            }
+        }
+
+        val visibleFrame = Rect()
+        decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val decorLocation = IntArray(2)
+        decorView.getLocationOnScreen(decorLocation)
+        val visibleBottom = (visibleFrame.bottom - decorLocation[1]).coerceIn(0, height)
+        val obscuredHeight = height - visibleBottom
+        if (obscuredHeight > height * 0.15f) {
+            return Rect(0, visibleBottom, width, height)
+        }
+
+        return null
     }
 
     private fun hasCapturableNativeSheetRoot(decorView: View, roots: List<View>): Boolean {
@@ -383,21 +458,43 @@ class VisualCapture private constructor(private val context: Context) {
     private fun compositeGpuSurfaces(
         root: View,
         canvas: Canvas,
+        bitmap: Bitmap,
         screenScale: Float,
         offsetX: Int = 0,
         offsetY: Int = 0
     ) {
-        findTextureViews(root) { tv ->
+        findTextureViews(root, action = { tv ->
             try {
                 val tvBitmap = tv.bitmap ?: return@findTextureViews
                 val loc = IntArray(2)
                 tv.getLocationInWindow(loc)
-                canvas.drawBitmap(tvBitmap, (offsetX + loc[0]).toFloat(), (offsetY + loc[1]).toFloat(), null)
+                val left = offsetX + loc[0]
+                val top = offsetY + loc[1]
+                if (regionLooksMostlyBlack(bitmap, left, top, tv.width, tv.height, screenScale)) {
+                    canvas.drawBitmap(tvBitmap, left.toFloat(), top.toFloat(), null)
+                }
                 tvBitmap.recycle()
             } catch (_: Exception) {
                 // Safety: never crash if TextureView.getBitmap() fails
             }
-        }
+        })
+        findSurfaceViews(root, action = { sv ->
+            if (!isVideoSurfaceView(sv)) return@findSurfaceViews
+            try {
+                val loc = IntArray(2)
+                sv.getLocationInWindow(loc)
+                val left = offsetX + loc[0]
+                val top = offsetY + loc[1]
+                if (!regionLooksMostlyBlack(bitmap, left, top, sv.width, sv.height, screenScale)) {
+                    return@findSurfaceViews
+                }
+                val svBitmap = copySurfaceViewBitmap(sv) ?: return@findSurfaceViews
+                canvas.drawBitmap(svBitmap, left.toFloat(), top.toFloat(), null)
+                svBitmap.recycle()
+            } catch (_: Exception) {
+                // Safety: never crash if PixelCopy fails
+            }
+        })
         compositeMapboxSnapshot(root, canvas, offsetX, offsetY)
     }
 
@@ -419,45 +516,137 @@ class VisualCapture private constructor(private val context: Context) {
         }
     }
     
-    private fun findTextureViews(view: View, action: (TextureView) -> Unit) {
+    private fun findTextureViews(view: View, action: (TextureView) -> Unit, depth: Int = 0) {
+        if (depth > maxGpuSurfaceScanDepth) return
         if (view is TextureView && view.isAvailable) {
             action(view)
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                findTextureViews(view.getChildAt(i), action)
+                findTextureViews(view.getChildAt(i), action, depth + 1)
             }
         }
+    }
+
+    private fun findSurfaceViews(view: View, action: (SurfaceView) -> Unit, depth: Int = 0) {
+        if (depth > maxGpuSurfaceScanDepth) return
+        if (view is SurfaceView && view.isShown && view.width > 0 && view.height > 0) {
+            action(view)
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findSurfaceViews(view.getChildAt(i), action, depth + 1)
+            }
+        }
+    }
+
+    private fun isVideoSurfaceView(view: SurfaceView): Boolean {
+        var current: View? = view
+        var depth = 0
+        while (current != null && depth < 8) {
+            val name = current.javaClass.name.lowercase(java.util.Locale.US)
+            if (name.contains("video") || name.contains("player") || name.contains("media3") || name.contains("exoplayer")) {
+                return true
+            }
+            current = current.parent as? View
+            depth++
+        }
+        return false
+    }
+
+    private fun copySurfaceViewBitmap(view: SurfaceView): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || view.width <= 0 || view.height <= 0) {
+            return null
+        }
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val latch = CountDownLatch(1)
+        var success = false
+        try {
+            PixelCopy.request(view, bitmap, { result ->
+                success = result == PixelCopy.SUCCESS
+                latch.countDown()
+            }, pixelCopyHandler)
+            if (!latch.await(80, TimeUnit.MILLISECONDS) || !success) {
+                bitmap.recycle()
+                return null
+            }
+            return bitmap
+        } catch (_: Exception) {
+            bitmap.recycle()
+            return null
+        }
+    }
+
+    private fun regionLooksMostlyBlack(
+        bitmap: Bitmap,
+        left: Int,
+        top: Int,
+        width: Int,
+        height: Int,
+        screenScale: Float
+    ): Boolean {
+        if (width <= 1 || height <= 1) return true
+        val sampleSide = 16
+        var visibleCount = 0
+        var blackCount = 0
+        for (y in 0 until sampleSide) {
+            val sourceY = ((top + (height * (y + 0.5f) / sampleSide)) / screenScale).toInt()
+                .coerceIn(0, bitmap.height - 1)
+            for (x in 0 until sampleSide) {
+                val sourceX = ((left + (width * (x + 0.5f) / sampleSide)) / screenScale).toInt()
+                    .coerceIn(0, bitmap.width - 1)
+                val pixel = bitmap.getPixel(sourceX, sourceY)
+                val alpha = Color.alpha(pixel)
+                if (alpha <= 16) continue
+                visibleCount++
+                if (Color.red(pixel) < 28 && Color.green(pixel) < 28 && Color.blue(pixel) < 28) {
+                    blackCount++
+                }
+            }
+        }
+        return visibleCount == 0 || blackCount.toDouble() / visibleCount.toDouble() > 0.82
     }
     
     private fun processCapture(
         bitmap: Bitmap,
         redactionRegions: List<RedactionRegion>,
+        keyboardPlaceholderRect: Rect?,
         screenScale: Float,
         frameStart: Long,
         force: Boolean
     ) {
-        // Apply redactions
-        if (redactionRegions.isNotEmpty()) {
+        // Apply overlays while the bitmap is still mutable.
+        if (redactionRegions.isNotEmpty() || keyboardPlaceholderRect != null) {
             val canvas = Canvas(bitmap)
-            val paint = Paint().apply {
-                color = Color.BLACK
-                style = Paint.Style.FILL
-            }
-            for (region in redactionRegions) {
-                val rect = region.rect
-                if (rect.width() > 0 && rect.height() > 0) {
-                    val scaledRect = RectF(
-                        rect.left / screenScale,
-                        rect.top / screenScale,
-                        rect.right / screenScale,
-                        rect.bottom / screenScale
-                    )
-                    canvas.drawRect(scaledRect, paint)
-                    if (region.kind == RedactionMaskKind.CAMERA) {
-                        drawCameraMaskIndicator(canvas, scaledRect)
+
+            if (redactionRegions.isNotEmpty()) {
+                val placeholderPaint = Paint().apply {
+                    color = placeholderFillColor
+                    style = Paint.Style.FILL
+                }
+                for (region in redactionRegions) {
+                    val rect = region.rect
+                    if (rect.width() > 0 && rect.height() > 0) {
+                        val scaledRect = RectF(
+                            rect.left / screenScale,
+                            rect.top / screenScale,
+                            rect.right / screenScale,
+                            rect.bottom / screenScale
+                        )
+                        canvas.drawRect(scaledRect, placeholderPaint)
+                        when (region.kind) {
+                            RedactionMaskKind.CAMERA -> drawCameraMaskIndicator(canvas, scaledRect)
+                            RedactionMaskKind.IMAGE -> drawMediaMaskIndicator(canvas, scaledRect, RedactionMaskKind.IMAGE)
+                            RedactionMaskKind.VIDEO -> drawMediaMaskIndicator(canvas, scaledRect, RedactionMaskKind.VIDEO)
+                            RedactionMaskKind.TEXT_INPUT -> drawTextInputMaskIndicator(canvas, scaledRect)
+                            RedactionMaskKind.GENERIC -> drawGenericMaskIndicator(canvas, scaledRect)
+                        }
                     }
                 }
+            }
+
+            keyboardPlaceholderRect?.let {
+                drawKeyboardPlaceholder(canvas, it, screenScale)
             }
         }
         
@@ -512,14 +701,14 @@ class VisualCapture private constructor(private val context: Context) {
             rect.centerY() + bodyHeight / 2f
         )
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(210, 255, 255, 255)
+            color = placeholderForeground(220)
             style = Paint.Style.STROKE
             strokeWidth = max(2f, iconSize * 0.06f)
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(210, 255, 255, 255)
+            color = placeholderForeground(220)
             style = Paint.Style.FILL
         }
 
@@ -541,6 +730,161 @@ class VisualCapture private constructor(private val context: Context) {
             max(1.6f, iconSize * 0.035f),
             fillPaint
         )
+    }
+
+    private fun drawMediaMaskIndicator(canvas: Canvas, rect: RectF, kind: RedactionMaskKind) {
+        if (rect.width() < 56f || rect.height() < 36f) return
+
+        val minSide = min(rect.width(), rect.height())
+        val iconSize = min(34f, max(18f, minSide * 0.22f))
+        val textSize = min(18f, max(11f, minSide * 0.12f))
+        val text = if (kind == RedactionMaskKind.VIDEO) "Video masked" else "Image masked"
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = placeholderForeground(220)
+            style = Paint.Style.STROKE
+            strokeWidth = max(1.8f, iconSize * 0.08f)
+            strokeJoin = Paint.Join.ROUND
+        }
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = placeholderForeground(220)
+            style = Paint.Style.FILL
+        }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = placeholderForeground(220)
+            this.textSize = textSize
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        val textWidth = textPaint.measureText(text)
+        val showText = rect.width() >= iconSize + 8f + textWidth + 16f
+        val totalWidth = if (showText) iconSize + 8f + textWidth else iconSize
+        val startX = rect.centerX() - totalWidth / 2f
+        val iconRect = RectF(
+            startX,
+            rect.centerY() - iconSize / 2f,
+            startX + iconSize,
+            rect.centerY() + iconSize / 2f
+        )
+        if (kind == RedactionMaskKind.VIDEO) {
+            drawVideoIcon(canvas, iconRect, strokePaint, fillPaint)
+        } else {
+            drawImageIcon(canvas, iconRect, strokePaint, fillPaint)
+        }
+
+        if (showText) {
+            val textBaseline = rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
+            canvas.drawText(text, iconRect.right + 8f, textBaseline, textPaint)
+        }
+    }
+
+    private fun drawTextInputMaskIndicator(canvas: Canvas, rect: RectF) {
+        if (rect.width() < 48f || rect.height() < 24f) return
+
+        val text = "Txt Input"
+        val horizontalPadding = 8f
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = min(18f, max(10f, rect.height() * 0.34f))
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        while (textPaint.measureText(text) > rect.width() - horizontalPadding * 2f && textPaint.textSize > 8f) {
+            textPaint.textSize = textPaint.textSize - 1f
+        }
+        if (textPaint.measureText(text) > rect.width() - horizontalPadding * 2f) return
+
+        val baseline = rect.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f
+        canvas.drawText(text, rect.centerX() - textPaint.measureText(text) / 2f, baseline, textPaint)
+    }
+
+    private fun drawGenericMaskIndicator(canvas: Canvas, rect: RectF) {
+        if (rect.width() < 36f || rect.height() < 20f) return
+
+        val text = "Mask"
+        val horizontalPadding = 8f
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = min(18f, max(10f, rect.height() * 0.34f))
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        while (textPaint.measureText(text) > rect.width() - horizontalPadding * 2f && textPaint.textSize > 8f) {
+            textPaint.textSize = textPaint.textSize - 1f
+        }
+        if (textPaint.measureText(text) > rect.width() - horizontalPadding * 2f) return
+
+        val baseline = rect.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f
+        canvas.drawText(text, rect.centerX() - textPaint.measureText(text) / 2f, baseline, textPaint)
+    }
+
+    private fun drawImageIcon(canvas: Canvas, rect: RectF, strokePaint: Paint, fillPaint: Paint) {
+        val radius = max(3f, rect.width() * 0.12f)
+        canvas.drawRoundRect(rect, radius, radius, strokePaint)
+        canvas.drawCircle(
+            rect.left + rect.width() * 0.72f,
+            rect.top + rect.height() * 0.28f,
+            max(1.8f, rect.width() * 0.08f),
+            fillPaint
+        )
+        val mountainPath = android.graphics.Path().apply {
+            moveTo(rect.left + rect.width() * 0.18f, rect.bottom - rect.height() * 0.2f)
+            lineTo(rect.left + rect.width() * 0.42f, rect.top + rect.height() * 0.52f)
+            lineTo(rect.left + rect.width() * 0.55f, rect.top + rect.height() * 0.66f)
+            lineTo(rect.left + rect.width() * 0.72f, rect.top + rect.height() * 0.46f)
+            lineTo(rect.right - rect.width() * 0.14f, rect.bottom - rect.height() * 0.2f)
+        }
+        canvas.drawPath(mountainPath, strokePaint)
+    }
+
+    private fun drawVideoIcon(canvas: Canvas, rect: RectF, strokePaint: Paint, fillPaint: Paint) {
+        val body = RectF(
+            rect.left,
+            rect.top + rect.height() * 0.18f,
+            rect.left + rect.width() * 0.66f,
+            rect.bottom - rect.height() * 0.18f
+        )
+        val radius = max(3f, rect.width() * 0.1f)
+        canvas.drawRoundRect(body, radius, radius, strokePaint)
+        val lensPath = android.graphics.Path().apply {
+            moveTo(body.right, rect.centerY() - rect.height() * 0.18f)
+            lineTo(rect.right, rect.top + rect.height() * 0.26f)
+            lineTo(rect.right, rect.bottom - rect.height() * 0.26f)
+            lineTo(body.right, rect.centerY() + rect.height() * 0.18f)
+            close()
+        }
+        canvas.drawPath(lensPath, fillPaint)
+    }
+
+    private fun drawKeyboardPlaceholder(canvas: Canvas, rect: Rect, screenScale: Float) {
+        if (rect.width() <= 0 || rect.height() <= 0) return
+
+        val scaledRect = RectF(
+            rect.left / screenScale,
+            rect.top / screenScale,
+            rect.right / screenScale,
+            rect.bottom / screenScale
+        )
+        if (scaledRect.width() <= 0f || scaledRect.height() <= 0f) return
+
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = placeholderFillColor
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(scaledRect, fill)
+
+        if (scaledRect.width() < 56f || scaledRect.height() < 32f) return
+
+        // Product parity with iOS/Swift: keyboard placeholders are text-only,
+        // while camera/image/video placeholders carry icons.
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = placeholderForeground(224)
+            textSize = min(34f, max(16f, scaledRect.height() * 0.12f))
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        val text = "Keyboard"
+        val baseline = scaledRect.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f
+        canvas.drawText(text, scaledRect.centerX() - textPaint.measureText(text) / 2f, baseline, textPaint)
+    }
+
+    private fun placeholderForeground(alpha: Int): Int {
+        return Color.argb(alpha, Color.red(placeholderForegroundColor), Color.green(placeholderForegroundColor), Color.blue(placeholderForegroundColor))
     }
     
     private fun enforceScreenshotCaps() {
@@ -723,7 +1067,10 @@ private class CaptureStateMachine {
 
 private enum class RedactionMaskKind {
     GENERIC,
-    CAMERA
+    TEXT_INPUT,
+    CAMERA,
+    IMAGE,
+    VIDEO
 }
 
 private data class RedactionRegion(
@@ -737,6 +1084,9 @@ private class RedactionMask {
     private val cachedAutoRegions = mutableListOf<RedactionRegion>()
     private var lastScanTime = 0L
     private val scanCacheDurationMs = 500L
+    private val maxSensitiveScanDepth = 120
+    private val minimumMediaMaskSide = 44
+    private val minimumMediaMaskArea = 2_500
     
     fun add(view: View) {
         views.add(WeakReference(view))
@@ -775,6 +1125,14 @@ private class RedactionMask {
         
         return regions
     }
+
+    fun computeMediaRegions(decorViews: List<View>): List<RedactionRegion> {
+        val regions = mutableListOf<RedactionRegion>()
+        for (root in decorViews) {
+            scanForMediaViews(root, regions)
+        }
+        return regions
+    }
     
     private fun getViewRect(view: View): Rect? {
         if (!view.isShown || view.width <= 0 || view.height <= 0) return null
@@ -792,8 +1150,9 @@ private class RedactionMask {
 
     private fun scanForSensitiveViews(view: View, regions: MutableList<RedactionRegion>, depth: Int = 0) {
         // Expo Router + React Navigation stack/tab navigators create 25+ levels before
-        // reaching screen content, so 30 was too shallow to find Mask wrappers.
-        if (depth > 60) return
+        // reaching screen content, and nested RNGH + Expo media wrappers can push
+        // content deeper still.
+        if (depth > maxSensitiveScanDepth) return
         if (!view.isShown || view.alpha <= 0.01f || view.width <= 0 || view.height <= 0) return
 
         // IMPORTANT: always stop recursing into a masked view's children regardless
@@ -809,6 +1168,31 @@ private class RedactionMask {
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 scanForSensitiveViews(view.getChildAt(i), regions, depth + 1)
+            }
+        }
+    }
+
+    private fun scanForMediaViews(view: View, regions: MutableList<RedactionRegion>, depth: Int = 0) {
+        if (depth > maxSensitiveScanDepth) return
+        if (!view.isShown || view.alpha <= 0.01f || view.width <= 0 || view.height <= 0) return
+
+        val className = view.javaClass.simpleName.lowercase(java.util.Locale.US)
+        val regionCountBeforeChildren = regions.size
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                scanForMediaViews(view.getChildAt(i), regions, depth + 1)
+            }
+        }
+        if (regions.size > regionCountBeforeChildren) return
+
+        mediaMaskKind(view, className)?.let { kind ->
+            val rect = getViewRect(view)
+            if (rect != null) {
+                // Expo Video/Image can be nested under several RN/Gesture Handler
+                // wrappers. This media-only pass keeps the poster/player covered if
+                // the general sensitive-view cache misses a newly-mounted subtree.
+                regions.add(RedactionRegion(rect, kind))
+                return
             }
         }
     }
@@ -837,19 +1221,23 @@ private class RedactionMask {
         
         if (view is EditText) {
             return if (isPasswordInput(view) || (ReplayOrchestrator.shared?.maskTextInputsByDefault ?: true)) {
-                RedactionMaskKind.GENERIC
+                RedactionMaskKind.TEXT_INPUT
             } else {
                 null
             }
         }
 
         if ((ReplayOrchestrator.shared?.maskTextInputsByDefault ?: true) && isTextInputClass(view)) {
-            return RedactionMaskKind.GENERIC
+            return RedactionMaskKind.TEXT_INPUT
         }
         
         val className = view.javaClass.simpleName.lowercase(java.util.Locale.US)
         if (isCameraClassName(className)) {
             return RedactionMaskKind.CAMERA
+        }
+
+        if (ReplayOrchestrator.shared?.maskImagesAndVideosByDefault == true) {
+            mediaMaskKind(view, className)?.let { return it }
         }
         
         return null
@@ -858,6 +1246,46 @@ private class RedactionMask {
     private fun isCameraClassName(className: String): Boolean {
         return className.contains("camera") ||
             (className.contains("surfaceview") && className.contains("preview"))
+    }
+
+    private fun isImageOrVideoView(view: View, className: String): Boolean {
+        return mediaMaskKind(view, className) != null
+    }
+
+    private fun mediaMaskKind(view: View, className: String): RedactionMaskKind? {
+        if (isCameraClassName(className)) return null
+        if (!isContentSizedMediaView(view)) return null
+        if (view is ImageView) return RedactionMaskKind.IMAGE
+        if (view is TextureView && hasMediaNameInAncestry(view)) return RedactionMaskKind.VIDEO
+        if (view is SurfaceView && hasMediaNameInAncestry(view)) return RedactionMaskKind.VIDEO
+        if (className == "videoview" || className.endsWith("videoview") || className.endsWith("playerview")) {
+            return RedactionMaskKind.VIDEO
+        }
+        if (className == "imageview" || className.endsWith("imageview")) {
+            return RedactionMaskKind.IMAGE
+        }
+        return null
+    }
+
+    private fun isContentSizedMediaView(view: View): Boolean {
+        if (view.width <= 0 || view.height <= 0) return false
+        val minSide = min(view.width, view.height)
+        val area = view.width * view.height
+        return minSide >= minimumMediaMaskSide && area >= minimumMediaMaskArea
+    }
+
+    private fun hasMediaNameInAncestry(view: View): Boolean {
+        var current: View? = view
+        var depth = 0
+        while (current != null && depth < 8) {
+            val name = current.javaClass.name.lowercase(java.util.Locale.US)
+            if (name.contains("video") || name.contains("player") || name.contains("media3") || name.contains("exoplayer")) {
+                return true
+            }
+            current = current.parent as? View
+            depth++
+        }
+        return false
     }
 
     private fun isPasswordInput(view: EditText): Boolean {

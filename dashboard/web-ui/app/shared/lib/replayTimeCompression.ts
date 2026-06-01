@@ -118,6 +118,27 @@ export function compressReplayTimestamp(timestamp: number, gaps: CompressedBackg
     return timestamp - removedMs;
 }
 
+export function expandCompressedReplayTimestamp(timestamp: number, gaps: CompressedBackgroundGap[]): number {
+    let removedMs = 0;
+
+    for (const gap of gaps) {
+        if (timestamp < gap.compressedStartAt) {
+            break;
+        }
+
+        if (timestamp <= gap.compressedEndAt) {
+            if (timestamp === gap.compressedEndAt) {
+                return gap.endedAt;
+            }
+            return gap.startedAt + Math.max(0, timestamp - gap.compressedStartAt);
+        }
+
+        removedMs += gap.durationMs - gap.compressedDurationMs;
+    }
+
+    return timestamp + removedMs;
+}
+
 export function compressReplayEvents<T extends ReplayTimestampedEvent>(events: T[], gaps: CompressedBackgroundGap[]): T[] {
     if (gaps.length === 0) return events;
 

@@ -3,6 +3,7 @@ export interface RemoteConfig {
   rejourneyEnabled: boolean;
   recordingEnabled: boolean;
   textInputMasking: 'all' | 'secure_only';
+  imageVideoMasking: 'none' | 'all';
   recordingFps: number;
   sampleRate: number;
   maxRecordingMinutes: number;
@@ -15,6 +16,7 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   rejourneyEnabled: true,
   recordingEnabled: true,
   textInputMasking: 'all',
+  imageVideoMasking: 'none',
   recordingFps: 1,
   sampleRate: 100,
   maxRecordingMinutes: 10,
@@ -22,6 +24,10 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
 
 export function normalizeTextInputMasking(value: unknown): 'all' | 'secure_only' {
   return value === 'secure_only' ? 'secure_only' : 'all';
+}
+
+export function normalizeImageVideoMasking(value: unknown): 'none' | 'all' {
+  return value === 'all' ? 'all' : 'none';
 }
 
 export function normalizeRemoteConfig(config: unknown): RemoteConfig {
@@ -52,6 +58,7 @@ export function normalizeRemoteConfig(config: unknown): RemoteConfig {
       ? input.recordingEnabled
       : DEFAULT_REMOTE_CONFIG.recordingEnabled,
     textInputMasking: normalizeTextInputMasking(input.textInputMasking),
+    imageVideoMasking: normalizeImageVideoMasking(input.imageVideoMasking),
     recordingFps,
     sampleRate,
     maxRecordingMinutes,

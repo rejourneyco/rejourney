@@ -191,6 +191,127 @@ button {
   margin-top: 4px;
 }
 
+.media-panel {
+  width: min(960px, 100%);
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.media-card {
+  overflow: hidden;
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.media-card-wide {
+  grid-column: span 2;
+}
+
+.media-image,
+.ambient-video,
+.nested-video-shell {
+  display: block;
+  width: 100%;
+  background: #101827;
+}
+
+.media-image {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.ambient-video,
+.nested-video-shell {
+  aspect-ratio: 16 / 9;
+}
+
+.media-card-body {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+}
+
+.media-card-body span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.media-card-body strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.nested-video-shell {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.nested-video-shell:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 3px;
+}
+
+.nested-video,
+.nested-video-poster,
+.nested-video-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.nested-video,
+.nested-video-poster {
+  object-fit: cover;
+}
+
+.nested-video-scrim {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.nested-video-control {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  left: 18px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #ffffff;
+  padding: 0 16px;
+}
+
+.nested-video-control strong {
+  font-size: 14px;
+}
+
+.play-glyph {
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 12px solid currentColor;
+}
+
+.pause-glyph {
+  width: 12px;
+  height: 16px;
+  border-right: 4px solid currentColor;
+  border-left: 4px solid currentColor;
+}
+
 @media (max-width: 720px) {
   .nav-inner {
     align-items: flex-start;
@@ -201,7 +322,12 @@ button {
   .button-grid,
   .status-grid,
   .link-grid,
-  .plan-grid {
+  .plan-grid,
+  .media-grid {
     grid-template-columns: 1fr;
+  }
+
+  .media-card-wide {
+    grid-column: auto;
   }
 }

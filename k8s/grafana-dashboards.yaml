@@ -11193,7 +11193,7 @@ data:
         {
           "id": 19,
           "type": "timeseries",
-          "title": "Replay availability over time",
+          "title": "Replay-eligible availability over time",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -11277,7 +11277,7 @@ data:
         {
           "id": 20,
           "type": "timeseries",
-          "title": "Replay availability by session status",
+          "title": "Replay-eligible availability by session status",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"

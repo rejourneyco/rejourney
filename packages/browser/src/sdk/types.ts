@@ -137,6 +137,7 @@ export interface RejourneyWebConfig {
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
   maskTextSelector?: string;
+  imageVideoMasking?: 'none' | 'all';
   maskInputFn?: (value: string, element: HTMLElement) => string;
   maskTextFn?: (text: string, element: HTMLElement) => string;
   rrweb?: {
@@ -166,6 +167,7 @@ export interface RemoteSdkConfig {
   recording?: boolean;
   reason?: string;
   textInputMasking?: 'all' | 'secure_only';
+  imageVideoMasking?: 'none' | 'all';
   recordingFps?: number;
   maxRecordingMinutes?: number;
   webMaxObservabilityMinutes?: number;

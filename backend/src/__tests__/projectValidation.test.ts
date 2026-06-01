@@ -91,6 +91,23 @@ describe('Project Validation', () => {
         });
     });
 
+    describe('Image and video masking', () => {
+        it('defaults new projects to not masking images and videos', () => {
+            const result = createProjectSchema.parse({ name: 'Test' });
+            expect(result.imageVideoMasking).toBe('none');
+        });
+
+        it('accepts all-media masking for project create and update', () => {
+            expect(createProjectSchema.safeParse({ name: 'Test', imageVideoMasking: 'all' }).success).toBe(true);
+            expect(updateProjectSchema.safeParse({ imageVideoMasking: 'all' }).success).toBe(true);
+        });
+
+        it('rejects unknown image and video masking values', () => {
+            expect(createProjectSchema.safeParse({ name: 'Test', imageVideoMasking: 'secure_only' }).success).toBe(false);
+            expect(updateProjectSchema.safeParse({ imageVideoMasking: 'secure_only' }).success).toBe(false);
+        });
+    });
+
     describe('Recording FPS', () => {
         it('defaults new projects to 1 FPS', () => {
             const result = createProjectSchema.parse({ name: 'Test' });

@@ -3,6 +3,7 @@ import {
   disableNetworkInterceptor,
   getNetworkInterceptorStats,
   initNetworkInterceptor,
+  registerInternalNetworkUrl,
   restoreNetworkInterceptor,
   shouldIgnoreNetworkUrl,
 } from '../../sdk/networkInterceptor';
@@ -45,5 +46,23 @@ describe('networkInterceptor lifecycle', () => {
     expect(shouldIgnoreNetworkUrl('https://analytics.example.com/v1/events', {
       ignoreUrls: [/analytics\.example\.com/],
     })).toBe(true);
+  });
+
+  it('ignores Rejourney routes under a self-hosted API base path only', () => {
+    const options = { apiUrl: 'https://example.com/rejourney/' };
+
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/sdk/config', options)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/ingest/presign', options)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/upload/artifacts/artifact_123', options)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourney/api/orders', options)).toBe(false);
+    expect(shouldIgnoreNetworkUrl('https://example.com/rejourneyish/api/ingest/presign', options)).toBe(false);
+  });
+
+  it('ignores dynamically registered presigned upload URLs', () => {
+    const uploadUrl = 'https://s3.example.com/rejourney-bucket/session/events.gz?X-Amz-Signature=abc';
+
+    expect(shouldIgnoreNetworkUrl(uploadUrl)).toBe(false);
+    registerInternalNetworkUrl(uploadUrl);
+    expect(shouldIgnoreNetworkUrl(uploadUrl)).toBe(true);
   });
 });

@@ -200,11 +200,11 @@ export async function setIdempotencyStatus(
 }
 
 /**
- * Team session limit caching for ingest
- * Caches team session limit and current usage to avoid DB hits on every session start
+ * Team replay quota caching for ingest
+ * Caches team replay limit and current replay usage to avoid DB hits on every session start
  * 
  * SECURITY: Uses distributed locking to prevent cache stampede race conditions
- * that could allow session limit bypass when multiple requests hit cache miss simultaneously
+ * that could allow replay limit bypass when multiple requests hit cache miss simultaneously
  */
 
 // Default TTL of 5 minutes for better performance
@@ -213,11 +213,17 @@ const DEFAULT_SESSION_CACHE_TTL_SECONDS = 300;
 
 export interface TeamSessionData {
     teamId: string;
+    /** Backward-compatible alias for sessionReplaysUsed. */
     sessionsUsed: number;
+    sessionsCaptured: number;
+    sessionReplaysUsed: number;
+    /** Backward-compatible alias for sessionReplayLimit. */
     sessionLimit: number;
+    sessionReplayLimit: number;
     planName: string;
     /** Base plan cap (Stripe / free tier), without bonus */
     planSessionLimit: number;
+    sessionReplayPlanLimit: number;
     /** Extra sessions for this billing period only (0 after period changes) */
     bonusSessionsActive: number;
 }
@@ -232,15 +238,22 @@ export async function getSessionLimitCache(
     try {
         const data = await redisClient.hgetall(key);
         if (!data || !data.cached) return null;
-        const sessionLimit = parseInt(data.sessionLimit || '0', 10);
+        const sessionLimit = parseInt(data.sessionLimit || data.sessionReplayLimit || '0', 10);
+        const sessionReplayLimit = parseInt(data.sessionReplayLimit || String(sessionLimit), 10);
+        const sessionReplaysUsed = parseInt(data.sessionReplaysUsed || data.sessionsUsed || '0', 10);
         const planSessionLimit = parseInt(data.planSessionLimit || String(sessionLimit), 10);
+        const sessionReplayPlanLimit = parseInt(data.sessionReplayPlanLimit || String(planSessionLimit), 10);
         const bonusSessionsActive = parseInt(data.bonusSessionsActive || '0', 10);
         return {
             teamId,
-            sessionsUsed: parseInt(data.sessionsUsed || '0', 10),
+            sessionsUsed: sessionReplaysUsed,
+            sessionsCaptured: parseInt(data.sessionsCaptured || data.sessionsUsed || '0', 10),
+            sessionReplaysUsed,
             sessionLimit,
+            sessionReplayLimit,
             planName: data.planName || 'unknown',
             planSessionLimit,
+            sessionReplayPlanLimit,
             bonusSessionsActive: Number.isFinite(bonusSessionsActive) ? bonusSessionsActive : 0,
         };
     } catch (err) {
@@ -250,7 +263,7 @@ export async function getSessionLimitCache(
 }
 
 /**
- * Acquire a distributed lock for session limit cache refresh
+ * Acquire a distributed lock for replay limit cache refresh
  * Returns true if lock acquired, false if another process holds it
  */
 export async function acquireSessionLimitLock(
@@ -272,7 +285,7 @@ export async function acquireSessionLimitLock(
 }
 
 /**
- * Release the distributed lock for session limit cache refresh
+ * Release the distributed lock for replay limit cache refresh
  */
 export async function releaseSessionLimitLock(
     teamId: string,
@@ -289,7 +302,7 @@ export async function releaseSessionLimitLock(
 }
 
 /**
- * Get session limit cache with distributed locking to prevent race conditions
+ * Get replay limit cache with distributed locking to prevent race conditions
  * If cache miss and another process is refreshing, waits and retries
  * 
  * @param teamId - Team ID
@@ -319,7 +332,7 @@ export async function getSessionLimitCacheWithLock(
             return getSessionLimitCacheWithLock(teamId, period, fetchFromDb, maxRetries - 1);
         }
         // Max retries exceeded, fall through to fetch from DB without caching
-        logger.warn({ teamId, period }, 'Session limit cache lock contention, fetching without cache');
+        logger.warn({ teamId, period }, 'Replay limit cache lock contention, fetching without cache');
         return fetchFromDb();
     }
 
@@ -352,9 +365,13 @@ export async function setSessionLimitCache(
         const pipeline = redisClient.pipeline();
         pipeline.hset(key, 'cached', '1');
         pipeline.hset(key, 'sessionsUsed', sessionData.sessionsUsed.toString());
+        pipeline.hset(key, 'sessionsCaptured', sessionData.sessionsCaptured.toString());
+        pipeline.hset(key, 'sessionReplaysUsed', sessionData.sessionReplaysUsed.toString());
         pipeline.hset(key, 'sessionLimit', sessionData.sessionLimit.toString());
+        pipeline.hset(key, 'sessionReplayLimit', sessionData.sessionReplayLimit.toString());
         pipeline.hset(key, 'planName', sessionData.planName);
         pipeline.hset(key, 'planSessionLimit', sessionData.planSessionLimit.toString());
+        pipeline.hset(key, 'sessionReplayPlanLimit', sessionData.sessionReplayPlanLimit.toString());
         pipeline.hset(key, 'bonusSessionsActive', sessionData.bonusSessionsActive.toString());
         pipeline.expire(key, ttlSeconds);
         await pipeline.exec();
@@ -478,7 +495,7 @@ export async function invalidateBillingStatusCache(teamId: string): Promise<void
 }
 
 /**
- * Invalidate team session limit cache (call after billing updates or session count changes)
+ * Invalidate team replay limit cache (call after billing updates or replay usage changes)
  */
 export async function invalidateSessionLimitCache(
     teamId: string,
@@ -490,7 +507,7 @@ export async function invalidateSessionLimitCache(
 
     try {
         await redisClient.del(key);
-        logger.debug({ teamId, period: currentPeriod }, 'Invalidated team session limit cache');
+        logger.debug({ teamId, period: currentPeriod }, 'Invalidated team replay limit cache');
     } catch (err) {
         logRedisOperationFailed('invalidate_session_limit_cache', err, { teamId });
     }
@@ -581,7 +598,7 @@ export async function setEndpointCache(projectId: string, endpoint: Record<strin
 // Stripe subscription cache
 //
 // getTeamSubscription() makes a live Stripe API call (100-300ms) on every
-// session-limit cache miss (~every 5 min per active team). Cache the resolved
+// replay-limit cache miss (~every 5 min per active team). Cache the resolved
 // plan info for 5 minutes. Invalidated by syncTeamFromStripe when subscription
 // status changes (payment events, upgrades, cancellations).
 // =============================================================================
@@ -627,7 +644,7 @@ export async function invalidateStripeSubscriptionCache(teamId: string): Promise
 //
 // checkAndEnforceSessionLimit() SELECTs teams just to get billingCycleAnchor
 // + stripeCurrentPeriodStart/End so it can compute the billing period string
-// used as the session-limit cache key. The period only changes once a month
+// used as the replay-limit cache key. The period only changes once a month
 // at billing renewal. Cache it for 1 hour. Invalidated by syncTeamFromStripe
 // when billing period dates change.
 // =============================================================================

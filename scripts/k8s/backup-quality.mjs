@@ -9,6 +9,7 @@ export const HIGH_QUALITY_MIN_SCREENSHOT_FRAMES = 3;
  * their expected non-visual artifact set.
  */
 export const OBSERVE_ONLY_QUALITY_TIER = 'observe_only';
+export const REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER = 'replay_quota_billing_exhausted';
 
 const NATIVE_REPLAY_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
 const NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS = ['events', 'hierarchy'];
@@ -111,10 +112,12 @@ function isWebBackupShape(session, artifactKinds, backupArtifactKinds) {
 
 function expectedArtifactKindsForSession(session, artifactKinds, backupArtifactKinds) {
   const observeOnly = session?.observeOnly === true;
+  const replayQuotaBillingExhausted = session?.replayQuotaBillingExhausted === true;
+  const analyticsOnlyByDesign = observeOnly || replayQuotaBillingExhausted;
   const webShape = isWebBackupShape(session, artifactKinds, backupArtifactKinds);
-  if (webShape && observeOnly) return WEB_OBSERVE_ONLY_ARTIFACT_KINDS;
+  if (webShape && analyticsOnlyByDesign) return WEB_OBSERVE_ONLY_ARTIFACT_KINDS;
   if (webShape) return WEB_REPLAY_ARTIFACT_KINDS;
-  if (observeOnly) return NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS;
+  if (analyticsOnlyByDesign) return NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS;
   return NATIVE_REPLAY_ARTIFACT_KINDS;
 }
 
@@ -129,6 +132,8 @@ export function evaluateBackupQuality({
   const reasons = new Set();
   const session = isPlainObject(manifest?.session) ? manifest.session : null;
   const sessionObserveOnly = session?.observeOnly === true;
+  const replayQuotaBillingExhausted = session?.replayQuotaBillingExhausted === true;
+  const analyticsOnlyByDesign = sessionObserveOnly || replayQuotaBillingExhausted;
   const artifacts = Array.isArray(manifest?.artifacts) ? manifest.artifacts.filter(isPlainObject) : [];
   const backupArtifacts = Array.isArray(manifest?.backupArtifacts) ? manifest.backupArtifacts.filter(isPlainObject) : [];
   const artifactKinds = collectKinds(artifacts);
@@ -170,11 +175,11 @@ export function evaluateBackupQuality({
       reasons.add(`missing_${kind}`);
     }
   }
-  if (sessionObserveOnly && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
-    reasons.add('unexpected_screenshots_for_observe_only');
+  if (analyticsOnlyByDesign && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
+    reasons.add(sessionObserveOnly ? 'unexpected_screenshots_for_observe_only' : 'unexpected_screenshots_for_replay_quota_billing_exhausted');
   }
-  if (sessionObserveOnly && (artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb'))) {
-    reasons.add('unexpected_rrweb_for_observe_only');
+  if (analyticsOnlyByDesign && (artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb'))) {
+    reasons.add(sessionObserveOnly ? 'unexpected_rrweb_for_observe_only' : 'unexpected_rrweb_for_replay_quota_billing_exhausted');
   }
 
   if (plannedCount <= 0 || copiedCount <= 0 || r2ArtifactCount <= 0) {
@@ -229,12 +234,12 @@ export function evaluateBackupQuality({
   }
 
   const orderedReasons = Array.from(reasons).sort();
-  const qualityTier = sessionObserveOnly && orderedReasons.length === 0
-    ? OBSERVE_ONLY_QUALITY_TIER
+  const qualityTier = analyticsOnlyByDesign && orderedReasons.length === 0
+    ? (replayQuotaBillingExhausted ? REPLAY_QUOTA_BILLING_EXHAUSTED_QUALITY_TIER : OBSERVE_ONLY_QUALITY_TIER)
     : classifyTier(orderedReasons);
 
   return {
-    highQuality: !sessionObserveOnly && orderedReasons.length === 0,
+    highQuality: !analyticsOnlyByDesign && orderedReasons.length === 0,
     qualityTier,
     qualityRuleVersion: BACKUP_QUALITY_RULE_VERSION,
     manifestPresent: Boolean(manifestPresent),
@@ -256,6 +261,7 @@ export function evaluateBackupQuality({
       weirdScreenshotFormats,
       expectedArtifactKinds,
       observeOnly: sessionObserveOnly,
+      replayQuotaBillingExhausted,
     },
   };
 }

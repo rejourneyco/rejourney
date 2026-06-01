@@ -13,6 +13,7 @@ import {
     buildSessionEndMetricsMergeSet,
     normalizeLifecycleVersion,
     normalizeSessionEndReason,
+    shouldTrustClientFrustrationCountsForPlatform,
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
 import { loadSessionWorkAggregate } from '../services/sessionPresentationState.js';
@@ -99,8 +100,9 @@ router.post(
         const normalizedSdkTelemetry = normalizeSdkTelemetry(data.sdkTelemetry);
         const lifecycleVersion = normalizeLifecycleVersion(data.lifecycleVersion);
         const endReason = normalizeSessionEndReason(data.endReason);
-        const metricsUpdates = buildSessionEndMetricsMergeSet(data.metrics);
-        const metricsSummary = summarizeSessionEndMetrics(data.metrics);
+        const trustClientFrustrationCounts = shouldTrustClientFrustrationCountsForPlatform(session.platform);
+        const metricsUpdates = buildSessionEndMetricsMergeSet(data.metrics, { trustClientFrustrationCounts });
+        const metricsSummary = summarizeSessionEndMetrics(data.metrics, { trustClientFrustrationCounts });
 
         if (data.metrics || normalizedSdkTelemetry) {
             await db.insert(sessionMetrics)

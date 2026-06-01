@@ -104,6 +104,10 @@ export const AccountSettings: React.FC = () => {
     return <DashboardGhostLoader variant="settings" />;
   }
 
+  const freeTierSessionReplaysUsed = freeTierStatus?.sessionReplaysUsed ?? freeTierStatus?.sessionsUsed ?? 0;
+  const freeTierSessionReplayLimit = freeTierStatus?.freeTierSessionReplays ?? freeTierStatus?.freeTierSessions ?? 0;
+  const freeTierReplayPercentUsed = freeTierStatus?.sessionReplayPercentUsed ?? freeTierStatus?.percentUsed ?? 0;
+
   return (
     <SettingsLayout className="rejourney-settings-page rejourney-account-settings-page" title="Account" description="Manage your personal settings" icon={<UserCircle className="w-6 h-6" />} iconColor="bg-[#f4f4f5]">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -199,18 +203,18 @@ export const AccountSettings: React.FC = () => {
                   {/* Progress bar */}
                   <div>
                     <div className="flex justify-between text-xs mb-2">
-                      <span className="text-slate-900 font-bold uppercase tracking-wide">Sessions Used</span>
-                      <span className="font-mono font-bold text-slate-900">
-                        {freeTierStatus.sessionsUsed.toLocaleString()} <span className="text-slate-400">/</span> {freeTierStatus.freeTierSessions.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="h-4 bg-slate-100 border border-slate-900 overflow-hidden relative">
-                      <div
-                        className={`absolute top-0 left-0 bottom-0 transition-all ${freeTierStatus.percentUsed >= 100 ? 'bg-red-500' :
-                          freeTierStatus.percentUsed >= 80 ? 'bg-rose-400' : 'bg-emerald-500'
-                          }`}
-                        style={{ width: `${Math.min(freeTierStatus.percentUsed, 100)}%` }}
-                      />
+	                      <span className="text-slate-900 font-bold uppercase tracking-wide">Session Replays Used</span>
+	                      <span className="font-mono font-bold text-slate-900">
+	                        {freeTierSessionReplaysUsed.toLocaleString()} <span className="text-slate-400">/</span> {freeTierSessionReplayLimit.toLocaleString()}
+	                      </span>
+	                    </div>
+	                    <div className="h-4 bg-slate-100 border border-slate-900 overflow-hidden relative">
+	                      <div
+	                        className={`absolute top-0 left-0 bottom-0 transition-all ${freeTierReplayPercentUsed >= 100 ? 'bg-red-500' :
+	                          freeTierReplayPercentUsed >= 80 ? 'bg-rose-400' : 'bg-emerald-500'
+	                          }`}
+	                        style={{ width: `${Math.min(freeTierReplayPercentUsed, 100)}%` }}
+	                      />
                       {/* Ticks */}
                       <div className="absolute top-0 bottom-0 left-[25%] w-px bg-white/30"></div>
                       <div className="absolute top-0 bottom-0 left-[50%] w-px bg-white/30"></div>
@@ -231,7 +235,7 @@ export const AccountSettings: React.FC = () => {
                     </div>
                   ) : (
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                      {freeTierStatus.freeTierSessions.toLocaleString()} free sessions shared across all {freeTierStatus.ownedTeamCount} team{freeTierStatus.ownedTeamCount !== 1 ? 's' : ''} you own
+                      {freeTierSessionReplayLimit.toLocaleString()} free session replays shared across all {freeTierStatus.ownedTeamCount} team{freeTierStatus.ownedTeamCount !== 1 ? 's' : ''} you own
                     </p>
                   )}
                 </div>

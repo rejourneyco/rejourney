@@ -80,6 +80,13 @@ export const DOCS_MAP: Record<string, { file: string; title: string; category?: 
         description: 'Review Rejourney architecture diagrams for SDK ingestion, replay storage, dashboards, workers, and self-hosted deployment topology.',
         keywords: ['Rejourney architecture diagrams', 'session replay architecture', 'mobile analytics architecture', 'observability system design']
     },
+    'architecture/smart-capture-replay-billing': {
+        file: 'architecture/smart-capture-replay-billing.md',
+        title: 'Smart Capture & Replay Billing',
+        category: 'Architecture',
+        description: 'Understand how Rejourney separates analytics sessions from replay usage, keeps analytics beyond replay quota, and supports future server-side smart capture rules.',
+        keywords: ['smart capture', 'session replay billing', 'analytics sessions', 'replay quota', 'session replay architecture']
+    },
     'architecture/ci-cd': {
         file: 'distributed-vs-single-node/ci-cd.md',
         title: 'CI/CD & Testing',

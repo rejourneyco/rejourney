@@ -61,6 +61,7 @@ export function normalizeIngestAppVersion(metadata?: IngestSessionMetadata): str
 
 type EnsureIngestSessionOptions = {
     initialStatus?: string;
+    replayQuotaBillingExhausted?: boolean;
 };
 
 type RepairMissingSessionsOptions = {
@@ -194,7 +195,12 @@ export function invalidateProjectRetentionCache(projectId: string): void {
     _retentionByProject.delete(projectId);
 }
 
-function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | undefined, req?: any) {
+function buildMetadataUpdates(
+    existing: any,
+    metadata: IngestSessionMetadata | undefined,
+    req?: any,
+    options?: EnsureIngestSessionOptions,
+) {
     const inferred = inferSessionShape(req, metadata);
     const updates: Record<string, unknown> = {};
 
@@ -229,10 +235,17 @@ function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | u
     }
     // Back-fill: if a later request arrives with the observe-only header and the session
     // row was created before the flag was set (e.g. race or older SDK version that sent
-    // the header on a retry but not the first request), promote the flag. Never clear it
-    // once set — observeOnly is a one-way latch.
-    if (!existing.observeOnly && req?.headers?.['x-rj-observe-only'] === '1') {
+    // the header on a retry but not the first request), promote the flag. Customer
+    // observe-only is a latch; replay quota exhaustion uses its own column instead.
+    if (!existing.observeOnly && req?.headers?.['x-rj-observe-only'] === '1' && options?.replayQuotaBillingExhausted !== true) {
         updates.observeOnly = true;
+    }
+    if (!existing.replayQuotaBillingExhausted && options?.replayQuotaBillingExhausted === true) {
+        updates.replayQuotaBillingExhausted = true;
+        updates.replayAvailable = false;
+    }
+    if (existing.observeOnly && options?.replayQuotaBillingExhausted === true) {
+        updates.observeOnly = false;
     }
 
     const jsonMetadata = buildSessionJsonMetadata(metadata);
@@ -422,7 +435,8 @@ export async function ensureIngestSession(
             retentionDays: videoRetention.days,
             isSampledIn: true,
             // Older SDK versions that predate this header default to false (normal recording).
-            observeOnly: req?.headers?.['x-rj-observe-only'] === '1',
+            observeOnly: req?.headers?.['x-rj-observe-only'] === '1' && options?.replayQuotaBillingExhausted !== true,
+            replayQuotaBillingExhausted: options?.replayQuotaBillingExhausted === true,
         }).onConflictDoNothing().returning({ id: sessions.id });
 
         created = inserted.length > 0;
@@ -441,7 +455,7 @@ export async function ensureIngestSession(
         assertSessionProjectMatch(session, projectId, 'ensureIngestSession');
     }
 
-    const updates = buildMetadataUpdates(session, metadata, req);
+    const updates = buildMetadataUpdates(session, metadata, req, options);
     if (Object.keys(updates).length > 0) {
         await db.update(sessions)
             .set(updates)

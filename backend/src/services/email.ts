@@ -424,19 +424,19 @@ export async function sendBillingWarningEmail(
   const metaBadges: EmailMetaBadge[] = [
     { label: 'USAGE', value: `${usagePercent}%` },
     { label: 'STATUS', value: urgencyLabel },
-    { label: 'REMAINING', value: `${remaining.toLocaleString()} MIN` },
+    { label: 'REMAINING', value: `${remaining.toLocaleString()} REPLAYS` },
   ];
 
   const html = generateEmailHtml({
     title: 'Usage Limit Warning',
-    previewText: `${teamName} has used ${usagePercent}% of monthly recording minutes`,
+    previewText: `${teamName} has used ${usagePercent}% of monthly session replay usage`,
     sections: [
       {
         style: 'warning',
         content: `
           <div style="text-align: center;">
             <div style="font-size: 64px; font-weight: 900; line-height: 1;">${usagePercent}%</div>
-            <div style="font-weight: bold; text-transform: uppercase; margin-top: 8px;">of monthly limit used</div>
+            <div style="font-weight: bold; text-transform: uppercase; margin-top: 8px;">of monthly session replay limit used</div>
           </div>
           <div style="margin-top: 24px; border-top: 2px solid #000; padding-top: 16px; display: flex; justify-content: space-between; font-family: monospace; font-weight: bold;">
             <span>USED: ${currentUsage.toLocaleString()}</span>
@@ -447,8 +447,8 @@ export async function sendBillingWarningEmail(
       {
         title: 'What Happens Next?',
         content: `
-          Session recording will <strong>PAUSE</strong> when you hit 100%. 
-          To keep recording, add a payment method for pay-as-you-go billing.
+          Session replay capture will <strong>PAUSE</strong> when you hit 100%. 
+          Analytics sessions will continue, and you can upgrade to record more replays.
         `
       }
     ],
@@ -466,8 +466,8 @@ export async function sendBillingWarningEmail(
   await transport.sendMail({
     from: config.SMTP_FROM || 'Rejourney Billing <billing@rejourney.co>',
     to: recipients,
-    subject: `Billing Alert: ${teamName} at ${usagePercent}% usage`,
-    text: `Team ${teamName} has used ${usagePercent}% of recording minutes. Add payment method: ${billingUrl}`,
+    subject: `Billing Alert: ${teamName} at ${usagePercent}% replay usage`,
+    text: `Team ${teamName} has used ${usagePercent}% of monthly session replay usage. Add payment method: ${billingUrl}`,
     html
   });
 
@@ -896,8 +896,9 @@ export async function sendErrorSpikeAlertEmail(
   sections.push({
     style: 'warning',
     content: `
-      <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">ERROR SPIKE DETECTED</div>
-      <div style="font-weight: 800; font-size: 18px; margin-bottom: 8px;">Error rate increased ${data.percentIncrease.toFixed(0)}%</div>
+      <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">API ERROR RATE SPIKE DETECTED</div>
+      <div style="font-weight: 800; font-size: 18px; margin-bottom: 8px;">API error rate increased ${data.percentIncrease.toFixed(0)}%</div>
+      <div style="margin-top: 8px; font-size: 13px; opacity: 0.8;">This measures HTTP 4xx/5xx responses from your app's API calls, not crashes or JS exceptions.</div>
       <div style="margin-top: 16px; font-size: 13px;">
         <strong>Previous:</strong> ${data.previousRate.toFixed(1)}% → <strong>Current:</strong> ${data.currentRate.toFixed(1)}%
       </div>
@@ -909,7 +910,7 @@ export async function sendErrorSpikeAlertEmail(
       `<div style="margin: 4px 0; font-size: 12px;"><strong>${e.count}x</strong> ${e.name}</div>`
     ).join('');
     sections.push({
-      title: 'Top Errors',
+      title: 'Recent Issues',
       content: errorsList
     });
   }
@@ -917,13 +918,13 @@ export async function sendErrorSpikeAlertEmail(
   await transport.sendMail({
     from: config.SMTP_FROM || 'Rejourney Alerts <alerts@rejourney.co>',
     to: recipients.join(','),
-    subject: `Error Spike: +${data.percentIncrease.toFixed(0)}% in ${data.projectName}`,
-    text: `Error spike in ${data.projectName}. View details: ${issueLink}`,
+    subject: `API Error Rate Spike: +${data.percentIncrease.toFixed(0)}% in ${data.projectName}`,
+    text: `API error rate spike in ${data.projectName}. Check affected sessions: ${issueLink}`,
     html: generateEmailHtml({
-      title: 'Error Spike Alert',
-      previewText: `Error spike in ${data.projectName}`,
+      title: 'API Error Rate Spike',
+      previewText: `API error rate spike in ${data.projectName}`,
       sections,
-      action: { label: 'View Issues', url: issueLink },
+      action: { label: 'View Sessions', url: issueLink },
       projectName: data.projectName,
       projectUrl: emailDashboardAppPath(`/settings/${data.projectId}`),
       alertType: 'error_spike',

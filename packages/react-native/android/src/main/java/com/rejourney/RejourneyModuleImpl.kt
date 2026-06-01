@@ -75,7 +75,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.2.0"
+        var sdkVersion = "1.3.0"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
@@ -508,6 +508,7 @@ class RejourneyModuleImpl(
         if (options.hasKey("collectGeoLocation")) config["collectGeoLocation"] = options.getBoolean("collectGeoLocation")
         if (options.hasKey("observeOnly")) config["observeOnly"] = options.getBoolean("observeOnly")
         if (options.hasKey("textInputMasking")) config["textInputMasking"] = options.getString("textInputMasking") ?: "all"
+        if (options.hasKey("imageVideoMasking")) config["imageVideoMasking"] = options.getString("imageVideoMasking") ?: "none"
         if (options.hasKey("captureNativeSheets")) config["captureNativeSheets"] = options.getBoolean("captureNativeSheets")
         if (options.hasKey("detectRageTaps")) config["detectRageTaps"] = options.getBoolean("detectRageTaps")
         if (options.hasKey("rageTapThreshold")) config["rageTapThreshold"] = options.getInt("rageTapThreshold").coerceAtLeast(1)

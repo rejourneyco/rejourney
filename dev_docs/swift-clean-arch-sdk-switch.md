@@ -54,7 +54,7 @@ It then runs the same SwiftPM artifact cleanup and dependency resolution flow.
 
 - `--no-resolve` rewrites dependency files but skips `swift package resolve` and `xcodebuild -resolvePackageDependencies`.
 - `--status` prints whether `Package.swift` and the Xcode project currently point at the local package or the released package.
-- `REJOURNEY_IOS_SDK_VERSION=0.2.0` pins `--old` to a specific release.
+- `REJOURNEY_IOS_SDK_VERSION=0.3.0` pins `--old` to a specific release.
 - `REJOURNEY_IOS_PACKAGE_URL=...` overrides the remote SwiftPM package URL.
 
 ## Notes

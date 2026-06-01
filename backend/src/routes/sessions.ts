@@ -66,6 +66,16 @@ import {
     encodeCsvRow,
     SESSION_EXPORT_CSV_HEADERS,
 } from '../services/sessionExportCsv.js';
+import {
+    getFirstTouchPointFromTelemetryEvent,
+    getFrustrationTapKind,
+    isKeyboardAreaTelemetryEvent,
+    MOBILE_FRUSTRATION_COUNTS_VERSION,
+    MOBILE_RAGE_TAP_THRESHOLD,
+    registerTapForMobileRageInference,
+    type MobileTapPoint,
+} from '../utils/mobileFrustration.js';
+import { shouldTrustClientFrustrationCountsForPlatform } from '../services/ingestSessionEnd.js';
 
 type ScreenshotFramePayload = {
     timestamp: number;
@@ -594,7 +604,7 @@ const RRWEB_SEGMENT_DATA_CACHE_TTL_SECONDS = Number(process.env.RJ_RRWEB_SEGMENT
 const RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES = Number(process.env.RJ_RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES ?? 5_000_000);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 const SESSION_BOOTSTRAP_CACHE_CONTROL = 'private, max-age=15, stale-while-revalidate=45';
-const SESSION_DETAIL_CACHE_VERSION = 'v5';
+const SESSION_DETAIL_CACHE_VERSION = 'v6';
 // Inline-events cap for /core rrweb payload. When the total rrweb segment size
 // exceeds this, the server returns segment URLs (events: []) and the dashboard
 // fetches segments directly from R2 in parallel. This removes the dashboard
@@ -876,8 +886,28 @@ async function getReadyArtifacts(sessionId: string) {
         .where(and(eq(recordingArtifacts.sessionId, sessionId), eq(recordingArtifacts.status, 'ready')));
 }
 
-function buildMetricsPayload(metrics: any) {
+function effectiveFrustrationCountsForSession(session: any, metrics: any) {
+    const rawRageTapCount = Number(metrics?.rageTapCount ?? 0) || 0;
+    const rawDeadTapCount = Number(metrics?.deadTapCount ?? 0) || 0;
+    const version = Number(metrics?.frustrationCountsVersion ?? 0) || 0;
+    const needsCanonicalMobileCounts = metrics
+        && !shouldTrustClientFrustrationCountsForPlatform(session?.platform)
+        && Number(metrics?.eventsSizeBytes ?? 0) > 0
+        && version < MOBILE_FRUSTRATION_COUNTS_VERSION;
+
+    return {
+        rageTapCount: needsCanonicalMobileCounts ? 0 : rawRageTapCount,
+        // Legacy mobile dead-tap summaries were not the noisy keyboard source,
+        // so keep them visible while the canonical repair catches up.
+        deadTapCount: rawDeadTapCount,
+        frustrationCountsVersion: version,
+        frustrationCountsPendingRepair: Boolean(needsCanonicalMobileCounts),
+    };
+}
+
+function buildMetricsPayload(session: any, metrics: any) {
     const screensVisited: string[] = Array.isArray(metrics?.screensVisited) ? metrics.screensVisited : [];
+    const frustrationCounts = effectiveFrustrationCountsForSession(session, metrics);
     return metrics
         ? {
             totalEvents: metrics.totalEvents,
@@ -887,8 +917,10 @@ function buildMetricsPayload(metrics: any) {
             inputCount: metrics.inputCount,
             navigationCount: screensVisited.length,
             errorCount: metrics.errorCount,
-            rageTapCount: metrics.rageTapCount,
-            deadTapCount: metrics.deadTapCount ?? 0,
+            rageTapCount: frustrationCounts.rageTapCount,
+            deadTapCount: frustrationCounts.deadTapCount,
+            frustrationCountsVersion: frustrationCounts.frustrationCountsVersion,
+            frustrationCountsPendingRepair: frustrationCounts.frustrationCountsPendingRepair,
             apiSuccessCount: metrics.apiSuccessCount,
             apiErrorCount: metrics.apiErrorCount,
             apiTotalCount: metrics.apiTotalCount,
@@ -1236,7 +1268,7 @@ function buildSessionBasePayload(
         },
         screenshotFrames,
         hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
-        metrics: buildMetricsPayload(metrics),
+        metrics: buildMetricsPayload(session, metrics),
         crashes: [] as any[],
         anrs: [] as any[],
         retentionTier: session.retentionTier,
@@ -1591,7 +1623,10 @@ function normalizeEventsForTimeline(
                 payload,
                 properties,
                 gestureType: e?.gestureType || properties?.gestureType || payload?.gestureType || null,
-                targetLabel: e?.targetLabel || properties?.targetLabel || payload?.targetLabel || null,
+                // Swift 0.2.x / RN 1.2.x native artifacts use `label` for the
+                // tapped UIKit view; newer UI code reads `targetLabel`. Keep
+                // both so old uploaded sessions stay searchable in new dashboards.
+                targetLabel: e?.targetLabel || e?.label || properties?.targetLabel || properties?.label || payload?.targetLabel || payload?.label || null,
                 touches: e?.touches || properties?.touches || payload?.touches || null,
                 frustrationKind: e?.frustrationKind || properties?.frustrationKind || payload?.frustrationKind || null,
                 screen:
@@ -1606,7 +1641,81 @@ function normalizeEventsForTimeline(
         })
         .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-    return { normalizedEvents, coerceToEpochMs };
+    const syntheticRageTapEvents = synthesizeRageTapEventsForTimeline(normalizedEvents);
+    const timelineEvents = syntheticRageTapEvents.length > 0
+        ? [...normalizedEvents, ...syntheticRageTapEvents].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        : normalizedEvents;
+
+    return { normalizedEvents: timelineEvents, coerceToEpochMs };
+}
+
+function isTapLikeTimelineEvent(event: any): boolean {
+    const type = (event?.type || '').toString().toLowerCase();
+    const gestureType = (event?.gestureType || event?.properties?.gestureType || event?.payload?.gestureType || '').toString().toLowerCase();
+
+    return (type === 'touch' || type === 'tap' || type === 'click' || type === 'gesture') &&
+        (gestureType === 'tap' || gestureType === 'single_tap' || gestureType === 'double_tap');
+}
+
+function synthesizeRageTapEventsForTimeline(normalizedEvents: any[]): any[] {
+    const explicitRagePoints = normalizedEvents
+        .filter((event) => getFrustrationTapKind(event) === 'rage_tap')
+        .map((event) => getFirstTouchPointFromTelemetryEvent(event))
+        .filter((point): point is MobileTapPoint => Boolean(point));
+
+    const recentTaps: MobileTapPoint[] = [];
+    const synthetic: any[] = [];
+
+    for (const event of normalizedEvents) {
+        const frustrationKind = getFrustrationTapKind(event);
+        if (frustrationKind) {
+            recentTaps.length = 0;
+            continue;
+        }
+        if (!isTapLikeTimelineEvent(event)) continue;
+        if (isKeyboardAreaTelemetryEvent(event)) {
+            recentTaps.length = 0;
+            continue;
+        }
+
+        const tap = getFirstTouchPointFromTelemetryEvent(event);
+        if (!tap) continue;
+        const isRageTap = registerTapForMobileRageInference(recentTaps, tap);
+        if (!isRageTap) continue;
+
+        const alreadyHasExplicitMarker = explicitRagePoints.some((point) => (
+            Math.abs(point.timestamp - tap.timestamp) <= 1000 &&
+            Math.hypot(point.x - tap.x, point.y - tap.y) <= 50
+        ));
+        if (alreadyHasExplicitMarker) continue;
+
+        // Older Swift 0.2.x/RN 1.2.x app binaries may only have tap-only
+        // artifacts. New dashboards still need a replay/timeline marker even
+        // when those installed apps cannot be upgraded.
+        synthetic.push({
+            ...event,
+            id: `inferred_rage_${event.id || synthetic.length}_${tap.timestamp}`,
+            type: 'rage_tap',
+            name: event.name || 'Rage Tap',
+            gestureType: 'rage_tap',
+            frustrationKind: 'rage_tap',
+            x: tap.x,
+            y: tap.y,
+            count: MOBILE_RAGE_TAP_THRESHOLD,
+            touches: [{ x: tap.x, y: tap.y, timestamp: tap.timestamp }],
+            timestamp: tap.timestamp,
+            properties: {
+                ...(event.properties || {}),
+                inferred: true,
+                compatibility: 'mobile_tap_cluster',
+                gestureType: 'rage_tap',
+                frustrationKind: 'rage_tap',
+                count: MOBILE_RAGE_TAP_THRESHOLD,
+            },
+        });
+    }
+
+    return synthetic;
 }
 
 function getFaultTextValue(raw: unknown): string {
@@ -2388,6 +2497,7 @@ router.get(
                 hasPendingReplayWork: false,
                 supersededByNewerVisitorSession: Boolean(hasNewerSessionOnVisitor),
             });
+            const frustrationCounts = effectiveFrustrationCountsForSession(s, m);
             return {
                 id: s.id,
                 projectId: s.projectId,
@@ -2417,8 +2527,10 @@ router.get(
                 gestureCount: m?.gestureCount ?? 0,
                 inputCount: m?.inputCount ?? 0,
                 errorCount: m?.errorCount ?? 0,
-                rageTapCount: m?.rageTapCount ?? 0,
-                deadTapCount: m?.deadTapCount ?? 0,
+                rageTapCount: frustrationCounts.rageTapCount,
+                deadTapCount: frustrationCounts.deadTapCount,
+                frustrationCountsVersion: frustrationCounts.frustrationCountsVersion,
+                frustrationCountsPendingRepair: frustrationCounts.frustrationCountsPendingRepair,
                 apiSuccessCount: m?.apiSuccessCount ?? 0,
                 apiErrorCount: m?.apiErrorCount ?? 0,
                 apiTotalCount: m?.apiTotalCount ?? 0,
@@ -2810,7 +2922,9 @@ router.get(
                 // Include gestureType for timeline color coding
                 gestureType: e?.gestureType || properties?.gestureType || payload?.gestureType || null,
                 // Include targetLabel for tap identification
-                targetLabel: e?.targetLabel || properties?.targetLabel || payload?.targetLabel || null,
+                // Cross-compatible with native SDKs that shipped `label` before
+                // the dashboard standardized on `targetLabel`.
+                targetLabel: e?.targetLabel || e?.label || properties?.targetLabel || properties?.label || payload?.targetLabel || payload?.label || null,
                 // Include touches for coordinate data
                 touches: e?.touches || properties?.touches || payload?.touches || null,
                 // Include frustration info
@@ -2957,29 +3071,7 @@ router.get(
             screenshotFrames, // Array of { timestamp, url, index } for image-based playback
             rrwebReplay,
             hierarchySnapshots,
-            metrics: metrics
-                ? {
-                    totalEvents: metrics.totalEvents,
-                    touchCount: metrics.touchCount,
-                    scrollCount: metrics.scrollCount,
-                    gestureCount: metrics.gestureCount,
-                    inputCount: metrics.inputCount,
-                    navigationCount: metrics.screensVisited?.length ?? 0,
-                    errorCount: metrics.errorCount,
-                    rageTapCount: metrics.rageTapCount,
-                    deadTapCount: metrics.deadTapCount ?? 0,
-                    apiSuccessCount: metrics.apiSuccessCount,
-                    apiErrorCount: metrics.apiErrorCount,
-                    apiTotalCount: metrics.apiTotalCount,
-                    screensVisited: metrics.screensVisited,
-                    uniqueScreensCount: new Set(metrics.screensVisited).size,
-                    interactionScore: metrics.interactionScore,
-                    explorationScore: metrics.explorationScore,
-                    uxScore: metrics.uxScore,
-                    customEventCount: metrics.customEventCount ?? 0,
-                    crashCount: metrics.crashCount || 0,
-                }
-                : null,
+            metrics: buildMetricsPayload(session, metrics),
             crashes: mapCrashRowsForPayload(sessionCrashes),
             anrs: mapAnrRowsForPayload(displayAnrs),
             stats: {

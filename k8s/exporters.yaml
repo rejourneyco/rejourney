@@ -924,7 +924,10 @@ data:
             usage: "GAUGE"
             description: "Age in seconds of the oldest pending/processing event job for a replay-ready zero-event session"
 
-    # Snapshot of very recent sessions grouped by whether replay is already available.
+    # Snapshot of very recent replay-eligible sessions grouped by whether replay
+    # is already available. Sessions that are analytics-only by design
+    # (observe_only or replay quota exhaustion) are excluded so "not_available"
+    # tracks upload/processing health, not expected no-replay behavior.
     # A 15-minute lookback keeps the series sensitive enough to show short-term
     # patterns instead of flattening into a long-window inventory count.
     rejourney_sessions_replay_availability_recent:
@@ -938,6 +941,8 @@ data:
           COUNT(*)::bigint AS session_count
         FROM sessions s
         WHERE s.started_at > NOW() - INTERVAL '15 minutes'
+          AND COALESCE(s.observe_only, false) = false
+          AND COALESCE(s.replay_quota_billing_exhausted, false) = false
         GROUP BY replay_state, s.status
       metrics:
         - replay_state:
@@ -946,7 +951,7 @@ data:
             usage: "LABEL"
         - session_count:
             usage: "GAUGE"
-            description: "Sessions started in the last 15m grouped by replay availability and status"
+            description: "Replay-eligible sessions started in the last 15m grouped by replay availability and status"
 
     # Session backup worker (in-cluster retentionWorker backs sessions up
     # before deletion). These expose backup throughput, total footprint

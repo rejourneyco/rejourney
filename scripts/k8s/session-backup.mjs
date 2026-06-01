@@ -556,7 +556,10 @@ function buildBackupEligibilityPredicate(sessionAlias = 's', statsAlias = 'artif
         ${statsAlias}.ready_artifact_count > 0
         AND (
           (
-            COALESCE(${sessionAlias}.observe_only, false) = true
+            (
+              COALESCE(${sessionAlias}.observe_only, false) = true
+              OR COALESCE(${sessionAlias}.replay_quota_billing_exhausted, false) = true
+            )
             AND ${statsAlias}.ready_events_count > 0
             AND ${statsAlias}.ready_screenshots_count = 0
             AND ${statsAlias}.ready_rrweb_count = 0
@@ -567,6 +570,7 @@ function buildBackupEligibilityPredicate(sessionAlias = 's', statsAlias = 'artif
           )
           OR (
             COALESCE(${sessionAlias}.observe_only, false) = false
+            AND COALESCE(${sessionAlias}.replay_quota_billing_exhausted, false) = false
             AND ${statsAlias}.ready_events_count > 0
             AND (
               ${statsAlias}.ready_rrweb_count > 0
@@ -990,6 +994,7 @@ async function buildManifest(sessionId) {
         'retentionDays', s.retention_days,
         'isSampledIn', s.is_sampled_in,
         'observeOnly', COALESCE(s.observe_only, false),
+        'replayQuotaBillingExhausted', COALESCE(s.replay_quota_billing_exhausted, false),
         'hasSuccessfulRecording', COALESCE(s.replay_available, false),
         'replaySegmentCount', s.replay_segment_count,
         'replayStorageBytes', s.replay_storage_bytes,
@@ -1716,6 +1721,7 @@ function buildBackupPrefix(session) {
 
 function validateBackupArtifactShape(sessionId, manifest, artifacts) {
   const observeOnly = manifest?.session?.observeOnly === true;
+  const replayQuotaBillingExhausted = manifest?.session?.replayQuotaBillingExhausted === true;
   const platform = String(manifest?.session?.platform || '').toLowerCase();
   const counts = {
     total: artifacts.length,
@@ -1736,15 +1742,15 @@ function validateBackupArtifactShape(sessionId, manifest, artifacts) {
     );
   }
 
-  if (observeOnly) {
+  if (observeOnly || replayQuotaBillingExhausted) {
     if (counts.screenshots > 0 || counts.rrweb > 0) {
       throw new Error(
-        `session ${sessionId} is observe_only but has visual replay artifact(s) (screenshots=${counts.screenshots}, rrweb=${counts.rrweb})`,
+        `session ${sessionId} is analytics-only by design but has visual replay artifact(s) (screenshots=${counts.screenshots}, rrweb=${counts.rrweb}, observeOnly=${observeOnly}, replayQuotaBillingExhausted=${replayQuotaBillingExhausted})`,
       );
     }
     if (!webReplayShape && counts.hierarchy <= 0) {
       throw new Error(
-        `session ${sessionId} observe_only backup requires hierarchy for native sessions (events=${counts.events}, hierarchy=${counts.hierarchy})`,
+        `session ${sessionId} analytics-only backup requires hierarchy for native sessions (events=${counts.events}, hierarchy=${counts.hierarchy}, observeOnly=${observeOnly}, replayQuotaBillingExhausted=${replayQuotaBillingExhausted})`,
       );
     }
     return;

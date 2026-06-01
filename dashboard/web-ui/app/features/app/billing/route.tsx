@@ -463,23 +463,28 @@ export const BillingSettings: React.FC = () => {
   };
 
   // Effective cap includes time-limited bonus sessions (same as ingest); plan row is base plan only
+  const sessionReplaysUsed =
+    sessionUsage?.sessionReplaysUsed ?? sessionUsage?.sessionsUsed ?? 0;
+  const sessionsCapturedDisplay =
+    sessionUsage?.sessionsCaptured ?? teamUsage?.sessionsCaptured ?? sessionReplaysUsed;
   const effectiveSessionLimit =
-    sessionUsage?.sessionLimit ?? teamPlan?.sessionLimit ?? 5000;
+    sessionUsage?.sessionReplayLimit ?? sessionUsage?.sessionLimit ?? teamPlan?.sessionReplayLimit ?? teamPlan?.sessionLimit ?? 5000;
   const planSessionCap =
-    sessionUsage?.planSessionLimit ?? teamPlan?.sessionLimit ?? 5000;
+    sessionUsage?.sessionReplayPlanLimit ?? sessionUsage?.planSessionLimit ?? teamPlan?.sessionReplayLimit ?? teamPlan?.sessionLimit ?? 5000;
   const bonusSessionsActive = sessionUsage?.bonusSessionsActive ?? 0;
 
   const usagePercent =
-    sessionUsage != null ? Math.min(100, sessionUsage.percentUsed) : 0;
+    sessionUsage != null ? Math.min(100, sessionUsage.sessionReplayPercentUsed ?? sessionUsage.percentUsed) : 0;
 
   const isNearLimit =
-    sessionUsage != null ? sessionUsage.isNearLimit : usagePercent >= 80;
+    sessionUsage != null ? (sessionUsage.isReplayNearLimit ?? sessionUsage.isNearLimit) : usagePercent >= 80;
   const isAtLimit =
-    sessionUsage != null ? sessionUsage.isAtLimit : usagePercent >= 100;
+    sessionUsage != null ? (sessionUsage.isReplayAtLimit ?? sessionUsage.isAtLimit) : usagePercent >= 100;
 
   const sessionsRemainingDisplay =
+    sessionUsage?.sessionReplaysRemaining ??
     sessionUsage?.sessionsRemaining ??
-    Math.max(0, effectiveSessionLimit - (sessionUsage?.sessionsUsed ?? 0));
+    Math.max(0, effectiveSessionLimit - sessionReplaysUsed);
   const isInitialBillingLoading = Boolean(currentTeam)
     && isLoadingBilling
     && !teamPlan
@@ -630,7 +635,7 @@ export const BillingSettings: React.FC = () => {
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Usage This Period</h2>
-              <p className="mt-1 text-xs font-medium text-slate-500">Session usage, remaining capacity, and renewal timing.</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">Replay quota, unlimited analytics sessions, and renewal timing.</p>
             </div>
             <div className="text-left sm:text-right">
               <div className="text-xs font-medium text-slate-500">Period ends</div>
@@ -638,11 +643,12 @@ export const BillingSettings: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
+          <div>
+            <div className="min-w-0">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Session replays recorded</div>
               <div className="flex items-baseline gap-2">
                 <span className="font-mono text-4xl font-semibold text-slate-950">
-                  {(sessionUsage?.sessionsUsed ?? 0).toLocaleString()}
+                  {sessionReplaysUsed.toLocaleString()}
                 </span>
                 <span className="text-base font-semibold text-slate-500">
                   / {effectiveSessionLimit.toLocaleString()}
@@ -650,25 +656,53 @@ export const BillingSettings: React.FC = () => {
               </div>
               {bonusSessionsActive > 0 ? (
                 <p className="mt-2 max-w-xl text-xs font-medium text-slate-600">
-                  Plan includes {planSessionCap.toLocaleString()} sessions; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
+                  Plan includes {planSessionCap.toLocaleString()} session replays; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
                 </p>
               ) : null}
             </div>
-            <div className={`text-sm font-semibold ${usageToneClass}`}>
-              {usagePercent}% used
-            </div>
           </div>
 
-          <div className="mt-5 space-y-2">
-            <div className="billing-progress-track">
-              <div
-                className={`billing-progress-fill ${usageBarClass}`}
-                style={{ width: `${usagePercent}%` }}
-              />
+          <div className="mt-5 space-y-5">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className={`text-sm font-semibold ${usageToneClass}`}>
+                  {usagePercent}% of replay quota used
+                </span>
+                <span className="font-mono text-xs font-semibold text-slate-500">
+                  {sessionReplaysUsed.toLocaleString()} / {effectiveSessionLimit.toLocaleString()}
+                </span>
+              </div>
+              <div className="billing-progress-track">
+                <div
+                  className={`billing-progress-fill ${usageBarClass}`}
+                  style={{ width: `${usagePercent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                <span>{sessionsRemainingDisplay.toLocaleString()} session replays remaining</span>
+                <span>{planSessionCap.toLocaleString()} base replay cap</span>
+              </div>
             </div>
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-              <span>{sessionsRemainingDisplay.toLocaleString()} sessions remaining</span>
-              <span>{planSessionCap.toLocaleString()} base plan cap</span>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-emerald-700">
+                  Analytics sessions captured
+                </span>
+                <span className="font-mono text-xs font-semibold text-slate-500">
+                  {sessionsCapturedDisplay.toLocaleString()} / ∞
+                </span>
+              </div>
+              <div className="billing-progress-track">
+                <div
+                  className="billing-progress-fill bg-emerald-500"
+                  style={{ width: sessionsCapturedDisplay > 0 ? '100%' : '0%' }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                <span>No analytics cap this period</span>
+                <span>∞ analytics sessions</span>
+              </div>
             </div>
           </div>
 
@@ -677,8 +711,8 @@ export const BillingSettings: React.FC = () => {
               {isAtLimit ? <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-600" />}
               <span className="text-sm font-medium text-rose-800">
                 {isAtLimit
-                  ? 'Session limit reached. Recording is paused until the next billing cycle or upgrade.'
-                  : 'Approaching limit. Consider upgrading to avoid recording interruption.'}
+                  ? 'Session replay limit reached. Replay recording is paused until the next billing cycle or upgrade. General analytics still updates every session.'
+                  : 'Approaching replay limit. Consider upgrading to avoid replay recording interruption.'}
               </span>
             </div>
           )}
@@ -759,7 +793,7 @@ export const BillingSettings: React.FC = () => {
                 <div className="dashboard-inner-surface p-4 text-sm font-medium text-slate-600">
                   {currentPlanName === 'free'
                     ? 'No payment method is needed while this team is on Free.'
-                    : 'Add a payment method in Stripe Billing before reaching the session limit.'}
+                    : 'Add a payment method in Stripe Billing before reaching the session replay limit.'}
                 </div>
               )}
             </section>
@@ -771,7 +805,7 @@ export const BillingSettings: React.FC = () => {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Plans</h2>
-            <p className="mt-1 text-xs font-medium text-slate-500">Compare monthly sessions and replay retention without leaving this screen.</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Compare monthly session replays and replay retention without leaving this screen.</p>
           </div>
           <div className="text-xs font-medium text-slate-500">
             Need more? <a href="mailto:sales@rejourney.co" className="font-semibold text-slate-900 hover:underline">Contact Sales</a>
@@ -827,13 +861,19 @@ export const BillingSettings: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Check className="h-4 w-4 shrink-0 text-emerald-600" />
                       <span className="min-w-0 flex-1 text-slate-600">
-                        <span className="font-mono font-semibold text-slate-950">{plan.sessionLimit.toLocaleString()}</span> sessions/mo
+                        <span className="font-mono font-semibold text-slate-950">{plan.sessionLimit.toLocaleString()}</span> session replays/mo
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Check className="h-4 w-4 shrink-0 text-emerald-600" />
                       <span className="min-w-0 flex-1 text-slate-600">
                         <span className="font-mono font-semibold text-slate-950">{plan.videoRetentionLabel}</span> replay retention
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <span className="min-w-0 flex-1 text-slate-600">
+                        <span className="font-semibold text-slate-950">Unlimited</span> analytics sessions
                       </span>
                     </div>
                   </div>
@@ -928,10 +968,10 @@ export const BillingSettings: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Session Limit Change */}
+                  {/* Session Replay Limit Change */}
                   <div className="dashboard-inner-surface p-4">
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-slate-600">Monthly Session Limit</span>
+                      <span className="font-bold text-slate-600">Monthly Session Replay Limit</span>
                       <div className="text-right">
                         <span className="line-through text-slate-400 mr-2">
                           {planChangeModal.preview.currentPlan.sessionLimit.toLocaleString()}
@@ -1000,7 +1040,7 @@ export const BillingSettings: React.FC = () => {
                   {planChangeModal.preview.isImmediate ? (
                     <div className="dashboard-inner-surface p-3 text-sm">
                       <div className="font-semibold text-slate-900">Takes effect immediately</div>
-                      <p className="text-slate-600 mt-1">Your new session limit will be active right away.</p>
+                      <p className="text-slate-600 mt-1">Your new session replay limit will be active right away.</p>
                     </div>
                   ) : (
                     <div className="dashboard-inner-surface p-3 text-sm">

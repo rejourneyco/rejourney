@@ -10,6 +10,7 @@ import { db, projects } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { buildSdkConfigResponse } from '../services/sdkConfig.js';
+import { checkBillingStatus, getTeamSessionUsage } from '../services/quotaCheck.js';
 import { isWebOriginAllowed } from '../utils/webAllowedDomains.js';
 
 
@@ -45,7 +46,7 @@ router.get(
         }
 
         // Find project by public key (cached)
-        const cacheKey = `sdk:config:v5:${publicKey}`;
+        const cacheKey = `sdk:config:v6:${publicKey}`;
         let project:
             | {
                 id: string;
@@ -56,6 +57,7 @@ router.get(
                 rejourneyEnabled: boolean;
                 recordingEnabled: boolean;
                 textInputMasking?: string | null;
+                imageVideoMasking?: string | null;
                 recordingFps: number;
                 sampleRate: number;
                 maxRecordingMinutes: number;
@@ -84,6 +86,7 @@ router.get(
                     rejourneyEnabled: projects.rejourneyEnabled,
                     recordingEnabled: projects.recordingEnabled,
                     textInputMasking: projects.textInputMasking,
+                    imageVideoMasking: projects.imageVideoMasking,
                     recordingFps: projects.recordingFps,
                     sampleRate: projects.sampleRate,
                     maxRecordingMinutes: projects.maxRecordingMinutes,
@@ -130,18 +133,26 @@ router.get(
             return;
         }
 
-        // Check billing status (session limits)
+        // Check billing status. Hard payment blocks still stop the SDK; replay
+        // quota exhaustion degrades existing SDKs to analytics-only via
+        // recordingEnabled=false while keeping billingBlocked=false.
         let billingBlocked = false;
         let billingReason: string | undefined;
+        let replayQuotaBillingExhausted = false;
         const billingCacheKey = `sdk:billing:${project.teamId}`;
         let billingCacheHit = false;
 
         try {
             const cached = await getRedis().get(billingCacheKey);
             if (cached) {
-                const parsed = JSON.parse(cached) as { billingBlocked?: boolean; billingReason?: string };
+                const parsed = JSON.parse(cached) as {
+                    billingBlocked?: boolean;
+                    billingReason?: string;
+                    replayQuotaBillingExhausted?: boolean;
+                };
                 billingBlocked = Boolean(parsed.billingBlocked);
                 billingReason = typeof parsed.billingReason === 'string' ? parsed.billingReason : undefined;
+                replayQuotaBillingExhausted = Boolean(parsed.replayQuotaBillingExhausted);
                 billingCacheHit = true;
             }
         } catch {
@@ -149,24 +160,22 @@ router.get(
         }
 
         if (!billingCacheHit) {
-            const { teams } = await import('../db/client.js');
-            const [team] = await db
-                .select({ ownerUserId: teams.ownerUserId })
-                .from(teams)
-                .where(eq(teams.id, project.teamId))
-                .limit(1);
-
-            if (team?.ownerUserId) {
-                const { canUserRecord } = await import('./stripeBilling.js');
-                const billingStatus = await canUserRecord(team.ownerUserId, project.teamId);
-                billingBlocked = !billingStatus.canRecord;
+            const billingStatus = await checkBillingStatus(project.teamId);
+            if (!billingStatus.canRecord) {
+                billingBlocked = true;
                 billingReason = billingStatus.reason;
+            } else {
+                const usage = await getTeamSessionUsage(project.teamId);
+                if (usage.isReplayAtLimit) {
+                    replayQuotaBillingExhausted = true;
+                    billingReason = `Replay quota reached (${usage.sessionReplaysUsed}/${usage.sessionReplayLimit}). Analytics will continue without replay.`;
+                }
             }
 
             try {
                 await getRedis().set(
                     billingCacheKey,
-                    JSON.stringify({ billingBlocked, billingReason: billingReason ?? null }),
+                    JSON.stringify({ billingBlocked, billingReason: billingReason ?? null, replayQuotaBillingExhausted }),
                     'EX',
                     60,
                 );
@@ -178,6 +187,7 @@ router.get(
         res.json(buildSdkConfigResponse(project, {
             billingBlocked,
             billingReason,
+            replayQuotaBillingExhausted,
         }));
     })
 );

@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { buildWebAttributionMetadata } from '../services/ingestEventArtifactProcessor.js';
+import {
+    buildWebAttributionMetadata,
+    computeMobileFrustrationCountsForIngest,
+    getFrustrationTapKindForIngest,
+    isKeyboardAreaEventForIngest,
+    mergeEventArtifactFrustrationCounts,
+    registerTapForIngestRageInference,
+} from '../services/ingestEventArtifactProcessor.js';
 import { buildClickHouseApiEndpointEventRow } from '../services/clickhouseApiStatsSink.js';
 import { normalizeIngestAppVersion } from '../services/ingestSessionLifecycle.js';
+import {
+    buildSessionEndMetricsMergeSet,
+    shouldTrustClientFrustrationCountsForPlatform,
+    summarizeSessionEndMetrics,
+} from '../services/ingestSessionEnd.js';
 
 describe('ingest event artifact processor attribution metadata', () => {
     it('maps web attribution and UTM query values into session metadata', () => {
@@ -146,5 +158,105 @@ describe('ingest app version normalization', () => {
             appVersion: 'web-2026.05.1',
             sdkVersion: '0.2.0',
         })).toBe('web-2026.05.1');
+    });
+});
+
+describe('ingest mobile frustration event compatibility', () => {
+    it('recognizes UIKit keyboard touch labels without suppressing app copy that mentions keyboards', () => {
+        expect(isKeyboardAreaEventForIngest({ label: 'UIKeyboardLayoutStar Preview' })).toBe(true);
+        expect(isKeyboardAreaEventForIngest({ targetLabel: 'UIInputSetHostView' })).toBe(true);
+        expect(isKeyboardAreaEventForIngest({ properties: { targetLabel: 'Keyboard shortcuts button' } })).toBe(false);
+    });
+
+    it('recognizes explicit rage and dead tap shapes from old and new SDK payloads', () => {
+        expect(getFrustrationTapKindForIngest({ type: 'rage_tap' })).toBe('rage_tap');
+        expect(getFrustrationTapKindForIngest({ type: 'rage_click' })).toBe('rage_tap');
+        expect(getFrustrationTapKindForIngest({ type: 'gesture', gestureType: 'rage_tap' })).toBe('rage_tap');
+        expect(getFrustrationTapKindForIngest({ type: 'gesture', frustrationKind: 'dead_tap' })).toBe('dead_tap');
+        expect(getFrustrationTapKindForIngest({ type: 'touch', gestureType: 'tap' })).toBeNull();
+    });
+
+    it('infers rage only after three nearby taps in the native rage window', () => {
+        const recentTaps: Array<{ x: number; y: number; timestamp: number }> = [];
+
+        expect(registerTapForIngestRageInference(recentTaps, { x: 100, y: 100, timestamp: 1000 })).toBe(false);
+        expect(registerTapForIngestRageInference(recentTaps, { x: 108, y: 104, timestamp: 1300 })).toBe(false);
+        expect(registerTapForIngestRageInference(recentTaps, { x: 97, y: 112, timestamp: 1700 })).toBe(true);
+        expect(recentTaps).toHaveLength(0);
+    });
+
+    it('does not infer rage for two taps, distant taps, or taps outside the window', () => {
+        const twoTaps: Array<{ x: number; y: number; timestamp: number }> = [];
+        expect(registerTapForIngestRageInference(twoTaps, { x: 100, y: 100, timestamp: 1000 })).toBe(false);
+        expect(registerTapForIngestRageInference(twoTaps, { x: 105, y: 105, timestamp: 1200 })).toBe(false);
+
+        const distantTaps: Array<{ x: number; y: number; timestamp: number }> = [];
+        expect(registerTapForIngestRageInference(distantTaps, { x: 100, y: 100, timestamp: 1000 })).toBe(false);
+        expect(registerTapForIngestRageInference(distantTaps, { x: 180, y: 100, timestamp: 1200 })).toBe(false);
+        expect(registerTapForIngestRageInference(distantTaps, { x: 100, y: 110, timestamp: 1300 })).toBe(false);
+
+        const expiredTaps: Array<{ x: number; y: number; timestamp: number }> = [];
+        expect(registerTapForIngestRageInference(expiredTaps, { x: 100, y: 100, timestamp: 1000 })).toBe(false);
+        expect(registerTapForIngestRageInference(expiredTaps, { x: 103, y: 104, timestamp: 2101 })).toBe(false);
+        expect(registerTapForIngestRageInference(expiredTaps, { x: 101, y: 102, timestamp: 2200 })).toBe(false);
+    });
+
+    it('does not trust mobile session-end rage summaries because old packages counted keyboard typing', () => {
+        expect(shouldTrustClientFrustrationCountsForPlatform('ios')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('android')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('swift')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('expo')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('rn')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('react_native')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('react native ios')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('mobile')).toBe(false);
+        expect(shouldTrustClientFrustrationCountsForPlatform('web')).toBe(true);
+
+        const mobileUpdates = buildSessionEndMetricsMergeSet(
+            { touchCount: 12, rageTapCount: 7, apiTotalCount: 2 },
+            { trustClientFrustrationCounts: false }
+        );
+        expect(mobileUpdates).toMatchObject({ touchCount: 12, apiTotalCount: 2 });
+        expect(mobileUpdates).not.toHaveProperty('rageTapCount');
+
+        expect(summarizeSessionEndMetrics(
+            { touchCount: 12, rageTapCount: 7 },
+            { trustClientFrustrationCounts: false }
+        )).toEqual({ touchCount: 12 });
+
+        expect(buildSessionEndMetricsMergeSet(
+            { rageTapCount: 3 },
+            { trustClientFrustrationCounts: true }
+        )).toMatchObject({ rageTapCount: 3 });
+    });
+
+    it('computes canonical mobile frustration counts from raw events and ignores keyboard typing clusters', () => {
+        const events = [
+            { timestamp: 1000, type: 'touch', gestureType: 'tap', label: '_UISearchBarSearchContainerView', x: 93, y: 165 },
+            { timestamp: 1200, type: 'touch', gestureType: 'tap', label: 'UIKeyboardLayoutStar Preview', x: 100, y: 634 },
+            { timestamp: 1400, type: 'touch', gestureType: 'tap', label: 'UIKeyboardLayoutStar Preview', x: 220, y: 637 },
+            { timestamp: 1600, type: 'touch', gestureType: 'tap', label: 'UIKeyboardLayoutStar Preview', x: 221, y: 627 },
+            { timestamp: 1900, type: 'touch', gestureType: 'tap', label: 'PlatformGroupContainer', x: 112, y: 724 },
+            { timestamp: 2100, type: 'gesture', gestureType: 'dead_tap', frustrationKind: 'dead_tap', label: 'PlatformGroupContainer', x: 112, y: 724 },
+            { timestamp: 2300, type: 'touch', gestureType: 'tap', label: 'PlatformGroupContainer', x: 100, y: 732 },
+            { timestamp: 2500, type: 'gesture', gestureType: 'dead_tap', frustrationKind: 'dead_tap', label: 'PlatformGroupContainer', x: 100, y: 732 },
+        ];
+
+        expect(computeMobileFrustrationCountsForIngest(events)).toEqual({
+            rageTapCount: 0,
+            deadTapCount: 2,
+        });
+    });
+
+    it('replaces stale client frustration summaries on the first processed events artifact', () => {
+        expect(mergeEventArtifactFrustrationCounts(
+            { rageTapCount: 9, deadTapCount: 1, eventsSizeBytes: 0 },
+            { rageTapCount: 0, deadTapCount: 2 }
+        )).toEqual({ rageTapCount: 0, deadTapCount: 2 });
+
+        expect(mergeEventArtifactFrustrationCounts(
+            { rageTapCount: 2, deadTapCount: 1, eventsSizeBytes: 2048 },
+            { rageTapCount: 1, deadTapCount: 3 }
+        )).toEqual({ rageTapCount: 3, deadTapCount: 4 });
     });
 });

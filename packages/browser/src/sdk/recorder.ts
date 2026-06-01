@@ -1,4 +1,10 @@
-import { applyPrivacyAttributes, maskInputValue, maskTextValue, sanitizeRrwebEvent } from './domPrivacy.js';
+import {
+  applyPrivacyAttributes,
+  buildPrivacyBlockSelector,
+  maskInputValue,
+  maskTextValue,
+  sanitizeRrwebEvent,
+} from './domPrivacy.js';
 import type { RejourneyWebConfig } from './types.js';
 
 export interface RrwebRecorderHandle {
@@ -10,7 +16,7 @@ export async function startRrwebRecorder(
   emit: (event: unknown) => void,
 ): Promise<RrwebRecorderHandle | null> {
   if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-  applyPrivacyAttributes(document);
+  applyPrivacyAttributes(document, config);
 
   const [{ record }, consolePlugin] = await Promise.all([
     import('@rrweb/record'),
@@ -28,7 +34,7 @@ export async function startRrwebRecorder(
   const stop = record({
     emit: (event) => emit(sanitizeRrwebEvent(event, config)),
     blockClass: typeof config.blockClass === 'string' ? config.blockClass : undefined,
-    blockSelector: config.blockSelector,
+    blockSelector: buildPrivacyBlockSelector(config),
     ignoreClass: typeof config.ignoreClass === 'string' ? config.ignoreClass : undefined,
     ignoreSelector: config.ignoreSelector,
     maskTextClass: typeof config.maskTextClass === 'string' ? config.maskTextClass : undefined,

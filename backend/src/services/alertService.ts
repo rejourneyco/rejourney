@@ -459,7 +459,9 @@ export async function triggerErrorSpikeAlert(
 
         const projectName = await getProjectName(projectId);
         const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-        const issueUrl = `${baseUrl}/dashboard/general`;
+        // Link to the sessions list so users can see the affected sessions directly,
+        // rather than the general overview which shows crashes/ANRs (a different thing).
+        const issueUrl = `${baseUrl}/dashboard/sessions`;
 
         await sendErrorSpikeAlertEmail(recipients, {
             projectId,
@@ -468,8 +470,8 @@ export async function triggerErrorSpikeAlert(
             previousRate,
             percentIncrease,
             issueUrl,
-            topErrors: topErrors.map(e => ({ 
-                name: e.name, 
+            topErrors: topErrors.map(e => ({
+                name: e.name,
                 count: e.count,
             })),
             detectedAt: new Date(),
@@ -478,8 +480,8 @@ export async function triggerErrorSpikeAlert(
         await recordAlertSent(projectId, 'error_spike', recipients.length);
 
         // Log individual emails for audit trail
-        const spikeTitle = `Error rate increased ${percentIncrease.toFixed(0)}%`;
-        const subject = `⚠️ Error Spike Alert: ${spikeTitle}`;
+        const spikeTitle = `API error rate increased ${percentIncrease.toFixed(0)}%`;
+        const subject = `⚠️ API Error Rate Spike: ${spikeTitle}`;
         await logEmailSends(projectId, recipientDetails, 'error_spike', subject, spikeTitle);
 
         logger.info({ projectId, recipients: recipients.length, percentIncrease }, 'Error spike alert sent');

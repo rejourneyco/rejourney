@@ -465,6 +465,7 @@ final class SegmentDispatcher {
     }
     
     private func uploadToS3(url: String, payload: Data, completion: @escaping (Bool) -> Void) {
+        RejourneyNetworkEventFilter.registerInternalURL(urlString: url)
         guard let uploadUrl = URL(string: url) else {
             completion(false)
             return

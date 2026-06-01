@@ -1,6 +1,6 @@
 {
   "name": "@rejourneyco/browser",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Rejourney web analytics and session replay SDK",
   "type": "module",
   "main": "./dist/index.js",

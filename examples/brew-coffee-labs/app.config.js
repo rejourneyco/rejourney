@@ -71,6 +71,7 @@ export default ({ config }) => {
           savePhotosPermission: "Allow BREW to save photos"
         }
       ],
+      "expo-video",
       "react-native-vision-camera",
       "react-native-appsflyer"
     ],
@@ -105,4 +106,4 @@ export default ({ config }) => {
       url: process.env.EAS_UPDATES_URL || "https://u.expo.dev/your-eas-project-id-here"
     }
   };
-}; 
+};

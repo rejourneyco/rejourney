@@ -258,7 +258,7 @@ const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
 const ANALYTICS_BOOTSTRAP_CACHE_TTL = 60000;
 const ARCHIVE_CACHE_TTL = 30000;
 const SESSION_BOOTSTRAP_CACHE_TTL = 15000;
-const SESSION_DETAIL_CACHE_VERSION = 'v4';
+const SESSION_DETAIL_CACHE_VERSION = 'v5';
 
 /**
  * Fetch with caching and error handling
@@ -1333,6 +1333,7 @@ export interface ApiProject {
   rejourneyEnabled?: boolean;
   recordingEnabled: boolean;
   textInputMasking?: 'all' | 'secure_only';
+  imageVideoMasking?: 'none' | 'all';
   recordingFps?: number;
   sampleRate: number;
   maxRecordingMinutes?: number;
@@ -1363,6 +1364,7 @@ export interface CreateProjectRequest {
   rejourneyEnabled?: boolean;
   recordingEnabled?: boolean;
   textInputMasking?: 'all' | 'secure_only';
+  imageVideoMasking?: 'none' | 'all';
   recordingFps?: number;
   sampleRate?: number;
   maxRecordingMinutes?: number;
@@ -1446,7 +1448,7 @@ export async function getProject(projectId: string): Promise<ApiProject> {
 /**
  * Update a project
  */
-export async function updateProject(projectId: string, data: { name?: string; maxRecordingMinutes?: number; webMaxObservabilityMinutes?: number; sampleRate?: number; recordingFps?: number; recordingEnabled?: boolean; rejourneyEnabled?: boolean; textInputMasking?: 'all' | 'secure_only'; bundleId?: string; packageName?: string; webDomain?: string | null; webAllowedDomains?: string[] | null }): Promise<ApiProject> {
+export async function updateProject(projectId: string, data: { name?: string; maxRecordingMinutes?: number; webMaxObservabilityMinutes?: number; sampleRate?: number; recordingFps?: number; recordingEnabled?: boolean; rejourneyEnabled?: boolean; textInputMasking?: 'all' | 'secure_only'; imageVideoMasking?: 'none' | 'all'; bundleId?: string; packageName?: string; webDomain?: string | null; webAllowedDomains?: string[] | null }): Promise<ApiProject> {
   if (isDemoMode()) {
     const project = demoProjects.find((demoProject) => demoProject.id === projectId) || demoProjects[0];
     if (!project) {
@@ -1506,7 +1508,7 @@ export async function deleteProject(
 
 export interface TeamQuota {
   teamId: string;
-  sessionLimit?: number | null; // Monthly session limit
+  sessionLimit?: number | null; // Backward-compatible alias for monthly session replay limit.
   storageCap?: number | null;
   requestCap?: number | null;
   effectiveAt?: string;
@@ -1514,16 +1516,26 @@ export interface TeamQuota {
 
 export interface TeamUsage {
   rejourneyEnabled?: boolean; // Added to enable Rejourney feature
+  /** Backward-compatible alias for sessionReplaysUsed. */
   sessionsUsed: number;
+  sessionsCaptured?: number;
+  sessionReplaysUsed?: number;
+  /** Backward-compatible alias for sessionReplayLimit. */
   sessionLimit: number;
+  sessionReplayLimit?: number;
   /** Plan cap without promotional bonus */
   planSessionLimit?: number;
+  sessionReplayPlanLimit?: number;
   /** Extra sessions this billing period only (not carried to the next cycle) */
   bonusSessionsActive?: number;
   sessionsRemaining: number;
+  sessionReplaysRemaining?: number;
   percentUsed: number;
+  sessionReplayPercentUsed?: number;
   isAtLimit: boolean;
+  isReplayAtLimit?: boolean;
   isNearLimit: boolean;
+  isReplayNearLimit?: boolean;
 }
 
 export interface BillingPlan {
@@ -1532,6 +1544,7 @@ export interface BillingPlan {
   name: string;
   displayName: string;
   sessionLimit: number;
+  sessionReplayLimit?: number;
   videoRetentionTier: number;
   videoRetentionDays: number;
   videoRetentionLabel: string;
@@ -1544,6 +1557,7 @@ export interface TeamPlanInfo {
   planName: string;
   displayName: string;
   sessionLimit: number;
+  sessionReplayLimit?: number;
   videoRetentionTier: number;
   videoRetentionDays: number;
   videoRetentionLabel: string;
@@ -1561,13 +1575,21 @@ export interface TeamBillingDashboard {
   plan: TeamPlanInfo;
   usage: {
     sessionsUsed: number;
+    sessionsCaptured?: number;
+    sessionReplaysUsed?: number;
     sessionLimit: number;
+    sessionReplayLimit?: number;
     planSessionLimit?: number;
+    sessionReplayPlanLimit?: number;
     bonusSessionsActive?: number;
     sessionsRemaining: number;
+    sessionReplaysRemaining?: number;
     percentUsed: number;
+    sessionReplayPercentUsed?: number;
     isAtLimit: boolean;
+    isReplayAtLimit?: boolean;
     isNearLimit: boolean;
+    isReplayNearLimit?: boolean;
     storageBytes: number;
     requests: number;
   };
@@ -1878,9 +1900,13 @@ export interface PaymentMethod {
 
 export interface FreeTierStatus {
   freeTierSessions: number;
+  freeTierSessionReplays?: number;
   sessionsUsed: number;
+  sessionReplaysUsed?: number;
   sessionsRemaining: number;
+  sessionReplaysRemaining?: number;
   percentUsed: number;
+  sessionReplayPercentUsed?: number;
   isExhausted: boolean;
   currentPeriodSessions: number;
   ownedTeamCount: number;
@@ -1974,23 +2000,33 @@ export async function getFreeTierStatus(): Promise<FreeTierStatus> {
 }
 
 /**
- * Team session usage response
+ * Team replay quota usage response. Captured analytics sessions are also included.
  */
 export interface TeamSessionUsage {
+  /** Backward-compatible alias for sessionReplaysUsed. */
   sessionsUsed: number;
+  sessionsCaptured?: number;
+  sessionReplaysUsed?: number;
+  /** Backward-compatible alias for sessionReplayLimit. */
   sessionLimit: number;
+  sessionReplayLimit?: number;
   planSessionLimit?: number;
+  sessionReplayPlanLimit?: number;
   bonusSessionsActive?: number;
   sessionsRemaining: number;
+  sessionReplaysRemaining?: number;
   percentUsed: number;
+  sessionReplayPercentUsed?: number;
   isAtLimit: boolean;
+  isReplayAtLimit?: boolean;
   isNearLimit: boolean;
+  isReplayNearLimit?: boolean;
   planName: string;
   period: string;
 }
 
 /**
- * Get team's session usage
+ * Get team's replay quota and captured-session usage
  */
 export async function getTeamSessionUsage(teamId: string): Promise<TeamSessionUsage | null> {
   try {
@@ -2010,6 +2046,7 @@ export async function getTeamSessionUsage(teamId: string): Promise<TeamSessionUs
 
 export interface BillingAlertSettings {
   sessionLimit: number | null;
+  sessionReplayLimit?: number | null;
   sessionWarningThresholdPercent: number | null;
   sessionWarningEnabled: boolean;
   billingCycleEndDate: string;
@@ -2430,6 +2467,8 @@ export interface DashboardHeavyResponse {
   failedSections: string[];
 }
 
+export type DashboardHeavySection = 'sessions' | 'topUsers';
+
 export interface ApiOverviewResponse {
   endpointStats: ApiEndpointStats | null;
   regionStats: RegionPerformance | null;
@@ -2470,6 +2509,7 @@ export interface HeatmapHotspot {
   kind?: 'attention' | 'touch' | 'rage';
   // Total engaged dwell (ms) across all sampled sessions for this bucket (attention maps only).
   dwellMs?: number;
+  confidence?: number;
 }
 
 export interface HeatmapOverviewScreen {
@@ -2561,6 +2601,9 @@ export interface WebAttentionHeatmapResponse {
   viewportWidth: number | null;
   viewportHeight: number | null;
   reason: string | null;
+  confidenceScore?: number;
+  modelVersion?: string;
+  signalsUsed?: string[];
 }
 
 export interface ErrorOverviewGroup {
@@ -2746,13 +2789,14 @@ export async function getInsightsTrends(projectId?: string, timeRange?: string, 
 export async function getDashboardOverview(projectId?: string, timeRange?: string, platform?: string): Promise<DashboardOverviewResponse> {
   const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
+    const observabilityMode = normalizedPlatform ? 'full' : 'summary';
     const [trends, overviewObs, deepMetrics, engagementTrends, geoSummary, retention] = await Promise.all([
       getInsightsTrends(projectId, timeRange, normalizedPlatform),
-      getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, 'summary', normalizedPlatform),
-      getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, 'summary', normalizedPlatform),
-      getUserEngagementTrends(projectId, timeRange === 'all' ? undefined : timeRange, normalizedPlatform),
+      getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, observabilityMode, normalizedPlatform),
+      getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, observabilityMode, normalizedPlatform),
+      getUserEngagementTrends(projectId, timeRange === 'all' ? undefined : timeRange, normalizedPlatform, observabilityMode),
       getGeoSummary(projectId, timeRange === 'all' ? undefined : timeRange),
-      getRetentionCohorts(projectId, timeRange),
+      getRetentionCohorts(projectId, timeRange, normalizedPlatform),
     ]);
 
     return {
@@ -2776,7 +2820,12 @@ export async function getDashboardOverview(projectId?: string, timeRange?: strin
   return fetchWithCache<DashboardOverviewResponse>(endpoint, {}, cacheKey, 60000);
 }
 
-export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: string, platform?: string): Promise<DashboardHeavyResponse> {
+export async function getDashboardOverviewHeavy(
+  projectId?: string,
+  timeRange?: string,
+  platform?: string,
+  section?: DashboardHeavySection,
+): Promise<DashboardHeavyResponse> {
   const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const sessionsResponse = await getSessionsPaginated({
@@ -2797,8 +2846,9 @@ export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: 
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
+  if (section) params.set('section', section);
   const endpoint = `/api/overview/general/heavy?${params.toString()}`;
-  const cacheKey = `overview:general:heavy:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
+  const cacheKey = `overview:general:heavy:${section || 'all'}:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<DashboardHeavyResponse>(endpoint, {}, cacheKey, 60000);
 }
 
@@ -2983,7 +3033,7 @@ export async function getWebAttentionHeatmap(projectId: string, screenName: stri
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
   if (normalizedAppVersion) params.set('appVersion', normalizedAppVersion);
   const endpoint = `/api/overview/heatmaps/attention?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:attention:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v4`;
+  const cacheKey = `overview:heatmaps:attention:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v6`;
   return fetchWithCache<WebAttentionHeatmapResponse>(endpoint, {}, cacheKey, 600_000);
 }
 
@@ -3092,14 +3142,47 @@ export async function getANRsOverview(projectId: string, timeRange?: string, pla
   return fetchWithCache<ANRsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getRetentionCohorts(projectId?: string, timeRange?: string): Promise<RetentionCohortsResponse> {
+export interface ApiErrorSpikeTrendBucket {
+  bucket: string;
+  errorCount: number;
+  totalCount: number;
+  errorRate: number;
+}
+
+export interface ApiErrorSpikeRecord {
+  id: string;
+  detectedAt: string;
+  currentRate: number;
+  previousRate: number;
+  percentIncrease: number;
+  affectedSessions: number;
+  trend: ApiErrorSpikeTrendBucket[];
+  topEndpoints: Array<{ method: string; endpoint: string; errorCount: number }>;
+}
+
+export interface ApiErrorSpikesResponse {
+  spikes: ApiErrorSpikeRecord[];
+}
+
+export async function getApiErrorSpikes(projectId: string, timeRange?: string): Promise<ApiErrorSpikesResponse> {
+  if (isDemoMode()) return { spikes: [] };
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/api-error-spikes?${params.toString()}`;
+  const cacheKey = `overview:api-error-spikes:${projectId}:${timeRange || 'all'}:v1`;
+  return fetchWithCache<ApiErrorSpikesResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getRetentionCohorts(projectId?: string, timeRange?: string, platform?: string): Promise<RetentionCohortsResponse> {
   if (isDemoMode()) {
     return demoApiData.demoRetentionCohorts;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/insights/retention-cohorts?${params.toString()}`;
   return fetchWithCache<RetentionCohortsResponse>(endpoint, {}, endpoint, 120000);
 }
@@ -4147,7 +4230,12 @@ export interface UserEngagementTrends {
   };
 }
 
-export async function getUserEngagementTrends(projectId?: string, timeRange?: string, platform?: string): Promise<UserEngagementTrends> {
+export async function getUserEngagementTrends(
+  projectId?: string,
+  timeRange?: string,
+  platform?: string,
+  mode: 'full' | 'summary' = 'full',
+): Promise<UserEngagementTrends> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoUserEngagementTrends;
@@ -4158,8 +4246,9 @@ export async function getUserEngagementTrends(projectId?: string, timeRange?: st
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
+  if (mode !== 'full') params.set('mode', mode);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:user-engagement-trends:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
+  const cacheKey = `analytics:user-engagement-trends:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${mode}`;
   return fetchWithCache<UserEngagementTrends>(`/api/analytics/user-engagement-trends${qs}`, {}, cacheKey);
 }
 
@@ -4469,6 +4558,7 @@ export const api = {
   getErrorsOverview,
   getCrashesOverview,
   getANRsOverview,
+  getApiErrorSpikes,
   getRetentionCohorts,
   getIssues,
   getIssue,

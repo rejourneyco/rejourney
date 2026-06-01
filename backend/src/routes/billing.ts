@@ -2,7 +2,7 @@
  * Billing Routes
  * 
  * Session-based billing endpoints:
- * - Team session usage tracking
+ * - Team replay quota and captured-session usage tracking
  * - Plan information
  * - Usage history
  */
@@ -22,7 +22,7 @@ import { getTeamSessionUsage } from '../services/quotaCheck.js';
 const router = Router();
 
 /**
- * Get team session usage
+ * Get team replay quota and captured-session usage
  * GET /api/teams/:teamId/billing/usage
  */
 router.get(
@@ -44,7 +44,7 @@ router.get(
         const billingPeriod = getTeamBillingPeriodDates(team?.billingCycleAnchor ?? null);
         const period = billingPeriod.periodString;
 
-        // Get session usage (uses team's billing period internally)
+        // Get replay quota usage (uses team's billing period internally)
         const usage = await getTeamSessionUsage(teamId);
 
         res.json({
@@ -53,13 +53,21 @@ router.get(
             billingCycleEnd: billingPeriod.end.toISOString(),
             usage: {
                 sessionsUsed: usage.sessionsUsed,
+                sessionsCaptured: usage.sessionsCaptured,
+                sessionReplaysUsed: usage.sessionReplaysUsed,
                 sessionLimit: usage.sessionLimit,
+                sessionReplayLimit: usage.sessionReplayLimit,
                 planSessionLimit: usage.planSessionLimit,
+                sessionReplayPlanLimit: usage.sessionReplayPlanLimit,
                 bonusSessionsActive: usage.bonusSessionsActive,
                 sessionsRemaining: usage.sessionsRemaining,
+                sessionReplaysRemaining: usage.sessionReplaysRemaining,
                 percentUsed: usage.percentUsed,
+                sessionReplayPercentUsed: usage.sessionReplayPercentUsed,
                 isAtLimit: usage.isAtLimit,
+                isReplayAtLimit: usage.isReplayAtLimit,
                 isNearLimit: usage.isNearLimit,
+                isReplayNearLimit: usage.isReplayNearLimit,
             },
             plan: {
                 name: usage.planName,
@@ -132,13 +140,21 @@ router.get(
             },
             usage: {
                 sessionsUsed: usage.sessionsUsed,
+                sessionsCaptured: usage.sessionsCaptured,
+                sessionReplaysUsed: usage.sessionReplaysUsed,
                 sessionLimit: usage.sessionLimit,
+                sessionReplayLimit: usage.sessionReplayLimit,
                 planSessionLimit: usage.planSessionLimit,
+                sessionReplayPlanLimit: usage.sessionReplayPlanLimit,
                 bonusSessionsActive: usage.bonusSessionsActive,
                 sessionsRemaining: usage.sessionsRemaining,
+                sessionReplaysRemaining: usage.sessionReplaysRemaining,
                 percentUsed: usage.percentUsed,
+                sessionReplayPercentUsed: usage.sessionReplayPercentUsed,
                 isAtLimit: usage.isAtLimit,
+                isReplayAtLimit: usage.isReplayAtLimit,
                 isNearLimit: usage.isNearLimit,
+                isReplayNearLimit: usage.isReplayNearLimit,
                 storageBytes: currentStorageBytes,
                 requests: currentRequests,
             },
@@ -177,6 +193,7 @@ router.get(
             history: history.map(h => ({
                 period: h.period,
                 sessions: h.sessions,
+                sessionReplays: h.sessionReplays ?? h.sessions,
                 storageBytes: Number(h.storageBytes),
                 requests: h.requests,
                 invoiceStatus: h.invoiceStatus,
@@ -224,13 +241,14 @@ router.get(
         // Get usage per project for the period
         const projectIds = projectsList.map((p) => p.id);
 
-        let projectUsageData: { projectId: string; sessions: number; storageBytes: number; requests: number }[] = [];
+        let projectUsageData: { projectId: string; sessions: number; sessionReplays: number; storageBytes: number; requests: number }[] = [];
 
         if (projectIds.length > 0) {
             const usageRecords = await db
                 .select({
                     projectId: projectUsage.projectId,
                     sessions: projectUsage.sessions,
+                    sessionReplays: projectUsage.sessionReplays,
                     storageBytes: projectUsage.storageBytes,
                     requests: projectUsage.requests,
                 })
@@ -243,6 +261,7 @@ router.get(
             projectUsageData = usageRecords.map(r => ({
                 projectId: r.projectId,
                 sessions: r.sessions ?? 0,
+                sessionReplays: r.sessionReplays ?? r.sessions ?? 0,
                 storageBytes: Number(r.storageBytes ?? 0),
                 requests: r.requests ?? 0,
             }));
@@ -256,6 +275,8 @@ router.get(
                 name: p.name,
                 platform: p.platform,
                 sessions: usage?.sessions ?? 0,
+                sessionsCaptured: usage?.sessions ?? 0,
+                sessionReplays: usage?.sessionReplays ?? usage?.sessions ?? 0,
                 storageBytes: usage?.storageBytes ?? 0,
                 requests: usage?.requests ?? 0,
             };
@@ -292,11 +313,12 @@ router.get(
         // Get billing period based on team's anchor
         const billingPeriod = getTeamBillingPeriodDates(team?.billingCycleAnchor ?? null);
 
-        // Get current subscription to get session limit
+        // Get current subscription to get session replay limit
         const subscription = await getTeamSubscription(teamId);
 
         res.json({
             sessionLimit: subscription.sessionLimit,
+            sessionReplayLimit: subscription.sessionLimit,
             sessionWarningThresholdPercent: 80, // Default threshold
             sessionWarningEnabled: true,
             billingCycleEndDate: billingPeriod.end.toISOString(),

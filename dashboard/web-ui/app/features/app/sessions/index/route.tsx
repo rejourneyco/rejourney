@@ -795,9 +795,13 @@ export const RecordingsList: React.FC = () => {
               const userId = session.userId || (session as any).anonymousDisplayName || 'Anonymous';
               // Truncate after 25 chars for a slightly less aggressive truncation
               const displayUserId = userId.length > 20 ? userId.substring(0, 20) + '…' : userId;
+              const rawStartupMs = (session as any).appStartupTimeMs;
+              const startupMs = typeof rawStartupMs === 'number' && Number.isFinite(rawStartupMs) && rawStartupMs > 0
+                ? rawStartupMs
+                : null;
 
               // Performance issue detection
-              const hasSlowStart = ((session as any).appStartupTimeMs || 0) > 3000;
+              const hasSlowStart = (startupMs ?? 0) > 3000;
               const hasSlowApi = (session.apiAvgResponseMs || 0) > 1000;
               const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
               const geoDisplay = formatGeoDisplay((session as any).geoLocation);
@@ -1117,8 +1121,8 @@ export const RecordingsList: React.FC = () => {
                               <div className="space-y-1.5">
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Startup</span>
-                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${((session as any).appStartupTimeMs || 0) > 2000 ? 'text-black bg-[#fecaca]' : 'text-black bg-[#86efac]'}`}>
-                                    {((session as any).appStartupTimeMs || 0).toFixed(0)}ms
+                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${startupMs === null ? 'text-slate-500 bg-[#f8fafc]' : startupMs > 2000 ? 'text-black bg-[#fecaca]' : 'text-black bg-[#86efac]'}`}>
+                                    {startupMs === null ? 'N/A' : `${startupMs.toFixed(0)}ms`}
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center">

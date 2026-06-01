@@ -1,4 +1,5 @@
 import { FixtureTestPanel } from './fixture-test-panel';
+import { MediaMaskLab } from './media-mask-lab';
 import { PageCard } from './page-card';
 
 export default function Page() {
@@ -40,6 +41,7 @@ export default function Page() {
           <button type="button">Trigger click analytics</button>
         </form>
       </PageCard>
+      <MediaMaskLab />
       <FixtureTestPanel />
     </main>
   );

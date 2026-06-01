@@ -110,10 +110,22 @@ export interface ScreenshotReplayPlayerRef {
 // Utilities
 // ============================================================================
 
+// 24h ceiling: real replay sessions never approach it, so it also guards against
+// absolute timestamps (epoch seconds/ms) leaking in where a relative offset is
+// expected — those would otherwise format as an absurd minute count.
+const MAX_CLOCK_SECONDS = 24 * 60 * 60;
+const REPLAY_SKIP_SECONDS = 10;
+
 const formatTime = (seconds: number): string => {
-  if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
+  if (!Number.isFinite(seconds)) return '00:00';
+  const clamped = Math.min(Math.max(0, seconds), MAX_CLOCK_SECONDS);
+  const totalSecs = Math.floor(clamped);
+  const hrs = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
@@ -645,23 +657,28 @@ export const ScreenshotReplayPlayer = forwardRef<
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const isEditableTarget = !!target && (
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+        || target.isContentEditable
+        || !!target.closest('[contenteditable="true"]')
+      );
+      if (isEditableTarget) return;
 
       switch (e.code) {
         case 'Space':
-          if (target.tagName !== 'BUTTON') {
+          if (!target?.closest('button, a, [role="button"]')) {
             e.preventDefault();
             togglePlayPause();
           }
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          skip(-5);
+          skip(-REPLAY_SKIP_SECONDS);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          skip(5);
+          skip(REPLAY_SKIP_SECONDS);
           break;
       }
     };

@@ -29,7 +29,7 @@ usage() {
   echo "  ./scripts/switch-rejourney-sdk.sh --status                 # show current dependency mode"
   echo
   echo "Optional environment variables:"
-  echo "  REJOURNEY_IOS_SDK_VERSION=0.2.0                            # pin --old to a version"
+  echo "  REJOURNEY_IOS_SDK_VERSION=0.3.0                            # pin --old to a version"
   echo "  REJOURNEY_IOS_PACKAGE_URL=https://github.com/.../rejourney  # override remote package URL"
   exit 1
 }
@@ -48,7 +48,7 @@ normalize_version() {
   version="${version#v}"
 
   if [[ ! "$version" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
-    die "Invalid Swift SDK version '$1'. Expected semver like 0.2.0."
+    die "Invalid Swift SDK version '$1'. Expected semver like 0.3.0."
   fi
 
   printf '%s\n' "$version"
@@ -62,7 +62,7 @@ fallback_version() {
     return
   fi
 
-  printf '0.2.0\n'
+  printf '0.3.0\n'
 }
 
 latest_released_version() {

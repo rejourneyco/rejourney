@@ -307,11 +307,72 @@ sync_storage_endpoint() {
     )
 }
 
+repair_host_storage_endpoint() {
+    # Hybrid dev runs storage clients on the host. Keep local MinIO routing on
+    # loopback so replay flushing survives LAN IP changes, and clear the Redis
+    # endpoint cache before workers recreate their in-process S3 clients.
+    local redis_pod endpoint_keys
+
+    if kubectl get pod postgres-0 -n rejourney-local >/dev/null 2>&1; then
+        kubectl exec -n rejourney-local postgres-0 -- psql -U rejourney -d rejourney -q -c "
+            update storage_endpoints
+            set endpoint_url = 'http://127.0.0.1:9000', active = true
+            where endpoint_url ~ '^http://(10|172|192)\\.'
+              and endpoint_url like '%:9000';
+        " >/dev/null
+    fi
+
+    redis_pod="$(kubectl get pod -n rejourney-local -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [ -n "$redis_pod" ]; then
+        endpoint_keys="$(kubectl exec -n rejourney-local "$redis_pod" -- redis-cli --scan --pattern 'endpoint:project:*' 2>/dev/null || true)"
+        if [ -n "$endpoint_keys" ]; then
+            while IFS= read -r key; do
+                [ -n "$key" ] || continue
+                kubectl exec -n rejourney-local "$redis_pod" -- redis-cli DEL "$key" >/dev/null 2>&1 || true
+            done <<< "$endpoint_keys"
+            echo "[local-k8s] Cleared Redis storage endpoint cache"
+        fi
+    fi
+}
+
+suspend_k8s_app_deployments() {
+    # Hybrid dev runs API/upload/workers/web from the working tree on the host.
+    # If older k8s app pods are left around from a previous `deploy.sh apps/full`,
+    # they can race the host workers on the same Redis queues and write stale
+    # derived metrics (for example Swift 0.2.x keyboard taps counted as rage).
+    # Keep infra pods up, but make app processing single-version and source-local.
+    local deployments=(
+        api
+        ingest-upload
+        web
+        ingest-worker
+        replay-worker
+        session-lifecycle-worker
+        retention-worker
+        alert-worker
+    )
+
+    local existing=()
+    local deployment
+    for deployment in "${deployments[@]}"; do
+        if kubectl get deployment "$deployment" -n rejourney-local >/dev/null 2>&1; then
+            existing+=("$deployment")
+        fi
+    done
+
+    if [ "${#existing[@]}" -gt 0 ]; then
+        kubectl scale deployment -n rejourney-local "${existing[@]}" --replicas=0 >/dev/null
+        echo "[local-k8s] Suspended k8s app deployments for hybrid source-local workers: ${existing[*]}"
+    fi
+}
+
 start_host_services() {
     source_env
     select_dashboard_port
+    suspend_k8s_app_deployments
     cleanup_stale_host_processes
     cleanup_stale_host_ports
+    repair_host_storage_endpoint
     ensure_clickhouse_host_port
 
     start_process "api" "3000" "cd '$ROOT_DIR/backend' && set -a && source '$ENV_FILE' && set +a && node --import tsx src/index.ts"

@@ -27,30 +27,44 @@
                               [B2] Ingest Core
 ```
 
-## [B2] Ingest Core (Counting + Gate)
+## [B2] Ingest Core (Captured Sessions + Replay Quota Gate)
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                          Ingest Request Processing                           │
 │                                                                              │
-│  1) Billing Gate                                                             │
-│     checkBillingStatus(teamId)                                               │
-│       ├─ teams.payment_failed_at ? -> block                                  │
-│       └─ canUserRecord(ownerUserId, teamId) -> limit check                   │
-│          (uses Redis-backed session limit cache+lock)                        │
+│  1) Sampling Gate                                                            │
+│     project sampleRate / client isSampledIn is evaluated first               │
+│       sampled out => no replay quota decision and no replay quota usage      │
 │                                                                              │
-│  2) Session Upsert                                                           │
+│  2) Billing Gate                                                             │
+│     checkBillingStatus(teamId)                                               │
+│       ├─ teams.payment_failed_at ? -> hard block                             │
+│       └─ getTeamSessionUsage(teamId) -> replay quota check                   │
+│          quota exhausted => analytics accepted, replay disabled              │
+│                                                                              │
+│  3) Session Upsert                                                           │
 │     ensureIngestSession(projectId, sessionId) -> created?                    │
 │                                                                              │
-│  3) Session Counting (single increment)                                      │
-│     if created == true -> incrementProjectSessionCount(projectId, teamId,+1)│
-│                          writes project_usage.sessions                       │
-│                          invalidates Redis session cache                     │
+│  4) Captured Session Counting (unlimited analytics)                          │
+│     if created == true                                                       │
+│       -> incrementProjectSessionCount(projectId, teamId,+1)                  │
+│          writes project_usage.sessions                                       │
+│          quota-exhausted sessions still count here                           │
 │                                                                              │
-│  4) Artifact Complete                                                        │
+│  5) Replay Quota Counting (single replay increment)                          │
+│     when reconciliation first sets replay_available=true                     │
+│       -> incrementProjectSessionReplayIfNeeded(sessionId)                    │
+│          writes project_usage.session_replays                                │
+│          sets sessions.replay_quota_counted_at                               │
+│          invalidates Redis replay cache and checks usage alerts              │
+│     if quota exhausted, sessions.replay_quota_billing_exhausted=true         │
+│       and analytics artifacts continue without replay quota usage            │
+│                                                                              │
+│  6) Artifact Complete                                                        │
 │     updates recording_artifacts + session_metrics                            │
 │                                                                              │
-│  5) Idempotency (retry-safe ingest)                                          │
+│  7) Idempotency (retry-safe ingest)                                          │
 │     get/set ingest:idempotency:* keys in Redis                               │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -63,7 +77,7 @@
                         [B3] Usage Aggregation
 ```
 
-## [B3] Usage Aggregation (Free vs Paid)
+## [B3] Usage Aggregation (Replay Quota vs Captured Analytics)
 
 ```text
 ┌─────────────────────────────────────┐      ┌──────────────────────────────────┐
@@ -73,16 +87,43 @@
 │   -> teams.owner_user_id = owner    │      │   -> teams.stripe_subscription_id│
 │      AND no subscription            │      │      exists                      │
 │   -> projects in those free teams   │      │   -> projects in that team       │
+│   -> SUM(session_replays)           │      │   -> SUM(session_replays)        │
+│      for replay quota               │      │      for replay quota            │
 │   -> SUM(project_usage.sessions)    │      │   -> SUM(project_usage.sessions) │
-│      per team current period        │      │      for team current period     │
-│   -> compare vs 5000                │      │   -> compare vs Stripe price     │
+│      for unlimited analytics count  │      │      for unlimited analytics     │
+│   -> compare replays vs 5000        │      │   -> compare replays vs Stripe   │
 │                                     │      │      metadata.session_limit      │
 └─────────────────────────────────────┘      └──────────────────────────────────┘
 ```
 
-Feeds `canUserRecord()` and billing dashboards.
+`project_usage.sessions` is now captured analytics sessions. It is not a replay
+quota ledger and reconciliation may only raise it from `sessions` table ground
+truth, never lower preserved usage.
 
-## [B4] Replay Visibility Branch (Screenshot Presence, Not Billing)
+`project_usage.session_replays` is the quota ledger. Billing warnings, SDK
+remote config, plan usage, free-tier usage, and quota exhaustion all read this
+counter.
+
+Old API fields remain replay aliases:
+
+```text
+sessionsUsed      = sessionReplaysUsed
+sessionLimit      = sessionReplayLimit
+sessionsRemaining = sessionReplaysRemaining
+percentUsed       = sessionReplayPercentUsed
+```
+
+New API fields expose both concepts:
+
+```text
+sessionsCaptured
+sessionReplaysUsed
+sessionReplayLimit
+sessionReplaysRemaining
+sessionReplayPercentUsed
+```
+
+## [B4] Replay Visibility Branch (Visual Presence + Intent)
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -91,13 +132,90 @@ Feeds `canUserRecord()` and billing dashboards.
 │                                      ▼                                       │
 │                 Replay visibility no longer mutates at session end           │
 │                                      │                                       │
-│             Session appears in replay archive iff screenshot data exists     │
-│                session_metrics.screenshot_segment_count > 0                  │
+│             Session appears in replay archive iff visual replay data exists  │
+│             (screenshots or rrweb), replay is not deleted/expired, and the   │
+│             session was not forced analytics-only by replay quota exhaustion │
 │                                                                              │
-│                      Billing usage is unchanged here.                        │
-│            Billing was already counted in [B2] on session creation.          │
+│        Quota-exhausted sessions remain analytics sessions and carry          │
+│        sessions.replay_quota_billing_exhausted=true so missing visuals are   │
+│        expected, not treated as an upload failure.                           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+## [B4a] Future Smart Capture Decision Layer
+
+The replay usage split is intentionally shaped so server-side smart capture can
+be added without changing iOS, RN iOS, RN Android, or Web packages.
+
+The intended order is:
+
+```text
+SDK / project gates
+  -> SDK master switch / rejourneyEnabled
+  -> project recording switch
+  -> sampleRate / sampled-out decision
+  -> observe-only or no-record configuration
+
+Captured session ingest
+  -> session row materializes
+  -> analytics/events/metrics are accepted
+  -> project_usage.sessions increments as unlimited captured analytics
+
+Replay quota gate
+  -> if replay quota is exhausted:
+       discard or skip visual replay data
+       keep analytics/events/metrics
+       sessions.observe_only remains false
+       sessions.replay_quota_billing_exhausted = true
+       sessions.replay_available = false
+       do not increment project_usage.session_replays
+
+Smart capture rules
+  -> if replay quota remains:
+       evaluate server-side keep/toss rules
+       examples: minimum session duration, rage/dead taps, crashes, ANRs,
+                 failed onboarding return, churn/retention outcome, sampled
+                 funnels, requested customer predicates
+  -> if qualified:
+       retain replay artifacts
+       sessions.replay_available = true
+       incrementProjectSessionReplayIfNeeded(sessionId)
+       project_usage.session_replays += 1 exactly once
+  -> if not qualified:
+       keep analytics/events/metrics
+       do not expose replay
+       do not increment project_usage.session_replays
+       optionally purge visual artifacts after the decision window
+```
+
+Important semantics:
+
+- Sampling and explicit observe-only/no-record decisions are first-layer controls.
+- Replay quota exhaustion is not observe-only mode; it uses
+  `replay_quota_billing_exhausted` as the audit marker.
+- Smart capture should run after hard first-layer gates and after replay quota is
+  known to be available.
+- `replay_available=true` should mean "this replay was intentionally retained
+  and is available to view."
+- `replay_quota_counted_at` should be set only for retained, available replays
+  that count toward replay usage.
+- Some smart capture rules are immediate (`duration >= N seconds`, crash, rage
+  tap); others are delayed/offline (`failed to return after onboarding`,
+  churned later). Delayed rules need a decision window before visual artifacts
+  are purged.
+
+Likely future schema for full auditability:
+
+```text
+sessions.smart_capture_decision        kept | discarded | pending
+sessions.smart_capture_reason          min_duration | rage_tap | crash | ...
+sessions.smart_capture_decided_at      timestamp
+sessions.smart_capture_discarded_at    timestamp null
+```
+
+Do not overload `observe_only` for smart capture. Observe-only means the customer
+or SDK intentionally requested non-visual analytics. Smart-capture discard means
+the session was eligible for replay capture but the server chose not to retain it.
 
 ## [B5] Stripe State + Webhooks
 
@@ -128,7 +246,7 @@ These fields affect [B2] gate behavior and [B3] aggregation mode.
 │ Top Bar Project Sessions            │      │ Billing / Account Free Tier      │
 │                                     │      │                                  │
 │ Source: sessions stats              │      │ Source: aggregated project_usage │
-│ (project list / last 7 days)        │      │ (free-tier or team usage APIs)   │
+│ (project list / last 7 days)        │      │ (replay quota + captured count)  │
 └─────────────────────────────────────┘      └──────────────────────────────────┘
 ```
 
@@ -138,10 +256,20 @@ Mismatch pattern:
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ sessions > 0 but project_usage empty -> Top Bar shows sessions, Billing 0   │
 │                                                                              │
-│ New ingest flow in [B2] prevents this for new sessions.                     │
-│ Historical sessions before fix may require one-time project_usage backfill. │
+│ New ingest flow in [B2] prevents this for new captured sessions.            │
+│ Replay usage only rises after replay_available=true and counted_at is set. │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Billing UI should show both:
+
+```text
+Session replays recorded: quota progress bar
+Sessions captured: unlimited analytics sessions
+```
+
+Pricing/public pages should describe plans as `session replays/mo` and include
+`Unlimited analytics sessions`.
 
 ## [B7] Redis Plane (What It Does In This System)
 
@@ -149,10 +277,11 @@ Mismatch pattern:
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                  Redis                                       │
 │                                                                              │
-│  A) Session Limit Cache + Stampede Lock                                      │
+│  A) Replay Limit Cache + Stampede Lock                                       │
 │     keys: sessions:{teamId}:{period}                                         │
 │           session_lock:{teamId}:{period}                                     │
 │     used by getSessionLimitCacheWithLock() in billing gate                   │
+│     stores replay aliases plus explicit replay/captured fields               │
 │                                                                              │
 │  B) Ingest Idempotency                                                       │
 │     keys: ingest:idempotency:{projectId}:{idempotencyKey}                    │
@@ -167,6 +296,7 @@ Mismatch pattern:
 │                                                                              │
 │  Degradation behavior:                                                       │
 │  - if Redis cache/lock fails: fallback to DB path                            │
+│  - v1 cache fields sessionsUsed/sessionLimit remain replay aliases           │
 │  - if idempotency key is missing/unavailable: less retry dedupe protection   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -194,7 +324,9 @@ Mismatch pattern:
 ┌───────────┐
 │ sessions  │  (analytics/session timeline)
 └─────┬─────┘
-      └────────────▶ replay_promoted / replay_promoted_reason (promotion only)
+      ├────────────▶ replay_promoted / replay_promoted_reason (promotion only)
+      ├────────────▶ replay_quota_billing_exhausted (analytics-only by quota)
+      └────────────▶ replay_quota_counted_at (idempotent replay quota count)
 ```
 
 ## Screenshot-Only Session Trace (End-to-End)
@@ -203,11 +335,121 @@ Mismatch pattern:
 SDK screenshots
    -> /api/ingest/segment/presign
    -> ensureIngestSession(created=true)
-   -> incrementProjectSessionCount (+1)
-   -> project_usage updated
+   -> incrementProjectSessionCount (+1 captured session)
+   -> project_usage.sessions updated
    -> /api/ingest/segment/complete
    -> session_metrics.screenshot_segment_count += 1
    -> replay archive visibility becomes true
+   -> incrementProjectSessionReplayIfNeeded(sessionId)
+   -> project_usage.session_replays += 1
+   -> sessions.replay_quota_counted_at set
 ```
 
-Billing usage remains counted independently of replay visibility.
+If the replay quota is exhausted before the session materializes, the events
+lane still creates/updates the session row, but visual presign routes skip
+upload and the row is marked:
+
+```text
+sessions.replay_quota_billing_exhausted = true
+sessions.replay_available = false
+```
+
+`GET /api/sdk/config` represents replay quota exhaustion as
+`billingBlocked=false`, `recordingEnabled=false`, and
+`replayQuotaBillingExhausted=true`. Existing SDKs therefore continue normal
+analytics paths without starting visual replay capture.
+
+These rows are intentionally excluded from replay-availability health metrics,
+because no replay was meant to become available.
+
+## Replay Usage Split Migration
+
+Migration `20260601130000_replay_usage_split` adds:
+
+```text
+project_usage.session_replays integer default 0 not null
+billing_usage.session_replays integer default 0 not null
+sessions.replay_quota_counted_at timestamp null
+billing_notifications.dedupe_key text null
+```
+
+Backfill rules:
+
+- Copy `project_usage.sessions` into `project_usage.session_replays` when the new column is still zero.
+- Copy `billing_usage.sessions` into `billing_usage.session_replays` when the new column is still zero.
+- Mark existing `sessions.replay_quota_counted_at` so pre-migration sessions already represented in the preserved replay ledger cannot increment replay usage again later.
+- Backfill does not call alert sending and does not lower any existing current-period usage.
+- Existing `warning_80` and `limit_100` notifications get a canonical dedupe key where possible; duplicate historical rows are left alone and only the oldest row becomes the keyed record.
+
+Stripe metadata stays backward compatible. Active prices may keep `session_limit`;
+that key now means monthly session replay limit. Add `session_replay_limit` only
+after every active price carries both keys and all runtime consumers have been
+migrated.
+
+## Warning Behavior
+
+Billing warnings still use the existing alert types:
+
+```text
+warning_80
+limit_100
+```
+
+The trigger is session replay usage, not captured analytics sessions. Alerts are
+checked only after `project_usage.session_replays` increments. Migration/backfill
+must never send warning emails.
+
+Email and dashboard copy should say "session replay usage" and "session replays
+remaining." Notification metadata keeps old aliases (`sessionsUsed`,
+`sessionLimit`) and adds explicit replay fields (`sessionReplaysUsed`,
+`sessionReplayLimit`, `sessionsCaptured`, `usageMetric=session_replays`).
+
+## No Package Change Guarantee
+
+This split is server/dashboard/docs only. No iOS, RN iOS, RN Android, or Web
+package change is required.
+
+Existing packages already rely on server config and ingest responses:
+
+- Sampling remains the top layer. If a session is sampled out, there is no replay upload and no replay quota usage.
+- Replay quota exhaustion is returned server-side as `recordingEnabled=false`, `billingBlocked=false`, and `replayQuotaBillingExhausted=true`.
+- Analytics/events are still accepted server-side even when replay quota is exhausted.
+- Stale visual uploads for quota-exhausted sessions are skipped/ignored by ingest and the row is marked `replay_quota_billing_exhausted=true`.
+
+## Grafana / Replay Availability
+
+Replay-availability dashboards must count only sessions that were meant to become
+available:
+
+```sql
+observe_only = false
+AND replay_quota_billing_exhausted = false
+```
+
+Quota-exhausted analytics-only rows are excluded because their missing
+screenshots/rrweb are expected billing behavior, not upload failure.
+
+## Production Rollout
+
+1. Run local tests and type checks for backend/dashboard billing paths.
+2. Push/merge only after local verification passes.
+3. Wait for CI to go green.
+4. After production SSH is provided, run the production migration/backfill.
+5. Verify in production:
+   - no existing current-period replay usage was reset or lowered.
+   - replay quota checks use `project_usage.session_replays`.
+   - captured sessions continue beyond replay quota.
+   - warning notifications still work and do not duplicate old-period warnings.
+   - dashboard/API show both replay and captured counters.
+   - Grafana replay-availability panels exclude `replay_quota_billing_exhausted` sessions.
+
+## Legacy Billing Compatibility Cleanup
+
+Do not do these in the replay split deploy. Track them for later cleanup:
+
+- Remove old API aliases (`sessionsUsed`, `sessionLimit`, `sessionsRemaining`, `percentUsed`) after at least two billing cycles and after all dashboard/API consumers use explicit replay fields.
+- Optionally rename Stripe metadata to `session_replay_limit` only after active prices carry both `session_limit` and `session_replay_limit`.
+- Remove v1 Redis cache fallback after one deploy plus the full cache TTL.
+- Keep `project_usage.sessions` permanently as captured analytics sessions.
+- Keep old billing notification types (`warning_80`, `limit_100`) unless historical notification rows are migrated.
+- Keep `sessions.replay_quota_billing_exhausted` as the audit marker for analytics-only sessions caused by replay quota exhaustion.

@@ -19,6 +19,8 @@ export interface NativeStartOptions {
   collectGeoLocation?: boolean;
   /** Remote text input masking policy. Unknown native versions ignore this. */
   textInputMasking?: 'all' | 'secure_only';
+  /** Remote image/video masking policy. Unknown native versions ignore this. */
+  imageVideoMasking?: 'none' | 'all';
   /** Capture eligible native sheets/dialog windows (default: true). */
   captureNativeSheets?: boolean;
   /**
@@ -91,6 +93,7 @@ export function buildNativeStartOptions(
   effectiveOptions: {
     captureScreen?: boolean;
     textInputMasking?: 'all' | 'secure_only';
+    imageVideoMasking?: 'none' | 'all';
     recordingFps?: number;
   } = {}
 ): NativeStartOptions {
@@ -107,6 +110,10 @@ export function buildNativeStartOptions(
 
   if (effectiveOptions.textInputMasking) {
     options.textInputMasking = effectiveOptions.textInputMasking;
+  }
+
+  if (effectiveOptions.imageVideoMasking) {
+    options.imageVideoMasking = effectiveOptions.imageVideoMasking;
   }
 
   if (config?.debug) {

@@ -20,7 +20,7 @@ This is not the user-facing product story. It is the worker/runtime story.
 - A session is not backupable just because it exists. It must be finalized and its ready artifacts must match the expected profile.
 - The backup queue is fed both by session finalization and by a periodic queue seeder, then drained by the backup CronJob.
 - `session_backup_log` is the ledger that says "this session backup completed successfully for N planned/copied artifacts".
-- Retention is fail-safe. It does not purge normal sessions, including `observe_only` sessions, unless backup safety checks pass first.
+- Retention is fail-safe. It does not purge normal sessions, including `observe_only` and `replay_quota_billing_exhausted` sessions, unless backup safety checks pass first.
 - Normal retention does not delete the `sessions` row. It deletes recording payloads and marks the row as replay-expired / recording-deleted.
 - Full `sessions` row deletion only happens in project/team hard-delete flows.
 
@@ -88,6 +88,7 @@ There are two ways a session gets into backup flow:
   - normal session: ready `events` + `hierarchy` + `screenshots`
   - web rrweb session: ready `events` + `rrweb`
   - `observe_only` session: ready `events` + `hierarchy`, and zero ready `screenshots`
+  - `replay_quota_billing_exhausted` session: same non-visual profile as observe-only, but marked separately because replay was disabled by billing quota rather than customer consent/configuration
 - no existing `session_backup_log` row already covers the current ready-artifact count
 
 That last condition now means:
@@ -127,7 +128,7 @@ A session is considered empty only if all of these are true:
 This means:
 
 - "no screenshots" is not enough to be empty
-- `observe_only` is not enough to be empty
+- `observe_only` / `replay_quota_billing_exhausted` is not enough to be empty
 - "no ready artifacts" is not enough to be empty
 - a session with meaningful metrics but zero ready artifacts is not empty, but it is also not backupable anymore
 
@@ -234,7 +235,7 @@ Important implication:
 - the worker validates artifact shape before copy:
   - normal sessions require ready `events` + `hierarchy` + `screenshots`
   - web rrweb sessions require ready `events` + `rrweb`
-  - `observe_only` sessions require ready `events` + `hierarchy` and must not have ready screenshots
+  - `observe_only` and `replay_quota_billing_exhausted` sessions require ready `events` + `hierarchy` and must not have ready screenshots
 
 ### Manifest + artifact format
 
@@ -299,7 +300,8 @@ Every successful backup writes quality metadata.
 - standard sessions are scored against the full replay profile
 - `observe_only` sessions are still scored from the real manifest and copied artifact set
 - successful `observe_only` backups use quality tier `observe_only`
-- `observe_only` is no longer a synthetic zero-artifact shortcut
+- successful replay-quota-exhausted backups use quality tier `replay_quota_billing_exhausted`
+- neither analytics-only profile is a synthetic zero-artifact shortcut
 
 ## [B5] Retention Eligibility + Purge Rules
 
@@ -334,7 +336,7 @@ That means if a session still has extra non-ready artifact rows, retention may c
 
 Important consequence:
 
-- `observe_only` sessions do not bypass this gate anymore
+- `observe_only` and `replay_quota_billing_exhausted` sessions do not bypass this gate anymore
 - they must have a real `session_backup_log` row from the backup worker before retention can purge them
 
 ### Repair path
@@ -437,9 +439,11 @@ Retention safety:
 
 This is intentionally conservative, but it means some sessions can remain ineligible for retention longer than expected.
 
-### 3. `observe_only` is a real backup profile, not a retention bypass
+### 3. Analytics-only profiles are real backup profiles, not retention bypasses
 
-`observe_only` means "no screenshots by design", not "nothing to archive".
+`observe_only` means "no screenshots by customer consent/configuration".
+`replay_quota_billing_exhausted` means "no screenshots/rrweb by replay quota".
+Neither means "nothing to archive".
 
 - backup still runs
 - backup still writes a real manifest

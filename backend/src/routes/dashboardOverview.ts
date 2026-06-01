@@ -7,7 +7,8 @@
 
 import { Router } from 'express';
 import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import { db, dbRead, projects, recordingArtifacts, sessionMetrics, sessions, teamMembers, errors as jsErrors, crashes as appCrashes, screenTouchHeatmaps } from '../db/client.js';
+import { db, dbRead, projects, recordingArtifacts, sessionMetrics, sessions, teamMembers, errors as jsErrors, crashes as appCrashes, screenTouchHeatmaps, alertHistory } from '../db/client.js';
+import { getClickHouseClient, isClickHouseReadsEnabled } from '../db/clickhouse.js';
 import { getRedis } from '../db/redis.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
@@ -30,6 +31,12 @@ import {
     type WebAttentionHeatmapDimensions,
     type WebAttentionTouchPrior,
 } from '../utils/webAttentionHeatmap.js';
+import {
+    buildMobileAttentionHeatmap,
+    extractMobileEventsFromArtifact,
+    extractMobileHierarchySnapshotsFromArtifact,
+    type MobileAttentionSessionInput,
+} from '../utils/mobileAttentionHeatmap.js';
 
 const router = Router();
 const redis = getRedis();
@@ -1406,6 +1413,19 @@ function attentionFromPriorOrEmpty(
     };
 }
 
+function mobileAttentionFromPriorOrEmpty(
+    prior: WebAttentionPrior,
+    normalizedScreenName: string,
+    emptyReason: string,
+) {
+    const dimensions = dimensionsFromAttentionPrior(prior);
+    const result = buildMobileAttentionHeatmap([], dimensions, hasTouchPriorSignal(prior) ? prior : null, normalizedScreenName);
+    return {
+        ...result,
+        reason: result.hotspots.length > 0 ? null : emptyReason,
+    };
+}
+
 async function loadWebAttentionPrior(
     projectId: string,
     normalizedScreenName: string,
@@ -1595,6 +1615,215 @@ async function loadWebAttentionHeatmap(
         ...buildWebAttentionHeatmap(sessionInputs, fallbackDimensions, attentionPrior, normalizedScreenName),
         reason: null,
     };
+}
+
+function synthesizeScreenshotTimestamps(artifacts: Array<{
+    startTime: number | null;
+    endTime: number | null;
+    frameCount: number | null;
+    timestamp: number | null;
+}>): number[] {
+    const timestamps: number[] = [];
+    for (const artifact of artifacts) {
+        const start = Number(artifact.startTime ?? artifact.timestamp ?? 0);
+        if (!Number.isFinite(start) || start <= 0) continue;
+        const end = Number(artifact.endTime ?? 0);
+        const frameCount = Math.max(1, Math.min(120, Number(artifact.frameCount ?? 1) || 1));
+        if (Number.isFinite(end) && end > start && frameCount > 1) {
+            const step = (end - start) / Math.max(1, frameCount - 1);
+            for (let index = 0; index < frameCount; index += 1) {
+                timestamps.push(Math.round(start + step * index));
+            }
+        } else {
+            timestamps.push(Math.round(start));
+        }
+    }
+    return timestamps;
+}
+
+async function loadMobileAttentionHeatmap(
+    projectId: string,
+    screenName: string,
+    timeRange?: string,
+    platform?: string,
+    appVersion?: string,
+) {
+    const normalizedScreenName = normalizeHeatmapScreenName(screenName);
+    if (!normalizedScreenName) {
+        throw ApiError.badRequest('screenName is invalid');
+    }
+
+    const attentionPrior = await loadWebAttentionPrior(projectId, normalizedScreenName, timeRange);
+    const fallbackDimensions = dimensionsFromAttentionPrior(attentionPrior);
+    const startedAfter = buildStartedAfter(timeRange);
+    const platformCondition = platform === 'ios' || platform === 'android'
+        ? eq(sessions.platform, platform)
+        : inArray(sessions.platform, ['ios', 'android']);
+    const conditions: SQL[] = [
+        eq(sessions.projectId, projectId),
+        platformCondition,
+        eq(sessions.replayAvailable, true),
+        eq(sessions.recordingDeleted, false),
+        eq(sessions.isReplayExpired, false),
+    ];
+    if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
+    if (appVersion) conditions.push(eq(sessions.appVersion, appVersion));
+
+    const candidateRows = await db
+        .select({
+            sessionId: sessions.id,
+            platform: sessions.platform,
+            startedAt: sessions.startedAt,
+            endedAt: sessions.endedAt,
+            durationSeconds: sessions.durationSeconds,
+            screensVisited: sessionMetrics.screensVisited,
+        })
+        .from(sessions)
+        .innerJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
+        .where(and(...conditions))
+        .orderBy(desc(sessions.startedAt))
+        .limit(WEB_ATTENTION_SESSION_SCAN_LIMIT);
+
+    const matchedRows = candidateRows
+        .filter((row) => normalizeHeatmapScreenPath(row.screensVisited || []).includes(normalizedScreenName));
+    const matchedSessionIds = matchedRows.map((row) => row.sessionId);
+    const rowBySessionId = new Map(matchedRows.map((row) => [row.sessionId, row] as const));
+    const durationMsBySessionId = new Map(
+        matchedRows.map((row) => {
+            const durationMsFromColumn = Number(row.durationSeconds ?? 0) > 0
+                ? Number(row.durationSeconds) * 1000
+                : null;
+            const durationMsFromDates = row.endedAt instanceof Date && row.endedAt.getTime() > row.startedAt.getTime()
+                ? row.endedAt.getTime() - row.startedAt.getTime()
+                : null;
+            return [row.sessionId, durationMsFromColumn ?? durationMsFromDates] as const;
+        }),
+    );
+    const sampledSessionIds = sampleRecencyWeightedSubset(matchedSessionIds, WEB_ATTENTION_SAMPLE_SESSION_LIMIT);
+
+    if (sampledSessionIds.length === 0) {
+        return mobileAttentionFromPriorOrEmpty(attentionPrior, normalizedScreenName, 'no replay sessions matched this screen');
+    }
+
+    const artifactRows = await db
+        .select({
+            id: recordingArtifacts.id,
+            sessionId: recordingArtifacts.sessionId,
+            kind: recordingArtifacts.kind,
+            s3ObjectKey: recordingArtifacts.s3ObjectKey,
+            endpointId: recordingArtifacts.endpointId,
+            timestamp: recordingArtifacts.timestamp,
+            startTime: recordingArtifacts.startTime,
+            endTime: recordingArtifacts.endTime,
+            frameCount: recordingArtifacts.frameCount,
+            createdAt: recordingArtifacts.createdAt,
+        })
+        .from(recordingArtifacts)
+        .where(and(
+            inArray(recordingArtifacts.sessionId, sampledSessionIds),
+            inArray(recordingArtifacts.kind, ['events', 'hierarchy', 'screenshots']),
+            eq(recordingArtifacts.status, 'ready'),
+        ))
+        .orderBy(recordingArtifacts.createdAt)
+        .limit(WEB_ATTENTION_MAX_ARTIFACTS * 3);
+
+    if (artifactRows.length === 0) {
+        return mobileAttentionFromPriorOrEmpty(attentionPrior, normalizedScreenName, 'matched sessions have no ready mobile replay artifacts');
+    }
+
+    const artifactsBySession = new Map<string, typeof artifactRows>();
+    for (const artifact of artifactRows) {
+        const list = artifactsBySession.get(artifact.sessionId) ?? [];
+        list.push(artifact);
+        artifactsBySession.set(artifact.sessionId, list);
+    }
+
+    const sessionInputs = (await mapWithConcurrency(sampledSessionIds, WEB_ATTENTION_DOWNLOAD_CONCURRENCY, async (sessionId) => {
+        const artifacts = (artifactsBySession.get(sessionId) || [])
+            .sort((a, b) => (a.startTime ?? a.timestamp ?? a.createdAt.getTime()) - (b.startTime ?? b.timestamp ?? b.createdAt.getTime()));
+        if (artifacts.length === 0) return null;
+
+        const events: any[] = [];
+        const hierarchySnapshots: NonNullable<MobileAttentionSessionInput['hierarchySnapshots']> = [];
+        const screenshotTimestamps = synthesizeScreenshotTimestamps(
+            artifacts
+                .filter((artifact) => artifact.kind === 'screenshots')
+                .map((artifact) => ({
+                    startTime: artifact.startTime,
+                    endTime: artifact.endTime,
+                    frameCount: artifact.frameCount,
+                    timestamp: artifact.timestamp,
+                })),
+        );
+        let deviceInfo: Record<string, unknown> | null = null;
+        let dimensions: Partial<WebAttentionHeatmapDimensions> = { ...fallbackDimensions };
+
+        for (const artifact of artifacts.filter((item) => item.kind === 'events' || item.kind === 'hierarchy').slice(0, WEB_ATTENTION_MAX_ARTIFACTS_PER_SESSION * 4)) {
+            try {
+                const data = await downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId);
+                if (!data) continue;
+                if (artifact.kind === 'events') {
+                    const extracted = extractMobileEventsFromArtifact(data, artifact.s3ObjectKey);
+                    events.push(...extracted.events);
+                    if (!deviceInfo && extracted.deviceInfo) {
+                        deviceInfo = extracted.deviceInfo;
+                        dimensions = {
+                            ...dimensions,
+                            viewportWidth: Number(extracted.deviceInfo.viewportWidth ?? extracted.deviceInfo.screenWidth) || dimensions.viewportWidth,
+                            viewportHeight: Number(extracted.deviceInfo.viewportHeight ?? extracted.deviceInfo.screenHeight) || dimensions.viewportHeight,
+                        };
+                    }
+                } else if (artifact.kind === 'hierarchy') {
+                    hierarchySnapshots.push(...extractMobileHierarchySnapshotsFromArtifact(data, artifact.s3ObjectKey, artifact.timestamp));
+                }
+            } catch (err) {
+                logger.warn(
+                    {
+                        err,
+                        projectId,
+                        sessionId,
+                        artifactId: artifact.id,
+                        artifactKind: artifact.kind,
+                    },
+                    '[overview] failed to load mobile artifact for attention heatmap',
+                );
+            }
+        }
+
+        return events.length > 0 || hierarchySnapshots.length > 0 || screenshotTimestamps.length > 0
+            ? {
+                events,
+                hierarchySnapshots,
+                screenshotTimestamps,
+                dimensions,
+                durationMs: durationMsBySessionId.get(sessionId) ?? null,
+                platform: rowBySessionId.get(sessionId)?.platform ?? null,
+                deviceInfo,
+            } satisfies MobileAttentionSessionInput
+            : null;
+    })).filter((input): input is NonNullable<typeof input> => input !== null);
+
+    if (sessionInputs.length === 0) {
+        return mobileAttentionFromPriorOrEmpty(attentionPrior, normalizedScreenName, 'mobile replay artifacts could not be read');
+    }
+
+    return {
+        ...buildMobileAttentionHeatmap(sessionInputs, fallbackDimensions, attentionPrior, normalizedScreenName),
+        reason: null,
+    };
+}
+
+async function loadAttentionHeatmap(
+    projectId: string,
+    screenName: string,
+    timeRange?: string,
+    platform?: string,
+    appVersion?: string,
+) {
+    if (platform === 'mobile' || platform === 'ios' || platform === 'android') {
+        return loadMobileAttentionHeatmap(projectId, screenName, timeRange, platform, appVersion);
+    }
+    return loadWebAttentionHeatmap(projectId, screenName, timeRange, platform, appVersion);
 }
 
 const STABILITY_OVERVIEW_FP_LIMIT = 50;
@@ -1984,7 +2213,7 @@ router.get(
                     fetchOverviewSection(scope.cookieHeader, `/api/insights/trends?${scope.params.toString()}`),
                     fetchOverviewSection(scope.cookieHeader, `/api/analytics/growth-observability?${new URLSearchParams({ ...Object.fromEntries(scope.obsParams), mode: observabilityMode }).toString()}`),
                     fetchOverviewSection(scope.cookieHeader, `/api/analytics/observability-deep-metrics?${new URLSearchParams({ ...Object.fromEntries(scope.obsParams), mode: observabilityMode }).toString()}`),
-                    fetchOverviewSection(scope.cookieHeader, `/api/analytics/user-engagement-trends?${scope.obsParams.toString()}`),
+                    fetchOverviewSection(scope.cookieHeader, `/api/analytics/user-engagement-trends?${new URLSearchParams({ ...Object.fromEntries(scope.obsParams), mode: observabilityMode }).toString()}`),
                     fetchOverviewSection(scope.cookieHeader, `/api/analytics/geo-summary?${scope.obsParams.toString()}`),
                     loadRetentionPreview(scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform),
                 ]);
@@ -2041,15 +2270,23 @@ router.get(
     sessionAuth,
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req);
+        const requestedSection = req.query.section === 'sessions' || req.query.section === 'topUsers'
+            ? req.query.section
+            : undefined;
         if (scope.scopedProjectIds.length === 0) {
             setOverviewCacheHeaders(res);
-            res.json({ sessions: [], failedSections: [] });
+            res.json({ sessions: [], topUsers: [], failedSections: [] });
             return;
         }
 
         await respondWithOverviewCache({
-            cacheKey: buildOverviewCacheKey('general:heavy', scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined),
-            routeName: 'general:heavy',
+            cacheKey: buildOverviewCacheKey(
+                requestedSection ? `general:heavy:${requestedSection}` : 'general:heavy',
+                scope.scopedProjectIds,
+                scope.normalizedTimeRange,
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined,
+            ),
+            routeName: requestedSection ? `general:heavy:${requestedSection}` : 'general:heavy',
             res,
             logContext: {
                 projectId: scope.normalizedProjectId,
@@ -2058,15 +2295,19 @@ router.get(
             build: async () => {
                 const failedSections: string[] = [];
                 const [sessionsResult, topUsersResult] = await Promise.allSettled([
-                    loadSessionPreview(scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform),
-                    loadTopUsersPreview(scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform),
+                    requestedSection === 'topUsers'
+                        ? Promise.resolve([])
+                        : loadSessionPreview(scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform),
+                    requestedSection === 'sessions'
+                        ? Promise.resolve([])
+                        : loadTopUsersPreview(scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform),
                 ]);
 
-                if (sessionsResult.status !== 'fulfilled') {
+                if (requestedSection !== 'topUsers' && sessionsResult.status !== 'fulfilled') {
                     failedSections.push('recommended sessions');
                     logger.warn({ err: sessionsResult.reason, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] heavy sessions load failed');
                 }
-                if (topUsersResult.status !== 'fulfilled') {
+                if (requestedSection !== 'sessions' && topUsersResult.status !== 'fulfilled') {
                     failedSections.push('top users');
                     logger.warn({ err: topUsersResult.reason, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] top users load failed');
                 }
@@ -2342,7 +2583,7 @@ router.get(
                 `heatmaps:attention:${normalizedScreenName}`,
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                `${scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:` : ''}${appVersion ? `ver:${appVersion}:` : ''}v4`,
+                `${scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:` : ''}${appVersion ? `ver:${appVersion}:` : ''}v6`,
             ),
             routeName: 'heatmaps-attention',
             res,
@@ -2353,7 +2594,7 @@ router.get(
                 timeRange: scope.normalizedTimeRange,
                 appVersion,
             },
-            build: async () => loadWebAttentionHeatmap(
+            build: async () => loadAttentionHeatmap(
                 scope.normalizedProjectId!,
                 normalizedScreenName,
                 scope.normalizedTimeRange,
@@ -2456,6 +2697,127 @@ router.get(
                 };
             },
         });
+    }),
+);
+
+router.get(
+    '/api-error-spikes',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const scope = await resolveOverviewScope(req, { requireProjectId: true });
+        const projectId = scope.normalizedProjectId;
+        if (!projectId) throw ApiError.badRequest('projectId required');
+
+        const days = boundedTimeRangeToDays(scope.normalizedTimeRange || '') ?? 30;
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+        // Recent error_spike alerts for this project
+        const recentSpikes = await dbRead
+            .select({ id: alertHistory.id, sentAt: alertHistory.sentAt })
+            .from(alertHistory)
+            .where(
+                and(
+                    eq(alertHistory.projectId, projectId),
+                    eq(alertHistory.alertType, 'error_spike'),
+                    gte(alertHistory.sentAt, cutoff),
+                )
+            )
+            .orderBy(desc(alertHistory.sentAt))
+            .limit(20);
+
+        if (recentSpikes.length === 0) {
+            return res.json({ spikes: [] });
+        }
+
+        const spikes = await Promise.all(recentSpikes.map(async (spike) => {
+            const spikeTime = spike.sentAt;
+            const windowStart = new Date(spikeTime.getTime() - 90 * 60 * 1000);
+            const windowEnd   = new Date(spikeTime.getTime() + 15 * 60 * 1000);
+
+            // Per-5-minute bucketed error rate for the sparkline trend
+            const trendRows = await dbRead.execute(sql`
+                SELECT
+                    date_trunc('hour', s.started_at) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM s.started_at) / 5) AS bucket,
+                    sum(sm.api_error_count)::int  AS error_count,
+                    sum(sm.api_total_count)::int  AS total_count,
+                    CASE WHEN sum(sm.api_total_count) > 0
+                         THEN round((sum(sm.api_error_count)::numeric / sum(sm.api_total_count)) * 100, 2)
+                         ELSE 0
+                    END AS error_rate
+                FROM sessions s
+                JOIN session_metrics sm ON sm.session_id = s.id
+                WHERE s.project_id = ${projectId}
+                  AND s.started_at BETWEEN ${windowStart} AND ${windowEnd}
+                GROUP BY 1
+                ORDER BY 1
+            `);
+
+            const trend = (trendRows.rows as Array<{ bucket: Date; error_count: number; total_count: number; error_rate: number }>).map(r => ({
+                bucket: r.bucket instanceof Date ? r.bucket.toISOString() : String(r.bucket),
+                errorCount: Number(r.error_count),
+                totalCount: Number(r.total_count),
+                errorRate:  Number(r.error_rate),
+            }));
+
+            // Current window (last 15 min before spike) vs baseline (prev 60 min)
+            const currentBuckets = trend.filter(t => new Date(t.bucket) >= new Date(spikeTime.getTime() - 15 * 60 * 1000));
+            const baselineBuckets = trend.filter(t => new Date(t.bucket) < new Date(spikeTime.getTime() - 15 * 60 * 1000));
+            const avgRate = (buckets: typeof trend) => {
+                const withData = buckets.filter(b => b.totalCount > 0);
+                return withData.length ? withData.reduce((s, b) => s + b.errorRate, 0) / withData.length : 0;
+            };
+            const currentRate  = avgRate(currentBuckets);
+            const previousRate = avgRate(baselineBuckets);
+            const percentIncrease = previousRate > 0 ? ((currentRate - previousRate) / previousRate) * 100 : 100;
+            const affectedSessions = trend.reduce((s, b) => s + b.totalCount, 0);
+
+            // Top failing endpoints from ClickHouse (best-effort, skip if not configured)
+            let topEndpoints: Array<{ method: string; endpoint: string; errorCount: number }> = [];
+            if (isClickHouseReadsEnabled()) {
+                try {
+                    const ch = getClickHouseClient();
+                    const chResult = await ch.query({
+                        query: `
+                            SELECT method, endpoint, countIf(is_error = 1) AS error_count
+                            FROM rejourney.api_endpoint_request_events
+                            WHERE project_id = {projectId: String}
+                              AND event_time BETWEEN {start: DateTime64(3)} AND {end: DateTime64(3)}
+                            GROUP BY method, endpoint
+                            HAVING error_count > 0
+                            ORDER BY error_count DESC
+                            LIMIT 5
+                        `,
+                        query_params: {
+                            projectId,
+                            start: windowStart.toISOString().replace('T', ' ').replace('Z', ''),
+                            end:   windowEnd.toISOString().replace('T', ' ').replace('Z', ''),
+                        },
+                        format: 'JSONEachRow',
+                    });
+                    const rows = await chResult.json<{ method: string; endpoint: string; error_count: string }>();
+                    topEndpoints = rows.map(r => ({
+                        method:     r.method,
+                        endpoint:   r.endpoint,
+                        errorCount: Number(r.error_count),
+                    }));
+                } catch {
+                    // ClickHouse unavailable — omit endpoints, still return spike
+                }
+            }
+
+            return {
+                id:               spike.id,
+                detectedAt:       spikeTime.toISOString(),
+                currentRate:      Math.round(currentRate * 10) / 10,
+                previousRate:     Math.round(previousRate * 10) / 10,
+                percentIncrease:  Math.round(percentIncrease),
+                affectedSessions,
+                trend,
+                topEndpoints,
+            };
+        }));
+
+        return res.json({ spikes });
     }),
 );
 

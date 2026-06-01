@@ -1359,11 +1359,18 @@ export const demoRegionPerformance: RegionPerformance = {
 
 export const demoTeamUsage: TeamUsage = {
     sessionsUsed: 4567,
+    sessionsCaptured: 8210,
+    sessionReplaysUsed: 4567,
     sessionLimit: 10000,
+    sessionReplayLimit: 10000,
     sessionsRemaining: 5433,
+    sessionReplaysRemaining: 5433,
     percentUsed: 45.67,
+    sessionReplayPercentUsed: 45.67,
     isAtLimit: false,
+    isReplayAtLimit: false,
     isNearLimit: false,
+    isReplayNearLimit: false,
 };
 
 // ================================================================================

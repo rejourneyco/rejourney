@@ -1,5 +1,19 @@
 # @rejourneyco/browser Release Notes
 
+## 0.4.0 - 2026-06-02
+
+### Added
+
+- Image and video privacy controls for web replays. Project Settings can now enable media masking so images, videos, canvases, SVG images, and background images are hidden from replay capture while normal page layout remains visible.
+- Explicit media masking hooks for sensitive page areas: add `data-rj-mask-media` or `data-rejourney-mask-media` to block a specific media element without changing the project-wide default.
+- Cleaner network timelines for self-hosted deployments that serve Rejourney behind a base path, such as `https://example.com/rejourney`, so SDK config, ingest, and upload calls stay out of your app's captured API traffic.
+
+### Fixed
+
+- Prevents presigned replay upload URLs from appearing as app network requests after the SDK receives a storage upload target.
+- Scrubs media URLs from serialized replay snapshots when image/video masking is enabled, including `src`, `srcset`, `poster`, `href`, `xlink:href`, `data`, `rr_dataURL`, `alt`, `title`, `aria-label`, and CSS `background-image` URLs.
+- Keeps ordinary app routes such as `/api/orders` visible in network capture while still hiding Rejourney's own internal routes under self-hosted API base paths.
+
 ## 0.3.0 - 2026-05-29
 
 ### Added

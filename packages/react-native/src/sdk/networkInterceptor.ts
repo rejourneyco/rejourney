@@ -52,6 +52,7 @@ const MAX_PER_ENDPOINT = 20;
 
 const config = {
   enabled: true,
+  apiUrl: undefined as string | undefined,
   ignorePatterns: [] as (string | RegExp)[],
   maxUrlLength: 300,
   captureSizes: false,
@@ -63,6 +64,10 @@ const INTERNAL_NETWORK_PATH_PREFIXES = [
   '/api/ingest',
   '/upload/artifacts',
 ] as const;
+const MAX_REGISTERED_INTERNAL_URLS = 200;
+
+const registeredInternalUrls = new Set<string>();
+const registeredInternalUrlOrder: string[] = [];
 
 function getUtf8Size(text: string): number {
   if (!text) return 0;
@@ -178,20 +183,76 @@ function scrubUrl(url: string): string {
   }
 }
 
+function normalizePath(path: string): string {
+  const withLeadingSlash = path.startsWith('/') ? path : `/${path}`;
+  return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, '') : withLeadingSlash;
+}
+
+function basePathForUrl(url?: string): string {
+  try {
+    const parsed = new URL(url || '', 'http://rejourney.local');
+    return parsed.pathname && parsed.pathname !== '/' ? normalizePath(parsed.pathname) : '';
+  } catch {
+    return '';
+  }
+}
+
 function pathForUrl(url: string): string {
   try {
-    return new URL(url, 'http://rejourney.local').pathname;
+    return normalizePath(new URL(url, 'http://rejourney.local').pathname || '/');
   } catch {
-    return url.split('?')[0] || url;
+    return normalizePath((url.split('?')[0] || url).split('#')[0] || '/');
+  }
+}
+
+function normalizeUrlForComparison(url: string): string | null {
+  try {
+    const parsed = new URL(url, 'http://rejourney.local');
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    const trimmed = url.trim();
+    const withoutHash = trimmed.split('#')[0];
+    return withoutHash || null;
+  }
+}
+
+function hasInternalPathPrefix(path: string, apiUrl?: string): boolean {
+  const normalizedPath = normalizePath(path);
+  const apiBasePath = basePathForUrl(apiUrl);
+  const prefixes = apiBasePath
+    ? [
+        ...INTERNAL_NETWORK_PATH_PREFIXES,
+        ...INTERNAL_NETWORK_PATH_PREFIXES.map((prefix) => normalizePath(`${apiBasePath}${prefix}`)),
+      ]
+    : INTERNAL_NETWORK_PATH_PREFIXES;
+
+  return prefixes.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+}
+
+function isRegisteredInternalUrl(url: string): boolean {
+  const normalizedUrl = normalizeUrlForComparison(url);
+  return Boolean(normalizedUrl && registeredInternalUrls.has(normalizedUrl));
+}
+
+export function registerInternalNetworkUrl(url: string): void {
+  const normalizedUrl = normalizeUrlForComparison(url);
+  if (!normalizedUrl || registeredInternalUrls.has(normalizedUrl)) return;
+  registeredInternalUrls.add(normalizedUrl);
+  registeredInternalUrlOrder.push(normalizedUrl);
+
+  while (registeredInternalUrlOrder.length > MAX_REGISTERED_INTERNAL_URLS) {
+    const evicted = registeredInternalUrlOrder.shift();
+    if (evicted) registeredInternalUrls.delete(evicted);
   }
 }
 
 export function shouldIgnoreNetworkUrl(
   url: string,
-  options: { ignoreUrls?: (string | RegExp)[] } = {}
+  options: { apiUrl?: string; ignoreUrls?: (string | RegExp)[] } = {}
 ): boolean {
   const path = pathForUrl(url);
-  if (INTERNAL_NETWORK_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+  if (isRegisteredInternalUrl(url) || hasInternalPathPrefix(path, options.apiUrl ?? config.apiUrl)) {
     return true;
   }
 
@@ -461,6 +522,7 @@ function interceptXHR(): void {
 export function initNetworkInterceptor(
   callback: (request: NetworkRequestParams) => void,
   options?: {
+    apiUrl?: string;
     ignoreUrls?: (string | RegExp)[];
     captureSizes?: boolean;
   }
@@ -469,6 +531,7 @@ export function initNetworkInterceptor(
   config.enabled = true;
 
   config.ignorePatterns = options?.ignoreUrls || [];
+  config.apiUrl = options?.apiUrl;
 
   if (options?.captureSizes !== undefined) {
     config.captureSizes = options.captureSizes;
@@ -527,6 +590,7 @@ export function restoreNetworkInterceptor(): void {
 
   logCallback = null;
   config.enabled = true;
+  config.apiUrl = undefined;
   config.ignorePatterns = [];
   config.captureSizes = false;
 
@@ -535,6 +599,8 @@ export function restoreNetworkInterceptor(): void {
   pendingTail = 0;
   pendingCount = 0;
   endpointCounts.clear();
+  registeredInternalUrls.clear();
+  registeredInternalUrlOrder.length = 0;
 
   if (flushTimer) {
     clearTimeout(flushTimer);

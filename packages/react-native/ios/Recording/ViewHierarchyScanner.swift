@@ -156,6 +156,7 @@ import UIKit
         className == "RCTMultilineTextInputView" ||
         className == "RCTTextInput" ||
         className == "RCTBaseTextInputView" ||
+        className == "RCTTextInputComponentView" ||
         className == "RCTUITextField" ||
         className == "EXTextInput"
     }

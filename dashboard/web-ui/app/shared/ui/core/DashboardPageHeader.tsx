@@ -48,7 +48,7 @@ export const DashboardPageHeader: React.FC<DashboardPageHeaderProps> = ({
 
     return (
         <div className="dashboard-page-header w-full border-b border-slate-200 bg-white">
-            <div className="grid w-full gap-x-4 gap-y-2 px-3 py-2 sm:px-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div className="grid w-full gap-x-4 gap-y-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
                 <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                     <span
                         aria-hidden="true"
@@ -68,7 +68,7 @@ export const DashboardPageHeader: React.FC<DashboardPageHeaderProps> = ({
                         )}
                     </div>
                 </div>
-                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 xl:justify-end">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:justify-end sm:justify-self-end">
                     {children}
                 </div>
             </div>

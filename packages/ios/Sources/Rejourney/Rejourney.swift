@@ -279,6 +279,7 @@ final class RejourneyNativeController: NSObject {
     private var state: SessionState = .idle
     private var publicKey: String?
     private var options = RejourneyOptions()
+    private var activeRemoteConfig = RejourneyRemoteConfig.defaultConfig
     private var currentUserIdentity: String?
     private var sessionContext = RejourneySessionContext()
     private let identityKey = "com.rejourney.native.user.identity"
@@ -374,6 +375,7 @@ final class RejourneyNativeController: NSObject {
         }
 
         let effectiveRemoteConfig = startState.effectiveRemoteConfig
+        activeRemoteConfig = effectiveRemoteConfig
         let recordingEnabled = effectiveRemoteConfig.recordingEnabled
             && !options.observeOnly
             && options.captureScreen
@@ -405,6 +407,7 @@ final class RejourneyNativeController: NSObject {
             options: options,
             recordingEnabled: recordingEnabled,
             textInputMasking: effectiveRemoteConfig.textInputMasking,
+            imageVideoMasking: effectiveRemoteConfig.imageVideoMasking,
             recordingFps: remoteConfig == nil ? nil : effectiveRemoteConfig.recordingFps
         ).nativeDictionary
 
@@ -678,7 +681,10 @@ final class RejourneyNativeController: NSObject {
 
         let captureSettings = RejourneyCaptureSettings(
             options: options,
-            recordingEnabled: ReplayOrchestrator.shared.remoteRecordingEnabled
+            recordingEnabled: ReplayOrchestrator.shared.remoteRecordingEnabled,
+            textInputMasking: activeRemoteConfig.textInputMasking,
+            imageVideoMasking: activeRemoteConfig.imageVideoMasking,
+            recordingFps: activeRemoteConfig.recordingFps
         ).nativeDictionary
 
         if let existingCred = DeviceRegistrar.shared.uploadCredential,
@@ -719,6 +725,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
     let rejourneyEnabled: Bool
     let recordingEnabled: Bool
     let textInputMasking: String
+    let imageVideoMasking: String
     let recordingFps: Int
     let sampleRate: Int
     let maxRecordingMinutes: Int
@@ -730,6 +737,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
         rejourneyEnabled: true,
         recordingEnabled: true,
         textInputMasking: "all",
+        imageVideoMasking: "none",
         recordingFps: 1,
         sampleRate: 100,
         maxRecordingMinutes: 10,
@@ -742,6 +750,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
         case rejourneyEnabled
         case recordingEnabled
         case textInputMasking
+        case imageVideoMasking
         case recordingFps
         case sampleRate
         case maxRecordingMinutes
@@ -754,6 +763,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
         rejourneyEnabled: Bool,
         recordingEnabled: Bool,
         textInputMasking: String = "all",
+        imageVideoMasking: String = "none",
         recordingFps: Int = 1,
         sampleRate: Int,
         maxRecordingMinutes: Int,
@@ -764,6 +774,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
         self.rejourneyEnabled = rejourneyEnabled
         self.recordingEnabled = recordingEnabled
         self.textInputMasking = textInputMasking == "secure_only" ? "secure_only" : "all"
+        self.imageVideoMasking = imageVideoMasking == "all" ? "all" : "none"
         self.recordingFps = min(3, max(1, recordingFps))
         self.sampleRate = min(100, max(0, sampleRate))
         self.maxRecordingMinutes = max(1, maxRecordingMinutes)
@@ -778,6 +789,7 @@ struct RejourneyRemoteConfig: Codable, Equatable, Sendable {
             rejourneyEnabled: (try? container.decode(Bool.self, forKey: .rejourneyEnabled)) ?? true,
             recordingEnabled: (try? container.decode(Bool.self, forKey: .recordingEnabled)) ?? true,
             textInputMasking: (try? container.decode(String.self, forKey: .textInputMasking)) ?? "all",
+            imageVideoMasking: (try? container.decode(String.self, forKey: .imageVideoMasking)) ?? "none",
             recordingFps: Self.decodeInt(container, .recordingFps, defaultValue: 1),
             sampleRate: Self.decodeInt(container, .sampleRate, defaultValue: 100),
             maxRecordingMinutes: Self.decodeInt(container, .maxRecordingMinutes, defaultValue: 10),
@@ -932,6 +944,7 @@ struct RejourneyCaptureSettings: Equatable {
         options: RejourneyOptions,
         recordingEnabled: Bool,
         textInputMasking: String = "all",
+        imageVideoMasking: String = "none",
         recordingFps: Int? = nil
     ) {
         var settings: [String: Any] = [
@@ -944,6 +957,7 @@ struct RejourneyCaptureSettings: Equatable {
             "collectGeoLocation": options.collectGeoLocation,
             "captureNativeSheets": options.captureNativeSheets,
             "textInputMasking": textInputMasking == "secure_only" ? "secure_only" : "all",
+            "imageVideoMasking": imageVideoMasking == "all" ? "all" : "none",
             "observeOnly": options.observeOnly || !recordingEnabled
         ]
 

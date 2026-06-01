@@ -9,7 +9,8 @@ Deploy topology (which process runs where) lives in [All things cloud](/Users/mo
 Shortest correct mental model:
 
 - The package usually creates a client-side `session_{timestamp}_{uuid}` ID and uploads under that ID.
-- The first successful presign materializes the session row and counts billing once.
+- The first successful presign materializes the session row and counts an unlimited captured analytics session once.
+- Replay quota is counted later, exactly once, when a session first becomes `replay_available=true`.
 - Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, and usage.
 - Redis is the write-ahead buffer + job queue plane: tiny relay uploads land in `artifact:buf:{artifactId}` first, then BullMQ workers flush them to S3 and process them.
 - Replay becomes visible when at least one screenshot or rrweb artifact reaches `ready`.
@@ -43,8 +44,9 @@ These are the case-by-case rules the web SDK and dashboard replay viewer should 
 | Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
 | --- | --- | --- | --- | --- |
 | `initRejourney()` with `autoStart=false` | No session until `start()` is called. | No ingest until `start()`. | No replay. | SDK is initialized but not recording. |
-| `initRejourney()` with `autoStart=true`, or explicit `start()` | Starts a new session unless a same-tab stored session can be restored. | First successful presign materializes the backend row and counts billing once. | Replay starts if sampled in and replay is enabled. | Session appears live once artifacts/events arrive. |
-| Remote config disabled, billing blocked, domain blocked, or bot suppressed | No session starts. | No ingest. | No replay. | Nothing should appear for that page load. |
+| `initRejourney()` with `autoStart=true`, or explicit `start()` | Starts a new session unless a same-tab stored session can be restored. | First successful presign materializes the backend row and counts a captured analytics session once. Replay quota counts when replay first becomes available. | Replay starts if sampled in and replay is enabled. | Session appears live once artifacts/events arrive. |
+| Remote config disabled, hard billing/payment blocked, domain blocked, or bot suppressed | No session starts. | No ingest. | No replay. | Nothing should appear for that page load. |
+| Replay quota exhausted | Session can start with replay disabled by remote config. | Event lane uploads analytics; visual replay presign is skipped if any stale visual chunks arrive. Session row has `replay_quota_billing_exhausted=true` and `observe_only=false` so quota behavior is not confused with customer observe-only configuration. | No visual replay by design. | Missing rrweb/screenshots are expected quota behavior, not upload failure. |
 | Sampled out but analytics still allowed | Session may start with `sampledIn=false`; replay is disabled. | Event lane can upload analytics; replay presign is skipped/rejected. | No visual replay. | Developer may see analytics-only data, not a playable replay. |
 | `observeOnly=true` or replay consent false | Session can start; `replayEnabled=false`. | Event lane uploads; rrweb is not started. | No visual replay. | Useful for analytics without replay capture. |
 | `setUserIdentity()` before `initRejourney()` | Identity is kept in memory and attached once a project is initialized. | First event batch carries the user id. | No direct visual change. | Refresh/new same-profile sessions re-identify under that project. |
@@ -121,7 +123,8 @@ The mobile package is not a web-style tab/session restore system. It is a React 
 | Remote config access denied (`401/403/404`) | No session starts; cached config is cleared. | No ingest. | No replay. | Invalid key/project/bundle/package mismatch fails closed. |
 | Remote config network error with cached config | Start decision uses cached remote config. | Normal ingest if cached config allows. | Replay/telemetry follows cached config. | Mobile can keep working through transient config outages. |
 | Remote config network error with no cache | Starts with default mobile config. | Normal ingest. | Replay defaults to enabled, sample rate 100%, max 10 minutes. | Mobile fails open for server/network outages, but not for access denial. |
-| `rejourneyEnabled=false` or billing blocked | No native session starts. | No ingest. | No replay. | Dashboard should not receive new sessions. |
+| `rejourneyEnabled=false` or hard billing/payment blocked | No native session starts. | No ingest. | No replay. | Dashboard should not receive new sessions. |
+| Replay quota exhausted | Native session can start with visual capture disabled by remote config. | Telemetry/events/crashes/ANRs/network can upload; screenshot presign is skipped if stale visual work arrives. Session row has `replay_quota_billing_exhausted=true`; it is not treated as a failed screenshot upload. | No screenshots by design. | Developer gets analytics beyond the replay quota without a misleading failed-replay signal. |
 | Sampled out | Aborts before native session start. | Native receives sampled-out remote state; no session/capture. | No replay. | Sampled-out mobile sessions should not consume recording work. |
 | `recordingEnabled=false` or local `observeOnly=true` | Native session can start, visual capture is disabled. | Telemetry/events/crashes/ANRs/network can upload. | No screenshots; replay is not visually playable. | Developer gets observability without screen recording. |
 | `setUserIdentity()` before start | Stores identity in JS/native state. | Identity is used as the user id on start. | No direct visual effect. | Future sessions attach the known user. |
@@ -282,9 +285,10 @@ Relevant package files:
 │ Presign request path                                                        │
 │                                                                              │
 │ 1. Billing gate / project recording rules                                   │
-│ 2. Session-limit check                                                      │
+│ 2. Replay quota check                                                       │
 │ 3. ensureIngestSession(projectId, sessionId)                                │
 │ 4. If created == true -> increment project_usage.sessions exactly once      │
+│    (captured analytics sessions, unlimited)                                 │
 │ 5. register pending artifact row                                            │
 │ 6. return upload relay URL                                                  │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -293,7 +297,9 @@ Relevant package files:
 Session-creation rules:
 
 - New sessions are inserted with `status='processing'` and a matching `session_metrics` row.
-- Billing/session counting happens only when the session row is first created.
+- Captured analytics session counting happens only when the session row is first created.
+- Replay quota counting happens only when reconciliation first marks `replay_available=true`; `sessions.replay_quota_counted_at` prevents duplicate increments.
+- Replay-quota-exhausted sessions still count as captured analytics sessions, but they do not increment replay usage.
 - Replay screenshot uploads are rejected if the project disables recording or the session is sampled out.
 - The backend does not depend on `/session/end` to create or close sessions.
 - `ready` is not a hard-ingest terminal state. The backend may still accept later artifact work for the same session, but closed timing stays sticky once `ended_at` and `duration_seconds` are stored.
@@ -542,7 +548,7 @@ Redis owns:
 - artifact job queues (BullMQ): `rj-artifact-flush`, `rj-ingest-artifacts`, `rj-replay-artifacts`
 - SDK config cache
 - ingest idempotency markers
-- session-limit cache plus distributed lock
+- replay-limit cache plus distributed lock
 - best-effort upload token storage
 - rate limiting helpers
 

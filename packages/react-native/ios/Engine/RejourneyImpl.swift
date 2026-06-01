@@ -21,7 +21,7 @@ import CommonCrypto
 @objc(RejourneyImpl)
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
-    @objc public static var sdkVersion = "1.2.0"
+    @objc public static var sdkVersion = "1.3.0"
 
     // MARK: - State Machine
 
@@ -357,6 +357,7 @@ public final class RejourneyImpl: NSObject {
         if let val = options["collectGeoLocation"] as? Bool { config["collectGeoLocation"] = val }
         if let val = options["observeOnly"] as? Bool { config["observeOnly"] = val }
         if let val = options["textInputMasking"] as? String { config["textInputMasking"] = val }
+        if let val = options["imageVideoMasking"] as? String { config["imageVideoMasking"] = val }
         if let val = options["captureNativeSheets"] as? Bool { config["captureNativeSheets"] = val }
         if let val = options["detectRageTaps"] as? Bool { config["detectRageTaps"] = val }
         if let val = options["rageTapThreshold"] as? NSNumber { config["rageTapThreshold"] = max(1, val.intValue) }
@@ -827,15 +828,21 @@ public final class RejourneyImpl: NSObject {
     ) {
         let device = UIDevice.current
         let screen = UIScreen.main
+        let bounds = screen.bounds
+        let scale = screen.scale
 
         resolve([
             "platform": "ios",
             "osVersion": device.systemVersion,
             "model": (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model,
             "deviceName": device.name,
-            "screenWidth": Int(screen.bounds.width * screen.scale),
-            "screenHeight": Int(screen.bounds.height * screen.scale),
-            "screenScale": screen.scale,
+            "screenWidth": Int(bounds.width),
+            "screenHeight": Int(bounds.height),
+            "screenWidthPixels": Int(bounds.width * scale),
+            "screenHeightPixels": Int(bounds.height * scale),
+            "screenScale": scale,
+            "pixelRatio": scale,
+            "coordinateSpace": "pt",
             "deviceHash": computeHash(),
             "bundleId": Bundle.main.bundleIdentifier ?? "unknown"
         ])
