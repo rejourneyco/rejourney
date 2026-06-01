@@ -164,7 +164,7 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "24"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
               value: "75"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
@@ -306,7 +306,7 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "10"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
               value: "60"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION

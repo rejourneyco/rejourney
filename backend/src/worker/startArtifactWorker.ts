@@ -13,7 +13,7 @@ import {
 import { processArtifactFlushJobFromBullMQ } from '../services/artifactFlushJobProcessor.js';
 import { markArtifactFailedAfterExhausted, processArtifactJobFromBullMQ } from '../services/artifactJobProcessor.js';
 import { markArtifactFlushFailedAfterExhausted } from '../services/ingestArtifactLifecycle.js';
-import type { ArtifactWorkerDefinition } from './workerDefinitions.js';
+import { resolveArtifactJobProcessConcurrency, type ArtifactWorkerDefinition } from './workerDefinitions.js';
 
 const WORKER_ID = `${process.env.HOSTNAME || 'local'}:${process.pid}`;
 const HEARTBEAT_INTERVAL_MS = 60_000;
@@ -26,7 +26,7 @@ export function startArtifactWorker(definition: ArtifactWorkerDefinition): void 
         || definition.allowedKinds.includes('rrweb');
 
     const queueName = isReplayWorker ? REPLAY_QUEUE_NAME : INGEST_QUEUE_NAME;
-    const concurrency = definition.defaultJobProcessConcurrency;
+    const concurrency = resolveArtifactJobProcessConcurrency(definition);
 
     logger.info(
         { workerName: definition.workerName, queueName, concurrency, workerId: WORKER_ID },

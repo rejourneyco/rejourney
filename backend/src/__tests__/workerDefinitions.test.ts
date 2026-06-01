@@ -3,6 +3,7 @@ import {
     INGEST_ARTIFACT_WORKER,
     REPLAY_ARTIFACT_WORKER,
     SESSION_LIFECYCLE_WORKER,
+    resolveArtifactJobProcessConcurrency,
 } from '../worker/workerDefinitions.js';
 
 describe('workerDefinitions', () => {
@@ -21,5 +22,18 @@ describe('workerDefinitions', () => {
         expect(SESSION_LIFECYCLE_WORKER.workerName).toBe('sessionLifecycleWorker');
         expect(SESSION_LIFECYCLE_WORKER.ownedResponsibilities).toContain('session-reconciliation');
         expect('allowedKinds' in SESSION_LIFECYCLE_WORKER).toBe(false);
+    });
+
+    it('uses ingest env concurrency with an 8-job fallback', () => {
+        expect(INGEST_ARTIFACT_WORKER.defaultJobProcessConcurrency).toBe(8);
+        expect(resolveArtifactJobProcessConcurrency(INGEST_ARTIFACT_WORKER, undefined)).toBe(8);
+        expect(resolveArtifactJobProcessConcurrency(INGEST_ARTIFACT_WORKER, '8')).toBe(8);
+        expect(resolveArtifactJobProcessConcurrency(INGEST_ARTIFACT_WORKER, '12')).toBe(12);
+        expect(resolveArtifactJobProcessConcurrency(INGEST_ARTIFACT_WORKER, 'bad')).toBe(8);
+        expect(resolveArtifactJobProcessConcurrency(INGEST_ARTIFACT_WORKER, '0')).toBe(8);
+    });
+
+    it('does not let the ingest env override replay worker concurrency', () => {
+        expect(resolveArtifactJobProcessConcurrency(REPLAY_ARTIFACT_WORKER, '12')).toBe(8);
     });
 });

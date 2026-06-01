@@ -22,10 +22,27 @@ export type SessionLifecycleWorkerDefinition = {
     workerName: 'sessionLifecycleWorker';
 };
 
+export function resolveArtifactJobProcessConcurrency(
+    definition: ArtifactWorkerDefinition,
+    rawIngestConcurrency = process.env.RJ_INGEST_JOB_CONCURRENCY,
+): number {
+    const fallback = Math.max(1, Math.floor(definition.defaultJobProcessConcurrency));
+    if (definition.workerName !== 'ingestWorker') {
+        return fallback;
+    }
+
+    const parsed = Number(rawIngestConcurrency);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+
+    return Math.max(1, Math.min(64, Math.floor(parsed)));
+}
+
 export const INGEST_ARTIFACT_WORKER: ArtifactWorkerDefinition = {
     allowedKinds: ['events', 'crashes', 'anrs'],
     defaultBatchSize: 20,
-    defaultJobProcessConcurrency: 4,
+    defaultJobProcessConcurrency: 8,
     defaultMaxRunnablePerSession: 1,
     kindPriority: ['events', 'crashes', 'anrs', 'screenshots', 'hierarchy'],
     mode: 'artifact',
