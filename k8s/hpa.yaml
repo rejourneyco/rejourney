@@ -83,8 +83,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: ingest-worker
-  minReplicas: 5
-  maxReplicas: 16
+  minReplicas: 4
+  maxReplicas: 8
   metrics:
     - type: Resource
       resource:

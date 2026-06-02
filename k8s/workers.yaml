@@ -198,14 +198,14 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "10"
+              value: "20"
             - name: RJ_INGEST_BATCH_SIZE
               value: "75"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
               value: "6"
           resources:
             requests:
-              cpu: 500m
+              cpu: 750m
               memory: 512Mi
             limits:
               cpu: "4000m"

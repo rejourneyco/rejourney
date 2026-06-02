@@ -93,29 +93,25 @@ function validateRrwebArtifactPayload(data: Buffer, s3ObjectKey?: string | null)
 
 export const artifactProcessors: Record<string, ArtifactProcessor> = {
     events: async (context) => {
-        const sizeBytes = await loadArtifactObjectSize(context);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for events');
         await processEventsArtifact(context.job, context.session, context.metrics, context.projectId, data, context.log);
-        return { sizeBytes };
+        return { sizeBytes: data.length };
     },
     crashes: async (context) => {
-        const sizeBytes = await loadArtifactObjectSize(context);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for crashes');
         await processCrashesArtifact(context.job, context.session, context.projectId, context.s3Key, data, context.log);
-        return { sizeBytes };
+        return { sizeBytes: data.length };
     },
     anrs: async (context) => {
-        const sizeBytes = await loadArtifactObjectSize(context);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for anrs');
         context.log.info('Processing ANRs artifact');
         await processAnrsArtifact(context.job, context.session, context.projectId, context.s3Key, data, context.log);
-        return { sizeBytes };
+        return { sizeBytes: data.length };
     },
     screenshots: async (context) => {
-        const sizeBytes = await loadArtifactObjectSize(context);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for screenshots');
         await processRecoveredReplayArtifact({
@@ -126,7 +122,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             log: context.log,
             sessionStartTime: context.session.startedAt.getTime(),
         });
-        return { sizeBytes };
+        return { sizeBytes: data.length };
     },
     hierarchy: async (context) => {
         const repairResult = await ensureHierarchyArtifactCompressed({
@@ -136,9 +132,6 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             artifactId: context.job.artifactId,
             sessionId: context.job.sessionId,
         });
-        const sizeBytes = repairResult.sizeBytes == null
-            ? await loadArtifactObjectSize(context)
-            : assertArtifactObjectSize(context.job.kind, repairResult.sizeBytes);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for hierarchy');
         await processRecoveredReplayArtifact({
@@ -149,15 +142,15 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             log: context.log,
             sessionStartTime: context.session.startedAt.getTime(),
         });
+        const sizeBytes = repairResult.sizeBytes ?? data.length;
         return { sizeBytes };
     },
     rrweb: async (context) => {
-        const sizeBytes = await loadArtifactObjectSize(context);
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for rrweb');
         const eventCount = validateRrwebArtifactPayload(data, context.s3Key);
         context.log.info({ eventCount }, 'RRWeb artifact verified');
-        return { sizeBytes };
+        return { sizeBytes: data.length };
     },
 };
 
