@@ -1073,8 +1073,8 @@ function getLiveGeoAnalytics(sessions: GeoSessionRow[], nowMs: number, useLatest
 
 function GeoPillList({ label, pills, fallback }: { label: string; pills: GeoCountPill[]; fallback: string }) {
     return (
-        <div className="grid grid-cols-[74px_minmax(0,1fr)] items-start gap-2">
-            <div className="dashboard-label pt-1">{label}</div>
+        <div className="grid grid-cols-1 items-start gap-1.5 sm:grid-cols-[74px_minmax(0,1fr)] sm:gap-2">
+            <div className="dashboard-label sm:pt-1">{label}</div>
             <div className="flex min-w-0 flex-wrap gap-1.5">
                 {pills.length > 0 ? (
                     pills.map((pill) => (
@@ -1115,8 +1115,8 @@ function LiveGeoSidebarPanel({
     const maxValue = Math.max(...analytics.trendValues, 1);
 
     return (
-        <div className="border-b border-slate-200 bg-white px-4 py-3">
-            <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4 sm:py-3">
+            <div className="mb-2 flex items-start justify-between gap-2 sm:gap-3">
                 <div className="min-w-0">
                     <div className="dashboard-label">Last 30 min</div>
                     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-black text-black">
@@ -1146,7 +1146,7 @@ function LiveGeoSidebarPanel({
                 </div>
             </div>
 
-            <div className="relative h-[92px] overflow-hidden rounded-[6px] border border-slate-200 bg-white">
+            <div className="relative h-[70px] overflow-hidden rounded-[6px] border border-slate-200 bg-white sm:h-[92px]">
                 <svg viewBox="0 0 300 84" className="h-full w-full" role="img" aria-label={`${scopeLabel} users over the last 30 minutes`}>
                     <defs>
                         <linearGradient id="geo-live-trend-fill" x1="0" x2="0" y1="0" y2="1">
@@ -1176,7 +1176,7 @@ function LiveGeoSidebarPanel({
                 {isLoading && <div className="absolute inset-0 grid place-items-center bg-white/70 text-xs font-semibold text-slate-500">Loading...</div>}
             </div>
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-2 space-y-2 sm:mt-3">
                 <GeoPillList label="Referrers" pills={analytics.referrers} fallback="No referrers" />
                 <GeoPillList label="Countries" pills={analytics.countries} fallback="No countries" />
                 <GeoPillList label="Devices" pills={analytics.devices} fallback="No devices" />
@@ -2026,7 +2026,7 @@ export const Geo: React.FC = () => {
                 ) : (
                     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden border-t border-slate-200 bg-[#f8fafc] lg:flex-row">
                         <aside
-                            className="geo-side-panel relative z-20 flex max-h-[48vh] w-full shrink-0 flex-col border-b border-slate-200 bg-white transition-[width] duration-200 lg:h-full lg:max-h-none lg:w-[var(--geo-sidebar-width)] lg:border-b-0 lg:border-r"
+                            className="geo-side-panel relative z-20 flex max-h-[42dvh] w-full shrink-0 flex-col border-b border-slate-200 bg-white transition-[width] duration-200 sm:max-h-[38dvh] lg:h-full lg:max-h-none lg:w-[var(--geo-sidebar-width)] lg:border-b-0 lg:border-r"
                             style={
                                 {
                                     '--geo-sidebar-width': `${isGeoSidebarCollapsed ? GEO_SIDEBAR_COLLAPSED_WIDTH : geoSidebarWidth}px`,
@@ -2066,7 +2066,7 @@ export const Geo: React.FC = () => {
 
                                 <div className="min-h-0 flex-1 overflow-y-auto">
                                     <div>
-                                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
+                                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4">
                                             <div className="min-w-0">
                                                 <div className="dashboard-label">Sessions</div>
                                                 <div className="mt-0.5 truncate text-xs font-semibold text-slate-500">
@@ -2089,7 +2089,7 @@ export const Geo: React.FC = () => {
                                         </div>
 
                                         {selectedVisitor && (
-                                            <div className="flex items-start gap-3 border-b border-slate-200 bg-[#f8fafc] px-4 py-3">
+                                            <div className="flex items-start gap-3 border-b border-slate-200 bg-[#f8fafc] px-3 py-2.5 sm:px-4 sm:py-3">
                                                 <AnimalAvatar
                                                     animal={getSessionAnimal(selectedVisitor)}
                                                     seed={getSessionIdentitySeed(selectedVisitor)}
@@ -2142,7 +2142,7 @@ export const Geo: React.FC = () => {
                                                         key={session.id}
                                                         role="button"
                                                         tabIndex={0}
-                                                        className={`grid w-full grid-cols-[42px_minmax(0,1fr)_34px] items-center gap-2 border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-b-0 ${isActive ? 'bg-[#f8fafc] shadow-[inset_3px_0_0_#111827]' : 'hover:bg-[#f8fafc]'} ${canOpenReplay ? '' : 'opacity-60'}`}
+                                                        className={`grid w-full grid-cols-[38px_minmax(0,1fr)_32px] items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 sm:grid-cols-[42px_minmax(0,1fr)_34px] sm:px-4 sm:py-3 ${isActive ? 'bg-[#f8fafc] shadow-[inset_3px_0_0_#111827]' : 'hover:bg-[#f8fafc]'} ${canOpenReplay ? '' : 'opacity-60'}`}
                                                         onClick={() => selectVisitor(session)}
                                                         onKeyDown={(event) => {
                                                             if (event.key === 'Enter' || event.key === ' ') selectVisitor(session);
@@ -2188,7 +2188,7 @@ export const Geo: React.FC = () => {
                                                     <button
                                                         key={session.id}
                                                         type="button"
-                                                        className={`grid w-full grid-cols-[minmax(0,1fr)_58px] items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-b-0 ${isActive ? 'bg-[#f8fafc] shadow-[inset_3px_0_0_#111827]' : 'hover:bg-[#f8fafc]'} ${canOpenReplay ? '' : 'opacity-60'}`}
+                                                        className={`grid w-full grid-cols-[minmax(0,1fr)_52px] items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 sm:grid-cols-[minmax(0,1fr)_58px] sm:gap-3 sm:px-4 sm:py-3 ${isActive ? 'bg-[#f8fafc] shadow-[inset_3px_0_0_#111827]' : 'hover:bg-[#f8fafc]'} ${canOpenReplay ? '' : 'opacity-60'}`}
                                                         onClick={() => openReplay(session)}
                                                         disabled={!canOpenReplay}
                                                     >
@@ -2247,7 +2247,7 @@ export const Geo: React.FC = () => {
 
                         <section
                             ref={setMapWheelHostRef}
-                            className="relative min-h-0 flex-1 overflow-hidden bg-[#d5dde1]"
+                            className="relative min-h-[340px] flex-1 overflow-hidden bg-[#d5dde1] sm:min-h-[380px] lg:min-h-0"
                             style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
                         >
                             <MapGL

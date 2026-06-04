@@ -30,13 +30,13 @@ export const PlatformLensFilter: React.FC<PlatformLensFilterProps> = ({
     const availableSet = new Set<PlatformLens>(availableValues ?? PLATFORM_LENS_OPTIONS.map((option) => option.value));
 
     return (
-        <div className={`min-w-0 max-w-full sm:w-auto ${className}`.trim()}>
-            <div className="flex min-w-0 max-w-full flex-col gap-1 sm:flex-row sm:items-center">
+        <div className={`w-full min-w-0 max-w-full sm:w-auto ${className}`.trim()}>
+            <div className="flex w-full min-w-0 max-w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center">
 
                 <div
                     role="group"
                     aria-label="Session platform"
-                    className="grid min-w-0 grid-cols-3 overflow-hidden rounded-md border border-slate-200 bg-white"
+                    className="grid w-full min-w-0 grid-cols-3 overflow-hidden rounded-md border border-slate-200 bg-white sm:w-auto"
                 >
                     {PLATFORM_LENS_OPTIONS.map((option) => {
                         const selected = value === option.value;

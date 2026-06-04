@@ -115,6 +115,11 @@ function formatNativeOsLabel(platformLabel: string, osVersion: unknown): string 
   return `${platformLabel} ${cleanVersion.replace(/^v/i, '')}`;
 }
 
+function formatSessionDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, '0')}`;
+}
+
 function getRowAccentColor(session: any, hasIssues: boolean, isReplayBlocked: boolean, hasSlowStart: boolean, hasSlowApi: boolean): string {
   if (isReplayBlocked) return '#cbd5e1';
   if ((session.crashCount || 0) > 0) return '#fb7185';
@@ -645,7 +650,7 @@ export const RecordingsList: React.FC = () => {
               />
             </div>
 
-            <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:items-center">
               <button
                 onClick={handleQueryButtonClick}
                 className={`relative flex h-10 w-full min-w-[7.5rem] items-center justify-center gap-2 rounded-md border px-3 text-sm font-bold shadow-sm transition whitespace-nowrap sm:w-auto ${showQueryBuilder || totalConditions > 0
@@ -661,6 +666,22 @@ export const RecordingsList: React.FC = () => {
                   </span>
                 )}
               </button>
+              <select
+                value={`${primarySortKey}:${primarySortDir}`}
+                onChange={(event) => {
+                  const [key, direction] = event.target.value.split(':') as [SortKey, SortDirection];
+                  setSortConfigs([{ key, direction }]);
+                }}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-bold uppercase text-slate-700 shadow-sm outline-none transition hover:border-blue-300 focus:border-slate-950 focus:ring-2 focus:ring-slate-200 sm:w-[9.5rem] md:hidden"
+                aria-label="Sort replays"
+              >
+                <option value="date:desc">Newest</option>
+                <option value="date:asc">Oldest</option>
+                <option value="duration:desc">Longest</option>
+                <option value="duration:asc">Shortest</option>
+                <option value="screens:desc">Most screens</option>
+                <option value="crashes:desc">Issues first</option>
+              </select>
             </div>
 
             {hasActiveFilters && (
@@ -725,7 +746,309 @@ export const RecordingsList: React.FC = () => {
 
       {/* List Content — table header sticks when scrolling */}
       <div className="flex-1 w-full max-w-full px-4 sm:px-6 pt-4 pb-24">
-        <div className="dashboard-mobile-scroll overflow-x-auto">
+        <div className="space-y-3 md:hidden">
+          {paginatedSessions.length === 0 ? (
+            <div className="border border-slate-200 bg-white p-6 text-center shadow-sm">
+              <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center border border-black bg-[#86efac]">
+                <Smartphone className="h-5 w-5 text-black" />
+              </div>
+              <h3 className="text-sm font-black uppercase text-black">
+                {selectedProjectId ? 'No Sessions Found' : 'No Project Selected'}
+              </h3>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {selectedProjectId ? 'Adjust your filters or search query.' : 'Select or create a project to view replay data.'}
+              </p>
+            </div>
+          ) : (
+            paginatedSessions.map((session, rowIndex) => {
+              const isExpanded = expandedSessionId === session.id;
+              const screensCount = (session as any).screensVisited?.length || 0;
+              const networkType = (session as any).networkType || (session as any).cellularGeneration;
+              const userId = session.userId || (session as any).anonymousDisplayName || 'Anonymous';
+              const displayUserId = userId.length > 26 ? `${userId.substring(0, 23)}...` : userId;
+              const rawStartupMs = (session as any).appStartupTimeMs;
+              const startupMs = typeof rawStartupMs === 'number' && Number.isFinite(rawStartupMs) && rawStartupMs > 0
+                ? rawStartupMs
+                : null;
+              const hasSlowStart = (startupMs ?? 0) > 3000;
+              const hasSlowApi = (session.apiAvgResponseMs || 0) > 1000;
+              const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
+              const geoDisplay = formatGeoDisplay((session as any).geoLocation);
+              const hasReplay = hasSuccessfulRecording(session);
+              const effectiveStatus = (session as any).effectiveStatus || session.status;
+              const canOpenReplay = (session as any).canOpenReplay ?? hasReplay;
+              const isLiveIngest = Boolean((session as any).isLiveIngest);
+              const isBackgroundProcessing = Boolean((session as any).isBackgroundProcessing);
+              const canNavigateToSession =
+                canOpenReplay ||
+                isLiveIngest ||
+                isBackgroundProcessing ||
+                effectiveStatus === 'processing' ||
+                effectiveStatus === 'pending' ||
+                session.status === 'processing' ||
+                session.status === 'pending' ||
+                hasReplay;
+              const isReplayBlocked = !canNavigateToSession;
+              const displayDeviceModel = formatDeviceModel(session.deviceModel);
+              const webSession = isWebSession(session);
+              const webEnvironment = webSession ? getWebSessionEnvironment(session) : null;
+              const networkDisplay = webSession ? getWebNetworkDisplay(networkType) : null;
+              const platformLabel = getPlatformLabel(session);
+              const webReferral = getWebReferral(session);
+              const webReferralLabel = formatWebReferralLabel(webReferral);
+              const webUtm = webSession ? getWebUtmAttribution(session) : null;
+              const replayAnimalSeed = getAnimalAvatarSeed(session as any);
+              const replayAnimal = getAnimalForIdentity(session as any);
+              const fingerprintLabel = ((session as any).anonymousDisplayName as string | undefined)?.trim() || replayAnimal;
+              const deviceColumn = webSession && webEnvironment
+                ? {
+                    kind: 'web' as const,
+                    primary: webEnvironment.browserLabel,
+                    secondary: webEnvironment.osLabel,
+                    iconName: webEnvironment.browserName,
+                    title: `${webEnvironment.browserTitle} · ${webEnvironment.osTitle}`,
+                  }
+                : {
+                    kind: 'native' as const,
+                    primary: formatNativeOsLabel(platformLabel, session.osVersion),
+                    secondary: displayDeviceModel,
+                    iconName: platformLabel,
+                    title: `${displayDeviceModel}${session.osVersion ? ` · ${session.osVersion}` : ''}`,
+                  };
+              const hasIssues = (session.crashCount || 0) > 0 ||
+                ((session as any).anrCount || 0) > 0 ||
+                ((session as any).errorCount || 0) > 0 ||
+                (session.rageTapCount || 0) > 0 ||
+                hasDeadTaps ||
+                hasSlowStart ||
+                hasSlowApi;
+              const rowAccent = getRowAccentColor(session, hasIssues, isReplayBlocked, hasSlowStart, hasSlowApi);
+              const screens: string[] = (session as any).screensVisited || [];
+
+              return (
+                <article
+                  key={session.id}
+                  className={`border border-slate-200 bg-white shadow-sm ${rowIndex % 2 === 0 ? '' : 'bg-[#f8fafc]'}`}
+                  style={{ boxShadow: `inset 3px 0 0 ${rowAccent}, 0 1px 2px rgba(15,23,42,0.06)` }}
+                >
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="flex w-full items-start gap-3 p-3 text-left"
+                    onClick={(event) => toggleExpand(event, session.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setExpandedSessionId(expandedSessionId === session.id ? null : session.id);
+                      }
+                    }}
+                    aria-expanded={isExpanded}
+                  >
+                    <div className={`mt-0.5 shrink-0 ${isReplayBlocked ? 'opacity-60' : ''}`} title={`${fingerprintLabel} fingerprint`}>
+                      <AnimalAvatar animal={replayAnimal} seed={replayAnimalSeed} size={32} active={isExpanded} neutral />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className={`truncate font-mono text-sm font-black text-slate-950 ${isReplayBlocked ? 'opacity-60' : ''}`} title={userId}>
+                          {displayUserId}
+                        </span>
+                        {userId !== 'Anonymous' && (
+                          <button
+                            type="button"
+                            onClick={(event) => handleCopyUserId(event as unknown as React.MouseEvent, userId)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                handleCopyUserId(event as unknown as React.MouseEvent, userId);
+                              }
+                            }}
+                            className="shrink-0 text-slate-400 transition-colors hover:text-slate-900"
+                            aria-label="Copy user id"
+                          >
+                            {copiedId === userId ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold text-slate-500">
+                        <span>{new Date(session.startedAt).toLocaleDateString()}</span>
+                        <span>{new Date(session.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="inline-flex items-center gap-1" title={deviceColumn.title}>
+                          {deviceColumn.kind === 'web' ? (
+                            <BrowserBrandIcon browserName={deviceColumn.iconName} className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <MobilePlatformBrandIcon platformName={deviceColumn.iconName} className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                          )}
+                          <span>{deviceColumn.primary}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronDown className={`mt-1 h-4 w-4 shrink-0 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 border-t border-slate-100 px-3 py-2 text-[11px]">
+                    <div className="min-w-0">
+                      <div className="font-black uppercase text-slate-400">Location</div>
+                      <div className="mt-1 flex min-w-0 items-center gap-1.5 font-bold text-slate-800">
+                        {geoDisplay.hasLocation ? (
+                          <>
+                            <CountryFlag countryCode={geoDisplay.countryCode} countryLabel={geoDisplay.countryLabel} className="h-3.5" imageClassName="h-3.5 w-3.5" decorative />
+                            <span className="truncate">{geoDisplay.cityLabel || geoDisplay.countryLabel}</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-400">Unknown</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-black uppercase text-slate-400">Duration</div>
+                      <div className="mt-1 font-mono text-sm font-black text-slate-950">{formatSessionDuration(session.durationSeconds)}</div>
+                    </div>
+                    <div>
+                      <div className="font-black uppercase text-slate-400">Screens</div>
+                      <div className="mt-1 font-mono text-sm font-black text-slate-950">{screensCount}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-black uppercase text-slate-400">Notes</div>
+                      <div className="mt-1 flex justify-end gap-1">
+                        {session.isFirstSession && <span className="border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-800">NEW</span>}
+                        {!hasIssues && <span className="border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-800">OK</span>}
+                        {hasIssues && <span className="border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[9px] font-black text-rose-800">ISSUES</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-100 bg-[#f8fafc] px-3 py-3">
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="border border-slate-200 bg-white p-2">
+                          <div className="font-black uppercase text-slate-400">Startup</div>
+                          <div className={`mt-1 font-mono text-sm font-black ${hasSlowStart ? 'text-rose-700' : 'text-slate-950'}`}>
+                            {startupMs === null ? 'N/A' : `${startupMs.toFixed(0)}ms`}
+                          </div>
+                        </div>
+                        <div className="border border-slate-200 bg-white p-2">
+                          <div className="font-black uppercase text-slate-400">API Avg</div>
+                          <div className={`mt-1 font-mono text-sm font-black ${hasSlowApi ? 'text-rose-700' : 'text-slate-950'}`}>
+                            {(session.apiAvgResponseMs || 0).toFixed(0)}ms
+                          </div>
+                        </div>
+                        <div className="border border-slate-200 bg-white p-2">
+                          <div className="font-black uppercase text-slate-400">Network</div>
+                          <div className="mt-1 flex items-center gap-1 font-bold uppercase text-slate-800">
+                            <NetworkIcon type={networkDisplay?.rawNetworkType || networkType} />
+                            <span className="truncate">{webSession ? networkDisplay?.networkLabel : (networkType || 'Unknown')}</span>
+                          </div>
+                        </div>
+                        <div className="border border-slate-200 bg-white p-2">
+                          <div className="font-black uppercase text-slate-400">Source</div>
+                          <div className="mt-1 truncate font-bold text-slate-800" title={webReferral || 'Direct'}>
+                            {webSession ? webReferralLabel : platformLabel}
+                          </div>
+                        </div>
+                      </div>
+
+                      {webSession && webUtm && (
+                        <div className="mt-2 border border-slate-200 bg-white p-2 text-[11px]">
+                          <div className="font-black uppercase text-slate-400">UTM</div>
+                          <div className={`mt-1 break-words font-bold ${webUtm.hasUtm ? 'text-slate-800' : 'text-slate-400'}`} title={webUtm.title}>
+                            {webUtm.label}
+                          </div>
+                        </div>
+                      )}
+
+                      {screens.length > 0 && (
+                        <div className="dashboard-mobile-scroll mt-2 overflow-x-auto pb-1">
+                          <div className="flex min-w-max items-center gap-1.5">
+                            {screens.slice(0, 8).map((screen, idx) => (
+                              <span key={`${session.id}:${screen}:${idx}`} className="border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">
+                                {idx + 1}. {screen}
+                              </span>
+                            ))}
+                            {screens.length > 8 && (
+                              <span className="border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-500">
+                                +{screens.length - 8}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (canNavigateToSession) {
+                            navigate(`${pathPrefix}/sessions/${session.id}`);
+                          }
+                        }}
+                        disabled={!canNavigateToSession}
+                        className={`mt-3 flex h-10 w-full items-center justify-center gap-2 border border-black text-sm font-black uppercase transition ${isReplayBlocked ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-[#67e8f9] text-black hover:bg-[#22d3ee]'}`}
+                      >
+                        {isReplayBlocked ? <Loader size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
+                        {isReplayBlocked ? 'Replay unavailable' : isLiveIngest ? 'Open live replay' : 'Open replay'}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })
+          )}
+
+          {filteredSessions.length > 0 && (
+            <div className="flex flex-col gap-3 border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="text-center text-xs font-bold text-slate-500">
+                Showing <span className="text-slate-900">{startIndex}-{endIndex}</span> of{' '}
+                <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
+              </div>
+              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="flex h-9 w-9 items-center justify-center border border-black bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                  title="Previous page"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="text-center text-xs font-black text-slate-700">
+                  Page {currentPage} of {totalPages || 1}
+                </div>
+                <button
+                  onClick={async () => {
+                    if (currentPage === totalPages && hasMore && !isLoadingMore) {
+                      await handleLoadMore();
+                      setCurrentPage(p => p + 1);
+                    } else if (currentPage < totalPages) {
+                      setCurrentPage(p => p + 1);
+                    }
+                  }}
+                  disabled={(currentPage >= totalPages && !hasMore) || isLoadingMore}
+                  className="flex h-9 w-9 items-center justify-center border border-black bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                  title="Next page"
+                >
+                  {isLoadingMore ? <Loader size={15} className="animate-spin" /> : <ChevronRight size={16} />}
+                </button>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Per page</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => {
+                    setRowsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-9 border border-black bg-white px-2 text-xs font-black outline-none"
+                >
+                  {PAGE_SIZE_OPTIONS.map(size => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="dashboard-mobile-scroll hidden overflow-x-auto md:block">
         <div className="w-full min-w-[1160px] overflow-hidden border-2 border-black bg-white shadow-neo">
           <table className="w-full table-fixed border-collapse">
             <thead>

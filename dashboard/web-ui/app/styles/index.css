@@ -4489,6 +4489,13 @@
   background-color: var(--dashboard-canvas) !important;
   background-image: none !important;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.dashboard-mobile-scroll {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-inline: contain;
 }
 
 /* Keep inner dashboard route wrappers from introducing conflicting page backgrounds. */
@@ -4788,6 +4795,73 @@
   max-width: 100%;
 }
 
+@media (max-width: 1279px) {
+  .rejourney-replay-workbench .replay-workbench-main {
+    gap: 0.75rem !important;
+  }
+
+  .rejourney-replay-workbench .replay-theater-toolbar {
+    padding: 0.55rem 0.75rem !important;
+  }
+
+  .rejourney-replay-workbench .replay-theater-stage {
+    padding: 0.85rem 0.75rem !important;
+  }
+
+  .rejourney-replay-workbench .replay-device-frame {
+    width: min(
+      var(--replay-device-base-width, 270px),
+      var(--replay-device-base-viewport-width, 58vw),
+      300px
+    );
+  }
+
+  .rejourney-replay-workbench .replay-device-placeholder {
+    max-width: min(
+      var(--replay-device-base-width, 270px),
+      var(--replay-device-base-viewport-width, 58vw),
+      300px
+    ) !important;
+  }
+
+  .rejourney-replay-workbench .replay-browser-shell,
+  .rejourney-replay-workbench .replay-browser-window {
+    min-height: min(58dvh, 420px) !important;
+  }
+
+  .rejourney-replay-workbench .replay-browser-viewport {
+    min-height: min(50dvh, 360px) !important;
+  }
+
+  .rejourney-replay-workbench .replay-playback-controls {
+    padding: 0.55rem 0.75rem !important;
+  }
+
+  .rejourney-replay-workbench .replay-controls-primary {
+    justify-content: center !important;
+  }
+
+  .rejourney-replay-workbench .replay-controls-secondary > * {
+    flex: 0 1 auto;
+  }
+
+  .rejourney-replay-workbench .replay-marker-toolbar {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  .rejourney-replay-workbench .replay-marker-toolbar .dashboard-mobile-scroll {
+    padding-bottom: 0.15rem;
+  }
+
+  .rejourney-replay-workbench .replay-marker-toolbar button {
+    white-space: nowrap;
+  }
+
+  .rejourney-replay-workbench .replay-side-panel {
+    min-height: min(64dvh, 520px) !important;
+  }
+}
+
 @media (min-width: 1280px) {
   .replay-workbench-page,
   .replay-workbench-main,
@@ -4947,31 +5021,41 @@
   }
 
   .replay-device-frame {
-    width: min(var(--replay-device-base-width, 300px), var(--replay-device-base-viewport-width, 74vw));
+    width: min(var(--replay-device-base-width, 250px), var(--replay-device-base-viewport-width, 64vw), 270px);
   }
 
   .replay-device-placeholder {
-    max-width: min(var(--replay-device-base-width, 300px), var(--replay-device-base-viewport-width, 74vw)) !important;
+    max-width: min(var(--replay-device-base-width, 250px), var(--replay-device-base-viewport-width, 64vw), 270px) !important;
+  }
+
+  .replay-browser-shell,
+  .replay-browser-window {
+    min-height: min(52dvh, 360px) !important;
+  }
+
+  .replay-browser-viewport {
+    min-height: min(44dvh, 300px) !important;
   }
 
   .replay-controls-primary {
     display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, auto));
+    grid-template-columns: repeat(4, minmax(2rem, auto));
     justify-content: center;
   }
 
   .replay-controls-secondary {
-    width: 100%;
+    width: auto;
+    flex-wrap: nowrap !important;
     justify-content: center !important;
   }
 
   .replay-controls-secondary > * {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: center;
   }
 
   .replay-side-panel {
-    min-height: min(72dvh, 560px) !important;
+    min-height: min(58dvh, 480px) !important;
   }
 
   .replay-panel-header {
@@ -4988,11 +5072,11 @@
 
 @media (max-width: 420px) {
   .replay-device-frame {
-    width: min(var(--replay-device-narrow-width, 280px), var(--replay-device-narrow-viewport-width, 78vw));
+    width: min(var(--replay-device-narrow-width, 230px), var(--replay-device-narrow-viewport-width, 66vw), 250px);
   }
 
   .replay-device-placeholder {
-    max-width: min(var(--replay-device-narrow-width, 280px), var(--replay-device-narrow-viewport-width, 78vw)) !important;
+    max-width: min(var(--replay-device-narrow-width, 230px), var(--replay-device-narrow-viewport-width, 66vw), 250px) !important;
   }
 
   .replay-workbench-tabs button {

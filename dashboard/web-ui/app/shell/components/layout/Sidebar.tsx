@@ -257,6 +257,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, []);
 
   React.useEffect(() => {
+    if (isDesktop) return;
+    setIsMobileOpen(false);
+    setShowAppSelector(false);
+    setShowTeamSelector(false);
+  }, [isDesktop, location.pathname]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || isDesktop || !isMobileOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileOpen(false);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isDesktop, isMobileOpen]);
+
+  React.useEffect(() => {
     const handleOpenAddProjectModal = () => {
       setShowAddAppModal(true);
     };
@@ -422,15 +448,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile backdrop */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-[900] bg-black/45 md:hidden"
           onClick={() => setIsMobileOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       <div
         className={`
-        dashboard-sidebar flex-shrink-0 h-dvh min-h-0 flex flex-col bg-white border-r-2 border-black
-        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 transition-transform duration-300 ease-in-out
+        dashboard-sidebar flex-shrink-0 h-[100dvh] min-h-0 flex flex-col bg-white border-r-2 border-black
+        fixed left-0 top-0 z-[910] md:relative md:left-auto md:top-auto md:z-auto transition-transform duration-300 ease-in-out
         max-w-[100vw] min-w-0
         ${isResizing ? '' : 'md:transition-[width] md:duration-200 md:ease-out'}
         ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -471,7 +498,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {showTeamSelector && (
-              <div className={`absolute top-full mt-1 bg-white border-2 border-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+              <div className={`absolute top-full mt-1 bg-white border-2 border-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] z-[920] animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
                 <div className="border-b-2 border-black bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   Switch Team
                 </div>
@@ -544,7 +571,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {showAppSelector && (
-              <div className={`absolute top-full mt-1 bg-white border-2 border-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+              <div className={`absolute top-full mt-1 bg-white border-2 border-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] z-[920] animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
                 <div className="border-b-2 border-black bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
                   Projects
                 </div>

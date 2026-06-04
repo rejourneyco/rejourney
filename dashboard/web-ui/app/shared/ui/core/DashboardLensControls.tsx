@@ -22,7 +22,7 @@ export const DashboardLensControls: React.FC<DashboardLensControlsProps> = ({
     );
 
     return (
-        <div className={`flex w-full min-w-0 max-w-full flex-wrap items-end justify-start gap-1.5 sm:w-auto sm:items-center sm:justify-end ${className}`.trim()}>
+        <div className={`grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-end gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end ${className}`.trim()}>
             <PlatformLensFilter
                 value={platformLens}
                 onChange={setPlatformLens}

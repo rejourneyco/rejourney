@@ -4597,7 +4597,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 <div className="replay-workbench-grid grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-12 xl:gap-3">
                     <section className={`replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-8' : 'xl:col-span-7'}`}>
                         {!isWebSession && (
-                        <div className="border-b border-black bg-white px-3 py-2.5 text-black sm:px-4">
+                        <div className="replay-theater-toolbar border-b border-black bg-white px-3 py-2.5 text-black sm:px-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
 	                                <div className="flex min-w-0 items-center gap-2">
 	                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-black bg-[#67e8f9]">
@@ -4607,7 +4607,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 	                                        Replay Theater
 	                                    </p>
 	                                </div>
-	                                <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto text-[9px] font-black uppercase text-slate-700 sm:flex-wrap sm:overflow-visible md:text-[10px]">
+		                                <div className="replay-theater-meta dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto text-[9px] font-black uppercase text-slate-700 sm:flex-wrap sm:overflow-visible md:text-[10px]">
 			                                    {playbackMode !== 'rrweb' ? (
 		                                        <span className="border border-black bg-[#67e8f9] px-2 py-1 text-black">
 		                                            {screenshotFrames.length > 0
@@ -4670,8 +4670,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         </p>
                                     </div>
                                 ) : playbackMode === 'rrweb' ? (
-                                    <div className="replay-device-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
-                                        <div className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
+                                    <div className="replay-device-shell replay-browser-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
+                                        <div className="replay-browser-window relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
                                             {/* macOS window chrome */}
                                             {webOsChrome === 'macos' && (
                                                 <div className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-[#e8e8e8] px-3 py-2">
@@ -4729,7 +4729,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     </div>
                                                 </div>
                                             )}
-                                            <div className="relative min-h-[360px] flex-1 xl:min-h-0">
+                                            <div className="replay-browser-viewport relative min-h-[360px] flex-1 xl:min-h-0">
                                                 <WebReplayPlayer
                                                     events={compressedRrwebReplayEvents}
                                                     replayKey={id}
@@ -4824,16 +4824,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                         {playbackMode !== 'none' ? (
                             <>
-                                <div className="border-b-2 border-black bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="replay-playback-controls border-b-2 border-black bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
+                                    <div className="dashboard-mobile-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto lg:justify-between lg:overflow-visible">
                                         {/* Primary Controls */}
-                                        <div className="replay-controls-primary flex items-center justify-center gap-1.5 sm:justify-start">
+                                        <div className="replay-controls-primary flex shrink-0 items-center justify-center gap-1.5 sm:justify-start">
                                             {playbackMode === 'screenshots' && (
                                                 <button
                                                     onClick={() => stepFrame(-1)}
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     disabled={playbackDisabled}
-                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition sm:flex ${playbackDisabled
+                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition xl:flex ${playbackDisabled
                                                         ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
                                                         : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                                         }`}
@@ -4899,7 +4899,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     onClick={() => stepFrame(1)}
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     disabled={playbackDisabled}
-                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition sm:flex ${playbackDisabled
+                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition xl:flex ${playbackDisabled
                                                         ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
                                                         : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                                         }`}
@@ -4927,8 +4927,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         </div>
 
                                         {/* Secondary Controls */}
-                                        <div className="replay-controls-secondary flex flex-wrap items-center justify-center gap-1.5 sm:justify-end">
-                                            <span className="inline-flex items-center border-2 border-black bg-[#f8fafc] px-2 py-0.5 font-mono text-xs font-black text-black shadow-neo-sm">
+                                        <div className="replay-controls-secondary flex shrink-0 flex-nowrap items-center justify-center gap-1.5 lg:justify-end">
+                                            <span className="inline-flex h-8 min-w-[7.75rem] items-center justify-center border-2 border-black bg-[#f8fafc] px-2 font-mono text-[11px] font-black text-black shadow-neo-sm">
                                                 <span ref={progressTimeRef}>{formatPlaybackTime(currentPlaybackTime)}</span> / {formatPlaybackTime(effectiveDuration)}
                                             </span>
 
@@ -4985,9 +4985,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     </div>
                                 </div>
 
-                                <div className="select-none bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4">
-                                    <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
-                                        <div className="flex flex-wrap items-center gap-1 text-[10px] font-black uppercase text-black">
+                                <div className="replay-marker-toolbar select-none bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4">
+                                    <div className="mb-1 flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto text-[10px] font-black uppercase text-black sm:flex-wrap sm:overflow-visible">
                                             {([
                                                 { category: 'navigation', label: 'Nav', icon: <RouteIcon className="h-2.5 w-2.5 text-[#8b5cf6]" /> },
                                                 { category: 'gesture', label: 'Gestures', icon: <Hand className="h-2.5 w-2.5 text-[#3b82f6]" /> },
@@ -5018,7 +5018,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 );
                                             })}
                                         </div>
-                                        <span className="text-[9px] font-bold uppercase text-slate-600">
+                                        <span className="hidden text-[9px] font-bold uppercase text-slate-600 sm:inline">
                                             Click bar to seek · markers to jump
                                         </span>
                                     </div>

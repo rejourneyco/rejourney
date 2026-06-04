@@ -147,7 +147,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
 
   return (
     <div className="dashboard-modern dashboard-shell flex h-dvh min-h-screen min-w-0 font-sans text-black antialiased selection:bg-[#67e8f9] selection:text-black">
-      <div className="z-20 w-0 shrink-0 overflow-visible bg-white md:w-auto md:shrink-0">
+      <div className="relative z-[900] w-0 shrink-0 overflow-visible bg-white md:z-20 md:w-auto md:shrink-0">
         <Sidebar
           currentProject={selectedProject}
           onProjectChange={handleProjectChange}
