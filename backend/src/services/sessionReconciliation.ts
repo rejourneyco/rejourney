@@ -5,7 +5,6 @@ import { updateDeviceUsage } from './recording.js';
 import { getTeamSessionUsage, incrementProjectSessionReplayIfNeeded } from './quotaCheck.js';
 import { canOpenReplayFromSessionFields } from './replayAvailability.js';
 import { resolveReplayRetention } from './replayRetention.js';
-import { enqueueSessionBackupCandidate } from './sessionBackupQueue.js';
 import {
     discardSmartCaptureVisualArtifacts,
     isSmartCaptureEntitled,
@@ -297,7 +296,6 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         await incrementProjectSessionReplayIfNeeded(sessionId);
     }
 
-    let backupQueued = false;
     if (shouldFinalize) {
         if (session.status !== 'ready') {
             const minutesRecorded = Math.max(
@@ -308,12 +306,6 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
                 requestCount: 1,
                 minutesRecorded,
             });
-        }
-
-        try {
-            backupQueued = await enqueueSessionBackupCandidate(sessionId);
-        } catch (error) {
-            logger.error({ err: error, sessionId }, 'session backup enqueue failed after finalize');
         }
     }
 
@@ -329,7 +321,6 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         activeJobCount,
         openReplayArtifactCount,
         activeReplayJobCount,
-        backupQueued: shouldFinalize ? backupQueued : false,
         status: shouldFinalize ? 'ready' : session.status === 'failed' ? 'failed' : 'processing',
     }, shouldFinalize ? 'session.finalized' : 'session.reconciled');
 

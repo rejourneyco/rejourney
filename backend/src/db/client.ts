@@ -45,7 +45,7 @@ const pool = new Pool({
     connectionString: config.DATABASE_URL,
     max: parseInt(process.env.DB_POOL_MAX ?? '50'),
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? '15000'),
 });
 
 pool.on('error', (err) => {
@@ -68,7 +68,7 @@ if (config.DATABASE_URL_READ && config.DATABASE_URL_READ !== config.DATABASE_URL
         connectionString: config.DATABASE_URL_READ,
         max: parseInt(process.env.DB_POOL_MAX_READ ?? process.env.DB_POOL_MAX ?? '30'),
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? '15000'),
     });
 
     readPool.on('error', (err) => {

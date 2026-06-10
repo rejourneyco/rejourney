@@ -95,6 +95,15 @@ create_or_update_secret minio-secret \
     --from-literal=MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" \
     --from-literal=MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY"
 
+create_or_update_secret research-lake-secret \
+    --from-literal=RESEARCH_LAKE_ENABLED="${RESEARCH_LAKE_ENABLED:-false}" \
+    --from-literal=RESEARCH_LAKE_ENDPOINT="${RESEARCH_LAKE_ENDPOINT:-http://minio:9000}" \
+    --from-literal=RESEARCH_LAKE_BUCKET="${RESEARCH_LAKE_BUCKET:-rejourney-research-lake-local}" \
+    --from-literal=RESEARCH_LAKE_REGION="${RESEARCH_LAKE_REGION:-$S3_REGION}" \
+    --from-literal=RESEARCH_LAKE_ACCESS_KEY_ID="${RESEARCH_LAKE_ACCESS_KEY_ID:-$S3_ACCESS_KEY_ID}" \
+    --from-literal=RESEARCH_LAKE_SECRET_ACCESS_KEY="${RESEARCH_LAKE_SECRET_ACCESS_KEY:-$S3_SECRET_ACCESS_KEY}" \
+    --from-literal=RESEARCH_LAKE_HASH_SECRET="${RESEARCH_LAKE_HASH_SECRET:-$JWT_SECRET}"
+
 APP_SECRET_ARGS=(
     --from-literal=JWT_SECRET="$JWT_SECRET"
     --from-literal=JWT_SIGNING_KEY="$JWT_SIGNING_KEY"

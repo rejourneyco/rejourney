@@ -54,6 +54,9 @@ export interface S3PrefixDeletionEndpointResult {
     bucket: string;
     deletedObjectCount: number;
     deletedBytes: number;
+    missingPrefix?: boolean;
+    listStatus?: 'deleted' | 'empty' | 'missing';
+    durationMs?: number;
 }
 
 export interface S3PrefixDeletionResult {
@@ -103,6 +106,74 @@ interface ExternalS3DeletionTarget {
 
 export type ArtifactUploadFailureType = 'aborted' | 'storage';
 
+export type StorageEndpointAddressingMode = 'path-style' | 'virtual-hosted';
+
+export interface NormalizedStorageEndpoint {
+    endpointUrl: string;
+    forcePathStyle: boolean;
+    addressingMode: StorageEndpointAddressingMode;
+}
+
+export function normalizeStorageEndpointForS3Client(
+    endpointUrl: string,
+    bucket: string,
+): NormalizedStorageEndpoint {
+    try {
+        const parsed = new URL(endpointUrl);
+        const bucketPrefix = `${bucket}.`;
+        if (bucket && parsed.hostname.startsWith(bucketPrefix)) {
+            parsed.hostname = parsed.hostname.slice(bucketPrefix.length);
+            parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+            return {
+                endpointUrl: parsed.toString().replace(/\/$/, ''),
+                forcePathStyle: false,
+                addressingMode: 'virtual-hosted',
+            };
+        }
+    } catch {
+        return {
+            endpointUrl,
+            forcePathStyle: true,
+            addressingMode: 'path-style',
+        };
+    }
+
+    return {
+        endpointUrl,
+        forcePathStyle: true,
+        addressingMode: 'path-style',
+    };
+}
+
+function isStorageMissingError(err: unknown): boolean {
+    const anyErr = err as any;
+    const httpStatus = anyErr?.$metadata?.httpStatusCode;
+    const code = String(anyErr?.Code ?? anyErr?.code ?? '').toLowerCase();
+    const name = String(anyErr?.name ?? '').toLowerCase();
+    return (
+        httpStatus === 404
+        || code === 'nosuchkey'
+        || code === 'notfound'
+        || name === 'nosuchkey'
+        || name === 'notfound'
+    );
+}
+
+export function classifyS3DeletionError(err: unknown): string {
+    const anyErr = err as any;
+    const message = err instanceof Error ? err.message : String(err);
+    const code = String(anyErr?.Code ?? anyErr?.code ?? '').toLowerCase();
+    const name = String(anyErr?.name ?? '').toLowerCase();
+    if (isStorageMissingError(err)) return 'missing_source_prefix';
+    if (code.includes('authorization') || name.includes('authorization') || message.includes('authorization header is malformed')) {
+        return 'endpoint_config_error';
+    }
+    if (code.includes('accessdenied') || name.includes('accessdenied') || message.includes('AccessDenied')) {
+        return 'storage_auth_failed';
+    }
+    return 'unexpected';
+}
+
 function resolveInternalEndpointUrl(endpoint: StorageEndpoint): string {
     if (!config.S3_ENDPOINT) {
         return endpoint.endpointUrl;
@@ -115,7 +186,7 @@ function resolveInternalEndpointUrl(endpoint: StorageEndpoint): string {
         // our host-run API/upload/worker processes must talk to the host-mapped
         // endpoint from .env instead. Production endpoints never use the plain
         // "minio" hostname, so this stays a local-only compatibility rewrite.
-        if (parsed.hostname === 'minio') {
+        if (parsed.hostname === 'minio' || parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]') {
             return config.S3_ENDPOINT;
         }
     } catch {
@@ -136,7 +207,7 @@ const sessionEndpointCache = new Map<string, CachedEndpoint>();
 
 // Cache S3 clients by endpoint ID
 const s3ClientPool = new Map<string, S3ClientEntry>();
-let backupR2DeletionTarget: ExternalS3DeletionTarget | null | undefined;
+
 
 // =============================================================================
 // Endpoint Management
@@ -464,9 +535,11 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
         return existing;
     }
 
-    const accessKeyId = endpoint.accessKeyId;
-    const secretAccessKey = safeDecrypt(endpoint.keyRef);
-    const region = endpoint.region || undefined;
+    const resolvedEndpointUrl = resolveInternalEndpointUrl(endpoint);
+    const usesLocalEnvEndpoint = Boolean(config.S3_ENDPOINT && resolvedEndpointUrl !== endpoint.endpointUrl);
+    const accessKeyId = usesLocalEnvEndpoint ? config.S3_ACCESS_KEY_ID : endpoint.accessKeyId;
+    const secretAccessKey = usesLocalEnvEndpoint ? config.S3_SECRET_ACCESS_KEY : safeDecrypt(endpoint.keyRef);
+    const region = (usesLocalEnvEndpoint ? config.S3_REGION : endpoint.region) || undefined;
 
     if (!accessKeyId || !secretAccessKey) {
         throw new Error(
@@ -474,14 +547,18 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
         );
     }
 
+    const internalEndpoint = normalizeStorageEndpointForS3Client(
+        resolvedEndpointUrl,
+        endpoint.bucket,
+    );
     const clientConfig = {
-        endpoint: resolveInternalEndpointUrl(endpoint),
+        endpoint: internalEndpoint.endpointUrl,
         region,
         credentials: {
             accessKeyId,
             secretAccessKey,
         },
-        forcePathStyle: true, // Required for MinIO and most S3-compatible
+        forcePathStyle: internalEndpoint.forcePathStyle,
     };
 
     // Create internal client (for server-side operations)
@@ -493,10 +570,12 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
     if (!config.S3_PUBLIC_ENDPOINT && publicEndpoint.includes('minio:9000')) {
         publicEndpoint = publicEndpoint.replace('minio:9000', 'localhost:9000');
     }
+    const normalizedPublicEndpoint = normalizeStorageEndpointForS3Client(publicEndpoint, endpoint.bucket);
 
     const publicClient = new S3Client({
         ...clientConfig,
-        endpoint: publicEndpoint,
+        endpoint: normalizedPublicEndpoint.endpointUrl,
+        forcePathStyle: normalizedPublicEndpoint.forcePathStyle,
     });
 
     const entry: S3ClientEntry = {
@@ -1094,21 +1173,45 @@ async function deletePrefixWithClient(
     prefix: string,
 ): Promise<S3PrefixDeletionEndpointResult> {
     const normalizedPrefix = ensureSafePrefix(prefix);
+    const startedAt = Date.now();
     let continuationToken: string | undefined;
     let deletedObjectCount = 0;
     let deletedBytes = 0;
+    let sawContents = false;
 
     do {
-        const listResponse = await target.client.send(new ListObjectsV2Command({
-            Bucket: target.bucket,
-            Prefix: normalizedPrefix,
-            ContinuationToken: continuationToken,
-        }));
+        let listResponse;
+        try {
+            listResponse = await target.client.send(new ListObjectsV2Command({
+                Bucket: target.bucket,
+                Prefix: normalizedPrefix,
+                ContinuationToken: continuationToken,
+            }));
+        } catch (err) {
+            if (isStorageMissingError(err)) {
+                return {
+                    endpointId: target.endpointId,
+                    endpointUrl: target.endpointUrl,
+                    projectId: target.projectId,
+                    shadow: target.shadow,
+                    active: target.active,
+                    prefix: normalizedPrefix,
+                    bucket: target.bucket,
+                    deletedObjectCount,
+                    deletedBytes,
+                    missingPrefix: true,
+                    listStatus: 'missing',
+                    durationMs: Date.now() - startedAt,
+                };
+            }
+            throw err;
+        }
 
         const contents = listResponse.Contents ?? [];
         if (contents.length === 0) {
             break;
         }
+        sawContents = true;
 
         const objectsToDelete = contents
             .filter((obj) => obj.Key)
@@ -1147,6 +1250,9 @@ async function deletePrefixWithClient(
         bucket: target.bucket,
         deletedObjectCount,
         deletedBytes,
+        missingPrefix: false,
+        listStatus: sawContents ? 'deleted' : 'empty',
+        durationMs: Date.now() - startedAt,
     };
 }
 
@@ -1239,10 +1345,19 @@ export async function deletePrefixFromStorageEndpoints(
     }
 
     const endpointResults: S3PrefixDeletionEndpointResult[] = [];
-    for (const endpoint of dedupedEndpoints.values()) {
-        const result = await deletePrefixFromEndpoint(endpoint, normalizedPrefix);
-        endpointResults.push(result);
+    const endpointList = Array.from(dedupedEndpoints.values());
+    const concurrency = Math.max(1, Math.min(config.RETENTION_S3_CONCURRENCY, endpointList.length || 1));
+    let nextIndex = 0;
+
+    async function worker(): Promise<void> {
+        while (nextIndex < endpointList.length) {
+            const endpoint = endpointList[nextIndex++];
+            const result = await deletePrefixFromEndpoint(endpoint, normalizedPrefix);
+            endpointResults.push(result);
+        }
     }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
     return {
         prefix: normalizedPrefix,
@@ -1316,51 +1431,6 @@ export async function deletePrefixFromAllConfiguredStorageEndpoints(
     return deletePrefixFromStorageEndpoints(prefix, endpoints);
 }
 
-function getBackupR2DeletionTarget(): ExternalS3DeletionTarget {
-    if (backupR2DeletionTarget) {
-        return backupR2DeletionTarget;
-    }
-
-    if (
-        !config.R2_ENDPOINT
-        || !config.R2_BUCKET
-        || !config.R2_ACCESS_KEY_ID
-        || !config.R2_SECRET_ACCESS_KEY
-    ) {
-        throw new Error('R2 backup deletion requested but R2 backup environment is not configured');
-    }
-
-    backupR2DeletionTarget = {
-        client: new S3Client({
-            endpoint: config.R2_ENDPOINT,
-            region: 'auto',
-            credentials: {
-                accessKeyId: config.R2_ACCESS_KEY_ID,
-                secretAccessKey: config.R2_SECRET_ACCESS_KEY,
-            },
-            forcePathStyle: true,
-        }),
-        bucket: config.R2_BUCKET,
-        endpointId: 'backup-r2',
-        endpointUrl: config.R2_ENDPOINT,
-        projectId: null,
-        shadow: false,
-        active: true,
-    };
-
-    return backupR2DeletionTarget;
-}
-
-export async function deletePrefixFromBackupR2(prefix: string): Promise<S3PrefixDeletionResult> {
-    const endpointResult = await deletePrefixWithClient(getBackupR2DeletionTarget(), prefix);
-
-    return {
-        prefix: endpointResult.prefix,
-        deletedObjectCount: endpointResult.deletedObjectCount,
-        deletedBytes: endpointResult.deletedBytes,
-        endpointResults: [endpointResult],
-    };
-}
 
 /**
  * Delete all objects under a specific S3 prefix for a given project.
@@ -1438,7 +1508,7 @@ export async function getObjectMetadata(
 export function clearEndpointCaches(): void {
     endpointCache.clear();
     s3ClientPool.clear();
-    backupR2DeletionTarget = undefined;
+
 }
 
 /**

@@ -13087,7 +13087,7 @@ data:
         {
           "id": 43,
           "type": "row",
-          "title": "Session backup",
+          "title": "Retention",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -13100,475 +13100,6 @@ data:
         {
           "id": 44,
           "type": "stat",
-          "title": "Queue depth",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(sum(rejourney_session_backup_queue_queued)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "orange",
-                    "value": 100
-                  },
-                  {
-                    "color": "red",
-                    "value": 1000
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 45,
-          "type": "stat",
-          "title": "Oldest queue age",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 4,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_queue_oldest_age_seconds)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 46,
-          "type": "stat",
-          "title": "Max attempts seen",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 8,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_queue_max_attempts)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 47,
-          "type": "stat",
-          "title": "Seconds since last backup",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_recent_seconds_since_last_backup)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "orange",
-                    "value": 3600
-                  },
-                  {
-                    "color": "red",
-                    "value": 86400
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 48,
-          "type": "stat",
-          "title": "Sessions backed up (1h)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 16,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(sum(rejourney_session_backup_recent_sessions_backed_up_1h)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 49,
-          "type": "stat",
-          "title": "Bytes backed up (1h)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 20,
-            "y": 78,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(sum(rejourney_session_backup_recent_bytes_backed_up_1h)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "bytes",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 50,
-          "type": "timeseries",
-          "title": "Integrity (7d rolling)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 82,
-            "w": 24,
-            "h": 8
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)) OR vector(0)",
-              "legendFormat": "plan mismatch",
-              "refId": "A",
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_integrity_recent_low_quality_count_7d)) OR vector(0)",
-              "legendFormat": "low quality",
-              "refId": "B",
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)) OR vector(0)",
-              "legendFormat": "manifest missing",
-              "refId": "C",
-              "instant": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)) OR vector(0)",
-              "legendFormat": "r2 parity mismatch",
-              "refId": "D",
-              "instant": false
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "fillOpacity": 10,
-                "gradientMode": "opacity",
-                "showPoints": "never",
-                "pointSize": 5,
-                "stacking": {
-                  "mode": "none",
-                  "group": "A"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "mean",
-                "lastNotNull",
-                "max"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 51,
-          "type": "row",
-          "title": "Retention",
-          "collapsed": false,
-          "gridPos": {
-            "x": 0,
-            "y": 90,
-            "w": 24,
-            "h": 1
-          },
-          "panels": []
-        },
-        {
-          "id": 52,
-          "type": "stat",
           "title": "Deleted objects (24h)",
           "datasource": {
             "type": "prometheus",
@@ -13576,7 +13107,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 91,
+            "y": 78,
             "w": 6,
             "h": 4
           },
@@ -13623,7 +13154,7 @@ data:
           }
         },
         {
-          "id": 53,
+          "id": 45,
           "type": "stat",
           "title": "Deleted bytes (24h)",
           "datasource": {
@@ -13632,7 +13163,7 @@ data:
           },
           "gridPos": {
             "x": 6,
-            "y": 91,
+            "y": 78,
             "w": 6,
             "h": 4
           },
@@ -13679,7 +13210,7 @@ data:
           }
         },
         {
-          "id": 54,
+          "id": 46,
           "type": "stat",
           "title": "Failed purges (24h)",
           "datasource": {
@@ -13688,7 +13219,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 91,
+            "y": 78,
             "w": 6,
             "h": 4
           },
@@ -13739,7 +13270,7 @@ data:
           }
         },
         {
-          "id": 55,
+          "id": 47,
           "type": "stat",
           "title": "Seconds since last purge",
           "datasource": {
@@ -13748,7 +13279,7 @@ data:
           },
           "gridPos": {
             "x": 18,
-            "y": 91,
+            "y": 78,
             "w": 6,
             "h": 4
           },
@@ -13795,7 +13326,7 @@ data:
           }
         },
         {
-          "id": 56,
+          "id": 48,
           "type": "timeseries",
           "title": "Retention per-endpoint (recent)",
           "datasource": {
@@ -13804,7 +13335,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 95,
+            "y": 82,
             "w": 24,
             "h": 8
           },
@@ -13869,20 +13400,20 @@ data:
           }
         },
         {
-          "id": 57,
+          "id": 49,
           "type": "row",
           "title": "Workers \u2014 container resources",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 103,
+            "y": 90,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 58,
+          "id": 50,
           "type": "timeseries",
           "title": "Worker CPU",
           "datasource": {
@@ -13891,7 +13422,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 104,
+            "y": 91,
             "w": 12,
             "h": 8
           },
@@ -13957,7 +13488,7 @@ data:
           }
         },
         {
-          "id": 59,
+          "id": 51,
           "type": "timeseries",
           "title": "Worker Memory",
           "datasource": {
@@ -13966,7 +13497,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 104,
+            "y": 91,
             "w": 12,
             "h": 8
           },
@@ -17741,6 +17272,1165 @@ data:
               },
               "expr": "(sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_bytes)) OR vector(0)",
               "legendFormat": "{{endpoint_url}}",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ],
+      "templating": {
+        "list": []
+      },
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "liveNow": false,
+      "weekStart": ""
+    }
+  65-gdpr-research.json: |
+    {
+      "uid": "rejourney-gdpr-research",
+      "title": "65 \u2014 GDPR Retention & Research Lake",
+      "tags": [
+        "app",
+        "retention",
+        "research-lake",
+        "rejourney"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "10s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timepicker": {
+        "refresh_intervals": [
+          "10s",
+          "30s",
+          "1m",
+          "5m",
+          "15m",
+          "1h"
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "GDPR Retention Worker Status",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Retention Worker Up",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "worker_up{job=\"retentionWorker\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Uptime (seconds)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "time() - worker_last_heartbeat_unix{job=\"retentionWorker\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 43200
+                  },
+                  {
+                    "color": "red",
+                    "value": 90000
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Sessions Purged (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_expired_sessions_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Sessions Scrubbed (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_scrubbed_sessions_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Purges Repaired (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_repaired_sessions_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Deleted Bytes (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_deleted_bytes_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "row",
+          "title": "Anonymized Research Lake Worker Status",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "Research Lake Worker Up",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "worker_up{job=\"researchLakeWorker\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Uptime (seconds)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "time() - worker_last_heartbeat_unix{job=\"researchLakeWorker\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1200
+                  },
+                  {
+                    "color": "red",
+                    "value": 3600
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Jobs Seeded (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_seeded_jobs_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Jobs Exported (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_exported_jobs_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Jobs Rejected (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_rejected_jobs_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  },
+                  {
+                    "color": "red",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Jobs Failed (last run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 6,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_failed_jobs_total",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "type": "row",
+          "title": "GDPR & Research Lake Metrics Over Time",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 10,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Sessions Purged vs Scrubbed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 11,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_expired_sessions_total",
+              "legendFormat": "Purged Sessions",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_retention_scrubbed_sessions_total",
+              "legendFormat": "Scrubbed Identities",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Research Lake Extraction Jobs",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 11,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_seeded_jobs_total",
+              "legendFormat": "Seeded",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_exported_jobs_total",
+              "legendFormat": "Exported",
+              "refId": "B",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_rejected_jobs_total",
+              "legendFormat": "Rejected",
+              "refId": "C",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_research_lake_failed_jobs_total",
+              "legendFormat": "Failed",
+              "refId": "D",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "row",
+          "title": "Worker Resource Consumption",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 19,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Worker CPU Usage",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 20,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"(retention-worker|research-lake-worker)-.*\",container!=\"\",container!=\"POD\"}[2m]))",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 3
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Worker Memory Usage",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 20,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"(retention-worker|research-lake-worker)-.*\",container!=\"\",container!=\"POD\"})",
+              "legendFormat": "{{pod}}",
               "refId": "A",
               "instant": false
             }

@@ -39,13 +39,8 @@ function stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
 }
 
-function metadataJson(metadata: Record<string, unknown> | null | undefined): string {
-    if (!metadata) return '{}';
-    try {
-        return JSON.stringify(metadata);
-    } catch {
-        return '{}';
-    }
+function metadataJson(): string {
+    return '{}';
 }
 
 export function buildClickHouseRevenueEventRow(input: {
@@ -66,12 +61,6 @@ export function buildClickHouseRevenueEventRow(input: {
     isDeleted?: boolean;
 }): ClickHouseRevenueEventRow {
     const metadata = input.metadata ?? {};
-    const sessionId = stringValue(metadata.sessionId) || input.externalSourceId || '';
-    const userDisplayId = stringValue(metadata.userDisplayId);
-    const anonymousHash = stringValue(metadata.anonymousHash);
-    const anonymousDisplayId = stringValue(metadata.anonymousDisplayId);
-    const deviceId = stringValue(metadata.deviceId);
-    const visitorId = userDisplayId || anonymousHash || anonymousDisplayId || deviceId || sessionId;
     const eventName = stringValue(metadata.eventName) || input.reportingCategory || input.type;
 
     return {
@@ -80,13 +69,13 @@ export function buildClickHouseRevenueEventRow(input: {
         event_date: input.occurredAt.toISOString().slice(0, 10),
         event_time: toClickHouseDateTime(input.occurredAt),
         external_transaction_id: input.externalTransactionId,
-        external_source_id: input.externalSourceId || '',
-        session_id: sessionId,
-        visitor_id: visitorId,
-        user_display_id: userDisplayId,
-        anonymous_hash: anonymousHash,
-        anonymous_display_id: anonymousDisplayId,
-        device_id: deviceId,
+        external_source_id: '',
+        session_id: '',
+        visitor_id: '',
+        user_display_id: '',
+        anonymous_hash: '',
+        anonymous_display_id: '',
+        device_id: '',
         platform: stringValue(metadata.platform) || 'unknown',
         app_version: stringValue(metadata.appVersion),
         event_name: eventName,
@@ -98,7 +87,7 @@ export function buildClickHouseRevenueEventRow(input: {
         net_cents: input.netCents,
         type: input.type,
         reporting_category: input.reportingCategory || input.type,
-        metadata_json: metadataJson(metadata),
+        metadata_json: metadataJson(),
         is_deleted: input.isDeleted ? 1 : 0,
         schema_version: 1,
     };

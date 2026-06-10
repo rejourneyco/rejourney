@@ -144,6 +144,7 @@ spec:
                 sleep 2
               done
               mc mb -p "local/${S3_BUCKET}" || true
+              mc mb -p "local/${RESEARCH_LAKE_BUCKET}" || true
               mc anonymous set download "local/${S3_BUCKET}" || true
           env:
             - name: MINIO_ROOT_USER
@@ -161,3 +162,8 @@ spec:
                 secretKeyRef:
                   name: s3-secret
                   key: S3_BUCKET
+            - name: RESEARCH_LAKE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_BUCKET

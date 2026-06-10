@@ -8,11 +8,12 @@ import {
 } from '../db/client.js';
 import { getRedis, invalidateSessionEndpointCache, invalidateSessionExistsCache } from '../db/redis.js';
 import {
+    classifyS3DeletionError,
     deleteObjectsFromProjectStorage,
-    deletePrefixFromBackupR2,
     deletePrefixFromProjectStorage,
 } from '../db/s3.js';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
 import {
     beginRetentionDeletionLog,
     finalizeRetentionDeletionLog,
@@ -52,9 +53,7 @@ export interface PurgeSessionArtifactsOptions {
     allowMissingStorage?: boolean;
     retentionTier?: number | null;
     retentionDays?: number | null;
-    deleteBackupCopy?: boolean;
-    deleteBackupLogEntry?: boolean;
-    backupKeyPrefix?: string | null;
+    failOnMissingStorage?: boolean;
 }
 
 export interface PurgeSessionArtifactsResult {
@@ -68,8 +67,6 @@ export interface PurgeSessionArtifactsResult {
     plannedArtifactBytes: number;
     cacheKeyCount: number;
     storageMissing: boolean;
-    deletedBackupObjectCount: number;
-    deletedBackupBytes: number;
 }
 
 export interface ExpiredSessionArtifactRepairResult {
@@ -223,6 +220,9 @@ function buildEndpointBreakdown(details: {
     bucket: string;
     deletedObjectCount: number;
     deletedBytes: number;
+    missingPrefix?: boolean;
+    listStatus?: 'deleted' | 'empty' | 'missing';
+    durationMs?: number;
 }[]): Record<string, unknown>[] {
     return details.map((result) => ({
         endpointId: result.endpointId,
@@ -233,6 +233,9 @@ function buildEndpointBreakdown(details: {
         bucket: result.bucket,
         deletedObjectCount: result.deletedObjectCount,
         deletedBytes: result.deletedBytes,
+        missingPrefix: result.missingPrefix ?? false,
+        listStatus: result.listStatus ?? null,
+        durationMs: result.durationMs ?? null,
     }));
 }
 
@@ -243,6 +246,7 @@ export async function purgeSessionArtifacts(
     const now = options.now ?? new Date();
     const invalidateCaches = options.invalidateCaches ?? true;
     const allowMissingStorage = options.allowMissingStorage ?? false;
+    const failOnMissingStorage = options.failOnMissingStorage ?? config.RETENTION_FAIL_ON_MISSING_STORAGE;
     const context = await loadSessionPurgeContext(sessionId);
     let finalizedLog = false;
     const canonicalPrefix = buildCanonicalSessionStoragePrefix(
@@ -250,8 +254,6 @@ export async function purgeSessionArtifacts(
         context.projectId,
         context.sessionId,
     );
-    const backupKeyPrefix = options.backupKeyPrefix
-        ?? buildCanonicalSessionBackupPrefix(context.teamId, context.projectId, context.sessionId);
     const plannedArtifactBytes = context.artifacts.reduce(
         (total, artifact) => total + Number(artifact.sizeBytes ?? artifact.declaredSizeBytes ?? 0),
         0,
@@ -301,18 +303,11 @@ export async function purgeSessionArtifacts(
                 deletedBytes: 0,
                 endpointResults: [],
             };
-        let deletedBackupObjectCount = 0;
-        let deletedBackupBytes = 0;
-        if (options.deleteBackupCopy) {
-            const backupDeletion = await deletePrefixFromBackupR2(backupKeyPrefix);
-            deletedBackupObjectCount = backupDeletion.deletedObjectCount;
-            deletedBackupBytes = backupDeletion.deletedBytes;
-        }
         const deletedStorageObjectCount = deletionResult.deletedObjectCount + invalidArtifactDeletion.deletedObjectCount;
         const deletedStorageBytes = deletionResult.deletedBytes + invalidArtifactDeletion.deletedBytes;
         const storageMissing = context.artifacts.length > 0 && deletedStorageObjectCount === 0;
 
-        if (storageMissing && !allowMissingStorage) {
+        if (storageMissing && failOnMissingStorage && !allowMissingStorage) {
             await finalizeRetentionDeletionLog(logId, {
                 status: 'failed',
                 deletedObjectCount: deletedStorageObjectCount,
@@ -327,6 +322,8 @@ export async function purgeSessionArtifacts(
                         ...deletionResult.endpointResults,
                         ...invalidArtifactDeletion.endpointResults,
                     ]),
+                    errorClass: 'missing_source_prefix',
+                    durationMs: Date.now() - now.getTime(),
                 },
             });
             finalizedLog = true;
@@ -362,10 +359,6 @@ export async function purgeSessionArtifacts(
                     updatedAt: now,
                 })
                 .where(eq(sessions.id, context.sessionId));
-
-            if (options.deleteBackupLogEntry) {
-                await tx.execute(sql`DELETE FROM session_backup_log WHERE session_id = ${context.sessionId}`);
-            }
         });
 
         const cacheKeyCount = invalidateCaches
@@ -394,9 +387,7 @@ export async function purgeSessionArtifacts(
                     ...deletionResult.endpointResults,
                     ...invalidArtifactDeletion.endpointResults,
                 ]),
-                backupDeletedObjectCount: deletedBackupObjectCount,
-                backupDeletedBytes: deletedBackupBytes,
-                backupKeyPrefix: options.deleteBackupCopy ? backupKeyPrefix : null,
+                durationMs: Date.now() - now.getTime(),
             },
         });
         finalizedLog = true;
@@ -409,8 +400,6 @@ export async function purgeSessionArtifacts(
             deletedArtifactCount,
             deletedObjectCount: deletedStorageObjectCount,
             deletedBytes: deletedStorageBytes,
-            deletedBackupObjectCount,
-            deletedBackupBytes,
             storageMissing,
             invalidArtifactCount: invalidArtifacts.length,
         }, 'Purged canonical session artifacts and storage');
@@ -426,8 +415,6 @@ export async function purgeSessionArtifacts(
             plannedArtifactBytes,
             cacheKeyCount,
             storageMissing,
-            deletedBackupObjectCount,
-            deletedBackupBytes,
         };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -438,6 +425,8 @@ export async function purgeSessionArtifacts(
                 details: {
                     retentionTier: options.retentionTier ?? context.retentionTier,
                     retentionDays: options.retentionDays ?? context.retentionDays,
+                    errorClass: classifyS3DeletionError(err),
+                    durationMs: Date.now() - now.getTime(),
                 },
             }).catch(() => {});
         }
@@ -460,14 +449,12 @@ export async function repairExpiredSessionArtifactsBatch(
     let failed = 0;
     let deletedObjectCount = 0;
     let deletedBytes = 0;
-    const now = new Date();
 
     for (const session of sessionsToRepair) {
         try {
             const result = await purgeSessionArtifacts(session.sessionId, {
                 runId,
                 trigger,
-                now,
                 allowMissingStorage: true,
                 retentionTier: session.retentionTier,
                 retentionDays: session.retentionDays,

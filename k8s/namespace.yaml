@@ -100,3 +100,14 @@ metadata:
 #   --from-literal=AWS_SECRET_ACCESS_KEY=<YOUR_OVH_SECRET_KEY> \
 #   --from-literal=R2_ENDPOINT=https://s3.us-west-or.io.cloud.ovh.us \
 #   --from-literal=R2_BUCKET=rejourney-db-backups-1
+#
+# 10. Research lake object-store secret (disabled until bucket is ready):
+# kubectl create secret generic research-lake-secret \
+#   --namespace rejourney \
+#   --from-literal=RESEARCH_LAKE_ENABLED=false \
+#   --from-literal=RESEARCH_LAKE_ENDPOINT=https://s3.us-west-or.io.cloud.ovh.us \
+#   --from-literal=RESEARCH_LAKE_BUCKET=rejourney-research-lake-1 \
+#   --from-literal=RESEARCH_LAKE_REGION=us-west-or \
+#   --from-literal=RESEARCH_LAKE_ACCESS_KEY_ID=<YOUR_RESEARCH_LAKE_ACCESS_KEY> \
+#   --from-literal=RESEARCH_LAKE_SECRET_ACCESS_KEY=<YOUR_RESEARCH_LAKE_SECRET_KEY> \
+#   --from-literal=RESEARCH_LAKE_HASH_SECRET=<openssl-rand-hex-32-or-long-random-secret>

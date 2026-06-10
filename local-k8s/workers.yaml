@@ -106,6 +106,12 @@ spec:
                 secretKeyRef:
                   name: s3-secret
                   key: S3_SECRET_ACCESS_KEY
+            - name: R2_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: db-backup-secret
+                  key: BACKUP_S3_REGION
+                  optional: true
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -121,6 +127,14 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: RETENTION_BATCH_SIZE
+              value: "100"
+            - name: RETENTION_REPAIR_BATCH_SIZE
+              value: "100"
+            - name: RETENTION_MAX_RUNTIME_MS
+              value: "240000"
+            - name: RETENTION_S3_CONCURRENCY
+              value: "4"
             - name: SMTP_HOST
               valueFrom:
                 secretKeyRef:
@@ -476,6 +490,139 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 128Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-lake-worker
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-lake-worker
+  template:
+    metadata:
+      labels:
+        app: research-lake-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: rejourney-local/api:dev
+          imagePullPolicy: IfNotPresent
+          command: ["node", "dist/worker/researchLakeWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: PGBOUNCER_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: SHARE_LINK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SHARE_LINK_SECRET
+                  optional: true
+            - name: RESEARCH_LAKE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_ENABLED
+                  optional: true
+            - name: RESEARCH_LAKE_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_ENDPOINT
+                  optional: true
+            - name: RESEARCH_LAKE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_BUCKET
+                  optional: true
+            - name: RESEARCH_LAKE_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_REGION
+                  optional: true
+            - name: RESEARCH_LAKE_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_ACCESS_KEY_ID
+                  optional: true
+            - name: RESEARCH_LAKE_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                  optional: true
+            - name: RESEARCH_LAKE_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_HASH_SECRET
+                  optional: true
+            - name: RESEARCH_LAKE_PREFIX
+              value: "v1"
           resources:
             requests:
               cpu: 10m

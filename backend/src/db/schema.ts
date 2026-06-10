@@ -421,6 +421,9 @@ export const sessions = pgTable(
         recordingDeleted: boolean('recording_deleted').default(false).notNull(),
         recordingDeletedAt: timestamp('recording_deleted_at'),
         isReplayExpired: boolean('is_replay_expired').default(false).notNull(),
+        identityScrubbedAt: timestamp('identity_scrubbed_at'),
+        identityScrubVersion: integer('identity_scrub_version'),
+        rawEventsDeletedAt: timestamp('raw_events_deleted_at'),
 
         // Canonical replay availability flag used by the ingest lifecycle
         replayAvailable: boolean('replay_available').default(false).notNull(),
@@ -508,6 +511,10 @@ export const sessions = pgTable(
         index('sessions_retention_due_idx')
             .on(table.retentionTier, table.startedAt, table.id)
             .where(sql`${table.recordingDeleted} = false AND ${table.status} IN ('ready', 'completed')`),
+        /** GDPR cleanup worker: scrubs identity and raw session event blobs when each session's own retention_days has elapsed. */
+        index('sessions_identity_scrub_due_idx')
+            .on(table.startedAt, table.id)
+            .where(sql`${table.identityScrubbedAt} IS NULL`),
         /** sessionArtifactPurge: rows where recording_deleted=true OR is_replay_expired=true. Without this the OR predicate forces a full sessions_seed_started_at_idx scan of ~438K rows. */
         index('sessions_artifact_deletion_idx')
             .on(table.startedAt, table.id)
@@ -684,47 +691,6 @@ export const storageEndpoints = pgTable('storage_endpoints', {
 });
 
 // =============================================================================
-export const sessionBackupLog = pgTable(
-    'session_backup_log',
-    {
-        sessionId: varchar('session_id', { length: 64 }).primaryKey(),
-        backedUpAt: timestamp('backed_up_at').defaultNow().notNull(),
-        r2KeyPrefix: text('r2_key_prefix').notNull(),
-        artifactCount: integer('artifact_count').default(0).notNull(),
-        totalBytes: bigint('total_bytes', { mode: 'number' }).default(0).notNull(),
-        plannedArtifactCount: integer('planned_artifact_count').default(0).notNull(),
-        highQuality: boolean('high_quality'),
-        qualityTier: varchar('quality_tier', { length: 32 }),
-        qualityReason: jsonb('quality_reason'),
-        qualityCheckedAt: timestamp('quality_checked_at', { withTimezone: true }),
-        qualityRuleVersion: integer('quality_rule_version'),
-        actualR2ArtifactCount: integer('actual_r2_artifact_count'),
-        actualR2ObjectCount: integer('actual_r2_object_count'),
-        manifestPresent: boolean('manifest_present'),
-    },
-    (table) => [
-        index('session_backup_log_backed_up_at_idx').on(table.backedUpAt),
-    ]
-);
-
-export const sessionBackupQueue = pgTable(
-    'session_backup_queue',
-    {
-        sessionId: varchar('session_id', { length: 64 }).primaryKey().references(() => sessions.id, { onDelete: 'cascade' }),
-        status: varchar('status', { length: 20 }).default('pending').notNull(),
-        attempts: integer('attempts').default(0).notNull(),
-        nextRetryAt: timestamp('next_retry_at'),
-        claimedBy: varchar('claimed_by', { length: 255 }),
-        claimedAt: timestamp('claimed_at'),
-        lastError: text('last_error'),
-        createdAt: timestamp('created_at').defaultNow().notNull(),
-        updatedAt: timestamp('updated_at').defaultNow().notNull(),
-    },
-    (table) => [
-        index('session_backup_queue_claim_idx').on(table.status, table.nextRetryAt, table.createdAt, table.sessionId),
-        index('session_backup_queue_stale_idx').on(table.status, table.claimedAt),
-    ]
-);
 
 export const retentionDeletionLog = pgTable(
     'retention_deletion_log',
@@ -765,6 +731,38 @@ export const retentionRunLock = pgTable('retention_run_lock', {
     acquiredAt: timestamp('acquired_at').defaultNow().notNull(),
     heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
 });
+
+export const researchExtractionJobs = pgTable(
+    'research_extraction_jobs',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+        dueAt: timestamp('due_at').notNull(),
+        status: varchar('status', { length: 32 }).default('pending').notNull(),
+        attempts: integer('attempts').default(0).notNull(),
+        nextRetryAt: timestamp('next_retry_at'),
+        lakePath: text('lake_path'),
+        qualityTier: varchar('quality_tier', { length: 32 }),
+        rejectReason: text('reject_reason'),
+        sourceArtifactCount: integer('source_artifact_count').default(0).notNull(),
+        interactionEventCount: integer('interaction_event_count').default(0).notNull(),
+        uiFrameCount: integer('ui_frame_count').default(0).notNull(),
+        uiSkeletonElementCount: integer('ui_skeleton_element_count').default(0).notNull(),
+        anonymizationVersion: integer('anonymization_version').default(1).notNull(),
+        schemaVersion: integer('schema_version').default(1).notNull(),
+        processedAt: timestamp('processed_at'),
+        lastError: text('last_error'),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('research_extraction_jobs_session_unique').on(table.sessionId),
+        index('research_extraction_jobs_claim_idx').on(table.status, table.nextRetryAt, table.dueAt, table.sessionId),
+        index('research_extraction_jobs_project_status_idx').on(table.projectId, table.status, table.dueAt),
+    ],
+);
 
 
 // =============================================================================

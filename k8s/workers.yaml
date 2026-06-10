@@ -498,7 +498,7 @@ spec:
 
 ---
 # Retention Worker CronJob
-# Cleans up expired recordings and drains legacy backlog without overlap
+# Cleans up expired recordings, S3 leftovers, and post-retention identity without overlap
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -515,8 +515,7 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      # Drain-backlog runs can exceed 12m when many tiers/sessions are eligible; avoid spurious DeadlineExceeded.
-      activeDeadlineSeconds: 3600
+      activeDeadlineSeconds: 600
       backoffLimit: 1
       template:
         metadata:
@@ -547,7 +546,6 @@ spec:
                 - node
                 - dist/worker/retentionWorker.js
                 - --once
-                - --drain-backlog
                 - --trigger=scheduled
               env:
                 - name: NODE_ENV
@@ -605,6 +603,12 @@ spec:
                     secretKeyRef:
                       name: db-backup-secret
                       key: R2_BUCKET
+                - name: R2_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: db-backup-secret
+                      key: BACKUP_S3_REGION
+                      optional: true
                 - name: R2_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
@@ -632,6 +636,14 @@ spec:
                       key: STORAGE_ENCRYPTION_KEY
                 - name: PUSHGATEWAY_URL
                   value: "http://pushgateway.rejourney.svc.cluster.local:9091"
+                - name: RETENTION_BATCH_SIZE
+                  value: "100"
+                - name: RETENTION_REPAIR_BATCH_SIZE
+                  value: "100"
+                - name: RETENTION_MAX_RUNTIME_MS
+                  value: "240000"
+                - name: RETENTION_S3_CONCURRENCY
+                  value: "4"
               resources:
                 requests:
                   cpu: 150m
@@ -640,6 +652,168 @@ spec:
                   cpu: "750m"
                   memory: 768Mi
 
+
+---
+# Research Lake Worker CronJob
+# Builds anonymized training/research derivatives before raw replay retention expiry.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: research-lake-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "*/10 * * * *"
+  startingDeadlineSeconds: 300
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: research-lake-worker
+        spec:
+          restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: worker
+              image: ghcr.io/rejourneyco/rejourney/api:latest
+              imagePullPolicy: Always
+              command:
+                - node
+                - dist/worker/researchLakeWorker.js
+                - --once
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: PGBOUNCER_URL
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_URL
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ENDPOINT
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_BUCKET
+                - name: S3_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_REGION
+                - name: S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ACCESS_KEY_ID
+                - name: S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_SECRET_ACCESS_KEY
+                - name: JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: JWT_SECRET
+                - name: INGEST_HMAC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: INGEST_HMAC_SECRET
+                - name: SHARE_LINK_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: SHARE_LINK_SECRET
+                      optional: true
+                - name: RESEARCH_LAKE_ENABLED
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ENABLED
+                      optional: true
+                - name: RESEARCH_LAKE_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ENDPOINT
+                      optional: true
+                - name: RESEARCH_LAKE_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_BUCKET
+                      optional: true
+                - name: RESEARCH_LAKE_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_REGION
+                      optional: true
+                - name: RESEARCH_LAKE_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ACCESS_KEY_ID
+                      optional: true
+                - name: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                      optional: true
+                - name: RESEARCH_LAKE_HASH_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_HASH_SECRET
+                      optional: true
+                - name: RESEARCH_LAKE_PREFIX
+                  value: "v1"
+                - name: RESEARCH_LAKE_BATCH_SIZE
+                  value: "50"
+                - name: RESEARCH_LAKE_MAX_RUNTIME_MS
+                  value: "240000"
+                - name: RESEARCH_LAKE_LOOKAHEAD_HOURS
+                  value: "24"
+              resources:
+                requests:
+                  cpu: 150m
+                  memory: 256Mi
+                limits:
+                  cpu: "750m"
+                  memory: 768Mi
 
 ---
 # Billing Worker REMOVED - billing now handled by Stripe webhooks via API server

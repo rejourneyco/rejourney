@@ -826,30 +826,6 @@ cleanup_finished_pods() {
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Failed --ignore-not-found >/dev/null 2>&1 || true
 }
 
-cleanup_session_backup_jobs() {
-  # Always remove session backup jobs on deploy so no old backup/seed run keeps
-  # burning resources after rollout. This intentionally targets only app-level
-  # session backup jobs, not CNPG/Postgres backup resources.
-  section "Cleaning Session-Backup Jobs"
-  log "Deleting all session-backup and session-backup-seed jobs..."
-
-  local jobs_to_delete
-  jobs_to_delete="$(
-    kubectl get jobs -n "${NAMESPACE}" --no-headers -o custom-columns=":metadata.name" \
-      | awk '/^session-backup-[0-9]/ || /^session-backup-seed-[0-9]/'
-  )"
-
-  if [ -z "${jobs_to_delete}" ]; then
-    log "No session-backup jobs found."
-    return
-  fi
-
-  while IFS= read -r job_name; do
-    [ -z "${job_name}" ] && continue
-    log "  Deleting job: ${job_name}"
-    kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found || true
-  done <<< "${jobs_to_delete}"
-}
 
 main() {
   require_bin kubectl
@@ -896,7 +872,6 @@ main() {
   # rollout-wait to time out and CI to report failure.
   prepull_images
 
-  bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
 
   print_migration_status "before"
 
@@ -1037,7 +1012,6 @@ main() {
   section "Cleaning up legacy Grafana dashboards"
   python3 "${ROOT_DIR}/scripts/k8s/patch-imported-grafana-dashboards.py" "${NAMESPACE}"
 
-  cleanup_session_backup_jobs
   cleanup_finished_pods
   log "Release applied successfully for image tag ${IMAGE_TAG}"
 }

@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
     },
     deletePrefixFromProjectStorage: vi.fn(),
     deleteObjectsFromProjectStorage: vi.fn(),
-    deletePrefixFromBackupR2: vi.fn(),
+    classifyS3DeletionError: vi.fn(() => 'unexpected'),
     beginRetentionDeletionLog: vi.fn(),
     finalizeRetentionDeletionLog: vi.fn(),
     logger: {
@@ -57,7 +57,7 @@ vi.mock('../db/redis.js', () => ({
 vi.mock('../db/s3.js', () => ({
     deletePrefixFromProjectStorage: mocks.deletePrefixFromProjectStorage,
     deleteObjectsFromProjectStorage: mocks.deleteObjectsFromProjectStorage,
-    deletePrefixFromBackupR2: mocks.deletePrefixFromBackupR2,
+    classifyS3DeletionError: mocks.classifyS3DeletionError,
 }));
 
 vi.mock('../services/retentionAudit.js', () => ({
@@ -67,6 +67,12 @@ vi.mock('../services/retentionAudit.js', () => ({
 
 vi.mock('../logger.js', () => ({
     logger: mocks.logger,
+}));
+
+vi.mock('../config.js', () => ({
+    config: {
+        RETENTION_FAIL_ON_MISSING_STORAGE: false,
+    },
 }));
 
 import { purgeSessionArtifacts } from '../services/sessionArtifactPurge.js';
@@ -220,12 +226,7 @@ describe('sessionArtifactPurge', () => {
                 },
             ],
         });
-        mocks.deletePrefixFromBackupR2.mockResolvedValue({
-            prefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
-            deletedObjectCount: 1,
-            deletedBytes: 123,
-            endpointResults: [],
-        });
+
         mocks.deleteObjectsFromProjectStorage.mockResolvedValue({
             deletedObjectCount: 0,
             deletedBytes: 0,
@@ -252,8 +253,6 @@ describe('sessionArtifactPurge', () => {
             plannedArtifactCount: 3,
             plannedArtifactBytes: 505,
             storageMissing: false,
-            deletedBackupObjectCount: 0,
-            deletedBackupBytes: 0,
         });
 
         expect(mocks.deletePrefixFromProjectStorage).toHaveBeenCalledWith(
@@ -291,38 +290,32 @@ describe('sessionArtifactPurge', () => {
         );
     });
 
-    it('removes stale backup R2 copies and clears the backup log when requested', async () => {
-        const now = new Date('2026-03-27T12:00:00.000Z');
 
-        const result = await purgeSessionArtifacts('session_1', {
-            runId: 'run_4',
-            trigger: 'retention_expiry',
-            now,
-            deleteBackupCopy: true,
-            deleteBackupLogEntry: true,
-            backupKeyPrefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
+    it('treats already-missing canonical storage as completed cleanup by default', async () => {
+        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+            prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+            endpointResults: [],
         });
 
-        expect(result.deletedBackupObjectCount).toBe(1);
-        expect(result.deletedBackupBytes).toBe(123);
-        expect(mocks.deletePrefixFromBackupR2).toHaveBeenCalledWith(
-            'backups/tenant/team_1/project/project_1/sessions/session_1',
-        );
-        expect(String(tx.executedStatements[0])).toContain('DELETE FROM session_backup_log');
+        const result = await purgeSessionArtifacts('session_1', {
+            runId: 'run_2',
+            trigger: 'retention_expiry',
+        });
+
+        expect(result.storageMissing).toBe(true);
+        expect(tx.delete).toHaveBeenCalledTimes(1);
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
                 status: 'completed',
-                details: expect.objectContaining({
-                    backupDeletedObjectCount: 1,
-                    backupDeletedBytes: 123,
-                    backupKeyPrefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
-                }),
+                storageMissing: true,
             }),
         );
     });
 
-    it('fails closed when canonical storage is missing for active artifact rows', async () => {
+    it('can still fail closed on missing storage when explicitly requested', async () => {
         mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
             deletedObjectCount: 0,
@@ -331,8 +324,9 @@ describe('sessionArtifactPurge', () => {
         });
 
         await expect(purgeSessionArtifacts('session_1', {
-            runId: 'run_2',
+            runId: 'run_2b',
             trigger: 'retention_expiry',
+            failOnMissingStorage: true,
         })).rejects.toThrow('Canonical storage missing for session session_1');
 
         expect(tx.delete).not.toHaveBeenCalled();

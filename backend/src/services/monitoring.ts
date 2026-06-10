@@ -27,6 +27,7 @@ export type WorkerName =
     | 'replayWorker'
     | 'sessionLifecycleWorker'
     | 'retentionWorker'
+    | 'researchLakeWorker'
     | 'statsAggregator'
     | 'alertWorker'
     | 'revenueSyncWorker'

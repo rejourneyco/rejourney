@@ -1147,24 +1147,7 @@ def d_application():
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
-    panels.append(row("Session backup", y)); y += 1
-    panels.append(stat("Queue depth", zero('sum(rejourney_session_backup_queue_queued)'), 0, y, w=4, h=4,
-                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 100}, {"color": "red", "value": 1000}]}))
-    panels.append(stat("Oldest queue age", zero('max(rejourney_session_backup_queue_oldest_age_seconds)'), 4, y, w=4, h=4, unit="s"))
-    panels.append(stat("Max attempts seen", zero('max(rejourney_session_backup_queue_max_attempts)'), 8, y, w=4, h=4))
-    panels.append(stat("Seconds since last backup", zero('max(rejourney_session_backup_recent_seconds_since_last_backup)'), 12, y, w=4, h=4, unit="s",
-                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 3600}, {"color": "red", "value": 86400}]}))
-    panels.append(stat("Sessions backed up (1h)", zero('sum(rejourney_session_backup_recent_sessions_backed_up_1h)'), 16, y, w=4, h=4))
-    panels.append(stat("Bytes backed up (1h)", zero('sum(rejourney_session_backup_recent_bytes_backed_up_1h)'), 20, y, w=4, h=4, unit="bytes"))
-    y += 4
 
-    panels.append(ts("Integrity (7d rolling)",
-                     [(zero('max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)'), "plan mismatch"),
-                      (zero('max(rejourney_session_backup_integrity_recent_low_quality_count_7d)'), "low quality"),
-                      (zero('max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)'), "manifest missing"),
-                      (zero('max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)'), "r2 parity mismatch")],
-                     0, y, w=24, h=8, unit="short"))
-    y += 8
 
     panels.append(row("Retention", y)); y += 1
     panels.append(stat("Deleted objects (24h)", zero('sum(rejourney_retention_recent_summary_deleted_objects_24h)'), 0, y, w=6, h=4))
@@ -1405,6 +1388,72 @@ def d_storage():
     y += 8
 
     return dashboard("rejourney-storage", "60 — Storage & Backups", ["storage"], panels)
+
+
+# ============================================================
+# 65 — GDPR Retention & Research Lake
+# ============================================================
+def d_gdpr_research():
+    reset_ids()
+    panels = []
+    y = 0
+
+    panels.append(row("GDPR Retention Worker Status", y)); y += 1
+    panels.append(stat("Retention Worker Up", 'worker_up{job="retentionWorker"}', 0, y, w=4, h=4,
+                       mappings=[{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]))
+    panels.append(stat("Uptime (seconds)", 'time() - worker_last_heartbeat_unix{job="retentionWorker"}', 4, y, w=4, h=4, unit="s",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 3600 * 12}, {"color": "red", "value": 3600 * 25}]}))
+    panels.append(stat("Sessions Purged (last run)", 'rejourney_retention_expired_sessions_total', 8, y, w=4, h=4))
+    panels.append(stat("Sessions Scrubbed (last run)", 'rejourney_retention_scrubbed_sessions_total', 12, y, w=4, h=4))
+    panels.append(stat("Purges Repaired (last run)", 'rejourney_retention_repaired_sessions_total', 16, y, w=4, h=4))
+    panels.append(stat("Deleted Bytes (last run)", 'rejourney_retention_deleted_bytes_total', 20, y, w=4, h=4, unit="bytes"))
+    y += 4
+
+    panels.append(row("Anonymized Research Lake Worker Status", y)); y += 1
+    panels.append(stat("Research Lake Worker Up", 'worker_up{job="researchLakeWorker"}', 0, y, w=4, h=4,
+                       mappings=[{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]))
+    panels.append(stat("Uptime (seconds)", 'time() - worker_last_heartbeat_unix{job="researchLakeWorker"}', 4, y, w=4, h=4, unit="s",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1200}, {"color": "red", "value": 3600}]}))
+    panels.append(stat("Jobs Seeded (last run)", 'rejourney_research_lake_seeded_jobs_total', 8, y, w=4, h=4))
+    panels.append(stat("Jobs Exported (last run)", 'rejourney_research_lake_exported_jobs_total', 12, y, w=4, h=4))
+    panels.append(stat("Jobs Rejected (last run)", 'rejourney_research_lake_rejected_jobs_total', 16, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 50}]}))
+    panels.append(stat("Jobs Failed (last run)", 'rejourney_research_lake_failed_jobs_total', 20, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}]}))
+    y += 4
+
+    panels.append(row("GDPR & Research Lake Metrics Over Time", y)); y += 1
+    panels.append(ts("Sessions Purged vs Scrubbed",
+                     [('rejourney_retention_expired_sessions_total', "Purged Sessions"),
+                      ('rejourney_retention_scrubbed_sessions_total', "Scrubbed Identities")],
+                     0, y, w=12, h=8, unit="short"))
+    panels.append(ts("Research Lake Extraction Jobs",
+                     [('rejourney_research_lake_seeded_jobs_total', "Seeded"),
+                      ('rejourney_research_lake_exported_jobs_total', "Exported"),
+                      ('rejourney_research_lake_rejected_jobs_total', "Rejected"),
+                      ('rejourney_research_lake_failed_jobs_total', "Failed")],
+                     12, y, w=12, h=8, unit="short"))
+    y += 8
+
+    panels.append(row("Worker Resource Consumption", y)); y += 1
+    wk_lbl = 'namespace="rejourney",pod=~"(retention-worker|research-lake-worker)-.*"'
+    panels.append(ts("Worker CPU Usage",
+                     [(f'sum by (pod)(rate(container_cpu_usage_seconds_total{{{wk_lbl},container!="",container!="POD"}}[2m]))', "{{pod}}")],
+                     0, y, w=12, h=8, unit="short", decimals=3))
+    panels.append(ts("Worker Memory Usage",
+                     [(f'sum by (pod)(container_memory_working_set_bytes{{{wk_lbl},container!="",container!="POD"}})', "{{pod}}")],
+                     12, y, w=12, h=8, unit="bytes"))
+    y += 8
+
+    return dashboard(
+        "rejourney-gdpr-research",
+        "65 — GDPR Retention & Research Lake",
+        ["app", "retention", "research-lake"],
+        panels,
+        refresh="10s",
+        time_from="now-6h",
+    )
+
 
 # ============================================================
 # 70 — VictoriaMetrics / Self
@@ -1770,6 +1819,7 @@ dashes = [
     ("50-application", d_application()),
     ("55-artifact-ingest", d_artifact_ingest()),
     ("60-storage", d_storage()),
+    ("65-gdpr-research", d_gdpr_research()),
     ("70-self", d_self()),
     ("80-users", d_users()),
 ]
