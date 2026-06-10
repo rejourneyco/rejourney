@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { ZipArchive } from 'archiver';
 import { pool } from '../db/client.js';
 import {
     downloadFromS3ForArtifact,
@@ -174,6 +175,20 @@ function jsonBuffer(value: unknown): Buffer {
 
 function jsonlGzipBuffer(rows: unknown[]): Buffer {
     return gzipSync(Buffer.from(rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8'));
+}
+
+function createZipArchiveBuffer(files: { name: string; buffer: Buffer }[]): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const archive = new ZipArchive({ zlib: { level: 9 } });
+        const buffers: Buffer[] = [];
+        archive.on('data', (data: Buffer) => buffers.push(data));
+        archive.on('end', () => resolve(Buffer.concat(buffers)));
+        archive.on('error', (err: any) => reject(err));
+        for (const file of files) {
+            archive.append(file.buffer, { name: file.name });
+        }
+        archive.finalize();
+    });
 }
 
 async function putResearchObject(key: string, body: Buffer, contentType: string): Promise<void> {
@@ -1211,6 +1226,7 @@ async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'>
             ui_frames: `${basePath}/ui_frames.jsonl.gz`,
             ui_skeleton: `${basePath}/ui_skeleton.jsonl.gz`,
             quality: `${basePath}/quality.json`,
+            zip: `${basePath}.zip`,
         },
     };
     const quality = {
@@ -1244,11 +1260,27 @@ async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'>
         return 'rejected';
     }
 
-    await putResearchObject(`${basePath}/manifest.json`, jsonBuffer(manifest), 'application/json');
-    await putResearchObject(`${basePath}/quality.json`, jsonBuffer(quality), 'application/json');
-    await putResearchObject(`${basePath}/interactions.jsonl.gz`, jsonlGzipBuffer(interactions), 'application/jsonl+gzip');
-    await putResearchObject(`${basePath}/ui_frames.jsonl.gz`, jsonlGzipBuffer(visualRows.frames), 'application/jsonl+gzip');
-    await putResearchObject(`${basePath}/ui_skeleton.jsonl.gz`, jsonlGzipBuffer(skeleton), 'application/jsonl+gzip');
+    const manifestBuf = jsonBuffer(manifest);
+    const qualityBuf = jsonBuffer(quality);
+    const interactionsBuf = jsonlGzipBuffer(interactions);
+    const uiFramesBuf = jsonlGzipBuffer(visualRows.frames);
+    const uiSkeletonBuf = jsonlGzipBuffer(skeleton);
+
+    await putResearchObject(`${basePath}/manifest.json`, manifestBuf, 'application/json');
+    await putResearchObject(`${basePath}/quality.json`, qualityBuf, 'application/json');
+    await putResearchObject(`${basePath}/interactions.jsonl.gz`, interactionsBuf, 'application/jsonl+gzip');
+    await putResearchObject(`${basePath}/ui_frames.jsonl.gz`, uiFramesBuf, 'application/jsonl+gzip');
+    await putResearchObject(`${basePath}/ui_skeleton.jsonl.gz`, uiSkeletonBuf, 'application/jsonl+gzip');
+
+    const zipFiles = [
+        { name: 'manifest.json', buffer: manifestBuf },
+        { name: 'quality.json', buffer: qualityBuf },
+        { name: 'interactions.jsonl.gz', buffer: interactionsBuf },
+        { name: 'ui_frames.jsonl.gz', buffer: uiFramesBuf },
+        { name: 'ui_skeleton.jsonl.gz', buffer: uiSkeletonBuf },
+    ];
+    const zipBuffer = await createZipArchiveBuffer(zipFiles);
+    await putResearchObject(`${basePath}.zip`, zipBuffer, 'application/zip');
 
     await completeJob(job, {
         status: 'exported',
@@ -1315,4 +1347,5 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
 export const __researchLakeTestInternals = {
     containsIdentifierRisk,
     imageFeatureGrid,
+    createZipArchiveBuffer,
 };

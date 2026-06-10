@@ -63,4 +63,19 @@ describe('research lake anonymized payload shape', () => {
         expect(features?.lumaGrid.every((value) => value >= 0 && value <= 15)).toBe(true);
         expect(features?.edgeGrid.every((value) => value >= 0 && value <= 15)).toBe(true);
     });
+
+    it('generates a valid ZIP archive containing multiple files', async () => {
+        const files = [
+            { name: 'manifest.json', buffer: Buffer.from('{"test":true}', 'utf8') },
+            { name: 'quality.json', buffer: Buffer.from('{"usable":true}', 'utf8') },
+        ];
+        const zipBuffer = await __researchLakeTestInternals.createZipArchiveBuffer(files);
+        expect(zipBuffer).toBeInstanceOf(Buffer);
+        expect(zipBuffer.length).toBeGreaterThan(0);
+        // Verify ZIP magic bytes (PK\x03\x04)
+        expect(zipBuffer[0]).toBe(0x50);
+        expect(zipBuffer[1]).toBe(0x4b);
+        expect(zipBuffer[2]).toBe(0x03);
+        expect(zipBuffer[3]).toBe(0x04);
+    });
 });
