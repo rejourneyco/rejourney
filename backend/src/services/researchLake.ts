@@ -1206,6 +1206,9 @@ async function seedResearchJobs(limit: number): Promise<number> {
               AND s.identity_scrubbed_at IS NULL
               AND s.recording_deleted = false
               AND s.started_at + (s.retention_days * INTERVAL '1 day') <= NOW() + ($1 * INTERVAL '1 hour')
+              AND EXISTS (
+                  SELECT 1 FROM recording_artifacts ra WHERE ra.session_id = s.id AND ra.status = 'ready'
+              )
               AND NOT EXISTS (
                   SELECT 1 FROM research_extraction_jobs rej WHERE rej.session_id = s.id
               )
@@ -1738,7 +1741,7 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     }
 
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_BATCH_SIZE));
-    summary.seeded = await seedResearchJobs(batchSize);
+    summary.seeded = await seedResearchJobs(batchSize * 40);
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < config.RESEARCH_LAKE_MAX_RUNTIME_MS) {
