@@ -983,9 +983,10 @@ main() {
   remove_legacy_postgres
 
   section "Waiting For Rollouts"
-  # Critical user-facing services: 600s to absorb any residual image-pull delay
-  # after the pre-pull step (e.g. a node was temporarily unavailable during pre-pull).
-  wait_for_deployment api-ingest     600s
+  # Critical user-facing services: allow residual image-pull or scheduling delay
+  # after the pre-pull step. api-ingest gets a longer window because it is
+  # hard-colocated with the current Postgres primary.
+  wait_for_deployment api-ingest     1800s
   pin_deployment_to_postgres_primary api-ingest
   wait_for_deployment api-dashboard  600s
   wait_for_deployment ingest-upload  600s

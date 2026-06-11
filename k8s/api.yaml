@@ -77,6 +77,11 @@ spec:
   # This ensures the load balancer has fully picked up the new pod before traffic
   # shifts — the key ingredient of zero-downtime blue-green deploys.
   minReadySeconds: 10
+  # api-ingest is hard-colocated with the current Postgres primary. During
+  # deploys the replacement pod can wait for that single node's allocatable CPU
+  # while the old pod finishes termination and CronJobs settle, so keep the
+  # progress deadline longer than the default 10m rollout window.
+  progressDeadlineSeconds: 1800
   strategy:
     type: RollingUpdate
     rollingUpdate:
