@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { __researchLakeTestInternals } from '../services/researchLake.js';
 
@@ -77,6 +78,94 @@ describe('research lake anonymized payload shape', () => {
         expect(zipBuffer[1]).toBe(0x4b);
         expect(zipBuffer[2]).toBe(0x03);
         expect(zipBuffer[3]).toBe(0x04);
+    });
+
+    it('uses lane-specific seed SQL for visual interaction and behavioral outcomes jobs', () => {
+        const interactionSql = __researchLakeTestInternals.buildSeedResearchJobsSql('interaction');
+        const behavioralSql = __researchLakeTestInternals.buildSeedResearchJobsSql('behavioral_outcomes');
+        const claimSql = __researchLakeTestInternals.buildClaimResearchJobsSql();
+
+        expect(interactionSql).toContain("ra.kind IN ('screenshots', 'rrweb')");
+        expect(interactionSql).toContain('rej.lake_type = $3');
+        expect(interactionSql).toContain('ON CONFLICT (session_id, lake_type) DO NOTHING');
+
+        expect(behavioralSql).toContain('COALESCE(s.observe_only, false) = true');
+        expect(behavioralSql).toContain('COALESCE(s.replay_quota_billing_exhausted, false) = true');
+        expect(behavioralSql).toContain("s.replay_retention_state = 'analytics_only'");
+        expect(behavioralSql).toContain('jsonb_array_length(s.events) > 0');
+
+        expect(__researchLakeTestInternals.researchLakeTypes).toEqual(['interaction', 'behavioral_outcomes']);
+        expect(claimSql).toContain("status IN ('pending', 'failed')");
+        expect(claimSql).toContain('lake_type = $2');
+    });
+
+    it('migration preserves interaction rows while replacing session-only uniqueness', () => {
+        const migrationSql = readFileSync(
+            `${process.cwd()}/drizzle/20260611140000_research_lake_lake_type_curated/migration.sql`,
+            'utf8',
+        );
+
+        expect(migrationSql).toContain('"lake_type" varchar(32) DEFAULT \'interaction\' NOT NULL');
+        expect(migrationSql).toContain('DROP INDEX IF EXISTS "research_extraction_jobs_session_unique"');
+        expect(migrationSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "research_extraction_jobs_session_lake_unique"');
+        expect(migrationSql).toContain('("session_id", "lake_type")');
+        expect(migrationSql).toContain('("lake_type", "status", "next_retry_at", "due_at", "session_id")');
+    });
+
+    it('builds behavioral outcome rows without UI files or raw product identifiers', () => {
+        const session = {
+            id: 'session-789',
+            started_at: new Date('2026-06-08T12:00:00Z'),
+            platform: 'ios',
+            app_version: '1.2.3',
+            sdk_version: '1.3.0',
+            duration_seconds: 120,
+            retention_days: 30,
+            observe_only: true,
+            replay_quota_billing_exhausted: false,
+            replay_retention_state: 'analytics_only',
+            screens_visited: ['Home', 'Paywall'],
+            events: [
+                { name: 'paywall_view', timestamp: new Date('2026-06-08T12:00:10Z').getTime(), properties: { productId: 'prod_secret' } },
+                { name: 'purchase_complete', timestamp: new Date('2026-06-08T12:00:20Z').getTime(), properties: { productId: 'prod_secret', value: 99, currency: 'USD', transactionId: 'tx_raw' } },
+            ],
+            total_events: 2,
+            custom_event_count: 2,
+            api_total_count: 1,
+            api_error_count: 1,
+            error_count: 1,
+            crash_count: 0,
+            anr_count: 0,
+            rage_tap_count: 0,
+            dead_tap_count: 0,
+            metadata: { experiment: 'checkout' },
+        } as any;
+        const projectKey = 'project-key';
+        const interactions = __researchLakeTestInternals.buildInteractions(session, projectKey, null);
+        const events = __researchLakeTestInternals.buildBehavioralEvents(session, interactions, projectKey);
+        const metrics = __researchLakeTestInternals.buildSessionMetrics(session);
+        const businessContext = __researchLakeTestInternals.buildBusinessContext(session, interactions, [], null);
+        const labels = __researchLakeTestInternals.buildBehavioralLabels(session, businessContext, projectKey);
+        const manifest = __researchLakeTestInternals.buildBehavioralManifest({
+            session,
+            projectKey,
+            lakeSampleKey: 'f'.repeat(32),
+            date: '2026-06-08',
+            basePath: `v1/lake=behavioral_outcomes/project_key=${projectKey}/date=2026-06-08/sample_key=${'f'.repeat(32)}`,
+            businessContext,
+            metrics,
+            labels,
+            eventCount: events.length,
+        });
+
+        expect(manifest.lake).toBe('behavioral_outcomes');
+        expect(manifest.files).not.toHaveProperty('ui_frames');
+        expect(manifest.files).not.toHaveProperty('ui_skeleton');
+        expect(events[1]).toHaveProperty('product_key');
+        expect(events[1]).not.toHaveProperty('product_id');
+        expect(JSON.stringify({ manifest, events, metrics, labels })).not.toContain('prod_secret');
+        expect(JSON.stringify({ manifest, events, metrics, labels })).not.toContain('tx_raw');
+        expect(__researchLakeTestInternals.containsIdentifierRisk({ manifest, events, metrics, labels })).toBe(false);
     });
 
     it('populates business/funnel markers and semantic roles in interactions and skeleton', () => {

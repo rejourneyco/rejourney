@@ -26,6 +26,8 @@ const RRWEB_EVENT_TYPE_META = 4;
 const RRWEB_INCREMENTAL_MUTATION = 0;
 const RRWEB_INCREMENTAL_SCROLL = 3;
 const RRWEB_INCREMENTAL_VIEWPORT_RESIZE = 4;
+const RESEARCH_LAKE_TYPES = ['interaction', 'behavioral_outcomes'] as const;
+const STALE_PROCESSING_BUFFER_MS = 10 * 60 * 1000;
 
 const require = createRequire(import.meta.url);
 const jpeg = require('jpeg-js') as {
@@ -36,9 +38,12 @@ const jpeg = require('jpeg-js') as {
     };
 };
 
+export type ResearchLakeType = typeof RESEARCH_LAKE_TYPES[number];
+
 type ResearchJobRow = {
     id: string;
     session_id: string;
+    lake_type: ResearchLakeType;
     project_id: string;
     team_id: string;
     due_at: Date;
@@ -63,13 +68,39 @@ type SessionContext = {
     scroll_count: number | null;
     gesture_count: number | null;
     input_count: number | null;
+    api_success_count: number | null;
+    api_error_count: number | null;
+    api_total_count: number | null;
+    api_avg_response_ms: number | null;
     rage_tap_count: number | null;
     dead_tap_count: number | null;
+    custom_event_count: number | null;
+    app_startup_time_ms: number | null;
+    network_type: string | null;
+    cellular_generation: string | null;
+    is_constrained: boolean | null;
+    is_expensive: boolean | null;
+    sdk_upload_success_count: number | null;
+    sdk_upload_failure_count: number | null;
+    sdk_retry_attempt_count: number | null;
+    sdk_circuit_breaker_open_count: number | null;
+    sdk_memory_eviction_count: number | null;
+    sdk_offline_persist_count: number | null;
+    sdk_upload_success_rate: number | null;
+    sdk_avg_upload_duration_ms: number | null;
+    sdk_total_bytes_uploaded: bigint | number | null;
+    sdk_total_bytes_evicted: bigint | number | null;
+    hierarchy_snapshot_count: number | null;
+    screenshot_segment_count: number | null;
+    screenshot_total_bytes: bigint | number | null;
     screens_visited: string[] | null;
     geo_country: string | null;
     geo_country_code: string | null;
     geo_city: string | null;
     user_display_id: string | null;
+    observe_only: boolean;
+    replay_quota_billing_exhausted: boolean;
+    replay_retention_state: string | null;
     crash_count?: number;
     anr_count?: number;
     error_count?: number;
@@ -125,12 +156,17 @@ type ResearchVisualRows = {
     skeleton: ResearchUiElementRow[];
 };
 
-export interface ResearchLakeCycleSummary {
+export type ResearchLakeLaneSummary = {
     seeded: number;
     attempted: number;
     exported: number;
     rejected: number;
     failed: number;
+};
+
+export interface ResearchLakeCycleSummary extends ResearchLakeLaneSummary {
+    recoveredStaleProcessing: number;
+    byLake: Record<ResearchLakeType, ResearchLakeLaneSummary>;
 }
 
 let researchLakeClient: S3Client | null = null;
@@ -1132,7 +1168,48 @@ function artifactSummary(artifacts: ArtifactContext[]): Record<string, unknown> 
     };
 }
 
-function rejectReason(
+function createLaneSummary(): ResearchLakeLaneSummary {
+    return {
+        seeded: 0,
+        attempted: 0,
+        exported: 0,
+        rejected: 0,
+        failed: 0,
+    };
+}
+
+function createCycleSummary(): ResearchLakeCycleSummary {
+    return {
+        seeded: 0,
+        attempted: 0,
+        exported: 0,
+        rejected: 0,
+        failed: 0,
+        recoveredStaleProcessing: 0,
+        byLake: {
+            interaction: createLaneSummary(),
+            behavioral_outcomes: createLaneSummary(),
+        },
+    };
+}
+
+function addLaneSummaryTotals(summary: ResearchLakeCycleSummary): void {
+    summary.seeded = 0;
+    summary.attempted = 0;
+    summary.exported = 0;
+    summary.rejected = 0;
+    summary.failed = 0;
+    for (const lakeType of RESEARCH_LAKE_TYPES) {
+        const lane = summary.byLake[lakeType];
+        summary.seeded += lane.seeded;
+        summary.attempted += lane.attempted;
+        summary.exported += lane.exported;
+        summary.rejected += lane.rejected;
+        summary.failed += lane.failed;
+    }
+}
+
+function interactionRejectReason(
     artifacts: ArtifactContext[],
     interactions: Record<string, unknown>[],
     uiFrames: ResearchUiFrameRow[],
@@ -1191,9 +1268,54 @@ function containsIdentifierRisk(value: unknown): boolean {
     return visit(value);
 }
 
-async function seedResearchJobs(limit: number): Promise<number> {
-    const result = await pool.query(
-        `
+function interactionSeedCandidatePredicateSql(): string {
+    return `
+              AND s.recording_deleted = false
+              AND EXISTS (
+                  SELECT 1
+                  FROM recording_artifacts ra
+                  WHERE ra.session_id = s.id
+                    AND ra.status = 'ready'
+                    AND ra.kind IN ('screenshots', 'rrweb')
+              )
+`.trimEnd();
+}
+
+function behavioralMeaningfulPredicateSql(): string {
+    return `
+              AND (
+                  (jsonb_typeof(s.events) = 'array' AND jsonb_array_length(s.events) > 0)
+                  OR COALESCE(sm.total_events, 0) > 0
+                  OR COALESCE(sm.custom_event_count, 0) > 0
+                  OR COALESCE(sm.api_total_count, 0) > 0
+                  OR COALESCE(sm.api_error_count, 0) > 0
+                  OR COALESCE(sm.error_count, 0) > 0
+                  OR COALESCE(sm.crash_count, 0) > 0
+                  OR COALESCE(sm.anr_count, 0) > 0
+                  OR COALESCE(sm.rage_tap_count, 0) > 0
+                  OR COALESCE(sm.dead_tap_count, 0) > 0
+                  OR COALESCE(array_length(sm.screens_visited, 1), 0) > 0
+              )
+`.trimEnd();
+}
+
+function behavioralSeedCandidatePredicateSql(): string {
+    return `
+              AND s.status IN ('ready', 'completed')
+              AND (
+                  COALESCE(s.observe_only, false) = true
+                  OR COALESCE(s.replay_quota_billing_exhausted, false) = true
+                  OR s.replay_retention_state = 'analytics_only'
+              )
+${behavioralMeaningfulPredicateSql()}
+`.trimEnd();
+}
+
+function buildSeedResearchJobsSql(lakeType: ResearchLakeType): string {
+    const lanePredicate = lakeType === 'interaction'
+        ? interactionSeedCandidatePredicateSql()
+        : behavioralSeedCandidatePredicateSql();
+    return `
         WITH candidates AS (
             SELECT
                 s.id AS session_id,
@@ -1202,40 +1324,67 @@ async function seedResearchJobs(limit: number): Promise<number> {
                 s.started_at + (s.retention_days * INTERVAL '1 day') AS due_at
             FROM sessions s
             INNER JOIN projects p ON p.id = s.project_id
+            LEFT JOIN session_metrics sm ON sm.session_id = s.id
             WHERE p.deleted_at IS NULL
               AND s.identity_scrubbed_at IS NULL
-              AND s.recording_deleted = false
               AND s.started_at + (s.retention_days * INTERVAL '1 day') <= NOW() + ($1 * INTERVAL '1 hour')
-              AND EXISTS (
-                  SELECT 1 FROM recording_artifacts ra WHERE ra.session_id = s.id AND ra.status = 'ready'
-              )
+${lanePredicate}
               AND NOT EXISTS (
-                  SELECT 1 FROM research_extraction_jobs rej WHERE rej.session_id = s.id
+                  SELECT 1
+                  FROM research_extraction_jobs rej
+                  WHERE rej.session_id = s.id
+                    AND rej.lake_type = $3
               )
             ORDER BY due_at, s.id
             LIMIT $2
         )
-        INSERT INTO research_extraction_jobs (session_id, project_id, team_id, due_at)
-        SELECT session_id, project_id, team_id, due_at
+        INSERT INTO research_extraction_jobs (session_id, project_id, team_id, due_at, lake_type)
+        SELECT session_id, project_id, team_id, due_at, $3
         FROM candidates
-        ON CONFLICT (session_id) DO NOTHING
-        `,
-        [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, limit],
+        ON CONFLICT (session_id, lake_type) DO NOTHING
+        `;
+}
+
+async function seedResearchJobs(lakeType: ResearchLakeType, limit: number): Promise<number> {
+    const result = await pool.query(
+        buildSeedResearchJobsSql(lakeType),
+        [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, limit, lakeType],
     );
     return result.rowCount ?? 0;
 }
 
-async function claimResearchJobs(limit: number): Promise<ResearchJobRow[]> {
-    const result = await pool.query<ResearchJobRow>(
+async function recoverStaleProcessingJobs(): Promise<number> {
+    const staleMinutes = Math.max(
+        15,
+        Math.ceil((config.RESEARCH_LAKE_MAX_RUNTIME_MS + STALE_PROCESSING_BUFFER_MS) / 60_000),
+    );
+    const result = await pool.query(
         `
+        UPDATE research_extraction_jobs
+        SET
+            status = 'failed',
+            next_retry_at = NOW(),
+            last_error = 'Recovered stale processing research-lake job after worker deadline',
+            updated_at = NOW()
+        WHERE status = 'processing'
+          AND updated_at < NOW() - ($1 * INTERVAL '1 minute')
+        `,
+        [staleMinutes],
+    );
+    return result.rowCount ?? 0;
+}
+
+function buildClaimResearchJobsSql(): string {
+    return `
         WITH candidates AS (
             SELECT id
             FROM research_extraction_jobs
             WHERE status IN ('pending', 'failed')
+              AND lake_type = $2
               AND (next_retry_at IS NULL OR next_retry_at <= NOW())
               AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
             ORDER BY due_at, created_at, id
-            LIMIT $2
+            LIMIT $3
             FOR UPDATE SKIP LOCKED
         )
         UPDATE research_extraction_jobs rej
@@ -1245,9 +1394,14 @@ async function claimResearchJobs(limit: number): Promise<ResearchJobRow[]> {
             updated_at = NOW()
         FROM candidates
         WHERE rej.id = candidates.id
-        RETURNING rej.id, rej.session_id, rej.project_id, rej.team_id, rej.due_at, rej.attempts
-        `,
-        [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, limit],
+        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts
+        `;
+}
+
+async function claimResearchJobs(lakeType: ResearchLakeType, limit: number): Promise<ResearchJobRow[]> {
+    const result = await pool.query<ResearchJobRow>(
+        buildClaimResearchJobsSql(),
+        [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, lakeType, limit],
     );
     return result.rows;
 }
@@ -1278,13 +1432,39 @@ async function loadSessionContext(sessionId: string): Promise<{
             sm.scroll_count,
             sm.gesture_count,
             sm.input_count,
+            sm.api_success_count,
+            sm.api_error_count,
+            sm.api_total_count,
+            sm.api_avg_response_ms,
             sm.rage_tap_count,
             sm.dead_tap_count,
+            sm.custom_event_count,
+            sm.app_startup_time_ms,
+            sm.network_type,
+            sm.cellular_generation,
+            sm.is_constrained,
+            sm.is_expensive,
+            sm.sdk_upload_success_count,
+            sm.sdk_upload_failure_count,
+            sm.sdk_retry_attempt_count,
+            sm.sdk_circuit_breaker_open_count,
+            sm.sdk_memory_eviction_count,
+            sm.sdk_offline_persist_count,
+            sm.sdk_upload_success_rate,
+            sm.sdk_avg_upload_duration_ms,
+            sm.sdk_total_bytes_uploaded,
+            sm.sdk_total_bytes_evicted,
+            sm.hierarchy_snapshot_count,
+            sm.screenshot_segment_count,
+            sm.screenshot_total_bytes,
             sm.screens_visited,
             s.geo_country,
             s.geo_country_code,
             s.geo_city,
-            s.user_display_id AS "user_display_id"
+            s.user_display_id AS "user_display_id",
+            s.observe_only,
+            s.replay_quota_billing_exhausted,
+            s.replay_retention_state
         FROM sessions s
         INNER JOIN projects p ON p.id = s.project_id
         LEFT JOIN session_metrics sm ON sm.session_id = s.id
@@ -1560,20 +1740,235 @@ function buildBusinessContext(
     };
 }
 
-async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'> {
-    const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
-    if (!session) {
-        await completeJob(job, {
-            status: 'rejected',
-            rejectReason: 'session_missing',
-            sourceArtifactCount: 0,
-            interactionEventCount: 0,
-            uiFrameCount: 0,
-            uiSkeletonElementCount: 0,
-        });
-        return 'rejected';
-    }
+function behavioralSourceReason(session: SessionContext): string {
+    if (session.observe_only) return 'observe_only';
+    if (session.replay_quota_billing_exhausted) return 'replay_quota_exhausted';
+    if (session.replay_retention_state === 'analytics_only') return 'smart_capture_analytics_only';
+    return 'unknown';
+}
 
+function booleanValue(value: unknown): boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', '1', 'yes'].includes(normalized)) return true;
+        if (['false', '0', 'no'].includes(normalized)) return false;
+    }
+    if (typeof value === 'number') return value !== 0;
+    return null;
+}
+
+function buildSessionMetrics(session: SessionContext): Record<string, unknown> {
+    return {
+        total_events: session.total_events || 0,
+        custom_event_count: session.custom_event_count || 0,
+        touch_count: session.touch_count || 0,
+        scroll_count: session.scroll_count || 0,
+        gesture_count: session.gesture_count || 0,
+        input_count: session.input_count || 0,
+        rage_tap_count: session.rage_tap_count || 0,
+        dead_tap_count: session.dead_tap_count || 0,
+        duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
+        crash_count: session.crash_count ?? 0,
+        anr_count: session.anr_count ?? 0,
+        error_count: session.error_count ?? 0,
+        api_total_count: session.api_total_count || 0,
+        api_success_count: session.api_success_count || 0,
+        api_error_count: session.api_error_count || 0,
+        api_avg_response_ms_bucket: bucketNumber(session.api_avg_response_ms, 100, 0, 120_000),
+        app_startup_time_ms_bucket: bucketNumber(session.app_startup_time_ms, 100, 0, 120_000),
+        network_type: session.network_type || null,
+        cellular_generation: session.cellular_generation || null,
+        is_constrained: booleanValue(session.is_constrained),
+        is_expensive: booleanValue(session.is_expensive),
+        sdk_upload_success_count: session.sdk_upload_success_count || 0,
+        sdk_upload_failure_count: session.sdk_upload_failure_count || 0,
+        sdk_retry_attempt_count: session.sdk_retry_attempt_count || 0,
+        sdk_circuit_breaker_open_count: session.sdk_circuit_breaker_open_count || 0,
+        sdk_memory_eviction_count: session.sdk_memory_eviction_count || 0,
+        sdk_offline_persist_count: session.sdk_offline_persist_count || 0,
+        sdk_upload_success_rate_bucket: bucketNumber(session.sdk_upload_success_rate, 0.05, 0, 1),
+        sdk_avg_upload_duration_ms_bucket: bucketNumber(session.sdk_avg_upload_duration_ms, 100, 0, 120_000),
+        sdk_total_bytes_uploaded_bucket: bucketNumber(session.sdk_total_bytes_uploaded, 64 * 1024, 0, 2 * 1024 * 1024 * 1024),
+        sdk_total_bytes_evicted_bucket: bucketNumber(session.sdk_total_bytes_evicted, 64 * 1024, 0, 2 * 1024 * 1024 * 1024),
+        hierarchy_snapshot_count: session.hierarchy_snapshot_count || 0,
+        screenshot_segment_count: session.screenshot_segment_count || 0,
+        screenshot_total_bytes_bucket: bucketNumber(session.screenshot_total_bytes, 64 * 1024, 0, 2 * 1024 * 1024 * 1024),
+    };
+}
+
+function hasMeaningfulBehavioralSignal(session: SessionContext, events: unknown[]): boolean {
+    if (events.length > 0) return true;
+    const metrics = buildSessionMetrics(session);
+    return [
+        'total_events',
+        'custom_event_count',
+        'api_total_count',
+        'api_error_count',
+        'error_count',
+        'crash_count',
+        'anr_count',
+        'rage_tap_count',
+        'dead_tap_count',
+        'sdk_upload_failure_count',
+    ].some((key) => Number(metrics[key] ?? 0) > 0);
+}
+
+function eventFamily(interaction: ResearchInteractionRow): string {
+    const transition = stringValue(interaction.funnel_transition);
+    if (transition) return 'funnel';
+    if (['tap', 'scroll', 'gesture', 'input'].includes(interaction.kind)) return 'interaction';
+    if (interaction.kind === 'screen') return 'navigation';
+    return 'custom';
+}
+
+function buildBehavioralEvents(
+    session: SessionContext,
+    interactions: ResearchInteractionRow[],
+    projectKey: string,
+): Record<string, unknown>[] {
+    const events = asEvents(session.events);
+    return interactions.map((interaction) => {
+        const sourceEvent = events[interaction.index] ?? {};
+        const eventName = stringValue(sourceEvent.name ?? sourceEvent.type ?? sourceEvent.eventName ?? sourceEvent.event_name);
+        const props = sourceEvent.properties && typeof sourceEvent.properties === 'object' && !Array.isArray(sourceEvent.properties)
+            ? sourceEvent.properties as Record<string, unknown>
+            : sourceEvent.payload && typeof sourceEvent.payload === 'object' && !Array.isArray(sourceEvent.payload)
+                ? sourceEvent.payload as Record<string, unknown>
+                : {};
+        const productId = stringValue(interaction.product_id);
+        const planId = stringValue(interaction.plan_id);
+        const priceId = stringValue(interaction.price_id);
+        return {
+            event_index: interaction.index,
+            elapsed_ms_bucket: interaction.elapsed_ms_bucket,
+            event_family: eventFamily(interaction),
+            event_kind: interaction.kind,
+            event_name_key: eventName ? hmac(`${projectKey}:event-name:${eventName}`, 20) : null,
+            funnel_transition: interaction.funnel_transition ?? null,
+            screen_key: interaction.screen_key,
+            target_key: interaction.target_key,
+            input_modality: interaction.input_modality ?? null,
+            item_count_bucket: interaction.item_count_change ?? null,
+            cart_value_bucket: interaction.cart_value_bucket ?? null,
+            currency: interaction.currency ?? null,
+            product_key: productId ? hmac(`${projectKey}:product:${productId}`, 20) : null,
+            plan_key: planId ? hmac(`${projectKey}:plan:${planId}`, 20) : null,
+            price_key: priceId ? hmac(`${projectKey}:price:${priceId}`, 20) : null,
+            payment_provider: interaction.payment_provider ?? null,
+            platform: interaction.platform ?? null,
+            is_renewal: interaction.is_renewal ?? null,
+            is_trial_conversion: interaction.is_trial_conversion ?? null,
+            event_shape_key: hmac(`${projectKey}:event-shape:${eventFamily(interaction)}:${Object.keys(props).sort().join(',')}`, 20),
+        };
+    });
+}
+
+function buildBehavioralLabels(
+    session: SessionContext,
+    businessContext: ReturnType<typeof buildBusinessContext>,
+    projectKey: string,
+): Record<string, unknown> {
+    const hasApiFailure = (session.api_error_count || 0) > 0;
+    const hasStabilityFailure = (session.crash_count ?? 0) > 0
+        || (session.anr_count ?? 0) > 0
+        || (session.error_count ?? 0) > 0;
+    return {
+        is_conversion_session: businessContext.is_conversion_session,
+        max_funnel_stage_reached: businessContext.max_funnel_stage_reached,
+        conversion_revenue_bucket: businessContext.conversion_revenue_bucket,
+        purchased_product_keys: businessContext.purchased_products.map((productId) => hmac(`${projectKey}:product:${productId}`, 20)),
+        lifecycle_events_present: businessContext.lifecycle_events_present,
+        has_api_failure: hasApiFailure,
+        has_stability_failure: hasStabilityFailure,
+        has_rage_or_dead_tap: (session.rage_tap_count || 0) > 0 || (session.dead_tap_count || 0) > 0,
+        abandoned_after_paywall: !businessContext.is_conversion_session
+            && businessContext.lifecycle_events_present.includes('paywall_view'),
+        abandoned_after_checkout: !businessContext.is_conversion_session
+            && businessContext.lifecycle_events_present.includes('checkout_start'),
+    };
+}
+
+function buildBehavioralManifest(params: {
+    session: SessionContext;
+    projectKey: string;
+    lakeSampleKey: string;
+    date: string;
+    basePath: string;
+    businessContext: ReturnType<typeof buildBusinessContext>;
+    metrics: Record<string, unknown>;
+    labels: Record<string, unknown>;
+    eventCount: number;
+}) {
+    const { session, projectKey, lakeSampleKey, date, basePath, businessContext, metrics, labels, eventCount } = params;
+    const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
+    return {
+        schema_version: RESEARCH_SCHEMA_VERSION,
+        anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'behavioral_outcomes',
+        project_key: projectKey,
+        sample_key: lakeSampleKey,
+        sample_date: date,
+        session_start_ts_utc: session.started_at.toISOString(),
+        platform: session.platform || 'unknown',
+        app_version_bucket: coarseAppVersion(session.app_version),
+        sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
+        retention_days: session.retention_days,
+        source: {
+            reason: behavioralSourceReason(session),
+            has_visual_source: false,
+            source_event_count: eventCount,
+        },
+        visitor_context: {
+            is_bounced: (session.duration_seconds || 0) < 15 && (session.total_events || 0) < 5,
+            screens_visited_count: (session.screens_visited || []).length,
+            screen_path_keys: screenPathKeys,
+        },
+        metrics,
+        geo: {
+            country: session.geo_country || null,
+            country_code: session.geo_country_code || null,
+            city: session.geo_city || null,
+        },
+        business_context: {
+            currency: businessContext.currency,
+            has_discount_applied: businessContext.has_discount_applied,
+            total_cart_additions_bucket: businessContext.total_cart_additions_bucket,
+            session_metadata_keys: businessContext.session_metadata_keys,
+            funnel_steps_configured: businessContext.funnel_steps_configured,
+        },
+        labels,
+        files: {
+            events: `${basePath}/events.jsonl.gz`,
+            session_metrics: `${basePath}/session_metrics.json`,
+            labels: `${basePath}/labels.json`,
+            quality: `${basePath}/quality.json`,
+            zip: `${basePath}.zip`,
+        },
+    };
+}
+
+async function rejectMissingSession(job: ResearchJobRow): Promise<'rejected'> {
+    await completeJob(job, {
+        status: 'rejected',
+        rejectReason: 'session_missing',
+        sourceArtifactCount: 0,
+        interactionEventCount: 0,
+        uiFrameCount: 0,
+        uiSkeletonElementCount: 0,
+    });
+    return 'rejected';
+}
+
+async function processInteractionJob(
+    job: ResearchJobRow,
+    session: SessionContext,
+    artifacts: ArtifactContext[],
+    transactions: { amount_cents: number; reporting_category: string; type: string; }[],
+    customEventConfig: any | null,
+): Promise<'exported' | 'rejected'> {
     const projectKey = hmac(`project:${session.project_id}`, 20);
     const lakeSampleKey = crypto.randomUUID().replace(/-/g, '');
     const interactions = buildInteractions(session, projectKey, customEventConfig);
@@ -1583,7 +1978,7 @@ async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'>
         ...buildInteractionSkeleton(interactions),
     ];
     const artifactsSummary = artifactSummary(artifacts);
-    const rejection = rejectReason(artifacts, interactions, visualRows.frames);
+    const rejection = interactionRejectReason(artifacts, interactions, visualRows.frames);
 
     if (rejection) {
         await completeJob(job, {
@@ -1726,14 +2121,123 @@ async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'>
     return 'exported';
 }
 
-export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummary> {
-    const summary: ResearchLakeCycleSummary = {
-        seeded: 0,
-        attempted: 0,
-        exported: 0,
-        rejected: 0,
-        failed: 0,
+async function processBehavioralJob(
+    job: ResearchJobRow,
+    session: SessionContext,
+    _artifacts: ArtifactContext[],
+    transactions: { amount_cents: number; reporting_category: string; type: string; }[],
+    customEventConfig: any | null,
+): Promise<'exported' | 'rejected'> {
+    const projectKey = hmac(`project:${session.project_id}`, 20);
+    const lakeSampleKey = crypto.randomUUID().replace(/-/g, '');
+    const interactions = buildInteractions(session, projectKey, customEventConfig);
+    const events = buildBehavioralEvents(session, interactions, projectKey);
+    const metrics = buildSessionMetrics(session);
+
+    if (!hasMeaningfulBehavioralSignal(session, events)) {
+        await completeJob(job, {
+            status: 'rejected',
+            rejectReason: 'insufficient_events_or_metrics',
+            sourceArtifactCount: 0,
+            interactionEventCount: events.length,
+            uiFrameCount: 0,
+            uiSkeletonElementCount: 0,
+        });
+        return 'rejected';
+    }
+
+    const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
+    const labels = buildBehavioralLabels(session, businessContext, projectKey);
+    const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT ? 'usable' : 'metrics_only';
+    const date = datePart(session.started_at);
+    const basePath = `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=behavioral_outcomes/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
+    const manifest = buildBehavioralManifest({
+        session,
+        projectKey,
+        lakeSampleKey,
+        date,
+        basePath,
+        businessContext,
+        metrics,
+        labels,
+        eventCount: events.length,
+    });
+    const quality = {
+        schema_version: RESEARCH_SCHEMA_VERSION,
+        quality_tier: qualityTier,
+        source_artifact_count: 0,
+        event_count: events.length,
+        metrics_only: qualityTier === 'metrics_only',
+        pii_scan: 'passed',
+        warnings: qualityTier === 'metrics_only' ? ['below_min_event_count_but_metrics_present'] : [],
     };
+
+    if (containsIdentifierRisk({
+        manifest,
+        quality,
+        events,
+        sessionMetrics: metrics,
+        labels,
+    })) {
+        await completeJob(job, {
+            status: 'rejected',
+            rejectReason: 'identifier_risk_detected_after_build',
+            sourceArtifactCount: 0,
+            interactionEventCount: events.length,
+            uiFrameCount: 0,
+            uiSkeletonElementCount: 0,
+        });
+        return 'rejected';
+    }
+
+    const manifestBuf = jsonBuffer(manifest);
+    const qualityBuf = jsonBuffer(quality);
+    const eventsBuf = jsonlGzipBuffer(events);
+    const metricsBuf = jsonBuffer(metrics);
+    const labelsBuf = jsonBuffer(labels);
+
+    await putResearchObject(`${basePath}/manifest.json`, manifestBuf, 'application/json');
+    await putResearchObject(`${basePath}/quality.json`, qualityBuf, 'application/json');
+    await putResearchObject(`${basePath}/events.jsonl.gz`, eventsBuf, 'application/jsonl+gzip');
+    await putResearchObject(`${basePath}/session_metrics.json`, metricsBuf, 'application/json');
+    await putResearchObject(`${basePath}/labels.json`, labelsBuf, 'application/json');
+
+    const zipFiles = [
+        { name: 'manifest.json', buffer: manifestBuf },
+        { name: 'quality.json', buffer: qualityBuf },
+        { name: 'events.jsonl', buffer: jsonlBuffer(events) },
+        { name: 'session_metrics.json', buffer: metricsBuf },
+        { name: 'labels.json', buffer: labelsBuf },
+    ];
+    const zipBuffer = await createZipArchiveBuffer(zipFiles);
+    await putResearchObject(`${basePath}.zip`, zipBuffer, 'application/zip');
+
+    await completeJob(job, {
+        status: 'exported',
+        lakePath: basePath,
+        qualityTier,
+        sourceArtifactCount: 0,
+        interactionEventCount: events.length,
+        uiFrameCount: 0,
+        uiSkeletonElementCount: 0,
+    });
+
+    return 'exported';
+}
+
+async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'> {
+    const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
+    if (!session) return rejectMissingSession(job);
+
+    if (job.lake_type === 'behavioral_outcomes') {
+        return processBehavioralJob(job, session, artifacts, transactions, customEventConfig);
+    }
+
+    return processInteractionJob(job, session, artifacts, transactions, customEventConfig);
+}
+
+export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummary> {
+    const summary = createCycleSummary();
 
     if (!config.RESEARCH_LAKE_ENABLED) {
         logger.info('Research lake disabled; skipping extraction cycle');
@@ -1741,36 +2245,57 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     }
 
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_BATCH_SIZE));
-    summary.seeded = await seedResearchJobs(batchSize * 40);
+    summary.recoveredStaleProcessing = await recoverStaleProcessingJobs();
+    for (const lakeType of RESEARCH_LAKE_TYPES) {
+        summary.byLake[lakeType].seeded = await seedResearchJobs(lakeType, batchSize * 40);
+    }
+    addLaneSummaryTotals(summary);
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < config.RESEARCH_LAKE_MAX_RUNTIME_MS) {
-        const jobs = await claimResearchJobs(batchSize);
-        if (jobs.length === 0) break;
+        let claimedThisRound = 0;
 
-        const concurrency = Math.max(1, Math.min(config.RESEARCH_LAKE_CONCURRENCY, jobs.length));
-        let nextIndex = 0;
+        for (const lakeType of RESEARCH_LAKE_TYPES) {
+            if (Date.now() - startedAt >= config.RESEARCH_LAKE_MAX_RUNTIME_MS) break;
 
-        async function worker(): Promise<void> {
-            while (nextIndex < jobs.length) {
-                if (Date.now() - startedAt >= config.RESEARCH_LAKE_MAX_RUNTIME_MS) break;
-                const job = jobs[nextIndex++];
-                summary.attempted++;
-                try {
-                    const status = await processJob(job);
-                    if (status === 'exported') summary.exported++;
-                    else summary.rejected++;
-                } catch (err) {
-                    summary.failed++;
-                    await failJob(job, err);
-                    logger.error({ err, jobId: job.id, sessionId: job.session_id }, 'Research lake extraction failed');
+            const jobs = await claimResearchJobs(lakeType, batchSize);
+            claimedThisRound += jobs.length;
+            if (jobs.length === 0) continue;
+
+            const concurrency = Math.max(1, Math.min(config.RESEARCH_LAKE_CONCURRENCY, jobs.length));
+            let nextIndex = 0;
+
+            async function worker(): Promise<void> {
+                while (nextIndex < jobs.length) {
+                    if (Date.now() - startedAt >= config.RESEARCH_LAKE_MAX_RUNTIME_MS) break;
+                    const job = jobs[nextIndex++];
+                    const lane = summary.byLake[job.lake_type];
+                    lane.attempted++;
+                    try {
+                        const status = await processJob(job);
+                        if (status === 'exported') lane.exported++;
+                        else lane.rejected++;
+                    } catch (err) {
+                        lane.failed++;
+                        await failJob(job, err);
+                        logger.error({
+                            err,
+                            jobId: job.id,
+                            sessionId: job.session_id,
+                            lakeType: job.lake_type,
+                        }, 'Research lake extraction failed');
+                    }
                 }
             }
+
+            await Promise.all(Array.from({ length: concurrency }, () => worker()));
         }
 
-        await Promise.all(Array.from({ length: concurrency }, () => worker()));
+        addLaneSummaryTotals(summary);
+        if (claimedThisRound === 0) break;
     }
 
+    addLaneSummaryTotals(summary);
     logger.info(summary, 'Research lake extraction cycle completed');
     return summary;
 }
@@ -1780,6 +2305,15 @@ export const __researchLakeTestInternals = {
     imageFeatureGrid,
     createZipArchiveBuffer,
     buildInteractions,
+    buildBehavioralEvents,
+    buildBehavioralLabels,
+    buildBehavioralManifest,
+    buildSessionMetrics,
     buildInteractionSkeleton,
     buildBusinessContext,
+    buildSeedResearchJobsSql,
+    buildClaimResearchJobsSql,
+    interactionSeedCandidatePredicateSql,
+    behavioralSeedCandidatePredicateSql,
+    researchLakeTypes: RESEARCH_LAKE_TYPES,
 };

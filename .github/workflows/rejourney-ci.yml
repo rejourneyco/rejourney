@@ -15,6 +15,7 @@ env:
   API_IMAGE: ghcr.io/${{ github.repository }}/api
   WEB_IMAGE: ghcr.io/${{ github.repository }}/web
   MIGRATION_IMAGE: ghcr.io/${{ github.repository }}/migration
+  RESEARCH_LAKE_COMPACTOR_IMAGE: ghcr.io/${{ github.repository }}/research-lake-compactor
 
 jobs:
   # ------------------------------------------------------------------
@@ -216,6 +217,18 @@ jobs:
           tags: |
             ${{ env.MIGRATION_IMAGE }}:latest
             ${{ env.MIGRATION_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Research Lake Compactor
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./scripts/research_lake_compactor/Dockerfile
+          push: true
+          tags: |
+            ${{ env.RESEARCH_LAKE_COMPACTOR_IMAGE }}:latest
+            ${{ env.RESEARCH_LAKE_COMPACTOR_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

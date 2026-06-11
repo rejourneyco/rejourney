@@ -829,6 +829,96 @@ spec:
                   memory: 768Mi
 
 ---
+# Research Lake Compactor CronJob
+# Compacts raw research-lake JSON/JSONL objects into query-friendly Parquet tables.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: research-lake-compactor
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "17 * * * *"
+  startingDeadlineSeconds: 600
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: research-lake-compactor
+        spec:
+          restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: compactor
+              image: ghcr.io/rejourneyco/rejourney/research-lake-compactor:latest
+              imagePullPolicy: Always
+              env:
+                - name: RESEARCH_LAKE_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ENDPOINT
+                      optional: true
+                - name: RESEARCH_LAKE_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_BUCKET
+                - name: RESEARCH_LAKE_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_REGION
+                      optional: true
+                - name: RESEARCH_LAKE_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ACCESS_KEY_ID
+                - name: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                - name: RESEARCH_LAKE_PREFIX
+                  value: "v1"
+                - name: RESEARCH_LAKE_CURATED_PREFIX
+                  value: "v1_curated"
+                - name: RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS
+                  value: "2"
+                - name: RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES
+                  value: "5000"
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+
+---
 # Billing Worker REMOVED - billing now handled by Stripe webhooks via API server
 # All subscription management, invoicing, and renewals handled by Stripe
 

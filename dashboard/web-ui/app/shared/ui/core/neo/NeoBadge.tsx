@@ -28,7 +28,7 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
         dead_tap: "bg-[#f4f4f5] text-black",
         slow_start: "bg-[#f9a8d4] text-black",
         slow_api: "bg-[#dbeafe] text-black",
-        low_exp: "bg-[#5dadec] text-black"
+        low_exp: "bg-[#fef3c7] text-black"
     };
 
     const sizes = {

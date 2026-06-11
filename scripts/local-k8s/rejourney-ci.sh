@@ -30,6 +30,61 @@ require_bin() {
     command -v "$1" >/dev/null 2>&1 || error "$1 is required"
 }
 
+clean_macos_metadata() {
+    local dir="$1"
+    find "$ROOT_DIR/node_modules" "$dir/node_modules" -name .DS_Store -delete 2>/dev/null || true
+}
+
+remove_node_modules_before_ci() {
+    local dir="$1"
+    if [ -d "$ROOT_DIR/node_modules" ] || [ -d "$dir/node_modules" ]; then
+        log "Removing existing node_modules before npm ci in $dir"
+        rm -rf "$ROOT_DIR/node_modules" "$dir/node_modules"
+    fi
+}
+
+npm_ci() {
+    local dir="$1"
+    shift
+    local attempt
+    local cleaner_pid
+    local status
+
+    remove_node_modules_before_ci "$dir"
+
+    for attempt in 1 2 3; do
+        clean_macos_metadata "$dir"
+        (
+            while true; do
+                clean_macos_metadata "$dir"
+                sleep 0.2
+            done
+        ) &
+        cleaner_pid="$!"
+
+        if (
+            cd "$dir"
+            npm ci "$@"
+        ); then
+            kill "$cleaner_pid" >/dev/null 2>&1 || true
+            wait "$cleaner_pid" 2>/dev/null || true
+            clean_macos_metadata "$dir"
+            return
+        fi
+        status="$?"
+
+        kill "$cleaner_pid" >/dev/null 2>&1 || true
+        wait "$cleaner_pid" 2>/dev/null || true
+
+        if [ "$attempt" != "3" ]; then
+            log "npm ci failed in $dir; cleaning macOS metadata and retrying"
+            clean_macos_metadata "$dir"
+        fi
+    done
+
+    return "$status"
+}
+
 use_node24_if_available() {
     local node_major=""
     node_major="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || true)"
@@ -66,16 +121,10 @@ run_install_steps() {
     fi
 
     log "Installing backend dependencies (backend job parity)"
-    (
-        cd "$ROOT_DIR/backend"
-        npm ci --ignore-scripts
-    )
+    npm_ci "$ROOT_DIR/backend" --ignore-scripts
 
     log "Installing workspace dependencies (web job parity)"
-    (
-        cd "$ROOT_DIR"
-        npm ci --ignore-scripts
-    )
+    npm_ci "$ROOT_DIR" --ignore-scripts
 }
 
 run_ci_checks() {
@@ -122,10 +171,7 @@ prepare_root_build_deps() {
     fi
 
     log "Installing root dependencies for image-build parity"
-    (
-        cd "$ROOT_DIR"
-        npm ci
-    )
+    npm_ci "$ROOT_DIR"
 }
 
 build_images() {

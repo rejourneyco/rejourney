@@ -737,6 +737,7 @@ export const researchExtractionJobs = pgTable(
     {
         id: uuid('id').primaryKey().defaultRandom(),
         sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+        lakeType: varchar('lake_type', { length: 32 }).default('interaction').notNull(),
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
         teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
         dueAt: timestamp('due_at').notNull(),
@@ -758,9 +759,9 @@ export const researchExtractionJobs = pgTable(
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },
     (table) => [
-        uniqueIndex('research_extraction_jobs_session_unique').on(table.sessionId),
-        index('research_extraction_jobs_claim_idx').on(table.status, table.nextRetryAt, table.dueAt, table.sessionId),
-        index('research_extraction_jobs_project_status_idx').on(table.projectId, table.status, table.dueAt),
+        uniqueIndex('research_extraction_jobs_session_lake_unique').on(table.sessionId, table.lakeType),
+        index('research_extraction_jobs_claim_idx').on(table.lakeType, table.status, table.nextRetryAt, table.dueAt, table.sessionId),
+        index('research_extraction_jobs_project_status_idx').on(table.projectId, table.lakeType, table.status, table.dueAt),
     ],
 );
 

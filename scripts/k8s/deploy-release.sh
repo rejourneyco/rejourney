@@ -123,7 +123,7 @@ render_manifests() {
   find "${RENDER_DIR}" \( -name '._*' -o -name '.DS_Store' \) -type f -delete
 
   find "${RENDER_DIR}" -name '*.yaml' -type f -print0 | while IFS= read -r -d '' file; do
-    perl -0pi -e "s|image:\\s*ghcr\\.io/${REPOSITORY}/api:[^\\s]+|image: ghcr.io/${REPOSITORY}/api:${IMAGE_TAG}|g; s|image:\\s*ghcr\\.io/${REPOSITORY}/web:[^\\s]+|image: ghcr.io/${REPOSITORY}/web:${IMAGE_TAG}|g; s|image:\\s*ghcr\\.io/${REPOSITORY}/migration:[^\\s]+|image: ghcr.io/${REPOSITORY}/migration:${IMAGE_TAG}|g" "${file}"
+    perl -0pi -e "s|image:\\s*ghcr\\.io/${REPOSITORY}/api:[^\\s]+|image: ghcr.io/${REPOSITORY}/api:${IMAGE_TAG}|g; s|image:\\s*ghcr\\.io/${REPOSITORY}/web:[^\\s]+|image: ghcr.io/${REPOSITORY}/web:${IMAGE_TAG}|g; s|image:\\s*ghcr\\.io/${REPOSITORY}/migration:[^\\s]+|image: ghcr.io/${REPOSITORY}/migration:${IMAGE_TAG}|g; s|image:\\s*ghcr\\.io/${REPOSITORY}/research-lake-compactor:[^\\s]+|image: ghcr.io/${REPOSITORY}/research-lake-compactor:${IMAGE_TAG}|g" "${file}"
   done
 }
 

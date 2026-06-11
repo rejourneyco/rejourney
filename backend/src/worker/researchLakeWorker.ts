@@ -15,6 +15,14 @@ type ResearchLakeCycleSummary = {
     exported: number;
     rejected: number;
     failed: number;
+    recoveredStaleProcessing: number;
+    byLake: Record<'interaction' | 'behavioral_outcomes', {
+        seeded: number;
+        attempted: number;
+        exported: number;
+        rejected: number;
+        failed: number;
+    }>;
 };
 
 type ResearchLakeRuntime = {
@@ -77,12 +85,47 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
             help: 'Total jobs that failed extraction in the current research lake run',
             value: summary.failed,
         },
+        {
+            name: 'rejourney_research_lake_recovered_stale_processing_jobs_total',
+            help: 'Total stale processing jobs recovered in the current research lake run',
+            value: summary.recoveredStaleProcessing,
+        },
     ];
+    for (const [lakeType, lane] of Object.entries(summary.byLake)) {
+        const metricLakeType = lakeType.replace(/[^a-z0-9_]/g, '_');
+        extraMetrics.push(
+            {
+                name: `rejourney_research_lake_${metricLakeType}_seeded_jobs_total`,
+                help: `Total ${lakeType} jobs seeded in the current research lake run`,
+                value: lane.seeded,
+            },
+            {
+                name: `rejourney_research_lake_${metricLakeType}_attempted_jobs_total`,
+                help: `Total ${lakeType} jobs attempted in the current research lake run`,
+                value: lane.attempted,
+            },
+            {
+                name: `rejourney_research_lake_${metricLakeType}_exported_jobs_total`,
+                help: `Total ${lakeType} jobs successfully exported in the current research lake run`,
+                value: lane.exported,
+            },
+            {
+                name: `rejourney_research_lake_${metricLakeType}_rejected_jobs_total`,
+                help: `Total ${lakeType} jobs rejected in the current research lake run`,
+                value: lane.rejected,
+            },
+            {
+                name: `rejourney_research_lake_${metricLakeType}_failed_jobs_total`,
+                help: `Total ${lakeType} jobs that failed extraction in the current research lake run`,
+                value: lane.failed,
+            },
+        );
+    }
 
     await pingWorker(
         'researchLakeWorker',
         'up',
-        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed}`,
+        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing}`,
         undefined,
         extraMetrics,
     );

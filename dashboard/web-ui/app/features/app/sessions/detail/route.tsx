@@ -3143,6 +3143,71 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         seekToScreenshotFrame(clampedTime);
     }, [playbackDurationSeconds, playbackMode, seekToScreenshotFrame, syncPlaybackChrome]);
 
+    // Effect: Seek to the first occurrence of the specified seekToType in query parameters once loaded
+    useEffect(() => {
+        if (!fullSession) return;
+        if (playbackMode === 'none' || playbackDurationSeconds <= 0) return;
+        const queryParams = new URLSearchParams(window.location.search);
+        const seekToType = queryParams.get('seekToType');
+        const seekToSeconds = Number.parseFloat(queryParams.get('seekTo') || '');
+        const seekToTimestamp = Number.parseFloat(queryParams.get('seekToTimestamp') || '');
+
+        const clearSeekParams = () => {
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.delete('seekTo');
+            newUrl.searchParams.delete('seekToTimestamp');
+            newUrl.searchParams.delete('seekToType');
+            window.history.replaceState(null, '', newUrl.toString());
+        };
+
+        if (Number.isFinite(seekToTimestamp)) {
+            const targetSeconds = eventTimestampToPlaybackSeconds(seekToTimestamp);
+            if (Number.isFinite(targetSeconds) && targetSeconds >= 0) {
+                handleSeekToTime(targetSeconds);
+                clearSeekParams();
+            }
+            return;
+        }
+
+        if (Number.isFinite(seekToSeconds)) {
+            handleSeekToTime(seekToSeconds);
+            clearSeekParams();
+            return;
+        }
+
+        if (!seekToType) return;
+
+        if (seekToType === 'start') {
+            handleSeekToTime(0);
+            clearSeekParams();
+            return;
+        }
+
+        if (allTimelineEvents.length === 0) return;
+
+        const matchingEvent = allTimelineEvents.find((event) => {
+            const type = (event.type || '').toLowerCase();
+            const gestureType = getEventGestureKind(event);
+            const marker = getFaultMarker(event);
+
+            if (seekToType === 'crash' && (type === 'crash' || marker === 'CRASH')) return true;
+            if (seekToType === 'anr' && (type === 'anr' || marker === 'ANR')) return true;
+            if (seekToType === 'error' && (type === 'error' || marker === 'ERROR')) return true;
+            if (seekToType === 'rage' && (type === 'rage_tap' || gestureType === 'rage_tap')) return true;
+            if (seekToType === 'dead' && (type === 'dead_tap' || gestureType === 'dead_tap')) return true;
+            if (seekToType === 'api' && (type === 'network_request' || type === 'api_call')) return true;
+            return false;
+        });
+
+        if (matchingEvent) {
+            const targetSeconds = eventTimestampToPlaybackSeconds(matchingEvent.timestamp);
+            if (Number.isFinite(targetSeconds) && targetSeconds >= 0) {
+                handleSeekToTime(targetSeconds);
+                clearSeekParams();
+            }
+        }
+    }, [fullSession, playbackMode, playbackDurationSeconds, allTimelineEvents, eventTimestampToPlaybackSeconds, handleSeekToTime]);
+
     // Step exactly one screenshot frame forward/back (pauses playback for precise inspection).
     const stepFrame = useCallback((delta: number) => {
         if (playbackMode !== 'screenshots' || screenshotFrames.length === 0) return;

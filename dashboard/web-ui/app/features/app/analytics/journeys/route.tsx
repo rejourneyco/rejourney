@@ -1179,8 +1179,10 @@ export const Journeys: React.FC = () => {
                                                             const webEnvironment = webSession && session ? getWebSessionEnvironment(session) : null;
                                                             const screensCount = session?.screensVisited?.length || row.matchedPaths.length;
                                                             const hasDeadTaps = ((session as any)?.deadTapCount || 0) > 0;
-                                                            const hasSlowStart = ((session as any)?.appStartupTimeMs || 0) > 3000;
+                                                            const hasSlowStart = false;
                                                             const hasSlowApi = ((session as any)?.apiAvgResponseMs || 0) > 1000;
+                                                            const hasLowExploration = typeof session?.explorationScore === 'number' && session.explorationScore < 40;
+                                                            const hasDeepExploration = typeof session?.explorationScore === 'number' && session.explorationScore >= 70;
                                                             const hasIssues = Boolean(session && (
                                                                 (session.crashCount || 0) > 0 ||
                                                                 ((session as any).anrCount || 0) > 0 ||
@@ -1316,16 +1318,141 @@ export const Journeys: React.FC = () => {
                                                                                 )}
                                                                                 {row.priority === 'high' && <NeoBadge variant="danger" size="sm">HIGH</NeoBadge>}
                                                                                 {row.priority === 'medium' && <NeoBadge variant="neutral" size="sm">MED</NeoBadge>}
-                                                                                {session && (session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
-                                                                                {session && ((session as any).anrCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ANR</NeoBadge>}
-                                                                                {session && ((session as any).errorCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ERR</NeoBadge>}
-                                                                                {session && (session.rageTapCount || 0) > 0 && <NeoBadge variant="danger" size="sm">RAGE</NeoBadge>}
-                                                                                {session && hasDeadTaps && <NeoBadge variant="neutral" size="sm">DEAD</NeoBadge>}
-                                                                                {session && hasSlowStart && <NeoBadge variant="neutral" size="sm">SLOW</NeoBadge>}
-                                                                                {session && hasSlowApi && <NeoBadge variant="neutral" size="sm">API</NeoBadge>}
-                                                                                {!hasIssues && row.priority !== 'high' && row.priority !== 'medium' && (
-                                                                                    <span className="inline-flex items-center border border-[#15803d] bg-[#dcfce7] px-2 py-0.5 text-[10px] font-black uppercase text-[#14532d]">
-                                                                                        HEALTHY
+                                                                                {session && (session.crashCount || 0) > 0 && (
+                                                                                    <span
+                                                                                        title="Application crash (fatal exception)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=crash`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && ((session as any).anrCount || 0) > 0 && (
+                                                                                    <span
+                                                                                        title="App Not Responding (UI thread blocked)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=anr`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="neutral" size="sm">ANR</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && ((session as any).errorCount || 0) > 0 && (
+                                                                                    <span
+                                                                                        title="Logged error or resource loading failure"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=error`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="neutral" size="sm">ERR</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && (session.rageTapCount || 0) > 0 && (
+                                                                                    <span
+                                                                                        title="Rage tap (repeated rapid taps in a small area)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=rage`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="danger" size="sm">RAGE</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && hasDeadTaps && (
+                                                                                    <span
+                                                                                        title="Dead tap (tap on a non-interactive area with no response)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=dead`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="neutral" size="sm">DEAD</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && hasSlowStart && (
+                                                                                    <span
+                                                                                        title="Slow cold startup duration"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=slow_start`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="neutral" size="sm">SLOW</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && hasSlowApi && (
+                                                                                    <span
+                                                                                        title="Slow API average latency (over 1000ms)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=api`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="neutral" size="sm">API</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && hasLowExploration && (
+                                                                                    <span
+                                                                                        title="Shallow session (low exploration score under 40)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=start`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <NeoBadge variant="low_exp" size="sm">SHALLOW</NeoBadge>
+                                                                                    </span>
+                                                                                )}
+                                                                                {session && hasDeepExploration && (
+                                                                                    <span
+                                                                                        title="Deep session (high exploration score 70 or above)"
+                                                                                        className={canOpenReplay ? "cursor-pointer hover:opacity-80" : ""}
+                                                                                        onClick={(e) => {
+                                                                                            if (canOpenReplay) {
+                                                                                                e.stopPropagation();
+                                                                                                e.preventDefault();
+                                                                                                navigate(`${pathPrefix}/sessions/${row.sessionId}?seekToType=start`);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <span className="inline-flex items-center border border-[#15803d] bg-[#dcfce7] px-2 py-0.5 text-[10px] font-black uppercase text-[#14532d]">
+                                                                                            DEEP
+                                                                                        </span>
                                                                                     </span>
                                                                                 )}
                                                                             </div>
