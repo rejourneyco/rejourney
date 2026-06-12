@@ -658,6 +658,10 @@ class VisualCapture private constructor(private val context: Context) {
         val data = stream.toByteArray()
         val captureTs = System.currentTimeMillis()
         val frameNum = frameCounter.incrementAndGet()
+
+        if (ReplayOrchestrator.shared?.hierarchyCaptureEnabled == true) {
+            ReplayOrchestrator.shared?.captureHierarchyForFrame(captureTs)
+        }
         
         if (frameNum == 1L) {
             DiagnosticLog.trace("[VisualCapture] First frame captured! size=${data.size} bytes")

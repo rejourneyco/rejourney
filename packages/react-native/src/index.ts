@@ -215,7 +215,6 @@ function getAutoTracking() {
 let _isInitialized = false;
 let _isRecording = false;
 let _initializationFailed = false;
-let _metricsInterval: ReturnType<typeof setInterval> | null = null;
 let _appStateSubscription: { remove: () => void } | null = null;
 let _authErrorSubscription: { remove: () => void } | null = null;
 let _currentAppState: string = 'active'; // Default to active, will be updated on init
@@ -230,13 +229,6 @@ const SESSION_TIMEOUT_MS = 60_000;
 let _lastScrollTime: number = 0;
 let _lastScrollOffset: number = 0;
 const SCROLL_THROTTLE_MS = 100;
-
-function clearMetricsInterval(): void {
-  if (_metricsInterval) {
-    clearInterval(_metricsInterval);
-    _metricsInterval = null;
-  }
-}
 
 // Helper to save/load user identity
 // NOW HANDLED NATIVELY - No-op on JS side to avoid unnecessary bridge calls
@@ -711,26 +703,6 @@ export const Rejourney: RejourneyAPI = {
       _isRecording = true;
       getLogger().debug(`✅ Session started: ${result.sessionId}`);
       getLogger().logSessionStart(result.sessionId);
-      // Start polling for upload stats in dev mode
-      if (__DEV__) {
-        _metricsInterval = setInterval(async () => {
-          if (!_isRecording) {
-            clearMetricsInterval();
-            return;
-          }
-          try {
-            const native = getRejourneyNative();
-            if (native) {
-              const metrics = await native.getSDKMetrics();
-              if (metrics) {
-                getLogger().logUploadStats(metrics);
-              }
-            }
-          } catch (e) {
-            getLogger().debug('Failed to fetch metrics:', e);
-          }
-        }, 10000); // Poll more frequently in dev (10s) for better feedback
-      }
 
       getAutoTracking().initAutoTracking(
         {
@@ -818,7 +790,6 @@ export const Rejourney: RejourneyAPI = {
    */
   async _stopSession(): Promise<void> {
     if (!_isRecording) {
-      clearMetricsInterval();
       getLogger().warn('No active recording to stop');
       return;
     }
@@ -837,8 +808,6 @@ export const Rejourney: RejourneyAPI = {
       getLogger().logSessionEnd('current');
     } catch (error) {
       getLogger().error('Failed to stop recording:', error);
-    } finally {
-      clearMetricsInterval();
     }
   },
 

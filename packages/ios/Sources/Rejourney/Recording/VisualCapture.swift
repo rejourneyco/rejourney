@@ -453,6 +453,10 @@ final class VisualCapture: NSObject {
             let frameNumber = _frameCounter
             let jpegQuality = quality
             let generation = captureGeneration
+
+            if ReplayOrchestrator.shared.hierarchyCaptureEnabled {
+                ReplayOrchestrator.shared.captureHierarchyForFrame(timestampMs: captureTs)
+            }
             
             // Move JPEG compression off the main thread.
             // drawHierarchy must be on main, but jpegData is thread-safe and

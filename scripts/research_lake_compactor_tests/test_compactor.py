@@ -50,9 +50,62 @@ def base_manifest(lake):
 def test_interaction_sample_builds_ui_and_combined_rows():
     sample = {
         "manifest": base_manifest("interaction"),
-        "quality": {"quality_tier": "usable", "pii_scan": "passed", "ui_frame_count": 1},
+        "quality": {
+            "quality_tier": "usable",
+            "pii_scan": "passed",
+            "ui_frame_count": 1,
+            "capture_profile": {
+                "hierarchy": {
+                    "cadence_mode": "every_other_visual_frame",
+                    "alignment": "screenshot_frame_aligned",
+                    "observed_median_interval_ms": 1000,
+                    "observed_snapshot_count": 12,
+                    "hierarchy_screenshot_alignment_ratio": 0.86,
+                    "screenshot_hierarchy_coverage_ratio": 0.82,
+                    "alignment_threshold_ratio": 0.8,
+                    "alignment_tolerance_ms": 500,
+                },
+                "rrweb": {
+                    "replay_basis": "snapshot_plus_incremental",
+                    "full_snapshot_count": 1,
+                    "mutation_count": 14,
+                    "dom_skeleton_element_count": 240,
+                    "viewport_missing_count": 0,
+                    "page_missing_count": 0,
+                },
+                "masking": {
+                    "text_input_masking_policy": "secure_only",
+                    "image_video_masking_policy": "all",
+                    "screenshot_pixels_post_redaction": True,
+                    "hierarchy_masked_element_count": 3,
+                    "hierarchy_masked_input_count": 2,
+                    "hierarchy_media_surface_count": 1,
+                    "hierarchy_keyboard_or_system_element_count": 1,
+                    "rrweb_masked_element_count": 4,
+                    "rrweb_masked_input_value_count": 2,
+                    "rrweb_masked_media_attribute_count": 1,
+                    "rrweb_media_surface_count": 1,
+                },
+            },
+        },
         "interactions": [
-            {"index": 0, "kind": "tap", "elapsed_ms_bucket": 500, "funnel_transition": "cart_add", "screen_key": "screen", "target_key": "target"}
+            {
+                "index": 0,
+                "kind": "tap",
+                "elapsed_ms_bucket": 500,
+                "funnel_transition": "cart_add",
+                "screen_key": "screen",
+                "target_key": "target",
+                "x_norm_bucket": 125,
+                "y_norm_bucket": 750,
+                "x_cell": 8,
+                "y_cell": 96,
+                "touch_grid_columns": 64,
+                "touch_grid_rows": 128,
+                "screen_orientation": "portrait",
+                "screen_form_factor": "phone",
+                "viewport_source": "event",
+            }
         ],
         "ui_frames": [{"frame_key": "frame", "source_kind": "screenshots", "source_index": 0}],
         "ui_skeleton": [{"element_key": "element", "screen_key": "screen", "role": "cta_cart_add"}],
@@ -66,6 +119,29 @@ def test_interaction_sample_builds_ui_and_combined_rows():
     assert rows[("interaction", "ui_skeleton_fact")]
     assert rows[("combined", "session_fact")]
     assert rows[("combined", "event_fact")]
+    assert rows[("interaction", "event_fact")][0]["x_cell"] == 8
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_cadence_mode"] == "every_other_visual_frame"
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_alignment"] == "screenshot_frame_aligned"
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_observed_median_interval_ms"] == 1000
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_screenshot_alignment_ratio"] == 0.86
+    assert rows[("interaction", "quality_fact")][0]["screenshot_hierarchy_coverage_ratio"] == 0.82
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_alignment_threshold_ratio"] == 0.8
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_alignment_tolerance_ms"] == 500
+    assert rows[("interaction", "quality_fact")][0]["rrweb_replay_basis"] == "snapshot_plus_incremental"
+    assert rows[("interaction", "quality_fact")][0]["rrweb_full_snapshot_count"] == 1
+    assert rows[("interaction", "quality_fact")][0]["rrweb_mutation_count"] == 14
+    assert rows[("interaction", "quality_fact")][0]["rrweb_dom_skeleton_element_count"] == 240
+    assert rows[("interaction", "quality_fact")][0]["text_input_masking_policy"] == "secure_only"
+    assert rows[("interaction", "quality_fact")][0]["image_video_masking_policy"] == "all"
+    assert rows[("interaction", "quality_fact")][0]["screenshot_pixels_post_redaction"] is True
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_media_surface_count"] == 1
+    assert rows[("interaction", "quality_fact")][0]["hierarchy_keyboard_or_system_element_count"] == 1
+    assert rows[("interaction", "quality_fact")][0]["rrweb_masked_input_value_count"] == 2
+    assert rows[("interaction", "quality_fact")][0]["rrweb_media_surface_count"] == 1
+    assert rows[("combined", "event_fact")][0]["y_cell"] == 96
+    assert rows[("combined", "event_fact")][0]["touch_grid_rows"] == 128
+    assert rows[("combined", "event_fact")][0]["screen_form_factor"] == "phone"
+    assert rows[("combined", "event_fact")][0]["viewport_source"] == "event"
 
 
 def test_behavioral_sample_builds_behavioral_tables_without_ui_rows():

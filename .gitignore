@@ -54,6 +54,12 @@ local.properties
 # Local SEO exports
 /seo_reports/
 
+# Local research lake report drafts
+/research_lake_report.pdf
+/scripts/repair_research_lake_report_pdf.py
+/scripts/generate_research_lake_report.py
+/tmp/pdfs/
+
 # Editor
 .idea/
 .vscode/
@@ -76,4 +82,3 @@ dashboard/.DS_Store
 marketing
 outputs
 .playwright-cli
-research_lake_report.pdf

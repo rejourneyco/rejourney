@@ -148,6 +148,48 @@ Rejourney.logEvent(name: string, properties?: Record<string, unknown>)
 | `name` | `string` | Yes | Event name — use `snake_case` for consistency |
 | `properties` | `object` | No | Key-value pairs attached to this specific event occurrence |
 
+### Naming Conventions
+
+Use stable, lowercase `snake_case` names. The preferred names below give Rejourney the cleanest signal for revenue, lifecycle, and future analysis features. The aliases are accepted for compatibility, but new instrumentation should use the preferred name.
+
+| User action | Preferred event name | Compatible aliases |
+|---|---|---|
+| Purchase completed | `purchase_completed` | `purchase_complete`, `purchase_success`, `purchase`, `order_completed`, `complete_purchase`, `conversion` |
+| Checkout started | `checkout_started` | `checkout_start`, `begin_checkout` |
+| Product added to cart | `add_to_cart` | `cart_add`, `addtocart`, `added_to_cart`, `product_added_to_cart` |
+| Product viewed | `product_view` | `view_item`, `viewproduct` |
+| Signup completed | `signup_completed` | `signup`, `sign_up`, `register`, `account_created` |
+| Login | `login` | `sign_in` |
+| Paywall viewed | `paywall_view` | `paywall_exposure`, `view_paywall` |
+| Plan selected | `plan_selected` | `pricing_plan_selected`, `select_plan`, `pricing_viewed` |
+| Coupon used | `coupon_use` | `coupon_used`, `apply_coupon` |
+| Trial started | `trial_started` | `trial_start`, `begin_trial` |
+| Subscription started | `subscription_started` | `subscription_start` |
+| Refund processed | `refund_processed` | `refund`, `refund_completed`, `refunded` |
+| Subscription cancelled | `subscription_cancelled` | `cancel`, `cancel_subscription`, `cancellation` |
+| Payment failed | `payment_failed` | `payment_failure`, `charge_failed` |
+| Onboarding completed | `onboarding_completed` | `onboarding_milestone`, `complete_onboarding` |
+| Feature used | `feature_used` | `key_feature_used`, `use_feature` |
+
+Use these property names when they apply:
+
+| Meaning | Preferred property | Compatible aliases |
+|---|---|---|
+| Transaction id | `transactionId` | `transaction_id` |
+| Order id | `orderId` | |
+| Money amount | `amount` | `value`, `price`, `cartValue`, `cart_value` |
+| Currency | `currency` | |
+| Quantity | `quantity` | `qty` |
+| Product id | `productId` | `product_id`, `sku` |
+| Plan id | `planId` | `plan_id`, `plan` |
+| Price id | `priceId` | `price_id` |
+| Payment provider | `paymentProvider` | `payment_provider` |
+| Renewal flag | `isRenewal` | `is_renewal` |
+| Trial conversion flag | `isTrialConversion` | `is_trial_conversion` |
+| Coupon code | `couponCode` | `coupon_code`, `coupon` |
+
+Avoid inventing special Rejourney-only object fields. If your product already has useful domain properties, send them as ordinary custom event properties, but do not expect the SDK to infer app-specific business objects.
+
 ### Examples
 
 ```javascript

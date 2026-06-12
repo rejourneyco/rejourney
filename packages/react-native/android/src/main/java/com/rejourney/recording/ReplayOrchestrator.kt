@@ -819,14 +819,14 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         hierarchyHandler = Handler(Looper.getMainLooper())
         hierarchyRunnable = object : Runnable {
             override fun run() {
-                captureHierarchy()
+                captureHierarchy(skipDuplicate = true, allowDuringMapMovement = false)
                 hierarchyHandler?.postDelayed(this, (hierarchyCaptureInterval * 1000).toLong())
             }
         }
         hierarchyHandler?.postDelayed(hierarchyRunnable!!, (hierarchyCaptureInterval * 1000).toLong())
 
         // Initial capture after 500ms
-        hierarchyHandler?.postDelayed({ captureHierarchy() }, 500)
+        hierarchyHandler?.postDelayed({ captureHierarchy(skipDuplicate = true, allowDuringMapMovement = false) }, 500)
     }
 
     private fun stopHierarchyCapture() {
@@ -835,31 +835,46 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         hierarchyRunnable = null
     }
 
-    private fun captureHierarchy() {
+    fun captureHierarchyForFrame(timestampMs: Long) {
+        captureHierarchy(timestampMs = timestampMs, skipDuplicate = false, allowDuringMapMovement = true)
+    }
+
+    private fun captureHierarchy(
+        timestampMs: Long? = null,
+        skipDuplicate: Boolean = true,
+        allowDuringMapMovement: Boolean = false
+    ) {
         if (!live) return
         val sid = replayId ?: return
 
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { captureHierarchy() }
+            mainHandler.post {
+                captureHierarchy(
+                    timestampMs = timestampMs,
+                    skipDuplicate = skipDuplicate,
+                    allowDuringMapMovement = allowDuringMapMovement
+                )
+            }
             return
         }
 
         // Throttle hierarchy capture when map is visible and animating —
         // ViewHierarchyScanner traverses the full view tree including map's
         // deep SurfaceView/TextureView children, adding main-thread pressure.
-        if (SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+        if (!allowDuringMapMovement && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
             return
         }
 
-        val hierarchy = ViewHierarchyScanner.shared?.captureHierarchy() ?: return
+        val hierarchy = (ViewHierarchyScanner.shared?.captureHierarchy() ?: return).toMutableMap()
+        val ts = timestampMs ?: System.currentTimeMillis()
+        hierarchy["timestamp"] = ts
 
         val hash = hierarchyHash(hierarchy)
-        if (hash == lastHierarchyHash) return
+        if (skipDuplicate && hash == lastHierarchyHash) return
         lastHierarchyHash = hash
 
         val json = JSONObject(hierarchy).toString().toByteArray(Charsets.UTF_8)
         val compressed = json.gzipCompress() ?: return
-        val ts = System.currentTimeMillis()
 
         SegmentDispatcher.shared.transmitHierarchy(sid, compressed, ts, null)
     }

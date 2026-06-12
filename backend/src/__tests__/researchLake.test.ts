@@ -38,16 +38,16 @@ describe('research lake anonymized payload shape', () => {
         expect(__researchLakeTestInternals.containsIdentifierRisk({ device_id: 'device-123' })).toBe(true);
     });
 
-    it('extracts compact screenshot feature grids without storing raw pixels', () => {
-        const width = 16;
-        const height = 16;
+    it('extracts portrait-phone screenshot feature grids without storing raw pixels', () => {
+        const width = 64;
+        const height = 128;
         const data = Buffer.alloc(width * height * 4);
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const offset = (y * width + x) * 4;
-                data[offset] = x * 16;
-                data[offset + 1] = y * 16;
-                data[offset + 2] = (x + y) * 8;
+                data[offset] = Math.round((x / width) * 255);
+                data[offset + 1] = Math.round((y / height) * 255);
+                data[offset + 2] = Math.round(((x + y) / (width + height)) * 255);
                 data[offset + 3] = 255;
             }
         }
@@ -58,12 +58,49 @@ describe('research lake anonymized payload shape', () => {
         expect(features).not.toBeNull();
         expect(features?.width).toBe(width);
         expect(features?.height).toBe(height);
-        expect(features?.lumaGrid).toHaveLength(1024);
-        expect(features?.edgeGrid).toHaveLength(1024);
-        expect(features?.colorGrid).toHaveLength(1024);
+        expect(features?.gridColumns).toBe(64);
+        expect(features?.gridRows).toBe(128);
+        expect(features?.orientation).toBe('portrait');
+        expect(features?.formFactor).toBe('phone');
+        expect(features?.lumaGrid).toHaveLength(8192);
+        expect(features?.edgeGrid).toHaveLength(8192);
+        expect(features?.colorGrid).toHaveLength(8192);
         expect(features?.lumaGrid.every((value) => value >= 0 && value <= 15)).toBe(true);
         expect(features?.edgeGrid.every((value) => value >= 0 && value <= 15)).toBe(true);
         expect(features?.lumaGrid.at(-1)).toBeGreaterThan(0);
+    });
+
+    it('selects one replay grid contract for phones and tablets by orientation', () => {
+        expect(__researchLakeTestInternals.visualGridSpecForDimensions(390, 844)).toMatchObject({
+            columns: 64,
+            rows: 128,
+            orientation: 'portrait',
+            formFactor: 'phone',
+        });
+        expect(__researchLakeTestInternals.visualGridSpecForDimensions(844, 390)).toMatchObject({
+            columns: 128,
+            rows: 64,
+            orientation: 'landscape',
+            formFactor: 'phone',
+        });
+        expect(__researchLakeTestInternals.visualGridSpecForDimensions(768, 1024)).toMatchObject({
+            columns: 96,
+            rows: 128,
+            orientation: 'portrait',
+            formFactor: 'tablet',
+        });
+        expect(__researchLakeTestInternals.visualGridSpecForDimensions(1024, 768)).toMatchObject({
+            columns: 128,
+            rows: 96,
+            orientation: 'landscape',
+            formFactor: 'tablet',
+        });
+        expect(__researchLakeTestInternals.visualGridSpecForDimensions(null, null)).toMatchObject({
+            columns: 64,
+            rows: 128,
+            orientation: 'portrait',
+            formFactor: 'phone',
+        });
     });
 
     it('generates a valid ZIP archive containing multiple files', async () => {
@@ -86,7 +123,7 @@ describe('research lake anonymized payload shape', () => {
         const behavioralSql = __researchLakeTestInternals.buildSeedResearchJobsSql('behavioral_outcomes');
         const claimSql = __researchLakeTestInternals.buildClaimResearchJobsSql();
 
-        expect(interactionSql).toContain("ra.kind IN ('screenshots', 'rrweb')");
+        expect(interactionSql).toContain("ra.kind IN ('screenshots', 'hierarchy', 'rrweb')");
         expect(interactionSql).toContain('rej.lake_type = $3');
         expect(interactionSql).toContain('ON CONFLICT (session_id, lake_type) DO NOTHING');
 
@@ -139,6 +176,9 @@ describe('research lake anonymized payload shape', () => {
             anr_count: 0,
             rage_tap_count: 0,
             dead_tap_count: 0,
+            geo_country: 'United States',
+            geo_country_code: 'US',
+            geo_city: 'San Francisco',
             metadata: { experiment: 'checkout' },
         } as any;
         const projectKey = 'project-key';
@@ -146,7 +186,7 @@ describe('research lake anonymized payload shape', () => {
         const events = __researchLakeTestInternals.buildBehavioralEvents(session, interactions, projectKey);
         const metrics = __researchLakeTestInternals.buildSessionMetrics(session);
         const businessContext = __researchLakeTestInternals.buildBusinessContext(session, interactions, [], null);
-        const labels = __researchLakeTestInternals.buildBehavioralLabels(session, businessContext, projectKey);
+        const labels = __researchLakeTestInternals.buildBehavioralLabels(session, businessContext);
         const manifest = __researchLakeTestInternals.buildBehavioralManifest({
             session,
             projectKey,
@@ -162,10 +202,16 @@ describe('research lake anonymized payload shape', () => {
         expect(manifest.lake).toBe('behavioral_outcomes');
         expect(manifest.files).not.toHaveProperty('ui_frames');
         expect(manifest.files).not.toHaveProperty('ui_skeleton');
+        expect(manifest.geo).toMatchObject({
+            country: 'United States',
+            country_code: 'US',
+            city: 'San Francisco',
+        });
+        expect(__researchLakeTestInternals.buildGeoContext(session).city).toBe('San Francisco');
         expect(events[1]).toHaveProperty('product_key');
         expect(events[1]).not.toHaveProperty('product_id');
-        expect(JSON.stringify({ manifest, events, metrics, labels })).not.toContain('prod_secret');
-        expect(JSON.stringify({ manifest, events, metrics, labels })).not.toContain('tx_raw');
+        expect(JSON.stringify({ manifest, interactions, events, metrics, labels })).not.toContain('prod_secret');
+        expect(JSON.stringify({ manifest, interactions, events, metrics, labels })).not.toContain('tx_raw');
         expect(__researchLakeTestInternals.containsIdentifierRisk({ manifest, events, metrics, labels })).toBe(false);
     });
 
@@ -179,7 +225,7 @@ describe('research lake anonymized payload shape', () => {
                 experiment: 'v2'
             },
             events: [
-                { name: 'signup_completed', timestamp: new Date('2026-06-08T12:00:01Z').getTime(), x: 50, y: 50 },
+                { name: 'signup_completed', timestamp: new Date('2026-06-08T12:00:01Z').getTime(), x: 50, y: 50, viewportWidth: 1000, viewportHeight: 2000 },
                 { name: 'login', timestamp: new Date('2026-06-08T12:00:02Z').getTime(), x: 100, y: 100 },
                 { name: 'product_view', timestamp: new Date('2026-06-08T12:00:05Z').getTime(), x: 150, y: 150, properties: { price: 49.99, productId: 'prod_1' } },
                 { name: 'product_added_to_cart', timestamp: new Date('2026-06-08T12:00:10Z').getTime(), x: 200, y: 200, properties: { quantity: 7, price: 99.98, productId: 'prod_1' } },
@@ -237,12 +283,29 @@ describe('research lake anonymized payload shape', () => {
         expect(interactions[3].cart_value_bucket).toBe(100);
         // added_to_cart: exact small counts are retained as buckets
         expect(interactions[16].item_count_change).toBe(5);
+        expect(interactions[0].x_norm_bucket).toBe(50);
+        expect(interactions[0].y_norm_bucket).toBe(25);
+        expect(interactions[0].x_cell).toBe(3);
+        expect(interactions[0].y_cell).toBe(3);
+        expect(interactions[0].touch_grid_columns).toBe(64);
+        expect(interactions[0].touch_grid_rows).toBe(128);
+        expect(interactions[0].screen_orientation).toBe('portrait');
+        expect(interactions[0].screen_form_factor).toBe('phone');
+        expect(interactions[1].viewport_source).toBe('session_event_fallback');
+        expect(interactions[0]).not.toHaveProperty('x_cell_32');
+        expect(interactions[0]).not.toHaveProperty('y_cell_32');
+        expect(interactions[0]).not.toHaveProperty('x_bucket');
+        expect(interactions[0]).not.toHaveProperty('y_bucket');
 
         // Verify custom properties extraction on purchase_complete
         const purchase = interactions[8];
-        expect(purchase.product_id).toBe('prod_1');
-        expect(purchase.plan_id).toBe('plan_gold');
-        expect(purchase.price_id).toBe('price_gold_monthly');
+        expect(purchase.product_key).toMatch(/^[0-9a-f]{20}$/);
+        expect(purchase.plan_key).toMatch(/^[0-9a-f]{20}$/);
+        expect(purchase.price_key).toMatch(/^[0-9a-f]{20}$/);
+        expect(purchase.product_key).not.toBe('prod_1');
+        expect(JSON.stringify(interactions)).not.toContain('prod_1');
+        expect(JSON.stringify(interactions)).not.toContain('plan_gold');
+        expect(JSON.stringify(interactions)).not.toContain('price_gold_monthly');
         expect(purchase.currency).toBe('USD');
         expect(purchase.payment_provider).toBe('stripe');
         expect(purchase.platform).toBe('ios');
@@ -286,13 +349,396 @@ describe('research lake anonymized payload shape', () => {
         expect(bizContext.max_funnel_stage_reached).toBe('purchase');
         expect(bizContext.conversion_revenue_bucket).toBe(150); // 149.97 rounded to 150
         expect(bizContext.currency).toBe('USD');
-        expect(bizContext.purchased_products).toContain('prod_1');
+        expect(bizContext.purchased_product_keys).toContain(purchase.product_key);
         expect(bizContext.has_discount_applied).toBe(true);
         expect((bizContext as any).user_identity_hash).toBeUndefined();
         expect(bizContext.session_metadata_keys).toContain('plan');
         expect(bizContext.session_metadata_keys).toContain('experiment');
         expect(bizContext.lifecycle_events_present).toContain('signup');
         expect(bizContext.lifecycle_events_present).toContain('purchase_complete');
+    });
+
+    it('recognizes common custom event naming variants as funnel transitions', () => {
+        const cases = [
+            { event: { name: 'PurchaseSucceeded' }, transition: 'purchase_complete' },
+            { event: { type: 'checkout.initiated' }, transition: 'checkout_start' },
+            { event: { eventName: 'add-to-basket' }, transition: 'cart_add' },
+            { event: { event_name: 'Product Details Viewed' }, transition: 'product_view' },
+            { event: { name: 'User Registered' }, transition: 'signup' },
+            { event: { name: 'signedIn' }, transition: 'login' },
+            { event: { name: 'paywall_shown' }, transition: 'paywall_view' },
+            { event: { name: 'choosePlan' }, transition: 'plan_selected' },
+            { event: { name: 'promoCodeApplied' }, transition: 'coupon_use' },
+            { event: { name: 'free_trial_start' }, transition: 'trial_start' },
+            { event: { name: 'subscriptionCreated' }, transition: 'subscription_start' },
+            { event: { name: 'payment_refunded' }, transition: 'refund' },
+            { event: { name: 'subscriptionCanceled' }, transition: 'cancellation' },
+            { event: { name: 'card_declined' }, transition: 'payment_failure' },
+            { event: { name: 'tutorial_completed' }, transition: 'onboarding_completed' },
+            { event: { name: 'tool-used' }, transition: 'feature_used' },
+            { event: { name: 'cancel_button_clicked' }, transition: null },
+        ] as const;
+
+        const startedAt = new Date('2026-06-08T12:00:00Z');
+        const session = {
+            id: 'session-aliases',
+            started_at: startedAt,
+            events: cases.map((entry, index) => ({
+                ...entry.event,
+                timestamp: startedAt.getTime() + index * 1000,
+            })),
+        } as any;
+
+        const interactions = __researchLakeTestInternals.buildInteractions(session, 'project-key', null);
+
+        expect(interactions.map((interaction) => interaction.funnel_transition)).toEqual(
+            cases.map((entry) => entry.transition),
+        );
+        expect(__researchLakeTestInternals.funnelTransitionAliases).toHaveLength(16);
+    });
+
+    it('normalizes configured custom event names before matching funnel transitions', () => {
+        const startedAt = new Date('2026-06-08T12:00:00Z');
+        const session = {
+            id: 'session-config-aliases',
+            started_at: startedAt,
+            events: [
+                { name: 'VIP Plan Bought', timestamp: startedAt.getTime() + 1000 },
+                { name: 'Custom Subscriber', timestamp: startedAt.getTime() + 2000 },
+            ],
+        } as any;
+
+        const interactions = __researchLakeTestInternals.buildInteractions(session, 'project-key', {
+            revenueEventName: 'vip_plan_bought',
+            subscriberEventName: 'custom-subscriber',
+        });
+
+        expect(interactions.map((interaction) => interaction.funnel_transition)).toEqual([
+            'purchase_complete',
+            'cart_add',
+        ]);
+    });
+
+    it('places touch events onto the active orientation-aware replay grid', () => {
+        const session = {
+            id: 'session-grid',
+            started_at: new Date('2026-06-08T12:00:00Z'),
+            events: [
+                { name: 'tap', elapsedMs: 100, x: 640, y: 320, viewportWidth: 1280, viewportHeight: 640 },
+                { name: 'tap', elapsedMs: 200, x: 512, y: 384, viewportWidth: 1024, viewportHeight: 768 },
+                { name: 'tap', elapsedMs: 300, x: 50, y: 50 },
+            ],
+        } as any;
+
+        const interactions = __researchLakeTestInternals.buildInteractions(session, 'project-key', null);
+
+        expect(interactions[0]).toMatchObject({
+            x_norm_bucket: 500,
+            y_norm_bucket: 500,
+            x_cell: 64,
+            y_cell: 32,
+            touch_grid_columns: 128,
+            touch_grid_rows: 64,
+            screen_orientation: 'landscape',
+            screen_form_factor: 'phone',
+        });
+        expect(interactions[1]).toMatchObject({
+            x_norm_bucket: 500,
+            y_norm_bucket: 500,
+            x_cell: 64,
+            y_cell: 48,
+            touch_grid_columns: 128,
+            touch_grid_rows: 96,
+            screen_orientation: 'landscape',
+            screen_form_factor: 'tablet',
+        });
+        expect(interactions[2]).toMatchObject({
+            x_norm_bucket: 50,
+            y_norm_bucket: 65,
+            x_cell: 6,
+            y_cell: 6,
+            touch_grid_columns: 128,
+            touch_grid_rows: 96,
+            screen_orientation: 'landscape',
+            screen_form_factor: 'tablet',
+            viewport_source: 'session_event_fallback',
+        });
+    });
+
+    it('summarizes hierarchy capture cadence for manifest and quality warnings', () => {
+        const screenshotFrames = [0, 500, 1000, 1500].map((elapsed, index) => ({
+            frame_key: `s-${index}`,
+            source_kind: 'screenshots',
+            source_index: index,
+            elapsed_ms_bucket: elapsed,
+            screen_key: 'screen',
+        }));
+        const everyOtherHierarchy = [0, 1000].map((elapsed, index) => ({
+            frame_key: `h-${index}`,
+            source_kind: 'hierarchy',
+            source_index: index,
+            elapsed_ms_bucket: elapsed,
+            screen_key: 'screen',
+        }));
+
+        const alignedProfile = __researchLakeTestInternals.buildHierarchyCaptureProfile([
+            ...screenshotFrames,
+            ...everyOtherHierarchy,
+        ] as any);
+
+        expect(alignedProfile).toMatchObject({
+            present: true,
+            cadence_mode: 'every_other_visual_frame',
+            configured_interval_ms: null,
+            observed_median_interval_ms: 1000,
+            observed_snapshot_count: 2,
+            screenshot_frame_count: 4,
+            hierarchy_to_screenshot_ratio: 0.5,
+            hierarchy_screenshot_alignment_ratio: 1,
+            screenshot_hierarchy_coverage_ratio: 1,
+            alignment_threshold_ratio: 0.8,
+            alignment_tolerance_ms: 500,
+            nearest_screenshot_median_delta_ms: 0,
+            alignment: 'screenshot_frame_aligned',
+        });
+        expect(__researchLakeTestInternals.hierarchyCaptureWarnings(alignedProfile)).toEqual([]);
+        const alignedRows = __researchLakeTestInternals.annotateHierarchyCaptureProfile({
+            frames: everyOtherHierarchy,
+            skeleton: [{
+                element_key: 'node-1',
+                frame_key: 'h-0',
+                screen_key: 'screen',
+                role: 'button',
+                source_kind: 'hierarchy',
+            }],
+        } as any, alignedProfile);
+        expect(alignedRows.frames[0]).toMatchObject({
+            source_timing: 'screenshot_frame_aligned_snapshot',
+            hierarchy_snapshot_sparse: false,
+            hierarchy_capture_cadence: 'every_other_visual_frame',
+            hierarchy_capture_alignment: 'screenshot_frame_aligned',
+        });
+        expect(alignedRows.skeleton[0]).toMatchObject({
+            hierarchy_snapshot_sparse: false,
+            hierarchy_capture_cadence: 'every_other_visual_frame',
+        });
+
+        const sparseProfile = __researchLakeTestInternals.buildHierarchyCaptureProfile([
+            ...Array.from({ length: 10 }, (_, index) => ({
+                frame_key: `sparse-s-${index}`,
+                source_kind: 'screenshots',
+                source_index: index,
+                elapsed_ms_bucket: index * 500,
+                screen_key: 'screen',
+            })),
+            ...[0, 2000, 4000].map((elapsed, index) => ({
+                frame_key: `sparse-h-${index}`,
+                source_kind: 'hierarchy',
+                source_index: index,
+                elapsed_ms_bucket: elapsed,
+                screen_key: 'screen',
+            })),
+        ] as any);
+
+        expect(sparseProfile).toMatchObject({
+            present: true,
+            cadence_mode: 'fixed_interval',
+            observed_median_interval_ms: 2000,
+            observed_snapshot_count: 3,
+            alignment: 'sparse_timeline',
+        });
+        expect(__researchLakeTestInternals.hierarchyCaptureWarnings(sparseProfile)).toEqual([
+            'hierarchy_sparse_timeline',
+            'hierarchy_not_frame_aligned',
+        ]);
+        const sparseRows = __researchLakeTestInternals.annotateHierarchyCaptureProfile({
+            frames: [{
+                frame_key: 'sparse-h-0',
+                source_kind: 'hierarchy',
+                source_index: 0,
+                elapsed_ms_bucket: 0,
+                screen_key: 'screen',
+            }],
+            skeleton: [],
+        } as any, sparseProfile);
+        expect(sparseRows.frames[0]).toMatchObject({
+            source_timing: 'sparse_timeline_snapshot',
+            hierarchy_snapshot_sparse: true,
+            hierarchy_capture_cadence: 'fixed_interval',
+            hierarchy_capture_alignment: 'sparse_timeline',
+        });
+
+        const perFrameProfile = __researchLakeTestInternals.buildHierarchyCaptureProfile([
+            ...screenshotFrames,
+            ...screenshotFrames.map((frame, index) => ({
+                frame_key: `per-h-${index}`,
+                source_kind: 'hierarchy',
+                source_index: index,
+                elapsed_ms_bucket: frame.elapsed_ms_bucket,
+                screen_key: 'screen',
+            })),
+        ] as any);
+        expect(perFrameProfile).toMatchObject({
+            cadence_mode: 'per_visual_frame',
+            observed_snapshot_count: 4,
+            screenshot_frame_count: 4,
+            hierarchy_to_screenshot_ratio: 1,
+            hierarchy_screenshot_alignment_ratio: 1,
+            screenshot_hierarchy_coverage_ratio: 1,
+            nearest_screenshot_median_delta_ms: 0,
+            alignment: 'screenshot_frame_aligned',
+        });
+        expect(__researchLakeTestInternals.hierarchyCaptureWarnings(perFrameProfile)).toEqual([]);
+
+        const imperfectFrameAlignedProfile = __researchLakeTestInternals.buildHierarchyCaptureProfile([
+            ...Array.from({ length: 10 }, (_, index) => ({
+                frame_key: `imperfect-s-${index}`,
+                source_kind: 'screenshots',
+                source_index: index,
+                elapsed_ms_bucket: index * 500,
+                screen_key: 'screen',
+            })),
+            ...Array.from({ length: 8 }, (_, index) => ({
+                frame_key: `imperfect-h-${index}`,
+                source_kind: 'hierarchy',
+                source_index: index,
+                elapsed_ms_bucket: index * 500,
+                screen_key: 'screen',
+            })),
+        ] as any);
+        expect(imperfectFrameAlignedProfile).toMatchObject({
+            cadence_mode: 'per_visual_frame',
+            observed_snapshot_count: 8,
+            screenshot_frame_count: 10,
+            hierarchy_to_screenshot_ratio: 0.8,
+            hierarchy_screenshot_alignment_ratio: 1,
+            screenshot_hierarchy_coverage_ratio: 0.9,
+            alignment_threshold_ratio: 0.8,
+            alignment: 'screenshot_frame_aligned',
+        });
+        expect(__researchLakeTestInternals.hierarchyCaptureWarnings(imperfectFrameAlignedProfile)).toEqual([]);
+    });
+
+    it('summarizes masking and keyboard/system surfaces for privacy-safe training gates', () => {
+        const session = {
+            text_input_masking: 'secure_only',
+            image_video_masking: 'all',
+        };
+        const frames = [
+            { frame_key: 'shot-1', source_kind: 'screenshots', source_index: 0, elapsed_ms_bucket: 0, screen_key: 'screen' },
+            { frame_key: 'hier-1', source_kind: 'hierarchy', source_index: 1, elapsed_ms_bucket: 0, screen_key: 'screen' },
+            { frame_key: 'dom-1', source_kind: 'rrweb', source_index: 2, elapsed_ms_bucket: 0, screen_key: 'screen' },
+        ];
+        const skeleton = [
+            { element_key: 'native-input', frame_key: 'hier-1', screen_key: 'screen', role: 'input', source_kind: 'hierarchy', is_masked: true },
+            { element_key: 'keyboard', frame_key: 'hier-1', screen_key: 'screen', role: 'system_surface', source_kind: 'hierarchy', is_keyboard_or_system: true },
+            { element_key: 'dom-input', frame_key: 'dom-1', screen_key: 'screen', role: 'input', source_kind: 'rrweb', is_masked: true, has_masked_input_value: true },
+            { element_key: 'dom-media', frame_key: 'dom-1', screen_key: 'screen', role: 'media', source_kind: 'rrweb', is_masked: true, has_masked_media_attribute: true },
+        ];
+
+        const profile = __researchLakeTestInternals.buildMaskingCaptureProfile(session as any, frames as any, skeleton as any);
+
+        expect(profile).toMatchObject({
+            text_input_masking_policy: 'secure_only',
+            image_video_masking_policy: 'all',
+            screenshot_pixels_post_redaction: true,
+            hierarchy_mask_observed: true,
+            hierarchy_masked_element_count: 1,
+            hierarchy_masked_input_count: 1,
+            hierarchy_media_surface_count: 0,
+            hierarchy_keyboard_or_system_element_count: 1,
+            hierarchy_keyboard_or_system_policy: 'exclude_or_downweight',
+            rrweb_mask_observed: true,
+            rrweb_masked_element_count: 2,
+            rrweb_masked_input_value_count: 1,
+            rrweb_masked_media_attribute_count: 1,
+            rrweb_media_surface_count: 1,
+        });
+        expect(__researchLakeTestInternals.maskingCaptureWarnings(profile)).toEqual([
+            'masking_text_inputs_secure_only_policy',
+            'hierarchy_keyboard_or_system_nodes_present',
+        ]);
+    });
+
+    it('summarizes rrweb replay quality for curated DOM training gates', () => {
+        const rrwebFrames = [
+            {
+                frame_key: 'dom-0',
+                source_kind: 'rrweb',
+                source_index: 0,
+                elapsed_ms_bucket: 0,
+                screen_key: 'screen',
+                rrweb_event_type: 2,
+                rrweb_event_kind: 'full_snapshot',
+                viewport_width_bucket: 1280,
+                viewport_height_bucket: 720,
+                page_width_bucket: 1280,
+                page_height_bucket: 2048,
+            },
+            {
+                frame_key: 'dom-1',
+                source_kind: 'rrweb',
+                source_index: 1,
+                elapsed_ms_bucket: 500,
+                screen_key: 'screen',
+                rrweb_event_type: 3,
+                rrweb_incremental_source: 0,
+                rrweb_event_kind: 'mutation',
+                viewport_width_bucket: 1280,
+                viewport_height_bucket: 720,
+                page_width_bucket: 1280,
+                page_height_bucket: 2048,
+            },
+        ];
+        const skeleton = [
+            { element_key: 'dom-node-1', frame_key: 'dom-0', screen_key: 'screen', role: 'control' },
+            { element_key: 'dom-node-2', frame_key: 'dom-1', screen_key: 'screen', role: 'container' },
+        ];
+
+        const profile = __researchLakeTestInternals.buildRrwebCaptureProfile(rrwebFrames as any, skeleton as any);
+
+        expect(profile).toMatchObject({
+            present: true,
+            replay_basis: 'snapshot_plus_incremental',
+            event_count: 2,
+            full_snapshot_count: 1,
+            incremental_count: 1,
+            mutation_count: 1,
+            dom_skeleton_element_count: 2,
+            viewport_missing_count: 0,
+            page_missing_count: 0,
+            event_span_ms: 500,
+        });
+        expect(__researchLakeTestInternals.rrwebCaptureWarnings(profile)).toEqual([]);
+
+        const partialProfile = __researchLakeTestInternals.buildRrwebCaptureProfile([{
+            frame_key: 'dom-partial',
+            source_kind: 'rrweb',
+            source_index: 0,
+            elapsed_ms_bucket: 0,
+            screen_key: 'screen',
+            rrweb_event_type: 3,
+            rrweb_incremental_source: 0,
+            rrweb_event_kind: 'mutation',
+            viewport_width_bucket: null,
+            viewport_height_bucket: null,
+            page_width_bucket: null,
+            page_height_bucket: null,
+        }] as any, []);
+
+        expect(partialProfile).toMatchObject({
+            replay_basis: 'incremental_without_full_snapshot',
+            full_snapshot_count: 0,
+            mutation_count: 1,
+            viewport_missing_count: 1,
+            page_missing_count: 1,
+        });
+        expect(__researchLakeTestInternals.rrwebCaptureWarnings(partialProfile)).toEqual([
+            'rrweb_missing_full_snapshot',
+            'rrweb_incremental_without_full_snapshot',
+            'rrweb_viewport_dimensions_missing',
+            'rrweb_page_dimensions_missing',
+        ]);
     });
 
     it('respects customEventConfig for amount/currency property mapping, default currency, and minor units conversion', () => {

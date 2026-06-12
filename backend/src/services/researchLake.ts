@@ -15,11 +15,23 @@ import {
     dimensionsFromRrwebEnvelope,
     extractRrwebEventsFromArtifact,
 } from '../utils/webAttentionHeatmap.js';
+import {
+    extractMobileHierarchySnapshotsFromArtifact,
+    type MobileHierarchySnapshot,
+} from '../utils/mobileAttentionHeatmap.js';
 
 const RESEARCH_SCHEMA_VERSION = 1;
 const RESEARCH_ANONYMIZATION_VERSION = 1;
-const SCREENSHOT_FEATURE_GRID_SIZE = 32;
+const PHONE_PORTRAIT_GRID = { columns: 64, rows: 128 } as const;
+const PHONE_LANDSCAPE_GRID = { columns: 128, rows: 64 } as const;
+const TABLET_PORTRAIT_GRID = { columns: 96, rows: 128 } as const;
+const TABLET_LANDSCAPE_GRID = { columns: 128, rows: 96 } as const;
+const TABLET_ASPECT_RATIO_MAX = 1.65;
 const JPEG_MAX_MEMORY_MB = 192;
+const HIERARCHY_ALIGNMENT_TOLERANCE_MS = 500;
+const HIERARCHY_GOOD_ALIGNMENT_RATIO = 0.8;
+const HIERARCHY_PER_FRAME_MIN_COVERAGE_RATIO = 0.8;
+const HIERARCHY_EVERY_OTHER_MIN_RATIO = 0.35;
 const RRWEB_EVENT_TYPE_FULL_SNAPSHOT = 2;
 const RRWEB_EVENT_TYPE_INCREMENTAL = 3;
 const RRWEB_EVENT_TYPE_META = 4;
@@ -39,6 +51,15 @@ const jpeg = require('jpeg-js') as {
 };
 
 export type ResearchLakeType = typeof RESEARCH_LAKE_TYPES[number];
+
+type ScreenOrientation = 'portrait' | 'landscape';
+type ScreenFormFactor = 'phone' | 'tablet';
+type FeatureGridSpec = {
+    columns: number;
+    rows: number;
+    orientation: ScreenOrientation;
+    formFactor: ScreenFormFactor;
+};
 
 type ResearchJobRow = {
     id: string;
@@ -101,6 +122,8 @@ type SessionContext = {
     observe_only: boolean;
     replay_quota_billing_exhausted: boolean;
     replay_retention_state: string | null;
+    text_input_masking: string | null;
+    image_video_masking: string | null;
     crash_count?: number;
     anr_count?: number;
     error_count?: number;
@@ -129,7 +152,7 @@ type ResearchInteractionRow = Record<string, unknown> & {
 
 type ResearchUiFrameRow = Record<string, unknown> & {
     frame_key: string;
-    source_kind: 'screenshots' | 'rrweb';
+    source_kind: 'screenshots' | 'rrweb' | 'hierarchy';
     source_index: number;
     elapsed_ms_bucket: number | null;
     screen_key: string;
@@ -145,10 +168,15 @@ type ResearchUiElementRow = Record<string, unknown> & {
 type ScreenshotFeatureGrid = {
     width: number;
     height: number;
+    gridColumns: number;
+    gridRows: number;
+    orientation: ScreenOrientation;
+    formFactor: ScreenFormFactor;
     lumaGrid: number[];
     edgeGrid: number[];
     colorGrid: number[];
     signature: string;
+    featureGridStatus: 'ok' | 'decode_failed';
 };
 
 type ResearchVisualRows = {
@@ -269,6 +297,88 @@ function positiveNumber(value: unknown): number | null {
     return numeric !== null && numeric > 0 ? numeric : null;
 }
 
+function objectValue(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+type ViewportDimensions = {
+    width: number | null;
+    height: number | null;
+    source: 'event' | 'session_metadata' | 'session_event_fallback' | 'missing';
+};
+
+function viewportDimensionsFromRecord(
+    record: Record<string, unknown>,
+    payload: Record<string, unknown> = {},
+    deviceInfo: Record<string, unknown> = {},
+): ViewportDimensions {
+    const rawWidth = record.viewportWidth
+        ?? record.viewport_width
+        ?? payload.viewportWidth
+        ?? payload.viewport_width
+        ?? record.width
+        ?? payload.width
+        ?? record.screenWidth
+        ?? record.screen_width
+        ?? payload.screenWidth
+        ?? payload.screen_width
+        ?? deviceInfo.viewportWidth
+        ?? deviceInfo.viewport_width
+        ?? deviceInfo.screenWidth
+        ?? deviceInfo.screen_width
+        ?? deviceInfo.width;
+    const rawHeight = record.viewportHeight
+        ?? record.viewport_height
+        ?? payload.viewportHeight
+        ?? payload.viewport_height
+        ?? record.height
+        ?? payload.height
+        ?? record.screenHeight
+        ?? record.screen_height
+        ?? payload.screenHeight
+        ?? payload.screen_height
+        ?? deviceInfo.viewportHeight
+        ?? deviceInfo.viewport_height
+        ?? deviceInfo.screenHeight
+        ?? deviceInfo.screen_height
+        ?? deviceInfo.height;
+
+    return {
+        width: positiveNumber(rawWidth),
+        height: positiveNumber(rawHeight),
+        source: positiveNumber(rawWidth) !== null && positiveNumber(rawHeight) !== null ? 'event' : 'missing',
+    };
+}
+
+function sessionViewportFallback(session: SessionContext, events: Record<string, unknown>[]): ViewportDimensions {
+    const metadata = objectValue(session.metadata) ?? {};
+    const metadataDeviceInfo = objectValue(metadata.deviceInfo)
+        ?? objectValue(metadata.device_info)
+        ?? objectValue(metadata.device)
+        ?? {};
+    const fromMetadata = viewportDimensionsFromRecord(metadata, metadata, metadataDeviceInfo);
+    if (fromMetadata.width !== null && fromMetadata.height !== null) {
+        return { ...fromMetadata, source: 'session_metadata' };
+    }
+
+    for (const event of events) {
+        const payload = objectValue(event.payload) ?? {};
+        const deviceInfo = objectValue(event.deviceInfo)
+            ?? objectValue(event.device_info)
+            ?? objectValue(payload.deviceInfo)
+            ?? objectValue(payload.device_info)
+            ?? {};
+        const candidate = viewportDimensionsFromRecord(event, payload, deviceInfo);
+        if (candidate.width !== null && candidate.height !== null) {
+            return { ...candidate, source: 'session_event_fallback' };
+        }
+    }
+
+    return { width: null, height: null, source: 'missing' };
+}
+
 function bucketNumber(value: unknown, bucketSize: number, min = 0, max = Number.MAX_SAFE_INTEGER): number | null {
     const numeric = numberValue(value);
     if (numeric === null) return null;
@@ -295,6 +405,50 @@ function bucketItemCount(value: unknown): number | null {
     if (rounded <= 50) return 50;
     if (rounded <= 100) return 100;
     return bucketNumber(rounded, 100, 0, 10_000);
+}
+
+function normalizedPositionBucket(position: unknown, extent: unknown): number | null {
+    const rawPosition = numberValue(position);
+    const rawExtent = positiveNumber(extent);
+    if (rawPosition === null || rawExtent === null) return null;
+    const normalized = (Math.max(0, Math.min(rawExtent, rawPosition)) / rawExtent) * 1000;
+    return bucketNumber(normalized, 5, 0, 1000);
+}
+
+function visualGridSpecForDimensions(width: unknown, height: unknown): FeatureGridSpec {
+    const numericWidth = positiveNumber(width);
+    const numericHeight = positiveNumber(height);
+    if (numericWidth === null || numericHeight === null) {
+        return {
+            ...PHONE_PORTRAIT_GRID,
+            orientation: 'portrait',
+            formFactor: 'phone',
+        };
+    }
+
+    const orientation: ScreenOrientation = numericWidth > numericHeight ? 'landscape' : 'portrait';
+    const shortSide = Math.min(numericWidth, numericHeight);
+    const longSide = Math.max(numericWidth, numericHeight);
+    const aspectRatio = shortSide > 0 ? longSide / shortSide : Number.POSITIVE_INFINITY;
+    const formFactor: ScreenFormFactor = aspectRatio < TABLET_ASPECT_RATIO_MAX ? 'tablet' : 'phone';
+    if (formFactor === 'tablet') {
+        return {
+            ...(orientation === 'landscape' ? TABLET_LANDSCAPE_GRID : TABLET_PORTRAIT_GRID),
+            orientation,
+            formFactor,
+        };
+    }
+
+    return {
+        ...(orientation === 'landscape' ? PHONE_LANDSCAPE_GRID : PHONE_PORTRAIT_GRID),
+        orientation,
+        formFactor,
+    };
+}
+
+function gridCellFromNormalizedBucket(value: number | null, cellCount: number): number | null {
+    if (value === null) return null;
+    return Math.max(0, Math.min(cellCount - 1, Math.floor((value / 1000) * cellCount)));
 }
 
 function bucketTimestampElapsedMs(timestampMs: number | null, session: SessionContext, bucketSize = 500): number | null {
@@ -380,83 +534,371 @@ function screenKey(raw: string, projectKey: string): string {
     return hmac(`${projectKey}:screen:${raw}`, 20);
 }
 
+const FUNNEL_TRANSITION_ALIASES = [
+    {
+        transition: 'purchase_complete',
+        names: [
+            'purchase_completed',
+            'purchase_complete',
+            'purchase_success',
+            'purchase_successful',
+            'purchase_succeeded',
+            'purchase_paid',
+            'purchase',
+            'order_completed',
+            'order_complete',
+            'order_success',
+            'order_succeeded',
+            'order_paid',
+            'complete_purchase',
+            'completed_purchase',
+            'successful_purchase',
+            'conversion',
+            'conversion_complete',
+            'conversion_completed',
+            'payment_success',
+            'payment_successful',
+            'payment_succeeded',
+            'payment_completed',
+            'checkout_completed',
+            'checkout_complete',
+            'checkout_success',
+            'checkout_succeeded',
+            'booking_completed',
+            'booking_success',
+            'reservation_completed',
+            'reservation_success',
+        ],
+    },
+    {
+        transition: 'checkout_start',
+        names: [
+            'checkout_started',
+            'checkout_start',
+            'begin_checkout',
+            'checkout_begin',
+            'start_checkout',
+            'checkout_initiated',
+            'initiate_checkout',
+            'initiated_checkout',
+            'checkout_opened',
+            'checkout_viewed',
+            'checkout_page_viewed',
+            'checkout_step_started',
+            'payment_started',
+        ],
+    },
+    {
+        transition: 'cart_add',
+        names: [
+            'add_to_cart',
+            'cart_add',
+            'addtocart',
+            'added_to_cart',
+            'product_added_to_cart',
+            'item_added_to_cart',
+            'item_add_to_cart',
+            'cart_item_added',
+            'add_cart',
+            'add_to_basket',
+            'basket_add',
+            'added_to_basket',
+            'add_to_bag',
+            'bag_add',
+            'added_to_bag',
+            'add_to_order',
+            'item_added',
+            'product_added',
+        ],
+    },
+    {
+        transition: 'product_view',
+        names: [
+            'view_item',
+            'product_view',
+            'viewproduct',
+            'product_viewed',
+            'view_product',
+            'product_detail_view',
+            'product_details_view',
+            'product_detail_viewed',
+            'product_details_viewed',
+            'product_opened',
+            'item_view',
+            'item_viewed',
+            'view_item_detail',
+            'listing_view',
+            'listing_viewed',
+            'content_view',
+            'content_viewed',
+        ],
+    },
+    {
+        transition: 'signup',
+        names: [
+            'signup',
+            'sign_up',
+            'register',
+            'account_created',
+            'signup_completed',
+            'sign_up_completed',
+            'signed_up',
+            'user_signup',
+            'user_signed_up',
+            'user_registered',
+            'registration_completed',
+            'registration_complete',
+            'register_completed',
+            'account_signup',
+            'create_account',
+            'account_creation',
+            'account_created_success',
+            'signup_success',
+            'signup_started',
+            'registration_started',
+        ],
+    },
+    {
+        transition: 'login',
+        names: [
+            'login',
+            'sign_in',
+            'signin',
+            'signed_in',
+            'logged_in',
+            'user_login',
+            'user_logged_in',
+            'sign_in_success',
+            'login_success',
+            'login_completed',
+        ],
+    },
+    {
+        transition: 'paywall_view',
+        names: [
+            'paywall_view',
+            'paywall_exposure',
+            'view_paywall',
+            'paywall_viewed',
+            'paywall_seen',
+            'paywall_opened',
+            'paywall_shown',
+            'paywall_displayed',
+            'paywall_impression',
+            'subscription_paywall_viewed',
+        ],
+    },
+    {
+        transition: 'plan_selected',
+        names: [
+            'plan_selected',
+            'pricing_plan_selected',
+            'select_plan',
+            'pricing_viewed',
+            'pricing_page_viewed',
+            'pricing_page_view',
+            'selected_plan',
+            'plan_chosen',
+            'choose_plan',
+            'chose_plan',
+            'subscription_plan_selected',
+            'package_selected',
+            'product_package_selected',
+            'price_selected',
+            'tier_selected',
+        ],
+    },
+    {
+        transition: 'coupon_use',
+        names: [
+            'coupon_use',
+            'coupon_used',
+            'apply_coupon',
+            'coupon_applied',
+            'coupon_apply',
+            'discount_applied',
+            'apply_discount',
+            'promo_code_applied',
+            'promo_applied',
+            'promo_code_used',
+            'discount_code_applied',
+            'voucher_applied',
+        ],
+    },
+    {
+        transition: 'trial_start',
+        names: [
+            'trial_started',
+            'trial_start',
+            'begin_trial',
+            'start_trial',
+            'trial_begin',
+            'free_trial_started',
+            'free_trial_start',
+            'trial_activated',
+            'trial_began',
+            'trial_created',
+        ],
+    },
+    {
+        transition: 'subscription_start',
+        names: [
+            'subscription_started',
+            'subscription_start',
+            'subscribe',
+            'subscribed',
+            'subscription_created',
+            'subscription_activated',
+            'subscription_success',
+            'subscription_successful',
+            'subscription_succeeded',
+            'subscription_purchased',
+            'plan_started',
+            'plan_activated',
+            'membership_started',
+            'membership_created',
+        ],
+    },
+    {
+        transition: 'refund',
+        names: [
+            'refund',
+            'refund_completed',
+            'refunded',
+            'refund_processed',
+            'refund_issued',
+            'refund_success',
+            'refund_succeeded',
+            'refund_created',
+            'order_refunded',
+            'payment_refunded',
+        ],
+    },
+    {
+        transition: 'cancellation',
+        names: [
+            'cancel',
+            'canceled',
+            'cancelled',
+            'cancel_subscription',
+            'cancellation',
+            'subscription_cancelled',
+            'subscription_canceled',
+            'subscription_cancel',
+            'subscription_cancel_requested',
+            'subscription_ended',
+            'subscription_expired',
+            'plan_cancelled',
+            'plan_canceled',
+            'unsubscribe',
+            'unsubscribed',
+            'membership_cancelled',
+            'membership_canceled',
+        ],
+    },
+    {
+        transition: 'payment_failure',
+        names: [
+            'payment_failure',
+            'payment_failed',
+            'charge_failed',
+            'payment_error',
+            'payment_declined',
+            'card_declined',
+            'transaction_failed',
+            'checkout_failed',
+            'purchase_failed',
+            'payment_unsuccessful',
+            'invoice_payment_failed',
+            'billing_error',
+            'billing_failed',
+        ],
+    },
+    {
+        transition: 'onboarding_completed',
+        names: [
+            'onboarding_completed',
+            'onboarding_milestone',
+            'complete_onboarding',
+            'onboarding_complete',
+            'onboarding_finished',
+            'onboarding_finish',
+            'onboarding_done',
+            'onboarding_success',
+            'onboarding_step_completed',
+            'tutorial_completed',
+            'setup_completed',
+            'activation_completed',
+        ],
+    },
+    {
+        transition: 'feature_used',
+        names: [
+            'feature_used',
+            'key_feature_used',
+            'use_feature',
+            'feature_use',
+            'used_feature',
+            'feature_clicked',
+            'feature_activated',
+            'feature_enabled',
+            'key_feature_activated',
+            'tool_used',
+            'action_used',
+            'integration_connected',
+            'workspace_created',
+        ],
+    },
+] as const;
+
+type FunnelTransition = typeof FUNNEL_TRANSITION_ALIASES[number]['transition'];
+
+const FUNNEL_TRANSITION_ALIAS_MAP = new Map<string, FunnelTransition>();
+for (const group of FUNNEL_TRANSITION_ALIASES) {
+    for (const name of group.names) {
+        FUNNEL_TRANSITION_ALIAS_MAP.set(normalizeEventName(name), group.transition);
+    }
+}
+
+function normalizeEventName(value: unknown): string {
+    return stringValue(value)
+        .trim()
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[^a-zA-Z0-9]+/g, '_')
+        .replace(/_{2,}/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toLowerCase();
+}
+
+function customConfigEventMatches(name: string, configuredName: unknown): boolean {
+    const normalizedConfiguredName = normalizeEventName(configuredName);
+    return normalizedConfiguredName !== '' && name === normalizedConfiguredName;
+}
+
 function getFunnelTransition(eventName: string, customEventConfig?: any): string | null {
-    const name = eventName.toLowerCase();
+    const name = normalizeEventName(eventName);
+    if (!name) return null;
     
     // Check custom event config first
     if (customEventConfig) {
-        if (customEventConfig.revenueEventName && name === customEventConfig.revenueEventName.toLowerCase()) {
+        if (customConfigEventMatches(name, customEventConfig.revenueEventName)) {
             return 'purchase_complete';
         }
-        if (customEventConfig.conversionEventName && name === customEventConfig.conversionEventName.toLowerCase()) {
+        if (customConfigEventMatches(name, customEventConfig.conversionEventName)) {
             return 'purchase_complete';
         }
-        if (customEventConfig.checkoutEventName && name === customEventConfig.checkoutEventName.toLowerCase()) {
+        if (customConfigEventMatches(name, customEventConfig.checkoutEventName)) {
             return 'checkout_start';
         }
-        if (customEventConfig.subscriptionStartedEventName && name === customEventConfig.subscriptionStartedEventName.toLowerCase()) {
+        if (customConfigEventMatches(name, customEventConfig.subscriptionStartedEventName)) {
             return 'checkout_start';
         }
-        if (customEventConfig.subscriberEventName && name === customEventConfig.subscriberEventName.toLowerCase()) {
+        if (customConfigEventMatches(name, customEventConfig.subscriberEventName)) {
             return 'cart_add';
         }
     }
-    
-    // Default patterns for 16 funnel / lifecycle transitions
-    if (/purchase_completed|purchase_complete|purchase_success|^purchase$|order_completed|complete_purchase|conversion/i.test(name)) {
-        return 'purchase_complete';
-    }
-    if (/checkout_started|checkout_start|begin_checkout/i.test(name)) {
-        return 'checkout_start';
-    }
-    // NOTE: 'added_to_cart' and 'product_added_to_cart' are included as default equivalencies
-    // for compatibility with legacy SDK event tracking setups. If a future iteration needs to
-    // differentiate them (e.g. quick-add vs detail-add), they should be split here or overridden 
-    // explicitly via project customEventConfig.subscriberEventName setting.
-    if (/add_to_cart|cart_add|addtocart|added_to_cart|product_added_to_cart/i.test(name)) {
-        return 'cart_add';
-    }
-    if (/view_item|product_view|viewproduct/i.test(name)) {
-        return 'product_view';
-    }
-    if (/signup|sign_up|register|account_created|signup_completed/i.test(name)) {
-        return 'signup';
-    }
-    if (/login|sign_in/i.test(name)) {
-        return 'login';
-    }
-    if (/paywall_view|paywall_exposure|view_paywall/i.test(name)) {
-        return 'paywall_view';
-    }
-    if (/plan_selected|pricing_plan_selected|select_plan|pricing_viewed/i.test(name)) {
-        return 'plan_selected';
-    }
-    if (/coupon_use|coupon_used|apply_coupon/i.test(name)) {
-        return 'coupon_use';
-    }
-    if (/trial_started|trial_start|begin_trial/i.test(name)) {
-        return 'trial_start';
-    }
-    if (/subscription_started|subscription_start/i.test(name)) {
-        return 'subscription_start';
-    }
-    if (/refund|refund_completed|refunded|refund_processed/i.test(name)) {
-        return 'refund';
-    }
-    if (/cancel|cancel_subscription|cancellation|subscription_cancelled/i.test(name)) {
-        return 'cancellation';
-    }
-    if (/payment_failure|payment_failed|charge_failed/i.test(name)) {
-        return 'payment_failure';
-    }
-    if (/onboarding_completed|onboarding_milestone|complete_onboarding/i.test(name)) {
-        return 'onboarding_completed';
-    }
-    if (/feature_used|key_feature_used|use_feature/i.test(name)) {
-        return 'feature_used';
-    }
-    
-    return null;
+
+    return FUNNEL_TRANSITION_ALIAS_MAP.get(name) ?? null;
 }
 
 function buildInteractions(
@@ -466,18 +908,48 @@ function buildInteractions(
 ): ResearchInteractionRow[] {
     const events = asEvents(session.events);
     const startedAtMs = session.started_at.getTime();
+    const fallbackViewport = sessionViewportFallback(session, events);
+    let rollingViewport = fallbackViewport;
     return events.map((event, index) => {
+        const payload = objectValue(event.payload) ?? {};
+        const deviceInfo = objectValue(event.deviceInfo)
+            ?? objectValue(event.device_info)
+            ?? objectValue(payload.deviceInfo)
+            ?? objectValue(payload.device_info)
+            ?? {};
+        const props = objectValue(event.properties) ?? payload;
         const rawScreen = rawScreenValue(event, session);
         const eventAt = numberValue(event.timestamp ?? event.time ?? event.ts);
         const elapsedMs = eventAt && eventAt > startedAtMs
             ? eventAt - startedAtMs
             : numberValue(event.elapsedMs ?? event.elapsed_ms);
-        const xBucket = bucketNumber(event.x ?? event.clientX ?? event.pageX, 24, 0, 4096);
-        const yBucket = bucketNumber(event.y ?? event.clientY ?? event.pageY, 24, 0, 4096);
+        const rawX = event.x ?? event.clientX ?? event.pageX ?? payload.x ?? payload.clientX ?? payload.pageX;
+        const rawY = event.y ?? event.clientY ?? event.pageY ?? payload.y ?? payload.clientY ?? payload.pageY;
+        const eventViewport = viewportDimensionsFromRecord(event, payload, deviceInfo);
+        const hasEventViewport = eventViewport.width !== null && eventViewport.height !== null;
+        const activeViewport = hasEventViewport
+            ? eventViewport
+            : rollingViewport;
+        if (hasEventViewport) {
+            rollingViewport = { ...eventViewport, source: 'session_event_fallback' };
+        }
+        const rawViewportWidth = activeViewport.width;
+        const rawViewportHeight = activeViewport.height;
+        const viewportSource = hasEventViewport ? 'event' : activeViewport.source;
+        const rawDocumentWidth = event.documentWidth ?? event.document_width ?? payload.documentWidth ?? payload.document_width;
+        const rawDocumentHeight = event.documentHeight ?? event.document_height ?? payload.documentHeight ?? payload.document_height;
+        const hasViewportX = event.x !== undefined || event.clientX !== undefined || payload.x !== undefined || payload.clientX !== undefined;
+        const hasViewportY = event.y !== undefined || event.clientY !== undefined || payload.y !== undefined || payload.clientY !== undefined;
+        const xNormBucket = normalizedPositionBucket(rawX, hasViewportX ? rawViewportWidth : rawDocumentWidth ?? rawViewportWidth);
+        const yNormBucket = normalizedPositionBucket(rawY, hasViewportY ? rawViewportHeight : rawDocumentHeight ?? rawViewportHeight);
+        const touchGrid = visualGridSpecForDimensions(rawViewportWidth, rawViewportHeight);
+        const xCell = gridCellFromNormalizedBucket(xNormBucket, touchGrid.columns);
+        const yCell = gridCellFromNormalizedBucket(yNormBucket, touchGrid.rows);
+        const targetX = xCell ?? xNormBucket ?? bucketNumber(rawX, 24, 0, 4096) ?? 'x';
+        const targetY = yCell ?? yNormBucket ?? bucketNumber(rawY, 24, 0, 4096) ?? 'y';
         const kind = classifyEventKind(event);
         const screen = screenKey(rawScreen, projectKey);
 
-        const props = (event.properties ?? event.payload ?? {}) as Record<string, unknown>;
         const eventName = stringValue(event.name ?? event.type ?? event.eventName ?? event.event_name);
         const transition = getFunnelTransition(eventName, customEventConfig);
         
@@ -506,12 +978,15 @@ function buildInteractions(
 
         const productIdRaw = props.productId ?? props.product_id ?? props.sku ?? event.productId ?? event.product_id ?? event.sku;
         const productId = typeof productIdRaw === 'string' && productIdRaw ? productIdRaw : null;
+        const productKey = productId ? hmac(`${projectKey}:product:${productId}`, 20) : null;
 
         const planIdRaw = props.planId ?? props.plan_id ?? props.plan ?? event.planId ?? event.plan_id ?? event.plan;
         const planId = typeof planIdRaw === 'string' && planIdRaw ? planIdRaw : null;
+        const planKey = planId ? hmac(`${projectKey}:plan:${planId}`, 20) : null;
 
         const priceIdRaw = props.priceId ?? props.price_id ?? event.priceId ?? event.price_id;
         const priceId = typeof priceIdRaw === 'string' && priceIdRaw ? priceIdRaw : null;
+        const priceKey = priceId ? hmac(`${projectKey}:price:${priceId}`, 20) : null;
 
         const curProp = typeof customEventConfig?.revenueCurrencyProperty === 'string' && customEventConfig.revenueCurrencyProperty.trim()
             ? customEventConfig.revenueCurrencyProperty.trim()
@@ -547,25 +1022,31 @@ function buildInteractions(
         if (isTrialConversionRaw !== undefined && isTrialConversionRaw !== null) {
             isTrialConversion = Boolean(isTrialConversionRaw);
         }
-
         return {
             index,
             kind,
             elapsed_ms_bucket: bucketNumber(elapsedMs, 500, 0, 86_400_000),
             screen_key: screen,
             screen_class: classifyScreen(rawScreen),
-            target_key: hmac(`${screen}:${kind}:${xBucket ?? 'x'}:${yBucket ?? 'y'}`, 20),
-            x_bucket: xBucket,
-            y_bucket: yBucket,
-            viewport_width_bucket: bucketNumber(event.viewportWidth ?? event.width, 64, 0, 8192),
-            viewport_height_bucket: bucketNumber(event.viewportHeight ?? event.height, 64, 0, 8192),
+            target_key: hmac(`${screen}:${kind}:${targetX}:${targetY}`, 20),
+            x_norm_bucket: xNormBucket,
+            y_norm_bucket: yNormBucket,
+            x_cell: xCell,
+            y_cell: yCell,
+            touch_grid_columns: touchGrid.columns,
+            touch_grid_rows: touchGrid.rows,
+            screen_orientation: touchGrid.orientation,
+            screen_form_factor: touchGrid.formFactor,
+            viewport_width_bucket: bucketNumber(rawViewportWidth, 64, 0, 8192),
+            viewport_height_bucket: bucketNumber(rawViewportHeight, 64, 0, 8192),
+            viewport_source: viewportSource,
             input_modality: kind === 'tap' ? 'pointer' : kind,
             funnel_transition: transition,
             item_count_change: itemCountChange,
             cart_value_bucket: cartValueBucket,
-            product_id: productId,
-            plan_id: planId,
-            price_id: priceId,
+            product_key: productKey,
+            plan_key: planKey,
+            price_key: priceKey,
             currency: currency,
             payment_provider: paymentProvider,
             platform: platform,
@@ -621,8 +1102,14 @@ function buildInteractionSkeleton(interactions: ResearchInteractionRow[]): Resea
             frame_key: null,
             screen_key: interaction.screen_key,
             role,
-            x_bucket: interaction.x_bucket,
-            y_bucket: interaction.y_bucket,
+            x_norm_bucket: interaction.x_norm_bucket,
+            y_norm_bucket: interaction.y_norm_bucket,
+            x_cell: interaction.x_cell,
+            y_cell: interaction.y_cell,
+            touch_grid_columns: interaction.touch_grid_columns,
+            touch_grid_rows: interaction.touch_grid_rows,
+            screen_orientation: interaction.screen_orientation,
+            screen_form_factor: interaction.screen_form_factor,
             width_bucket: null,
             height_bucket: null,
             text_class: 'masked',
@@ -678,20 +1165,21 @@ function imageFeatureGrid(buffer: Buffer): ScreenshotFeatureGrid | null {
         const decoded = jpeg.decode(buffer, { maxMemoryUsageInMB: JPEG_MAX_MEMORY_MB });
         if (!decoded.width || !decoded.height || decoded.data.length === 0) return null;
 
+        const gridSpec = visualGridSpecForDimensions(decoded.width, decoded.height);
         const lumaGrid: number[] = [];
         const edgeGrid: number[] = [];
         const colorGrid: number[] = [];
-        for (let gy = 0; gy < SCREENSHOT_FEATURE_GRID_SIZE; gy++) {
-            for (let gx = 0; gx < SCREENSHOT_FEATURE_GRID_SIZE; gx++) {
-                const x0 = Math.min(decoded.width - 1, Math.floor((gx * decoded.width) / SCREENSHOT_FEATURE_GRID_SIZE));
-                const y0 = Math.min(decoded.height - 1, Math.floor((gy * decoded.height) / SCREENSHOT_FEATURE_GRID_SIZE));
+        for (let gy = 0; gy < gridSpec.rows; gy++) {
+            for (let gx = 0; gx < gridSpec.columns; gx++) {
+                const x0 = Math.min(decoded.width - 1, Math.floor((gx * decoded.width) / gridSpec.columns));
+                const y0 = Math.min(decoded.height - 1, Math.floor((gy * decoded.height) / gridSpec.rows));
                 const x1 = Math.min(
                     decoded.width,
-                    Math.max(x0 + 1, Math.floor(((gx + 1) * decoded.width) / SCREENSHOT_FEATURE_GRID_SIZE)),
+                    Math.max(x0 + 1, Math.floor(((gx + 1) * decoded.width) / gridSpec.columns)),
                 );
                 const y1 = Math.min(
                     decoded.height,
-                    Math.max(y0 + 1, Math.floor(((gy + 1) * decoded.height) / SCREENSHOT_FEATURE_GRID_SIZE)),
+                    Math.max(y0 + 1, Math.floor(((gy + 1) * decoded.height) / gridSpec.rows)),
                 );
                 const stepX = Math.max(1, Math.floor((x1 - x0) / 12));
                 const stepY = Math.max(1, Math.floor((y1 - y0) / 12));
@@ -739,6 +1227,8 @@ function imageFeatureGrid(buffer: Buffer): ScreenshotFeatureGrid | null {
         const signature = [
             decoded.width,
             decoded.height,
+            gridSpec.columns,
+            gridSpec.rows,
             lumaGrid.join(''),
             edgeGrid.join(''),
             colorGrid.join(''),
@@ -747,25 +1237,37 @@ function imageFeatureGrid(buffer: Buffer): ScreenshotFeatureGrid | null {
         return {
             width: decoded.width,
             height: decoded.height,
+            gridColumns: gridSpec.columns,
+            gridRows: gridSpec.rows,
+            orientation: gridSpec.orientation,
+            formFactor: gridSpec.formFactor,
             lumaGrid,
             edgeGrid,
             colorGrid,
             signature,
+            featureGridStatus: 'ok',
         };
     } catch (err) {
         logger.warn({ err }, 'Failed to decode screenshot frame for research lake feature grid');
         const dimensions = jpegDimensions(buffer);
         if (!dimensions) return null;
-        const lumaGrid = Array.from({ length: SCREENSHOT_FEATURE_GRID_SIZE ** 2 }, () => 0);
-        const edgeGrid = Array.from({ length: SCREENSHOT_FEATURE_GRID_SIZE ** 2 }, () => 0);
-        const colorGrid = Array.from({ length: SCREENSHOT_FEATURE_GRID_SIZE ** 2 }, () => 0);
+        const gridSpec = visualGridSpecForDimensions(dimensions.width, dimensions.height);
+        const gridCellCount = gridSpec.columns * gridSpec.rows;
+        const lumaGrid = Array.from({ length: gridCellCount }, () => 0);
+        const edgeGrid = Array.from({ length: gridCellCount }, () => 0);
+        const colorGrid = Array.from({ length: gridCellCount }, () => 0);
         return {
             width: dimensions.width,
             height: dimensions.height,
+            gridColumns: gridSpec.columns,
+            gridRows: gridSpec.rows,
+            orientation: gridSpec.orientation,
+            formFactor: gridSpec.formFactor,
             lumaGrid,
             edgeGrid,
             colorGrid,
-            signature: `${dimensions.width}:${dimensions.height}:decode_failed`,
+            signature: `${dimensions.width}:${dimensions.height}:${gridSpec.columns}:${gridSpec.rows}:decode_failed`,
+            featureGridStatus: 'decode_failed',
         };
     }
 }
@@ -830,6 +1332,21 @@ function attributeFlags(node: Record<string, unknown>): Record<string, boolean> 
     const attr = attributes && typeof attributes === 'object' && !Array.isArray(attributes)
         ? attributes as Record<string, unknown>
         : {};
+    const className = stringValue(attr.class).toLowerCase();
+    const tagName = safeTagName(node.tagName);
+    const hasMaskedInputValue = ['input', 'textarea'].includes(tagName)
+        && (attr.value === '***' || attr.placeholder === '***');
+    const hasMaskedMediaAttribute = ['img', 'video', 'canvas', 'image'].includes(tagName)
+        && ['src', 'srcset', 'poster', 'href', 'xlink:href', 'data', 'rr_dataURL', 'alt', 'title', 'aria-label']
+            .some((key) => attr[key] === '***');
+    const hasMaskMarker = className.includes('rr-mask')
+        || className.includes('rr-block')
+        || className.includes('rj-media-mask')
+        || attr['data-rj-mask'] !== undefined
+        || attr['data-rejourney-mask'] !== undefined
+        || attr['data-private'] !== undefined
+        || attr['data-rj-mask-media'] !== undefined
+        || attr['data-rejourney-mask-media'] !== undefined;
     return {
         has_class: typeof attr.class === 'string' && attr.class.length > 0,
         has_href: typeof attr.href === 'string' && attr.href.length > 0,
@@ -837,6 +1354,9 @@ function attributeFlags(node: Record<string, unknown>): Record<string, boolean> 
         has_alt: typeof attr.alt === 'string' && attr.alt.length > 0,
         has_aria_label: typeof attr['aria-label'] === 'string' && attr['aria-label'].length > 0,
         has_placeholder: typeof attr.placeholder === 'string' && attr.placeholder.length > 0,
+        has_masked_input_value: hasMaskedInputValue,
+        has_masked_media_attribute: hasMaskedMediaAttribute,
+        is_masked: hasMaskedInputValue || hasMaskedMediaAttribute || hasMaskMarker,
     };
 }
 
@@ -860,6 +1380,8 @@ function collectRrwebSkeleton(
             frame_key: params.frameKey,
             screen_key: params.screenKey,
             role,
+            source_kind: 'rrweb',
+            visual_modality: 'dom_event_stream',
             tag_class: safeTagName(node.tagName),
             depth_bucket: bucketNumber(params.depth, 2, 0, 40),
             child_count_bucket: bucketNumber(children.length, 2, 0, 200),
@@ -895,6 +1417,358 @@ function rrwebMutationSummary(data: Record<string, unknown>): Record<string, num
         mutation_texts_bucket: bucketNumber(texts, 2, 0, 200),
         mutation_attributes_bucket: bucketNumber(attributes, 2, 0, 200),
     };
+}
+
+type HierarchyRect = { x: number; y: number; w: number; h: number };
+
+type HierarchySnapshotStats = {
+    nodeCount: number;
+    interactiveCount: number;
+    textNodeCount: number;
+    mediaCount: number;
+    maskedNodeCount: number;
+    maskedInputCount: number;
+    keyboardOrSystemNodeCount: number;
+    maxDepth: number;
+};
+
+function hierarchyChildren(node: Record<string, unknown>): Record<string, unknown>[] {
+    const children = Array.isArray(node.children)
+        ? node.children
+        : Array.isArray(node.childNodes)
+            ? node.childNodes
+            : Array.isArray(node.subviews)
+                ? node.subviews
+                : [];
+    return children.filter((child): child is Record<string, unknown> => (
+        Boolean(child) && typeof child === 'object' && !Array.isArray(child)
+    ));
+}
+
+function hierarchyFrame(node: Record<string, unknown>): HierarchyRect | null {
+    const frame = objectValue(node.frame)
+        ?? objectValue(node.bounds)
+        ?? objectValue(node.layout)
+        ?? null;
+    if (!frame) return null;
+
+    const left = numberValue(frame.left);
+    const top = numberValue(frame.top);
+    const right = numberValue(frame.right);
+    const bottom = numberValue(frame.bottom);
+    const x = numberValue(frame.x) ?? left ?? 0;
+    const y = numberValue(frame.y) ?? top ?? 0;
+    const w = positiveNumber(frame.w)
+        ?? positiveNumber(frame.width)
+        ?? (right !== null ? positiveNumber(right - x) : null);
+    const h = positiveNumber(frame.h)
+        ?? positiveNumber(frame.height)
+        ?? (bottom !== null ? positiveNumber(bottom - y) : null);
+    if (w === null || h === null) return null;
+    return { x, y, w, h };
+}
+
+function clipRect(rect: HierarchyRect, bounds: HierarchyRect): HierarchyRect | null {
+    const x0 = Math.max(bounds.x, rect.x);
+    const y0 = Math.max(bounds.y, rect.y);
+    const x1 = Math.min(bounds.x + bounds.w, rect.x + rect.w);
+    const y1 = Math.min(bounds.y + bounds.h, rect.y + rect.h);
+    if (x1 <= x0 || y1 <= y0) return null;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+function hierarchyDimensions(snapshot: MobileHierarchySnapshot): { width: number | null; height: number | null } {
+    const screen = objectValue(snapshot.screen) ?? {};
+    const rootFrame = hierarchyFrame(snapshot.rootElement);
+    return {
+        width: positiveNumber(screen.width)
+            ?? positiveNumber(screen.viewportWidth)
+            ?? positiveNumber(screen.viewport_width)
+            ?? positiveNumber(screen.screenWidth)
+            ?? positiveNumber(screen.screen_width)
+            ?? rootFrame?.w
+            ?? null,
+        height: positiveNumber(screen.height)
+            ?? positiveNumber(screen.viewportHeight)
+            ?? positiveNumber(screen.viewport_height)
+            ?? positiveNumber(screen.screenHeight)
+            ?? positiveNumber(screen.screen_height)
+            ?? rootFrame?.h
+            ?? null,
+    };
+}
+
+function hierarchySemanticText(node: Record<string, unknown>): string {
+    return [
+        node.type,
+        node.role,
+        node.className,
+        node.label,
+        node.testID,
+        node.text,
+        node.placeholder,
+        node.buttonTitle,
+        node.resourceId,
+        node.contentDescription,
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .join(' ')
+        .toLowerCase();
+}
+
+function isHierarchyKeyboardOrSystemNode(node: Record<string, unknown>): boolean {
+    const semantic = hierarchySemanticText(node);
+    return semantic.includes('keyboard')
+        || semantic.includes('inputset')
+        || semantic.includes('textinputhost')
+        || semantic.includes('systemui')
+        || semantic.includes('statusbar')
+        || semantic.includes('uiremotekeyboardwindow')
+        || semantic.includes('uitexteffectswindow')
+        || semantic.includes('uiinputsethostview');
+}
+
+function hierarchyRole(node: Record<string, unknown>): string {
+    const semantic = hierarchySemanticText(node);
+    if (isHierarchyKeyboardOrSystemNode(node)) return 'system_surface';
+    const interactive = Boolean(node.interactive || node.clickable || node.enabled === true);
+    if (/mapview|mkmapview|mapbox|googlemap|applemap|map/.test(semantic)) return 'map';
+    if (/webview/.test(semantic)) return 'webview';
+    if (/searchbar|searchfield|search_box/.test(semantic)) return 'search_input';
+    if (/textfield|edittext|textinput|input/.test(semantic)) return 'input';
+    if (/button|touchable|pressable|checkbox|switch|segmented|tabbaritem/.test(semantic) || interactive) return 'control';
+    if (/image|icon|video|camera|player|lottie|animation/.test(semantic) || node.hasImage) return 'media';
+    if (/scrollview|recyclerview|collectionview|tableview|flatlist|list/.test(semantic)) return 'list';
+    if (/navbar|tabbar|toolbar|navigation/.test(semantic)) return 'navigation';
+    if (/label|textview|text|heading|title/.test(semantic) || positiveNumber(node.textLength) !== null) return 'text';
+    return 'container';
+}
+
+function hierarchyTypeFamily(role: string): string {
+    if (role === 'system_surface') return 'system';
+    if (['control', 'input', 'search_input'].includes(role)) return 'interactive';
+    if (['map', 'webview', 'media'].includes(role)) return 'surface';
+    if (['list', 'navigation'].includes(role)) return 'structure';
+    if (role === 'text') return 'content';
+    return 'container';
+}
+
+function hierarchyFlagFields(node: Record<string, unknown>): Record<string, boolean | null> {
+    return {
+        has_text: typeof node.text === 'string' && node.text.length > 0 || positiveNumber(node.textLength) !== null,
+        has_label: typeof node.label === 'string' && node.label.length > 0,
+        has_test_id: typeof node.testID === 'string' && node.testID.length > 0,
+        has_placeholder: typeof node.placeholder === 'string' && node.placeholder.length > 0,
+        is_masked: booleanValue(node.masked),
+        is_keyboard_or_system: isHierarchyKeyboardOrSystemNode(node),
+        is_clickable: booleanValue(node.clickable ?? node.interactive),
+        is_enabled: booleanValue(node.enabled),
+        is_focused: booleanValue(node.focused),
+        is_hidden: booleanValue(node.hidden),
+    };
+}
+
+function bucketSnapshotElapsedMs(timestampMs: number | null, session: SessionContext): number | null {
+    if (timestampMs === null) return null;
+    const startedAtMs = session.started_at.getTime();
+    const elapsedMs = timestampMs > startedAtMs - 60_000
+        ? timestampMs - startedAtMs
+        : timestampMs;
+    return bucketNumber(elapsedMs, 500, 0, 86_400_000);
+}
+
+function collectMobileHierarchySkeleton(
+    node: Record<string, unknown>,
+    params: {
+        frameKey: string;
+        screenKey: string;
+        path: string;
+        depth: number;
+        parentOrigin: { x: number; y: number };
+        dimensions: { width: number; height: number };
+        gridSpec: FeatureGridSpec;
+        platform: string | null;
+        elapsedMsBucket: number | null;
+        output: ResearchUiElementRow[];
+    },
+): HierarchySnapshotStats {
+    const children = hierarchyChildren(node);
+    const role = hierarchyRole(node);
+    const typeFamily = hierarchyTypeFamily(role);
+    const platformLower = String(params.platform ?? '').toLowerCase();
+    const usesAbsoluteFrames = platformLower === 'android';
+    const frame = hierarchyFrame(node);
+    const bounds = { x: 0, y: 0, w: params.dimensions.width, h: params.dimensions.height };
+    const absoluteFrame = frame
+        ? (usesAbsoluteFrames || params.depth === 0
+            ? frame
+            : { ...frame, x: params.parentOrigin.x + frame.x, y: params.parentOrigin.y + frame.y })
+        : null;
+    const clipped = absoluteFrame ? clipRect(absoluteFrame, bounds) : null;
+    const centerX = clipped ? clipped.x + clipped.w / 2 : null;
+    const centerY = clipped ? clipped.y + clipped.h / 2 : null;
+    const xNormBucket = normalizedPositionBucket(centerX, params.dimensions.width);
+    const yNormBucket = normalizedPositionBucket(centerY, params.dimensions.height);
+
+    if (role !== 'container' || params.depth <= 2 || children.length === 0) {
+        params.output.push({
+            element_key: hmac(`${params.frameKey}:hierarchy:${params.path}:${role}:${typeFamily}`, 20),
+            frame_key: params.frameKey,
+            screen_key: params.screenKey,
+            role,
+            source_kind: 'hierarchy',
+            visual_modality: 'mobile_hierarchy_snapshot',
+            source_timing: 'hierarchy_snapshot',
+            type_family: typeFamily,
+            snapshot_elapsed_ms_bucket: params.elapsedMsBucket,
+            hierarchy_depth_bucket: bucketNumber(params.depth, 2, 0, 60),
+            child_count_bucket: bucketNumber(children.length, 2, 0, 500),
+            x_norm_bucket: xNormBucket,
+            y_norm_bucket: yNormBucket,
+            x_cell: gridCellFromNormalizedBucket(xNormBucket, params.gridSpec.columns),
+            y_cell: gridCellFromNormalizedBucket(yNormBucket, params.gridSpec.rows),
+            touch_grid_columns: params.gridSpec.columns,
+            touch_grid_rows: params.gridSpec.rows,
+            screen_orientation: params.gridSpec.orientation,
+            screen_form_factor: params.gridSpec.formFactor,
+            width_bucket: bucketNumber(clipped?.w ?? null, 8, 0, 8192),
+            height_bucket: bucketNumber(clipped?.h ?? null, 8, 0, 8192),
+            text_class: 'masked',
+            ...hierarchyFlagFields(node),
+        });
+    }
+
+    let stats: HierarchySnapshotStats = {
+        nodeCount: 1,
+        interactiveCount: ['control', 'input', 'search_input', 'map'].includes(role) ? 1 : 0,
+        textNodeCount: role === 'text' ? 1 : 0,
+        mediaCount: ['media', 'map', 'webview'].includes(role) ? 1 : 0,
+        maskedNodeCount: node.masked === true ? 1 : 0,
+        maskedInputCount: node.masked === true && ['input', 'search_input'].includes(role) ? 1 : 0,
+        keyboardOrSystemNodeCount: role === 'system_surface' ? 1 : 0,
+        maxDepth: params.depth,
+    };
+    const nextOrigin = absoluteFrame
+        ? { x: absoluteFrame.x, y: absoluteFrame.y }
+        : params.parentOrigin;
+
+    children.forEach((child, index) => {
+        const childStats = collectMobileHierarchySkeleton(child, {
+            ...params,
+            path: `${params.path}.${index}`,
+            depth: params.depth + 1,
+            parentOrigin: nextOrigin,
+        });
+        stats = {
+            nodeCount: stats.nodeCount + childStats.nodeCount,
+            interactiveCount: stats.interactiveCount + childStats.interactiveCount,
+            textNodeCount: stats.textNodeCount + childStats.textNodeCount,
+            mediaCount: stats.mediaCount + childStats.mediaCount,
+            maskedNodeCount: stats.maskedNodeCount + childStats.maskedNodeCount,
+            maskedInputCount: stats.maskedInputCount + childStats.maskedInputCount,
+            keyboardOrSystemNodeCount: stats.keyboardOrSystemNodeCount + childStats.keyboardOrSystemNodeCount,
+            maxDepth: Math.max(stats.maxDepth, childStats.maxDepth),
+        };
+    });
+
+    return stats;
+}
+
+async function buildHierarchyVisualRows(
+    session: SessionContext,
+    hierarchyArtifacts: ArtifactContext[],
+    interactions: ResearchInteractionRow[],
+    projectKey: string,
+): Promise<ResearchVisualRows> {
+    const frames: ResearchUiFrameRow[] = [];
+    const skeleton: ResearchUiElementRow[] = [];
+    let sourceIndex = 0;
+    const sortedArtifacts = [...hierarchyArtifacts].sort((a, b) => {
+        const left = a.start_time ?? 0;
+        const right = b.start_time ?? 0;
+        return left - right;
+    });
+
+    for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
+        const artifact = sortedArtifacts[artifactIndex];
+        if (!artifact.s3ObjectKey) continue;
+
+        const data = await downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId);
+        if (!data) {
+            logger.warn({ artifactId: artifact.id }, 'Research lake could not download hierarchy artifact');
+            continue;
+        }
+
+        const snapshots = extractMobileHierarchySnapshotsFromArtifact(data, artifact.s3ObjectKey, artifact.start_time);
+        for (let snapshotIndex = 0; snapshotIndex < snapshots.length; snapshotIndex++) {
+            const snapshot = snapshots[snapshotIndex];
+            const dimensions = hierarchyDimensions(snapshot);
+            const gridSpec = visualGridSpecForDimensions(dimensions.width, dimensions.height);
+            const width = dimensions.width ?? 0;
+            const height = dimensions.height ?? 0;
+            const elapsedMsBucket = bucketSnapshotElapsedMs(numberValue(snapshot.timestamp), session);
+            const nearestInteraction = nearestInteractionForElapsed(interactions, elapsedMsBucket);
+            const rawScreen = snapshot.screenName || null;
+            const screen = rawScreen ? screenKey(rawScreen, projectKey) : nearestInteraction?.screen_key ?? fallbackScreenKey(projectKey);
+            const frameKey = hmac(`${projectKey}:hierarchy-frame:${artifactIndex}:${snapshotIndex}:${snapshot.timestamp}:${screen}`, 24);
+            const stats = width > 0 && height > 0
+                ? collectMobileHierarchySkeleton(snapshot.rootElement, {
+                    frameKey,
+                    screenKey: screen,
+                    path: '0',
+                    depth: 0,
+                    parentOrigin: { x: 0, y: 0 },
+                    dimensions: { width, height },
+                    gridSpec,
+                    platform: session.platform,
+                    elapsedMsBucket,
+                    output: skeleton,
+                })
+                : {
+                    nodeCount: 0,
+                    interactiveCount: 0,
+                    textNodeCount: 0,
+                    mediaCount: 0,
+                    maskedNodeCount: 0,
+                    maskedInputCount: 0,
+                    keyboardOrSystemNodeCount: 0,
+                    maxDepth: 0,
+                };
+
+            frames.push({
+                frame_key: frameKey,
+                source_kind: 'hierarchy',
+                visual_modality: 'mobile_hierarchy_snapshot',
+                recommended_encoder: 'mobile_hierarchy_encoder',
+                source_index: sourceIndex,
+                source_artifact_index: artifactIndex,
+                source_artifact_kind: artifact.kind,
+                source_snapshot_index: snapshotIndex,
+                elapsed_ms_bucket: elapsedMsBucket,
+                screen_key: screen,
+                source_timing: 'hierarchy_snapshot',
+                hierarchy_snapshot_sparse: null,
+                viewport_width_bucket: bucketNumber(width || null, 64, 0, 8192),
+                viewport_height_bucket: bucketNumber(height || null, 64, 0, 8192),
+                grid_columns: gridSpec.columns,
+                grid_rows: gridSpec.rows,
+                screen_orientation: gridSpec.orientation,
+                screen_form_factor: gridSpec.formFactor,
+                hierarchy_node_count_bucket: bucketNumber(stats.nodeCount, 5, 0, 100_000),
+                hierarchy_interactive_count_bucket: bucketNumber(stats.interactiveCount, 2, 0, 20_000),
+                hierarchy_text_node_count_bucket: bucketNumber(stats.textNodeCount, 2, 0, 20_000),
+                hierarchy_media_count_bucket: bucketNumber(stats.mediaCount, 2, 0, 20_000),
+                hierarchy_masked_node_count_bucket: bucketNumber(stats.maskedNodeCount, 2, 0, 20_000),
+                hierarchy_masked_input_count_bucket: bucketNumber(stats.maskedInputCount, 2, 0, 20_000),
+                hierarchy_keyboard_or_system_node_count_bucket: bucketNumber(stats.keyboardOrSystemNodeCount, 2, 0, 20_000),
+                hierarchy_max_depth_bucket: bucketNumber(stats.maxDepth, 2, 0, 100),
+                feature_grid_status: null,
+                text_class: 'masked',
+            });
+            sourceIndex++;
+        }
+    }
+
+    return { frames, skeleton };
 }
 
 async function buildScreenshotVisualRows(
@@ -944,6 +1818,8 @@ async function buildScreenshotVisualRows(
             const frameRow: ResearchUiFrameRow = {
                 frame_key: frameKey,
                 source_kind: 'screenshots',
+                visual_modality: 'raster_feature_grid',
+                recommended_encoder: 'screenshot_grid_encoder',
                 source_index: sessionFrameIndex,
                 source_artifact_index: artifactIndex,
                 source_artifact_kind: artifact.kind,
@@ -952,12 +1828,18 @@ async function buildScreenshotVisualRows(
                 screen_key: screenKey,
                 width_bucket: bucketNumber(features?.width ?? null, 64, 0, 8192),
                 height_bucket: bucketNumber(features?.height ?? null, 64, 0, 8192),
+                grid_columns: features?.gridColumns ?? null,
+                grid_rows: features?.gridRows ?? null,
+                screen_orientation: features?.orientation ?? null,
+                screen_form_factor: features?.formFactor ?? null,
+                feature_grid_status: features?.featureGridStatus ?? 'unavailable',
+                grid_cell_count: features ? features.gridColumns * features.gridRows : null,
                 image_bytes_bucket: bucketNumber(frame.data.length, 16 * 1024, 0, 20 * 1024 * 1024),
                 visual_signature_key: visualSignatureKey,
                 source_frame_digest_key: sourceFrameDigestKey,
-                luma_grid_32x32: features?.lumaGrid ?? [],
-                edge_grid_32x32: features?.edgeGrid ?? [],
-                color_grid_32x32: features?.colorGrid ?? [],
+                luma_grid: features?.lumaGrid ?? [],
+                edge_grid: features?.edgeGrid ?? [],
+                color_grid: features?.colorGrid ?? [],
                 previous_frame_delta_bucket: features ? gridDelta(previousLumaGrid, features.lumaGrid) : null,
                 text_class: 'masked',
             };
@@ -1095,6 +1977,8 @@ async function buildRrwebVisualRows(
             frames.push({
                 frame_key: frameKey,
                 source_kind: 'rrweb',
+                visual_modality: 'dom_event_stream',
+                recommended_encoder: 'rrweb_dom_encoder',
                 source_index: sourceIndex,
                 source_artifact_index: artifactIndex,
                 source_artifact_kind: artifact.kind,
@@ -1133,6 +2017,12 @@ async function buildVisualRows(
         interactions,
         projectKey,
     );
+    const hierarchyRows = await buildHierarchyVisualRows(
+        session,
+        artifacts.filter((artifact) => artifact.kind === 'hierarchy'),
+        interactions,
+        projectKey,
+    );
     const rrwebRows = await buildRrwebVisualRows(
         session,
         artifacts.filter((artifact) => artifact.kind === 'rrweb'),
@@ -1141,8 +2031,8 @@ async function buildVisualRows(
     );
 
     return {
-        frames: [...screenshotRows.frames, ...rrwebRows.frames],
-        skeleton: [...screenshotRows.skeleton, ...rrwebRows.skeleton],
+        frames: [...screenshotRows.frames, ...hierarchyRows.frames, ...rrwebRows.frames],
+        skeleton: [...screenshotRows.skeleton, ...hierarchyRows.skeleton, ...rrwebRows.skeleton],
     };
 }
 
@@ -1160,8 +2050,384 @@ function artifactSummary(artifacts: ArtifactContext[]): Record<string, unknown> 
         by_kind: byKind,
         total_bytes_bucket: Math.round(totalBytes / 1024 / 1024) * 1024 * 1024,
         total_frames_bucket: Math.round(totalFrames / 10) * 10,
-        has_visual_source: artifacts.some((artifact) => ['screenshots', 'rrweb'].includes(artifact.kind)),
+        has_visual_source: artifacts.some((artifact) => ['screenshots', 'hierarchy', 'rrweb'].includes(artifact.kind)),
     };
+}
+
+function countStringField(rows: Record<string, unknown>[], field: string): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+        const value = stringValue(row[field]) || 'null';
+        counts[value] = (counts[value] ?? 0) + 1;
+    }
+    return counts;
+}
+
+function gridShapeCounts(frames: ResearchUiFrameRow[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const frame of frames) {
+        const columns = numberValue(frame.grid_columns);
+        const rows = numberValue(frame.grid_rows);
+        if (columns === null || rows === null) continue;
+        const key = `${columns}x${rows}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+}
+
+function medianNumber(values: number[]): number | null {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) return sorted[middle];
+    return Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+function elapsedBucketsForKind(frames: ResearchUiFrameRow[], sourceKind: ResearchUiFrameRow['source_kind']): number[] {
+    return frames
+        .filter((frame) => frame.source_kind === sourceKind)
+        .map((frame) => numberValue(frame.elapsed_ms_bucket))
+        .filter((value): value is number => value !== null)
+        .sort((a, b) => a - b);
+}
+
+function medianIntervalMs(elapsedMs: number[]): number | null {
+    if (elapsedMs.length < 2) return null;
+    const deltas: number[] = [];
+    for (let index = 1; index < elapsedMs.length; index++) {
+        const delta = elapsedMs[index] - elapsedMs[index - 1];
+        if (delta > 0) deltas.push(delta);
+    }
+    return medianNumber(deltas);
+}
+
+function medianNearestDeltaMs(sourceElapsedMs: number[], targetElapsedMs: number[]): number | null {
+    if (sourceElapsedMs.length === 0 || targetElapsedMs.length === 0) return null;
+    const deltas = sourceElapsedMs.map((source) => (
+        targetElapsedMs.reduce((best, target) => Math.min(best, Math.abs(source - target)), Number.POSITIVE_INFINITY)
+    ));
+    return medianNumber(deltas.filter((value) => Number.isFinite(value)));
+}
+
+function nearTargetRatio(sourceElapsedMs: number[], targetElapsedMs: number[], toleranceMs: number): number | null {
+    if (sourceElapsedMs.length === 0 || targetElapsedMs.length === 0) return null;
+    const nearCount = sourceElapsedMs.filter((source) => (
+        targetElapsedMs.some((target) => Math.abs(source - target) <= toleranceMs)
+    )).length;
+    return Math.round((nearCount / sourceElapsedMs.length) * 100) / 100;
+}
+
+function buildHierarchyCaptureProfile(frames: ResearchUiFrameRow[]): Record<string, unknown> {
+    const hierarchyElapsedMs = elapsedBucketsForKind(frames, 'hierarchy');
+    const screenshotElapsedMs = elapsedBucketsForKind(frames, 'screenshots');
+    const observedSnapshotCount = hierarchyElapsedMs.length;
+    if (observedSnapshotCount === 0) {
+        return {
+            present: false,
+            cadence_mode: 'absent',
+            configured_interval_ms: null,
+            observed_median_interval_ms: null,
+            observed_snapshot_count: 0,
+            screenshot_frame_count: screenshotElapsedMs.length,
+            hierarchy_screenshot_alignment_ratio: null,
+            screenshot_hierarchy_coverage_ratio: null,
+            alignment_threshold_ratio: HIERARCHY_GOOD_ALIGNMENT_RATIO,
+            alignment_tolerance_ms: HIERARCHY_ALIGNMENT_TOLERANCE_MS,
+            nearest_screenshot_median_delta_ms: null,
+            alignment: 'not_present',
+        };
+    }
+
+    const observedMedianIntervalMs = medianIntervalMs(hierarchyElapsedMs);
+    const nearestScreenshotMedianDeltaMs = medianNearestDeltaMs(hierarchyElapsedMs, screenshotElapsedMs);
+    const hierarchyScreenshotAlignmentRatio = nearTargetRatio(
+        hierarchyElapsedMs,
+        screenshotElapsedMs,
+        HIERARCHY_ALIGNMENT_TOLERANCE_MS,
+    );
+    const screenshotHierarchyCoverageRatio = nearTargetRatio(
+        screenshotElapsedMs,
+        hierarchyElapsedMs,
+        HIERARCHY_ALIGNMENT_TOLERANCE_MS,
+    );
+    const screenshotFrameCount = screenshotElapsedMs.length;
+    const hierarchyToScreenshotRatio = screenshotFrameCount > 0
+        ? Math.round((observedSnapshotCount / screenshotFrameCount) * 100) / 100
+        : null;
+
+    let cadenceMode = 'sparse_interval';
+    if (observedSnapshotCount === 1) {
+        cadenceMode = 'single_snapshot';
+    } else if (
+        screenshotFrameCount > 0
+        && hierarchyToScreenshotRatio !== null
+        && hierarchyToScreenshotRatio >= HIERARCHY_PER_FRAME_MIN_COVERAGE_RATIO
+        && (hierarchyScreenshotAlignmentRatio ?? 0) >= HIERARCHY_GOOD_ALIGNMENT_RATIO
+        && (screenshotHierarchyCoverageRatio ?? 0) >= HIERARCHY_PER_FRAME_MIN_COVERAGE_RATIO
+        && (nearestScreenshotMedianDeltaMs === null || nearestScreenshotMedianDeltaMs <= HIERARCHY_ALIGNMENT_TOLERANCE_MS)
+    ) {
+        cadenceMode = 'per_visual_frame';
+    } else if (
+        screenshotFrameCount > 0
+        && hierarchyToScreenshotRatio !== null
+        && hierarchyToScreenshotRatio >= HIERARCHY_EVERY_OTHER_MIN_RATIO
+        && (hierarchyScreenshotAlignmentRatio ?? 0) >= HIERARCHY_GOOD_ALIGNMENT_RATIO
+        && (nearestScreenshotMedianDeltaMs === null || nearestScreenshotMedianDeltaMs <= HIERARCHY_ALIGNMENT_TOLERANCE_MS)
+        && (observedMedianIntervalMs === null || observedMedianIntervalMs <= 1_250)
+    ) {
+        cadenceMode = 'every_other_visual_frame';
+    } else if (observedMedianIntervalMs !== null && observedMedianIntervalMs >= 1_500) {
+        cadenceMode = 'fixed_interval';
+    }
+
+    const alignment = ['per_visual_frame', 'every_other_visual_frame'].includes(cadenceMode)
+        ? 'screenshot_frame_aligned'
+        : 'sparse_timeline';
+
+    return {
+        present: true,
+        cadence_mode: cadenceMode,
+        configured_interval_ms: null,
+        observed_median_interval_ms: observedMedianIntervalMs,
+        observed_snapshot_count: observedSnapshotCount,
+        screenshot_frame_count: screenshotFrameCount,
+        hierarchy_to_screenshot_ratio: hierarchyToScreenshotRatio,
+        hierarchy_screenshot_alignment_ratio: hierarchyScreenshotAlignmentRatio,
+        screenshot_hierarchy_coverage_ratio: screenshotHierarchyCoverageRatio,
+        alignment_threshold_ratio: HIERARCHY_GOOD_ALIGNMENT_RATIO,
+        alignment_tolerance_ms: HIERARCHY_ALIGNMENT_TOLERANCE_MS,
+        nearest_screenshot_median_delta_ms: nearestScreenshotMedianDeltaMs,
+        alignment,
+    };
+}
+
+function hierarchyCaptureWarnings(profile: Record<string, unknown>): string[] {
+    if (profile.present !== true) return [];
+    const warnings: string[] = [];
+    if (['fixed_interval', 'sparse_interval', 'single_snapshot'].includes(stringValue(profile.cadence_mode))) {
+        warnings.push('hierarchy_sparse_timeline');
+    }
+    if (profile.alignment !== 'screenshot_frame_aligned') {
+        warnings.push('hierarchy_not_frame_aligned');
+    }
+    return warnings;
+}
+
+function buildRrwebCaptureProfile(
+    frames: ResearchUiFrameRow[],
+    skeleton: ResearchUiElementRow[],
+): Record<string, unknown> {
+    const rrwebFrames = frames.filter((frame) => frame.source_kind === 'rrweb');
+    const eventCount = rrwebFrames.length;
+    if (eventCount === 0) {
+        return {
+            present: false,
+            replay_basis: 'absent',
+            event_count: 0,
+            full_snapshot_count: 0,
+            incremental_count: 0,
+            mutation_count: 0,
+            meta_count: 0,
+            viewport_resize_count: 0,
+            scroll_count: 0,
+            dom_skeleton_element_count: 0,
+            viewport_missing_count: 0,
+            page_missing_count: 0,
+            event_span_ms: null,
+        };
+    }
+
+    const eventKindCounts = countStringField(rrwebFrames, 'rrweb_event_kind');
+    const fullSnapshotCount = numberValue(eventKindCounts.full_snapshot) ?? 0;
+    const incrementalCount = rrwebFrames.filter((frame) => numberValue(frame.rrweb_event_type) === RRWEB_EVENT_TYPE_INCREMENTAL).length;
+    const mutationCount = numberValue(eventKindCounts.mutation) ?? 0;
+    const metaCount = numberValue(eventKindCounts.meta) ?? 0;
+    const viewportResizeCount = numberValue(eventKindCounts.viewport_resize) ?? 0;
+    const scrollCount = numberValue(eventKindCounts.scroll) ?? 0;
+    const viewportMissingCount = rrwebFrames.filter((frame) => (
+        numberValue(frame.viewport_width_bucket) === null || numberValue(frame.viewport_height_bucket) === null
+    )).length;
+    const pageMissingCount = rrwebFrames.filter((frame) => (
+        numberValue(frame.page_width_bucket) === null || numberValue(frame.page_height_bucket) === null
+    )).length;
+    const elapsed = rrwebFrames
+        .map((frame) => numberValue(frame.elapsed_ms_bucket))
+        .filter((value): value is number => value !== null);
+    const eventSpanMs = elapsed.length >= 2 ? Math.max(...elapsed) - Math.min(...elapsed) : null;
+    const rrwebFrameKeys = new Set(rrwebFrames.map((frame) => stringValue(frame.frame_key)).filter(Boolean));
+    const domSkeletonElementCount = skeleton.filter((element) => (
+        stringValue(element.frame_key) && rrwebFrameKeys.has(stringValue(element.frame_key))
+    )).length;
+
+    let replayBasis = 'events_without_baseline';
+    if (fullSnapshotCount > 0 && mutationCount > 0) {
+        replayBasis = 'snapshot_plus_incremental';
+    } else if (fullSnapshotCount > 0) {
+        replayBasis = 'full_snapshot_only';
+    } else if (incrementalCount > 0) {
+        replayBasis = 'incremental_without_full_snapshot';
+    }
+
+    return {
+        present: true,
+        replay_basis: replayBasis,
+        event_count: eventCount,
+        full_snapshot_count: fullSnapshotCount,
+        incremental_count: incrementalCount,
+        mutation_count: mutationCount,
+        meta_count: metaCount,
+        viewport_resize_count: viewportResizeCount,
+        scroll_count: scrollCount,
+        dom_skeleton_element_count: domSkeletonElementCount,
+        viewport_missing_count: viewportMissingCount,
+        page_missing_count: pageMissingCount,
+        event_span_ms: eventSpanMs,
+    };
+}
+
+function rrwebCaptureWarnings(profile: Record<string, unknown>): string[] {
+    if (profile.present !== true) return [];
+    const warnings: string[] = [];
+    const fullSnapshotCount = numberValue(profile.full_snapshot_count) ?? 0;
+    const mutationCount = numberValue(profile.mutation_count) ?? 0;
+    const viewportMissingCount = numberValue(profile.viewport_missing_count) ?? 0;
+    const pageMissingCount = numberValue(profile.page_missing_count) ?? 0;
+    const skeletonElementCount = numberValue(profile.dom_skeleton_element_count) ?? 0;
+
+    if (fullSnapshotCount === 0) warnings.push('rrweb_missing_full_snapshot');
+    if (fullSnapshotCount === 0 && mutationCount > 0) warnings.push('rrweb_incremental_without_full_snapshot');
+    if (viewportMissingCount > 0) warnings.push('rrweb_viewport_dimensions_missing');
+    if (pageMissingCount > 0) warnings.push('rrweb_page_dimensions_missing');
+    if (fullSnapshotCount > 0 && skeletonElementCount === 0) warnings.push('rrweb_full_snapshot_without_dom_skeleton');
+    return warnings;
+}
+
+function buildMaskingCaptureProfile(
+    session: SessionContext,
+    frames: ResearchUiFrameRow[],
+    skeleton: ResearchUiElementRow[],
+): Record<string, unknown> {
+    const textInputPolicy = session.text_input_masking === 'secure_only' ? 'secure_only' : 'all';
+    const imageVideoPolicy = session.image_video_masking === 'all' ? 'all' : 'none';
+    const hierarchyElements = skeleton.filter((element) => element.source_kind === 'hierarchy');
+    const rrwebElements = skeleton.filter((element) => element.source_kind === 'rrweb');
+    const hierarchyMaskedElements = hierarchyElements.filter((element) => element.is_masked === true);
+    const rrwebMaskedElements = rrwebElements.filter((element) => element.is_masked === true);
+    const hierarchyKeyboardOrSystemElements = hierarchyElements.filter((element) => element.is_keyboard_or_system === true);
+    const hierarchyMediaSurfaceCount = hierarchyElements.filter((element) => ['media', 'map', 'webview'].includes(stringValue(element.role))).length;
+    const rrwebMediaSurfaceCount = rrwebElements.filter((element) => stringValue(element.role) === 'media').length;
+    const screenshotFrameCount = frames.filter((frame) => frame.source_kind === 'screenshots').length;
+    const hierarchyFrameCount = frames.filter((frame) => frame.source_kind === 'hierarchy').length;
+    const rrwebFrameCount = frames.filter((frame) => frame.source_kind === 'rrweb').length;
+    const signalSources = [
+        screenshotFrameCount > 0 ? 'screenshot_pixels_post_redaction' : null,
+        hierarchyMaskedElements.length > 0 ? 'native_hierarchy_masked_nodes' : null,
+        rrwebMaskedElements.length > 0 ? 'rrweb_sanitized_dom_nodes' : null,
+    ].filter((value): value is string => Boolean(value));
+
+    return {
+        text_input_masking_policy: textInputPolicy,
+        image_video_masking_policy: imageVideoPolicy,
+        screenshot_pixels_post_redaction: screenshotFrameCount > 0,
+        hierarchy_mask_observed: hierarchyMaskedElements.length > 0,
+        hierarchy_masked_element_count: hierarchyMaskedElements.length,
+        hierarchy_masked_input_count: hierarchyMaskedElements.filter((element) => ['input', 'search_input'].includes(stringValue(element.role))).length,
+        hierarchy_media_surface_count: hierarchyMediaSurfaceCount,
+        hierarchy_keyboard_or_system_element_count: hierarchyKeyboardOrSystemElements.length,
+        hierarchy_keyboard_or_system_policy: 'exclude_or_downweight',
+        hierarchy_frame_count: hierarchyFrameCount,
+        rrweb_mask_observed: rrwebMaskedElements.length > 0,
+        rrweb_masked_element_count: rrwebMaskedElements.length,
+        rrweb_masked_input_value_count: rrwebElements.filter((element) => element.has_masked_input_value === true).length,
+        rrweb_masked_media_attribute_count: rrwebElements.filter((element) => element.has_masked_media_attribute === true).length,
+        rrweb_media_surface_count: rrwebMediaSurfaceCount,
+        rrweb_frame_count: rrwebFrameCount,
+        mask_signal_sources: signalSources,
+    };
+}
+
+function maskingCaptureWarnings(profile: Record<string, unknown>): string[] {
+    const warnings: string[] = [];
+    if (profile.text_input_masking_policy === 'secure_only') {
+        warnings.push('masking_text_inputs_secure_only_policy');
+    }
+    const mediaSurfaceCount = (numberValue(profile.hierarchy_media_surface_count) ?? 0)
+        + (numberValue(profile.rrweb_media_surface_count) ?? 0);
+    if (profile.image_video_masking_policy === 'none' && mediaSurfaceCount > 0) {
+        warnings.push('masking_media_not_forced_by_policy');
+    }
+    if ((numberValue(profile.hierarchy_keyboard_or_system_element_count) ?? 0) > 0) {
+        warnings.push('hierarchy_keyboard_or_system_nodes_present');
+    }
+    return warnings;
+}
+
+function annotateHierarchyCaptureProfile(rows: ResearchVisualRows, profile: Record<string, unknown>): ResearchVisualRows {
+    const cadenceMode = stringValue(profile.cadence_mode) || 'absent';
+    const alignment = stringValue(profile.alignment) || 'not_present';
+    const hasHierarchy = cadenceMode !== 'absent';
+    const snapshotSparse = alignment !== 'screenshot_frame_aligned';
+    const sourceTiming = alignment === 'screenshot_frame_aligned'
+        ? 'screenshot_frame_aligned_snapshot'
+        : 'sparse_timeline_snapshot';
+
+    const annotate = <T extends Record<string, unknown>>(row: T): T => {
+        if (row.source_kind !== 'hierarchy' || !hasHierarchy) {
+            return row;
+        }
+        return {
+            ...row,
+            source_timing: sourceTiming,
+            hierarchy_snapshot_sparse: snapshotSparse,
+            hierarchy_capture_cadence: cadenceMode,
+            hierarchy_capture_alignment: alignment,
+        };
+    };
+
+    return {
+        frames: rows.frames.map((frame) => annotate(frame) as ResearchUiFrameRow),
+        skeleton: rows.skeleton.map((element) => annotate(element) as ResearchUiElementRow),
+    };
+}
+
+function interactionQualityMetrics(interactions: ResearchInteractionRow[]): Record<string, unknown> {
+    const coordinateEvents = interactions.filter((interaction) => (
+        ['tap', 'gesture', 'input'].includes(interaction.kind)
+    ));
+    return {
+        coordinate_event_count: coordinateEvents.length,
+        coordinate_missing_count: coordinateEvents.filter((interaction) => (
+            interaction.x_norm_bucket === null || interaction.y_norm_bucket === null
+        )).length,
+        viewport_missing_count: interactions.filter((interaction) => interaction.viewport_source === 'missing').length,
+        viewport_source_counts: countStringField(interactions, 'viewport_source'),
+    };
+}
+
+function interactionQualityWarnings(
+    interactions: ResearchInteractionRow[],
+    frames: ResearchUiFrameRow[],
+): string[] {
+    const warnings: string[] = [];
+    const screenshotFrameCount = frames.filter((frame) => frame.source_kind === 'screenshots').length;
+    const hierarchyFrameCount = frames.filter((frame) => frame.source_kind === 'hierarchy').length;
+    const rrwebFrameCount = frames.filter((frame) => frame.source_kind === 'rrweb').length;
+    const decodeFailedCount = frames.filter((frame) => frame.feature_grid_status === 'decode_failed').length;
+    const unavailableFeatureCount = frames.filter((frame) => frame.source_kind === 'screenshots' && frame.feature_grid_status === 'unavailable').length;
+    const missingViewportCount = interactions.filter((interaction) => interaction.viewport_source === 'missing').length;
+    const missingCoordinateCount = interactions.filter((interaction) => (
+        ['tap', 'gesture', 'input'].includes(interaction.kind)
+        && (interaction.x_norm_bucket === null || interaction.y_norm_bucket === null)
+    )).length;
+
+    if (hierarchyFrameCount > 0 && screenshotFrameCount === 0 && rrwebFrameCount === 0) {
+        warnings.push('hierarchy_only_sparse_visual_source');
+    }
+    if (decodeFailedCount > 0) warnings.push('screenshot_decode_failed_fallback_grid_used');
+    if (unavailableFeatureCount > 0) warnings.push('screenshot_feature_grid_unavailable');
+    if (missingViewportCount > 0) warnings.push('interaction_viewport_missing_for_some_events');
+    if (missingCoordinateCount > 0) warnings.push('coordinate_missing_for_some_pointer_events');
+    return warnings;
 }
 
 function createLaneSummary(): ResearchLakeLaneSummary {
@@ -1272,7 +2538,7 @@ function interactionSeedCandidatePredicateSql(): string {
                   FROM recording_artifacts ra
                   WHERE ra.session_id = s.id
                     AND ra.status = 'ready'
-                    AND ra.kind IN ('screenshots', 'rrweb')
+                    AND ra.kind IN ('screenshots', 'hierarchy', 'rrweb')
               )
 `.trimEnd();
 }
@@ -1460,7 +2726,9 @@ async function loadSessionContext(sessionId: string): Promise<{
             s.user_display_id AS "user_display_id",
             s.observe_only,
             s.replay_quota_billing_exhausted,
-            s.replay_retention_state
+            s.replay_retention_state,
+            p.text_input_masking,
+            p.image_video_masking
         FROM sessions s
         INNER JOIN projects p ON p.id = s.project_id
         LEFT JOIN session_metrics sm ON sm.session_id = s.id
@@ -1682,11 +2950,11 @@ function buildBusinessContext(
     }
 
     for (const i of purchaseCompleteEvents) {
-        if (i.product_id && typeof i.product_id === 'string') {
-            purchasedProductsSet.add(i.product_id);
+        if (i.product_key && typeof i.product_key === 'string') {
+            purchasedProductsSet.add(i.product_key);
         }
     }
-    const purchasedProducts = Array.from(purchasedProductsSet);
+    const purchasedProductKeys = Array.from(purchasedProductsSet);
 
     const uniqueTransitions = new Set<string>();
     for (const i of interactions) {
@@ -1722,7 +2990,7 @@ function buildBusinessContext(
         max_funnel_stage_reached: maxFunnelStageReached,
         conversion_revenue_bucket: conversionRevenueBucket,
         currency: dominantCurrency,
-        purchased_products: purchasedProducts,
+        purchased_product_keys: purchasedProductKeys,
         has_discount_applied: hasDiscountApplied,
         lifecycle_events_present: lifecycleEventsPresent,
         total_cart_additions_bucket: totalCartAdditionsBucket,
@@ -1741,6 +3009,14 @@ function behavioralSourceReason(session: SessionContext): string {
     if (session.replay_quota_billing_exhausted) return 'replay_quota_exhausted';
     if (session.replay_retention_state === 'analytics_only') return 'smart_capture_analytics_only';
     return 'unknown';
+}
+
+function buildGeoContext(session: SessionContext): Record<string, string | null> {
+    return {
+        country: session.geo_country || null,
+        country_code: session.geo_country_code || null,
+        city: session.geo_city || null,
+    };
 }
 
 function booleanValue(value: unknown): boolean | null {
@@ -1796,6 +3072,7 @@ function buildSessionMetrics(session: SessionContext): Record<string, unknown> {
 
 function hasMeaningfulBehavioralSignal(session: SessionContext, events: unknown[]): boolean {
     if (events.length > 0) return true;
+    if ((session.screens_visited || []).length > 0) return true;
     const metrics = buildSessionMetrics(session);
     return [
         'total_events',
@@ -1833,9 +3110,6 @@ function buildBehavioralEvents(
             : sourceEvent.payload && typeof sourceEvent.payload === 'object' && !Array.isArray(sourceEvent.payload)
                 ? sourceEvent.payload as Record<string, unknown>
                 : {};
-        const productId = stringValue(interaction.product_id);
-        const planId = stringValue(interaction.plan_id);
-        const priceId = stringValue(interaction.price_id);
         return {
             event_index: interaction.index,
             elapsed_ms_bucket: interaction.elapsed_ms_bucket,
@@ -1845,13 +3119,21 @@ function buildBehavioralEvents(
             funnel_transition: interaction.funnel_transition ?? null,
             screen_key: interaction.screen_key,
             target_key: interaction.target_key,
+            x_norm_bucket: interaction.x_norm_bucket ?? null,
+            y_norm_bucket: interaction.y_norm_bucket ?? null,
+            x_cell: interaction.x_cell ?? null,
+            y_cell: interaction.y_cell ?? null,
+            touch_grid_columns: interaction.touch_grid_columns ?? null,
+            touch_grid_rows: interaction.touch_grid_rows ?? null,
+            screen_orientation: interaction.screen_orientation ?? null,
+            screen_form_factor: interaction.screen_form_factor ?? null,
             input_modality: interaction.input_modality ?? null,
             item_count_bucket: interaction.item_count_change ?? null,
             cart_value_bucket: interaction.cart_value_bucket ?? null,
             currency: interaction.currency ?? null,
-            product_key: productId ? hmac(`${projectKey}:product:${productId}`, 20) : null,
-            plan_key: planId ? hmac(`${projectKey}:plan:${planId}`, 20) : null,
-            price_key: priceId ? hmac(`${projectKey}:price:${priceId}`, 20) : null,
+            product_key: interaction.product_key ?? null,
+            plan_key: interaction.plan_key ?? null,
+            price_key: interaction.price_key ?? null,
             payment_provider: interaction.payment_provider ?? null,
             platform: interaction.platform ?? null,
             is_renewal: interaction.is_renewal ?? null,
@@ -1864,7 +3146,6 @@ function buildBehavioralEvents(
 function buildBehavioralLabels(
     session: SessionContext,
     businessContext: ReturnType<typeof buildBusinessContext>,
-    projectKey: string,
 ): Record<string, unknown> {
     const hasApiFailure = (session.api_error_count || 0) > 0;
     const hasStabilityFailure = (session.crash_count ?? 0) > 0
@@ -1874,7 +3155,7 @@ function buildBehavioralLabels(
         is_conversion_session: businessContext.is_conversion_session,
         max_funnel_stage_reached: businessContext.max_funnel_stage_reached,
         conversion_revenue_bucket: businessContext.conversion_revenue_bucket,
-        purchased_product_keys: businessContext.purchased_products.map((productId) => hmac(`${projectKey}:product:${productId}`, 20)),
+        purchased_product_keys: businessContext.purchased_product_keys,
         lifecycle_events_present: businessContext.lifecycle_events_present,
         has_api_failure: hasApiFailure,
         has_stability_failure: hasStabilityFailure,
@@ -1923,11 +3204,7 @@ function buildBehavioralManifest(params: {
             screen_path_keys: screenPathKeys,
         },
         metrics,
-        geo: {
-            country: session.geo_country || null,
-            country_code: session.geo_country_code || null,
-            city: session.geo_city || null,
-        },
+        geo: buildGeoContext(session),
         business_context: {
             currency: businessContext.currency,
             has_discount_applied: businessContext.has_discount_applied,
@@ -1968,11 +3245,15 @@ async function processInteractionJob(
     const projectKey = hmac(`project:${session.project_id}`, 20);
     const lakeSampleKey = crypto.randomUUID().replace(/-/g, '');
     const interactions = buildInteractions(session, projectKey, customEventConfig);
-    const visualRows = await buildVisualRows(session, artifacts, interactions, projectKey);
+    const rawVisualRows = await buildVisualRows(session, artifacts, interactions, projectKey);
+    const hierarchyCaptureProfile = buildHierarchyCaptureProfile(rawVisualRows.frames);
+    const visualRows = annotateHierarchyCaptureProfile(rawVisualRows, hierarchyCaptureProfile);
     const skeleton = [
         ...visualRows.skeleton,
         ...buildInteractionSkeleton(interactions),
     ];
+    const rrwebCaptureProfile = buildRrwebCaptureProfile(visualRows.frames, visualRows.skeleton);
+    const maskingCaptureProfile = buildMaskingCaptureProfile(session, visualRows.frames, visualRows.skeleton);
     const artifactsSummary = artifactSummary(artifacts);
     const rejection = interactionRejectReason(artifacts, interactions, visualRows.frames);
 
@@ -1989,6 +3270,20 @@ async function processInteractionJob(
     }
 
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
+    const labels = buildBehavioralLabels(session, businessContext);
+    const metrics = buildSessionMetrics(session);
+    const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
+    const captureProfile = {
+        hierarchy: hierarchyCaptureProfile,
+        rrweb: rrwebCaptureProfile,
+        masking: maskingCaptureProfile,
+    };
+    const qualityWarnings = [
+        ...interactionQualityWarnings(interactions, visualRows.frames),
+        ...hierarchyCaptureWarnings(hierarchyCaptureProfile),
+        ...rrwebCaptureWarnings(rrwebCaptureProfile),
+        ...maskingCaptureWarnings(maskingCaptureProfile),
+    ];
 
     const date = datePart(session.started_at);
     const basePath = `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=interaction/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
@@ -2006,29 +3301,14 @@ async function processInteractionJob(
         duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
         retention_days: session.retention_days,
         source: artifactsSummary,
+        capture_profile: captureProfile,
         visitor_context: {
             is_bounced: (session.duration_seconds || 0) < 15 && (session.total_events || 0) < 5,
             screens_visited_count: (session.screens_visited || []).length,
-            screens_visited: session.screens_visited || [],
+            screen_path_keys: screenPathKeys,
         },
-        metrics: {
-            total_events: session.total_events || 0,
-            touch_count: session.touch_count || 0,
-            scroll_count: session.scroll_count || 0,
-            gesture_count: session.gesture_count || 0,
-            input_count: session.input_count || 0,
-            rage_tap_count: session.rage_tap_count || 0,
-            dead_tap_count: session.dead_tap_count || 0,
-            duration_seconds: session.duration_seconds || 0,
-            crash_count: session.crash_count ?? 0,
-            anr_count: session.anr_count ?? 0,
-            error_count: session.error_count ?? 0,
-        },
-        geo: {
-            country: session.geo_country || null,
-            country_code: session.geo_country_code || null,
-            city: session.geo_city || null,
-        },
+        metrics,
+        geo: buildGeoContext(session),
         business_context: {
             currency: businessContext.currency,
             has_discount_applied: businessContext.has_discount_applied,
@@ -2036,13 +3316,7 @@ async function processInteractionJob(
             session_metadata_keys: businessContext.session_metadata_keys,
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
-        labels: {
-            is_conversion_session: businessContext.is_conversion_session,
-            max_funnel_stage_reached: businessContext.max_funnel_stage_reached,
-            conversion_revenue_bucket: businessContext.conversion_revenue_bucket,
-            purchased_products: businessContext.purchased_products,
-            lifecycle_events_present: businessContext.lifecycle_events_present,
-        },
+        labels,
         files: {
             interactions: `${basePath}/interactions.jsonl.gz`,
             ui_frames: `${basePath}/ui_frames.jsonl.gz`,
@@ -2058,10 +3332,17 @@ async function processInteractionJob(
         interaction_event_count: interactions.length,
         ui_frame_count: visualRows.frames.length,
         screenshot_frame_count: visualRows.frames.filter((frame) => frame.source_kind === 'screenshots').length,
+        hierarchy_snapshot_frame_count: visualRows.frames.filter((frame) => frame.source_kind === 'hierarchy').length,
         rrweb_event_frame_count: visualRows.frames.filter((frame) => frame.source_kind === 'rrweb').length,
         ui_skeleton_element_count: skeleton.length,
+        visual_modality_counts: countStringField(visualRows.frames, 'visual_modality'),
+        recommended_encoder_counts: countStringField(visualRows.frames, 'recommended_encoder'),
+        grid_shape_counts: gridShapeCounts(visualRows.frames),
+        feature_grid_status_counts: countStringField(visualRows.frames, 'feature_grid_status'),
+        capture_profile: captureProfile,
+        ...interactionQualityMetrics(interactions),
         pii_scan: 'passed',
-        warnings: [],
+        warnings: qualityWarnings,
     };
 
     if (containsIdentifierRisk({
@@ -2143,7 +3424,7 @@ async function processBehavioralJob(
     }
 
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
-    const labels = buildBehavioralLabels(session, businessContext, projectKey);
+    const labels = buildBehavioralLabels(session, businessContext);
     const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT ? 'usable' : 'metrics_only';
     const date = datePart(session.started_at);
     const basePath = `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=behavioral_outcomes/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
@@ -2164,6 +3445,7 @@ async function processBehavioralJob(
         source_artifact_count: 0,
         event_count: events.length,
         metrics_only: qualityTier === 'metrics_only',
+        ...interactionQualityMetrics(interactions),
         pii_scan: 'passed',
         warnings: qualityTier === 'metrics_only' ? ['below_min_event_count_but_metrics_present'] : [],
     };
@@ -2298,6 +3580,7 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
 
 export const __researchLakeTestInternals = {
     containsIdentifierRisk,
+    visualGridSpecForDimensions,
     imageFeatureGrid,
     createZipArchiveBuffer,
     buildInteractions,
@@ -2305,11 +3588,20 @@ export const __researchLakeTestInternals = {
     buildBehavioralLabels,
     buildBehavioralManifest,
     buildSessionMetrics,
+    buildGeoContext,
+    buildHierarchyCaptureProfile,
+    hierarchyCaptureWarnings,
+    buildRrwebCaptureProfile,
+    rrwebCaptureWarnings,
+    buildMaskingCaptureProfile,
+    maskingCaptureWarnings,
+    annotateHierarchyCaptureProfile,
     buildInteractionSkeleton,
     buildBusinessContext,
     buildSeedResearchJobsSql,
     buildClaimResearchJobsSql,
     interactionSeedCandidatePredicateSql,
     behavioralSeedCandidatePredicateSql,
+    funnelTransitionAliases: FUNNEL_TRANSITION_ALIASES,
     researchLakeTypes: RESEARCH_LAKE_TYPES,
 };

@@ -701,37 +701,52 @@ public final class ReplayOrchestrator: NSObject {
         // Industry standard: Use default run loop mode (NOT .common)
         // This lets the timer pause during scrolling which prevents stutter
         _hierarchyTimer = Timer.scheduledTimer(withTimeInterval: hierarchyCaptureInterval, repeats: true) { [weak self] _ in
-            self?._captureHierarchy()
+            self?._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?._captureHierarchy()
+            self?._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
         }
     }
 
-    private func _captureHierarchy() {
+    func captureHierarchyForFrame(timestampMs: UInt64) {
+        _captureHierarchy(timestampMs: timestampMs, skipDuplicate: false, allowDuringMapMovement: true)
+    }
+
+    private func _captureHierarchy(
+        timestampMs: UInt64? = nil,
+        skipDuplicate: Bool = true,
+        allowDuringMapMovement: Bool = false
+    ) {
         guard _live, let sid = replayId else { return }
         if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in self?._captureHierarchy() }
+            DispatchQueue.main.async { [weak self] in
+                self?._captureHierarchy(
+                    timestampMs: timestampMs,
+                    skipDuplicate: skipDuplicate,
+                    allowDuringMapMovement: allowDuringMapMovement
+                )
+            }
             return
         }
 
         // Throttle hierarchy capture when map is visible and animating —
         // hierarchy scanning traverses the full view tree including the
         // map's deep Metal/GL subviews, adding main-thread pressure.
-        if SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+        if !allowDuringMapMovement && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
             return
         }
 
-        guard let hierarchy = ViewHierarchyScanner.shared.captureHierarchy() else { return }
+        guard var hierarchy = ViewHierarchyScanner.shared.captureHierarchy() else { return }
+        let ts = timestampMs ?? UInt64(Date().timeIntervalSince1970 * 1000)
+        hierarchy["timestamp"] = Int64(ts)
 
         let hash = _hierarchyHash(hierarchy)
-        if hash == _lastHierarchyHash { return }
+        if skipDuplicate && hash == _lastHierarchyHash { return }
         _lastHierarchyHash = hash
 
         guard let json = try? JSONSerialization.data(withJSONObject: hierarchy) else { return }
         guard let compressed = json.gzipCompress() else { return }
-        let ts = UInt64(Date().timeIntervalSince1970 * 1000)
 
         SegmentDispatcher.shared.transmitHierarchy(replayId: sid, hierarchyPayload: compressed, timestampMs: ts, completion: nil)
     }

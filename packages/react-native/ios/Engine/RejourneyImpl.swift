@@ -21,7 +21,7 @@ import CommonCrypto
 @objc(RejourneyImpl)
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
-    @objc public static var sdkVersion = "1.3.0"
+    @objc public static var sdkVersion = "1.3.1"
 
     // MARK: - State Machine
 

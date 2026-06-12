@@ -75,7 +75,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.3.0"
+        var sdkVersion = "1.3.1"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
