@@ -159,6 +159,33 @@ function isStorageMissingError(err: unknown): boolean {
     );
 }
 
+function isStorageForbiddenError(err: unknown): boolean {
+    const anyErr = err as any;
+    const httpStatus = anyErr?.$metadata?.httpStatusCode;
+    const message = err instanceof Error ? err.message : String(err);
+    const code = String(anyErr?.Code ?? anyErr?.code ?? '').toLowerCase();
+    const name = String(anyErr?.name ?? '').toLowerCase();
+    const normalizedMessage = message.toLowerCase();
+    return (
+        httpStatus === 403
+        || code.includes('accessdenied')
+        || code.includes('forbidden')
+        || name.includes('accessdenied')
+        || name.includes('forbidden')
+        || normalizedMessage.includes('access denied')
+    );
+}
+
+export class StorageDownloadError extends Error {
+    statusCode: 403 | 404 | 500;
+
+    constructor(message: string, statusCode: 403 | 404 | 500, cause?: unknown) {
+        super(message, cause === undefined ? undefined : { cause });
+        this.name = 'StorageDownloadError';
+        this.statusCode = statusCode;
+    }
+}
+
 export function classifyS3DeletionError(err: unknown): string {
     const anyErr = err as any;
     const message = err instanceof Error ? err.message : String(err);
@@ -961,6 +988,46 @@ export async function downloadRawFromS3(
 }
 
 /**
+ * Download raw data from S3 and preserve the failure class for callers that need
+ * distinct missing/forbidden/server-error responses.
+ */
+export async function downloadRawFromS3Strict(
+    endpointId: string,
+    key: string
+): Promise<Buffer> {
+    const endpoint = await getEndpointById(endpointId);
+    if (!endpoint) {
+        throw new StorageDownloadError('Storage endpoint not found', 500);
+    }
+
+    const { client, bucket } = getS3ClientForEndpoint(endpoint);
+
+    try {
+        const response = await client.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+
+        if (!response.Body) {
+            throw new StorageDownloadError('Storage object body is empty', 404);
+        }
+        return streamBodyToBuffer(response.Body as AsyncIterable<Uint8Array>);
+    } catch (err) {
+        if (err instanceof StorageDownloadError) throw err;
+        if (isStorageMissingError(err)) {
+            logger.debug({ err, key, endpointId }, 'Storage object not found during strict download');
+            throw new StorageDownloadError('Storage object not found', 404, err);
+        }
+        if (isStorageForbiddenError(err)) {
+            logger.warn({ err, key, endpointId }, 'Storage object forbidden during strict download');
+            throw new StorageDownloadError('Storage object access forbidden', 403, err);
+        }
+        logger.error({ err, key, endpointId }, 'Failed to download from S3');
+        throw new StorageDownloadError('Storage download failed', 500, err);
+    }
+}
+
+/**
  * Download from project's default endpoint
  */
 export async function downloadFromS3ForProject(
@@ -998,6 +1065,14 @@ export async function downloadRawFromS3ForProject(
     return downloadRawFromS3(endpoint.id, key);
 }
 
+export async function downloadRawFromS3ForProjectStrict(
+    projectId: string,
+    key: string
+): Promise<Buffer> {
+    const endpoint = await getEndpointForProject(projectId);
+    return downloadRawFromS3Strict(endpoint.id, key);
+}
+
 export async function downloadRawFromS3ForArtifact(
     projectId: string,
     key: string,
@@ -1010,6 +1085,20 @@ export async function downloadRawFromS3ForArtifact(
         }
     }
     return downloadRawFromS3ForProject(projectId, key);
+}
+
+export async function downloadRawFromS3ForArtifactStrict(
+    projectId: string,
+    key: string,
+    endpointId: string | null | undefined
+): Promise<Buffer> {
+    if (endpointId) {
+        const endpoint = await getEndpointById(endpointId);
+        if (endpoint) {
+            return downloadRawFromS3Strict(endpoint.id, key);
+        }
+    }
+    return downloadRawFromS3ForProjectStrict(projectId, key);
 }
 
 /**

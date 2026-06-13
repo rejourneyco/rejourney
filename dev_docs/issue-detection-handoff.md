@@ -147,19 +147,20 @@ Response:
 ### Candidate Sessions
 
 ```http
-GET /projects/:projectId/candidate-sessions?lookback=7d&limit=16
+GET /projects/:projectId/candidate-sessions?lookback=7d&limit=2000&minReplayDurationSeconds=15
 ```
 
 Rules:
 
-- `limit` is clamped to 1-64.
+- `limit` is clamped to 1-2000 and defaults to 2000.
 - Default lookback is `24h`.
 - `lookback` accepts `m`, `h`, `d`, or `w`, for example `30m`, `24h`, `7d`, or `4w`.
 - Use `lookback=all` for all retained sessions.
 - Exact `since=<ISO timestamp>` is still supported and takes precedence over `lookback`.
 - Only replay-available, saved, non-deleted, non-expired sessions are returned.
-- Sessions are ranked by cheap signals: crash, ANR, error count, API errors,
-  rage taps, dead taps, duration, and interaction activity.
+- `minReplayDurationSeconds` defaults to `15` and filters sessions with too little replay footage. Use `0` to disable the filter.
+- Sessions are ordered by `startedAt` descending. Issue-detection does its own scoring and random-tail sampling from the returned pool.
+- Cheap signal counts are still returned as scoring inputs.
 
 Response:
 
@@ -168,7 +169,8 @@ Response:
   "projectId": "demo-project-001",
   "lookback": "7d",
   "since": "2026-06-12T00:00:00.000Z",
-  "limit": 16,
+  "limit": 2000,
+  "minReplayDurationSeconds": 15,
   "sessions": [
     {
       "id": "session_123",
@@ -184,8 +186,11 @@ Response:
       "anonymousHash": "anon_hash",
       "replayAvailable": true,
       "smartCaptureStatus": "not_applicable",
-      "signalScore": 47,
       "readyVisualArtifactCount": 2,
+      "replayStartTime": 1781354400000,
+      "replayEndTime": 1781354652000,
+      "replayDurationSeconds": 252,
+      "replayRangeComplete": true,
       "metrics": {
         "totalEvents": 216,
         "errorCount": 3,
@@ -201,6 +206,62 @@ Response:
       }
     }
   ]
+}
+```
+
+### Batch Session Metrics
+
+```http
+POST /metrics:batch
+Content-Type: application/json
+
+{ "sessionIds": ["session_123", "session_456"] }
+```
+
+Returns only cheap session columns and signal counts, keyed by session id:
+
+```json
+{
+  "metrics": {
+    "session_123": {
+      "durationSeconds": 252,
+      "startedAt": "2026-06-13T10:00:00.000Z",
+      "endedAt": "2026-06-13T10:04:12.000Z",
+      "readyVisualArtifactCount": 2,
+      "replayStartTime": 1781354400000,
+      "replayEndTime": 1781354652000,
+      "replayDurationSeconds": 252,
+      "totalEvents": 216,
+      "errorCount": 3,
+      "crashCount": 0,
+      "anrCount": 0,
+      "apiErrorCount": 5,
+      "rageTapCount": 2,
+      "deadTapCount": 1,
+      "touchCount": 24,
+      "scrollCount": 8,
+      "screenshotSegmentCount": 1,
+      "hierarchySnapshotCount": 0
+    }
+  }
+}
+```
+
+### Batch Digest
+
+```http
+POST /digest:batch
+Content-Type: application/json
+
+{ "sessionIds": ["session_123"], "limitPerSession": 3 }
+```
+
+Returns the newest few errors and crashes per session for cheap text-only triage:
+
+```json
+{
+  "errors": [],
+  "crashes": []
 }
 ```
 
@@ -260,7 +321,22 @@ GET /artifacts/:artifactId/bytes
 ```
 
 Returns raw stored bytes after verifying the artifact belongs to a real session
-and project. Do not assume signed S3 URLs or storage keys are available.
+and project. Missing or expired objects return `404`, forbidden storage returns
+`403`, and storage/server failures return `5xx`. Bytes are returned exactly as
+stored, including gzip compression. Do not assume signed S3 URLs or storage keys
+are available.
+
+### Evidence Rows By ID
+
+These endpoints return one row, or `404` if the row no longer exists:
+
+```http
+GET /crashes/:id
+GET /anrs/:id
+GET /errors/:id
+GET /issues/:id
+GET /issue-events/:id
+```
 
 ## Issue-Detection API Expected By Rejourney
 
