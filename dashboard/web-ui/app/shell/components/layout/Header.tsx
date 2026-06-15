@@ -85,7 +85,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
               </Link>
             )}
             <Link to={isAuthenticated ? "/dashboard" : "/login"} className="hidden sm:inline-flex">
-              <Button variant="ghost" className="font-sans font-semibold text-sm px-4.5 py-2 border border-slate-950 dark:border-slate-800 bg-slate-950 dark:bg-white text-white dark:text-slate-950 hover:bg-slate-800 dark:hover:bg-slate-100 transition-all duration-200 rounded-full shadow-sm">
+              <Button variant="ghost" className="font-sans font-semibold text-sm px-4.5 py-2 border border-slate-950 dark:border-slate-800 bg-slate-950 dark:bg-white text-white dark:text-slate-950 hover:bg-slate-800 dark:hover:bg-slate-100 hover:!text-white dark:hover:!text-slate-950 transition-all duration-200 rounded-full shadow-sm">
                 {isAuthenticated ? copy.dashboard : "Get started"}
               </Button>
             </Link>
@@ -124,7 +124,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                   </Link>
                 )}
                 <Link to={isAuthenticated ? "/dashboard" : "/login"} onClick={() => setIsOpen(false)}>
-                  <Button variant="ghost" className="w-full font-sans font-semibold text-sm py-2 border border-slate-950 dark:border-slate-800 bg-slate-950 dark:bg-white text-white dark:text-slate-950 rounded-full text-center shadow-sm">
+                  <Button variant="ghost" className="w-full font-sans font-semibold text-sm py-2 border border-slate-950 dark:border-slate-800 bg-slate-950 dark:bg-white text-white dark:text-slate-950 hover:bg-slate-800 dark:hover:bg-slate-100 hover:!text-white dark:hover:!text-slate-950 transition-all duration-200 rounded-full text-center shadow-sm">
                     {isAuthenticated ? copy.dashboard : "Get started"}
                   </Button>
                 </Link>

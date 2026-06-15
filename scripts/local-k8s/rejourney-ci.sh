@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_ENV_FILE="$ROOT_DIR/.env.k8s.local"
 CI_BILLING_TEST_PATTERN="billing|Billing|renewal|Renewal|downgrade|Downgrade"
-K3D_IMAGE_IMPORT_MODE="${K3D_IMAGE_IMPORT_MODE:-direct}"
+K3D_IMAGE_IMPORT_MODE="${K3D_IMAGE_IMPORT_MODE:-tools-node}"
 MODE="${1:-full}"
 ENV_FILE="${2:-$DEFAULT_ENV_FILE}"
 
@@ -224,6 +224,9 @@ build_images() {
 }
 
 import_images() {
+    log "Ensuring local k3d cluster is ready for image import"
+    "$SCRIPT_DIR/deploy.sh" init "$ENV_FILE"
+
     log "Importing images into k3d using $K3D_IMAGE_IMPORT_MODE mode"
     k3d image import --mode "$K3D_IMAGE_IMPORT_MODE" -c rejourney-dev \
         rejourney-local/api:dev \

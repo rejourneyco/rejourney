@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
     ArrowRight,
-    BarChart3,
     Bot,
     Check,
     Copy,
@@ -17,10 +16,12 @@ import {
 } from 'lucide-react';
 import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 import { EuFlag } from './EuFlag';
-import { PricingThreeField } from './PricingThreeField';
+import { LandingThreeField } from './LandingThreeField';
 import { MarkAngular, MarkReactNative, MarkSwift, MarkNextJs, MarkSolid, MarkSvelte, MarkVue } from './PlatformMarks';
 import { PerformanceMetrics } from './PerformanceMetrics';
+import { FaqSection } from './FaqSection';
 import { CodeBlock } from '~/shared/ui/core/CodeBlock';
+import { NetworkConstellation, FloatingDataNodes, TechRingsScanner } from './SparseThreeAnimations';
 
 const DEMO_PATH = '/demo';
 const LOGIN_PATH = '/login';
@@ -46,7 +47,7 @@ const aiCards = [
     },
     {
         title: 'Copy-Paste Fix to Agent',
-        copy: 'Exposes session-replay context packets directly to your IDE and developer agent workflows via standard Model Context Protocol (MCP) servers.',
+        copy: 'Exposes session-replay context packets directly to your IDE and developer agent workflows via standard .md context files.',
         icon: Users,
         image: '/images/readme-general-demo.png',
         imagePosition: 'right top',
@@ -68,7 +69,7 @@ const customerWantTabs = [
         title: 'Session Replay',
         copy: 'Record exact user journeys with lightweight DOM mutation tracking, capturing layout updates and console errors without degrading device battery or network bandwidth.',
         image: '/images/session-replay-preview.png',
-        icon: BarChart3,
+        icon: Play,
         href: '/record-user-sessions',
     },
     {
@@ -84,16 +85,16 @@ const customerWantTabs = [
         title: 'AI Agent Handshake',
         copy: 'Stream diagnostic context packages directly to Claude, Cursor, or autonomous coding agents to write test cases and merge fixes immediately.',
         image: '/images/readme-general-demo.png',
-        icon: Play,
+        icon: Bot,
         href: '/ai-agent-handoff',
     },
 ];
 
 const featureActiveStyles: Record<string, { border: string; badge: string; shadow: string }> = {
     analytics: {
-        border: 'border-indigo-200/70',
-        badge: 'bg-indigo-50 border-indigo-100 text-indigo-600 shadow-sm shadow-indigo-100/50',
-        shadow: 'shadow-[0_12px_30px_rgba(99,102,241,0.06)]'
+        border: 'border-blue-200/70',
+        badge: 'bg-blue-50 border-blue-100 text-blue-600 shadow-sm shadow-blue-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(37,99,235,0.06)]'
     },
     web: {
         border: 'border-cyan-200/70',
@@ -101,9 +102,9 @@ const featureActiveStyles: Record<string, { border: string; badge: string; shado
         shadow: 'shadow-[0_12px_30px_rgba(6,182,212,0.06)]'
     },
     replay: {
-        border: 'border-purple-200/70',
-        badge: 'bg-purple-50 border-purple-100 text-purple-600 shadow-sm shadow-purple-100/50',
-        shadow: 'shadow-[0_12px_30px_rgba(168,85,247,0.06)]'
+        border: 'border-sky-200/70',
+        badge: 'bg-sky-50 border-sky-100 text-sky-600 shadow-sm shadow-sky-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(14,165,233,0.06)]'
     }
 };
 
@@ -272,15 +273,18 @@ export const AiLeakHomepage: React.FC = () => {
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
 
     return (
-        <div className="relative w-full bg-white text-slate-900 overflow-x-hidden">
-            {/* Hero Section */}
-            <section className="relative isolate overflow-visible px-5 pb-28 pt-36 text-center sm:px-8 sm:pb-40 sm:pt-44 lg:px-10 lg:pb-44 lg:pt-48">
-                <PricingThreeField variant="hero" seed={11} />
+        <div className="relative isolate w-full bg-white text-slate-900 overflow-x-hidden">
+            <LandingThreeField variant="landing-page" seed={211} className="opacity-70" />
 
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-28 bg-gradient-to-t from-white to-transparent" aria-hidden="true" />
+            <div className="relative z-10">
+                {/* Hero Section */}
+                <section className="relative overflow-visible px-5 pb-28 pt-36 text-center sm:px-8 sm:pb-40 sm:pt-44 lg:px-10 lg:pb-44 lg:pt-48">
+                    <LandingThreeField variant="landing-hero" seed={11} />
 
-                <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
-                    <h1 className="mx-auto max-w-5xl text-balance bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text font-display text-[3.25rem] font-extrabold leading-[0.96] tracking-normal text-transparent drop-shadow-[0_18px_44px_rgba(99,102,241,0.08)] min-[380px]:text-[3.75rem] sm:text-6xl md:text-7xl lg:text-[5.65rem] xl:text-[6.25rem]">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
+
+                    <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
+                    <h1 className="mx-auto max-w-5xl text-balance bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text font-display text-[3.25rem] font-extrabold leading-[0.96] tracking-normal text-transparent drop-shadow-[0_18px_44px_rgba(37,99,235,0.08)] min-[380px]:text-[3.75rem] sm:text-6xl md:text-7xl lg:text-[5.65rem] xl:text-[6.25rem]">
                         From Session Diagnostics To Revenue Recovery.
                     </h1>
                     <p className="mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
@@ -289,7 +293,7 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="mt-11 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
                         <Link
                             to={LOGIN_PATH}
-                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-indigo-500/40 bg-indigo-50/15 backdrop-blur-md px-8 text-base font-bold text-indigo-700 ring-1 ring-indigo-500/30 shadow-md shadow-indigo-100/10 transition-all duration-300 hover:-translate-y-0.5 hover:bg-indigo-50/30 hover:border-indigo-500 hover:shadow-lg active:translate-y-0 sm:w-auto"
+                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-blue-500/40 bg-sky-50/20 backdrop-blur-md px-8 text-base font-bold text-blue-700 ring-1 ring-blue-500/30 shadow-md shadow-blue-100/10 transition-all duration-300 hover:-translate-y-0.5 hover:bg-sky-50/40 hover:border-blue-500 hover:shadow-lg active:translate-y-0 sm:w-auto"
                         >
                             <Droplet className="h-4 w-4 fill-current transition-transform duration-300 group-hover:-translate-y-0.5" />
                             Find my leaks
@@ -374,12 +378,13 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Your Unfair AI Advantage Cards Section */}
-            <section className="relative overflow-visible border-t border-slate-100 bg-white px-5 py-24 sm:px-8 lg:px-10">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.1),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(168,85,247,0.08),transparent_42%)]" aria-hidden="true" />
+                <section className="relative overflow-visible border-t border-transparent bg-transparent px-5 py-24 sm:px-8 lg:px-10">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.1),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(59,130,246,0.08),transparent_42%)]" aria-hidden="true" />
+                    <NetworkConstellation className="opacity-60" />
                 
                 <div className="relative mx-auto max-w-7xl z-10">
                     <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text text-transparent sm:text-5xl pb-1">
+                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
                             AI-Powered Leak Diagnostics
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
@@ -392,8 +397,8 @@ export const AiLeakHomepage: React.FC = () => {
                             // Unique gradient background per card to match the visual theme
                             const cardGradients = [
                                 { bg: 'from-cyan-50/50 via-sky-50/30 to-white/10', iconColor: 'text-cyan-600', badgeBg: 'bg-cyan-50/60 border-cyan-200/40' },
-                                { bg: 'from-fuchsia-50/50 via-purple-50/30 to-white/10', iconColor: 'text-fuchsia-600', badgeBg: 'bg-fuchsia-50/60 border-fuchsia-200/40' },
-                                { bg: 'from-indigo-50/50 via-violet-50/30 to-white/10', iconColor: 'text-indigo-600', badgeBg: 'bg-indigo-50/60 border-indigo-200/40' },
+                                { bg: 'from-sky-50/50 via-blue-50/30 to-white/10', iconColor: 'text-sky-600', badgeBg: 'bg-sky-50/60 border-sky-200/40' },
+                                { bg: 'from-blue-50/50 via-cyan-50/30 to-white/10', iconColor: 'text-blue-600', badgeBg: 'bg-blue-50/60 border-blue-200/40' },
                                 { bg: 'from-emerald-50/50 via-teal-50/30 to-white/10', iconColor: 'text-emerald-600', badgeBg: 'bg-emerald-50/60 border-emerald-200/40' },
                             ];
                             const style = cardGradients[index % cardGradients.length];
@@ -434,7 +439,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         </div>
                                         <Link 
                                             to={href} 
-                                            className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800 transition-all hover:translate-x-0.5"
+                                            className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 hover:text-sky-700 transition-all hover:translate-x-0.5"
                                         >
                                             Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
                                         </Link>
@@ -447,11 +452,12 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Understand What Your Customers Want Section */}
-            <section className="relative overflow-visible border-t border-slate-200/60 bg-gradient-to-b from-slate-50/50 via-indigo-50/15 to-white py-24 sm:py-28">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_25%,rgba(56,189,248,0.18),transparent_50%),radial-gradient(circle_at_85%_75%,rgba(99,102,241,0.2),transparent_50%)]" aria-hidden="true" />
+                <section className="relative overflow-visible border-t border-transparent bg-gradient-to-b from-slate-50/50 via-sky-50/20 to-transparent py-24 sm:py-28">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_25%,rgba(56,189,248,0.18),transparent_50%),radial-gradient(circle_at_85%_75%,rgba(37,99,235,0.14),transparent_50%)]" aria-hidden="true" />
+                    <FloatingDataNodes className="opacity-45" />
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text text-transparent sm:text-5xl pb-1">
+                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
                             From session drop-off to revenue recovery
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
@@ -492,7 +498,7 @@ export const AiLeakHomepage: React.FC = () => {
                                                         <p className="text-sm leading-relaxed text-slate-500 font-medium">{copy}</p>
                                                         <Link 
                                                             to={activeFeature.href} 
-                                                            className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800 transition-colors hover:translate-x-0.5"
+                                                            className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 hover:text-sky-700 transition-colors hover:translate-x-0.5"
                                                         >
                                                             Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                                                         </Link>
@@ -514,7 +520,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
                                         <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
                                     </div>
-                                    <span className="opacity-80">rejourney.co/session-recorder</span>
+                                    <span className="opacity-80">rejourney.co/dashboard</span>
                                     <div className="w-10" />
                                 </div>
                                 <img 
@@ -529,12 +535,13 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Win Together Section (Horizontal tabs + Testimonials + Images) */}
-            <section className="relative overflow-visible border-t border-slate-100/80 bg-slate-50/10 py-24 sm:py-28">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_25%,rgba(168,85,247,0.16),transparent_48%),radial-gradient(circle_at_20%_75%,rgba(125,211,252,0.19),transparent_45%),radial-gradient(circle_at_50%_50%,rgba(244,114,182,0.06),transparent_40%)]" aria-hidden="true" />
+                <section className="relative overflow-visible border-t border-transparent bg-slate-50/10 py-24 sm:py-28">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_25%,rgba(59,130,246,0.12),transparent_48%),radial-gradient(circle_at_20%_75%,rgba(125,211,252,0.19),transparent_45%),radial-gradient(circle_at_50%_50%,rgba(14,165,233,0.06),transparent_40%)]" aria-hidden="true" />
+                    <FloatingDataNodes variant="alternate" className="opacity-45" />
                 
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text text-transparent sm:text-5xl pb-1">Plug leaks as a team</h2>
+                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">Plug leaks as a team</h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
                             Unite your product, growth, and engineering teams to isolate conversion friction and stream code-fix context packages directly to developer AI workflows.
                         </p>
@@ -551,7 +558,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         onClick={() => setActiveWinTab(tab.id as 'product' | 'growth' | 'data' | 'engineering')}
                                         className={`rounded-full px-5 py-2.5 font-sans text-xs font-bold transition flex flex-col items-center shrink-0 border ${
                                             isActive 
-                                                ? 'bg-gradient-to-r from-indigo-600 to-indigo-800 text-white shadow-md border-indigo-600/30 ring-1 ring-indigo-500/20' 
+                                                ? 'bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md border-blue-600/30 ring-1 ring-blue-500/20' 
                                                 : 'border-transparent text-slate-500 hover:text-slate-950 hover:bg-white/45'
                                         }`}
                                     >
@@ -571,14 +578,14 @@ export const AiLeakHomepage: React.FC = () => {
                                 {activeWin.headline}
                             </h3>
                             
-                            <p className="border-l-4 border-indigo-600 pl-4 text-sm leading-relaxed text-slate-600 sm:text-base">
+                            <p className="border-l-4 border-blue-600 pl-4 text-sm leading-relaxed text-slate-600 sm:text-base">
                                 {activeWin.summary}
                             </p>
 
                             <div className="mt-6 space-y-4">
                                 {activeWin.points.map((point) => (
                                     <div key={point} className="flex items-start gap-3 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 group/point">
-                                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600 transition-transform group-hover/point:scale-110" />
+                                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 transition-transform group-hover/point:scale-110" />
                                         <span className="leading-relaxed">{point}</span>
                                     </div>
                                 ))}
@@ -587,7 +594,7 @@ export const AiLeakHomepage: React.FC = () => {
                             <div>
                                 <Link 
                                     to={activeWin.href} 
-                                    className="inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:text-indigo-800 transition hover:translate-x-0.5"
+                                    className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-600 hover:text-sky-700 transition hover:translate-x-0.5"
                                 >
                                     Learn more <ArrowRight className="h-4 w-4 transition-transform hover:translate-x-0.5" />
                                 </Link>
@@ -603,7 +610,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
                                         <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
                                     </div>
-                                    <span className="opacity-80">rejourney.co/funnel-diagnostics</span>
+                                    <span className="opacity-80">rejourney.co/dashboard</span>
                                     <div className="w-10" />
                                 </div>
                                 <img 
@@ -620,14 +627,18 @@ export const AiLeakHomepage: React.FC = () => {
             {/* Performance Benchmarks Gallery */}
             <PerformanceMetrics copy={homeCopy.performance} />
 
+            {/* FAQ Section */}
+            <FaqSection />
+
             {/* Bottom Call-To-Action (CTA) */}
-            <section className="relative overflow-hidden border-t border-slate-200/80 bg-gradient-to-b from-white via-indigo-50/15 to-slate-50 px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(99,102,241,0.08),transparent_50%)]" aria-hidden="true" />
+                <section className="relative overflow-hidden border-t border-transparent bg-gradient-to-b from-transparent via-sky-50/20 to-slate-50 px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(37,99,235,0.08),transparent_50%)]" aria-hidden="true" />
+                    <TechRingsScanner className="opacity-55" />
                 
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mx-auto max-w-3xl text-center mb-16">
-                        <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text text-transparent sm:text-5xl">
+                        <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl">
                             Save countless customers in minutes.
                         </h2>
                         <p className="mt-4 text-base font-medium leading-relaxed text-slate-500 sm:text-lg">
@@ -654,7 +665,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         }}
                                         className={`w-full flex items-center gap-4 rounded-xl p-4 text-left border transition-all duration-300 ${
                                             isActive
-                                                ? 'bg-white border-indigo-200 shadow-md shadow-indigo-100/30 scale-[1.01] text-indigo-700'
+                                                ? 'bg-white border-blue-200 shadow-md shadow-blue-100/30 scale-[1.01] text-blue-700'
                                                 : 'bg-transparent border-transparent text-slate-500 hover:text-slate-950 hover:bg-white/35 hover:border-slate-200/50'
                                         }`}
                                     >
@@ -678,7 +689,7 @@ export const AiLeakHomepage: React.FC = () => {
                         </div>
 
                         {/* Right Column: Code block */}
-                        <div className="group relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl transition-all duration-300 hover:shadow-indigo-500/10">
+                        <div className="group relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl transition-all duration-300 hover:shadow-blue-500/10">
                             <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/50 px-4 py-3">
                                 <div className="flex min-w-0 items-center gap-3">
                                     <div className="flex shrink-0 gap-2">
@@ -740,7 +751,7 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row">
                         <Link
                             to={LOGIN_PATH}
-                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full bg-indigo-600 px-8 text-base font-bold text-white shadow-lg shadow-indigo-200/70 ring-1 ring-indigo-500/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0 sm:w-auto"
+                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-8 text-base font-bold text-white shadow-lg shadow-blue-200/70 ring-1 ring-blue-500/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-blue-700 active:translate-y-0 sm:w-auto"
                         >
                             Get Started
                             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -753,7 +764,8 @@ export const AiLeakHomepage: React.FC = () => {
                         </Link>
                     </div>
                 </div>
-            </section>
+                </section>
+            </div>
         </div>
     );
 };

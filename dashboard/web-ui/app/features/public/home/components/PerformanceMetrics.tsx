@@ -10,7 +10,7 @@ import {
     YAxis,
 } from 'recharts';
 import type { MarketingHomeCopy } from '~/shared/lib/internationalMarketing';
-import { FuturisticGrowthField } from './FuturisticGrowthField';
+import { NetworkConstellation } from './SparseThreeAnimations';
 
 const BUNDLEPHOBIA_REJOURNEY =
     'https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17';
@@ -110,7 +110,7 @@ const webPackageCompareRows = [
         gzipFill: '#4f46e5',
         distExtraFill: '#a5b4fc',
         arrow: 'down',
-        colorClassName: 'text-indigo-600',
+        colorClassName: 'text-blue-600',
     },
     {
         key: 'posthog',
@@ -169,7 +169,7 @@ const performanceMetricRows = [
         max: '1.1',
         min: '0.0',
         thread: 'Main Thread',
-        threadClassName: 'text-indigo-600 bg-indigo-50 border-indigo-100',
+        threadClassName: 'text-blue-600 bg-blue-50 border-blue-100',
     },
     {
         metric: 'SDK Heap Allocations',
@@ -185,7 +185,7 @@ const performanceMetricRows = [
         max: '28.2 ms',
         min: '8.1 ms',
         thread: 'Main Thread',
-        threadClassName: 'text-indigo-600 bg-indigo-50 border-indigo-100',
+        threadClassName: 'text-blue-600 bg-blue-50 border-blue-100',
     },
 ];
 
@@ -228,17 +228,17 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
     }));
 
     return (
-        <section ref={sectionRef} dir={dir} className="relative w-full overflow-visible border-t border-slate-150/60 bg-gradient-to-b from-white via-slate-50/30 to-white px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(56,100,244,0.06),transparent_40%),radial-gradient(circle_at_10%_80%,rgba(125,211,252,0.08),transparent_45%),radial-gradient(circle_at_90%_70%,rgba(168,85,247,0.06),transparent_42%)]" aria-hidden="true" />
-            <FuturisticGrowthField variant="sparse" seed={73} className="opacity-45" />
+        <section ref={sectionRef} dir={dir} className="relative w-full overflow-visible border-t border-transparent bg-gradient-to-b from-transparent via-slate-50/30 to-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(37,99,235,0.06),transparent_40%),radial-gradient(circle_at_10%_80%,rgba(125,211,252,0.08),transparent_45%),radial-gradient(circle_at_90%_70%,rgba(14,165,233,0.06),transparent_42%)]" aria-hidden="true" />
+            <NetworkConstellation className="opacity-45" seed={299} />
             
             <div className="max-w-7xl mx-auto relative z-10 text-left">
 
                 {/* Header Section */}
                 <div className="mb-10 flex flex-col items-start justify-between gap-6 lg:mb-16 lg:flex-row lg:items-end lg:gap-8">
                     <div className="min-w-0">
-                        <h2 className="mb-4 text-3xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-900 bg-clip-text text-transparent sm:text-5xl leading-tight pb-1">
-                            <span className="text-indigo-650">{copy.headingPrimary}</span><br className="sm:hidden" /> {copy.headingSecondary}
+                        <h2 className="mb-4 text-3xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl leading-tight pb-1">
+                            <span className="text-blue-600">{copy.headingPrimary}</span><br className="sm:hidden" /> {copy.headingSecondary}
                         </h2>
                         <p className="max-w-2xl text-slate-500 font-medium leading-relaxed text-sm sm:text-base">
                             {activeSummary}
@@ -246,14 +246,14 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                     </div>
 
                     {/* Floating Badge in Light Modern Style */}
-                    <div className="hidden lg:block bg-white/60 border border-indigo-200/50 text-indigo-700 p-6 rounded-2xl shadow-md rotate-2 shrink-0 backdrop-blur-md">
+                    <div className="hidden lg:block bg-white/60 border border-blue-200/50 text-blue-700 p-6 rounded-2xl shadow-md rotate-2 shrink-0 backdrop-blur-md">
                         <p className="text-4xl font-extrabold font-mono leading-none">{activeBadgeValue}</p>
                         <p className="text-[10px] uppercase font-bold tracking-wider mt-2">{activeBadgeLabel}</p>
                     </div>
                 </div>
 
                 {/* Main Content Box */}
-                <div id="benchmark-gallery" className="max-w-full scroll-mt-24 border border-slate-200/50 bg-white/40 backdrop-blur-lg p-5 sm:p-8 rounded-3xl shadow-xl shadow-indigo-550/5 ring-1 ring-slate-100/5">
+                <div id="benchmark-gallery" className="max-w-full scroll-mt-24 border border-slate-200/50 bg-white/40 backdrop-blur-lg p-5 sm:p-8 rounded-3xl shadow-xl shadow-blue-500/5 ring-1 ring-slate-100/5">
                     <div className="mb-8 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -277,7 +277,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                 onClick={() => setActiveGalleryPanel('web')}
                                 className={`rounded-full px-4 py-2 font-sans text-xs font-bold transition-all duration-200 ${
                                     activeGalleryPanel === 'web' 
-                                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-800 text-white shadow-md border-indigo-600/30' 
+                                        ? 'bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md border-blue-600/30' 
                                         : 'text-slate-500 hover:text-slate-950 hover:bg-white/45'
                                 }`}
                             >
@@ -289,7 +289,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                 onClick={() => setActiveGalleryPanel('mobile')}
                                 className={`rounded-full px-4 py-2 font-sans text-xs font-bold transition-all duration-200 ${
                                     activeGalleryPanel === 'mobile' 
-                                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-800 text-white shadow-md border-indigo-600/30' 
+                                        ? 'bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md border-blue-600/30' 
                                         : 'text-slate-500 hover:text-slate-950 hover:bg-white/45'
                                 }`}
                             >
@@ -306,11 +306,11 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                         <h3 className="text-sm font-bold text-slate-800">Bundlephobia package size</h3>
                                         <div className="flex flex-wrap gap-4">
                                             <div className="flex items-center gap-2">
-                                                <div className="h-3 w-3 rounded bg-indigo-600" aria-hidden />
+                                                <div className="h-3 w-3 rounded bg-blue-600" aria-hidden />
                                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">Gzip</span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <div className="h-3 w-3 rounded bg-indigo-300" aria-hidden />
+                                                <div className="h-3 w-3 rounded bg-sky-300" aria-hidden />
                                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">Minified - gzip</span>
                                             </div>
                                         </div>
@@ -327,12 +327,12 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                 >
                                                     <defs>
                                                         <linearGradient id="rejourneyGzip" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.9} />
-                                                            <stop offset="100%" stopColor="#6366f1" stopOpacity={0.7} />
+                                                            <stop offset="0%" stopColor="#2563eb" stopOpacity={0.9} />
+                                                            <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.7} />
                                                         </linearGradient>
                                                         <linearGradient id="rejourneyMin" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%" stopColor="#818cf8" stopOpacity={0.7} />
-                                                            <stop offset="100%" stopColor="#c7d2fe" stopOpacity={0.4} />
+                                                            <stop offset="0%" stopColor="#93c5fd" stopOpacity={0.7} />
+                                                            <stop offset="100%" stopColor="#bae6fd" stopOpacity={0.4} />
                                                         </linearGradient>
                                                         <linearGradient id="competitorGzip" x1="0" y1="0" x2="0" y2="1">
                                                             <stop offset="0%" stopColor="#64748b" stopOpacity={0.8} />
@@ -358,7 +358,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                         width={58}
                                                     />
                                                     <Tooltip
-                                                        cursor={{ fill: 'rgba(99,102,241,0.03)' }}
+                                                        cursor={{ fill: 'rgba(37,99,235,0.03)' }}
                                                         contentStyle={{
                                                             backgroundColor: '#fff',
                                                             border: '1px solid #e2e8f0',
@@ -421,7 +421,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                 href={row.href}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-slate-450 hover:text-indigo-650 transition-colors"
+                                                className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-slate-450 hover:text-blue-600 transition-colors"
                                             >
                                                 {row.arrow === 'down' ? (
                                                     <ArrowDownRight className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
@@ -448,7 +448,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                             href={WEB_BENCHMARK_REPORT_URL}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-xs font-bold text-indigo-650 hover:text-indigo-500"
+                                            className="text-xs font-bold text-blue-600 hover:text-sky-600"
                                         >
                                             Open evidence report
                                         </a>
@@ -463,7 +463,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                     <h4 className="text-sm font-bold text-slate-900">{chart.title}</h4>
                                                     <p className="mt-1 text-[10px] font-medium text-slate-450">{chart.detail}</p>
                                                 </div>
-                                                <div className="shrink-0 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase text-indigo-755">
+                                                <div className="shrink-0 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase text-blue-700">
                                                     {chart.winner}
                                                 </div>
                                             </div>
@@ -501,7 +501,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                                 width={44}
                                                             />
                                                             <Tooltip
-                                                                cursor={{ fill: 'rgba(99,102,241,0.03)' }}
+                                                                cursor={{ fill: 'rgba(37,99,235,0.03)' }}
                                                                 contentStyle={{
                                                                     backgroundColor: '#fff',
                                                                     border: '1px solid #e2e8f0',
@@ -527,7 +527,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
 
                                             <div className="mt-4 flex flex-wrap gap-4 font-mono text-[10px] font-semibold text-slate-500">
                                                 <span className="inline-flex items-center gap-1.5">
-                                                    <span className="h-2.5 w-2.5 rounded-full bg-indigo-650" aria-hidden />
+                                                    <span className="h-2.5 w-2.5 rounded-full bg-blue-600" aria-hidden />
                                                     Rejourney
                                                 </span>
                                                 <span className="inline-flex items-center gap-1.5">
@@ -549,11 +549,11 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                         <h3 className="text-sm font-bold text-slate-800">{copy.chartTitle}</h3>
                                         <div className="flex flex-wrap gap-4">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 bg-indigo-650 rounded" aria-hidden />
+                                                <div className="w-3 h-3 bg-blue-600 rounded" aria-hidden />
                                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">{copy.gzip}</span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 bg-indigo-300 rounded" aria-hidden />
+                                                <div className="w-3 h-3 bg-sky-300 rounded" aria-hidden />
                                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">{copy.minifiedMinusGzip}</span>
                                             </div>
                                         </div>
@@ -569,12 +569,12 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                 >
                                                     <defs>
                                                         <linearGradient id="mobRejourneyGzip" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.9} />
-                                                            <stop offset="100%" stopColor="#6366f1" stopOpacity={0.7} />
+                                                            <stop offset="0%" stopColor="#2563eb" stopOpacity={0.9} />
+                                                            <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.7} />
                                                         </linearGradient>
                                                         <linearGradient id="mobRejourneyMin" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%" stopColor="#818cf8" stopOpacity={0.7} />
-                                                            <stop offset="100%" stopColor="#c7d2fe" stopOpacity={0.4} />
+                                                            <stop offset="0%" stopColor="#93c5fd" stopOpacity={0.7} />
+                                                            <stop offset="100%" stopColor="#bae6fd" stopOpacity={0.4} />
                                                         </linearGradient>
                                                         <linearGradient id="mobCompetitorGzip" x1="0" y1="0" x2="0" y2="1">
                                                             <stop offset="0%" stopColor="#64748b" stopOpacity={0.8} />
@@ -600,7 +600,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                                         width={44}
                                                     />
                                                     <Tooltip
-                                                        cursor={{ fill: 'rgba(99,102,241,0.03)' }}
+                                                        cursor={{ fill: 'rgba(37,99,235,0.03)' }}
                                                         contentStyle={{
                                                             backgroundColor: '#fff',
                                                             border: '1px solid #e2e8f0',
@@ -659,7 +659,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                 {/* Comparative stats mobile list panel */}
                                 <div className="flex flex-col justify-center space-y-6 lg:border-l lg:border-slate-100 lg:pl-10">
                                     <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
                                             {rejourneyRow.shortLabel}
                                         </p>
                                         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 mt-2">
@@ -678,7 +678,7 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                                             href={rejourneyRow.href}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400 hover:text-indigo-600"
+                                            className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400 hover:text-blue-600"
                                         >
                                             <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" aria-hidden />
                                             {copy.bundlePhobiaVersion(rejourneyRow.version)}
