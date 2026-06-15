@@ -7,9 +7,7 @@ import { DOCS_MAP } from "~/shared/lib/docsConfig";
 import { ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
 import { SEO_PAGES } from "~/features/public/seo/seoPages";
 import {
-    MARKETING_ENGINEERING_LOCALE_ORDER,
-    MARKETING_INDEXABLE_LOCALE_ORDER,
-    MARKETING_LOCALE_ORDER,
+    MARKETING_HOME_LOCALE_ORDER,
     MARKETING_LOCALES,
     getMarketingAlternateLinks,
     getLocalizedAlternateLinksForPath,
@@ -39,26 +37,26 @@ export async function loader() {
     const baseUrl = "https://rejourney.co";
     const lastModified = new Date().toISOString().slice(0, 10);
 
-    const marketingRoutes: SitemapRoute[] = MARKETING_INDEXABLE_LOCALE_ORDER.map((code) => ({
+    const marketingRoutes: SitemapRoute[] = MARKETING_HOME_LOCALE_ORDER.map((code) => ({
         path: MARKETING_LOCALES[code].path,
-        priority: code === "en" ? "1.0" : "0.8",
+        priority: "1.0",
         changefreq: "daily",
-        alternates: getMarketingAlternateLinks(MARKETING_INDEXABLE_LOCALE_ORDER),
+        alternates: getMarketingAlternateLinks(MARKETING_HOME_LOCALE_ORDER),
     }));
 
-    const roadmapRoutes: SitemapRoute[] = MARKETING_INDEXABLE_LOCALE_ORDER.map((code) => ({
-        path: getLocalizedPublicPath(MARKETING_LOCALES[code], "/roadmap"),
-        priority: code === "en" ? "0.7" : "0.6",
+    const roadmapRoutes: SitemapRoute[] = [{
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/roadmap"),
+        priority: "0.7",
         changefreq: "weekly",
-        alternates: getLocalizedAlternateLinksForPath("/roadmap", MARKETING_INDEXABLE_LOCALE_ORDER),
-    }));
+        alternates: getLocalizedAlternateLinksForPath("/roadmap"),
+    }];
 
-    const pricingRoutes: SitemapRoute[] = MARKETING_INDEXABLE_LOCALE_ORDER.map((code) => ({
-        path: getLocalizedPublicPath(MARKETING_LOCALES[code], "/pricing"),
-        priority: code === "en" ? "0.8" : "0.7",
+    const pricingRoutes: SitemapRoute[] = [{
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/pricing"),
+        priority: "0.8",
         changefreq: "weekly",
-        alternates: getLocalizedAlternateLinksForPath("/pricing", MARKETING_INDEXABLE_LOCALE_ORDER),
-    }));
+        alternates: getLocalizedAlternateLinksForPath("/pricing"),
+    }];
 
     const companyRoutes: SitemapRoute[] = [
         {
@@ -78,33 +76,29 @@ export async function loader() {
         imageTitle: page.imageAlt,
     }));
 
-    const docRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.flatMap((code) =>
-        Object.keys(DOCS_MAP).map(slug => ({
-            path: getLocalizedPublicPath(MARKETING_LOCALES[code], `/docs/${slug}`),
-            priority: slug === "reactnative/overview" ? (code === "en" ? "0.9" : "0.7") : "0.6",
-            changefreq: "weekly",
-            alternates: getLocalizedAlternateLinksForPath(`/docs/${slug}`, MARKETING_LOCALE_ORDER),
-        }))
-    );
-
-    const engineeringIndexRoutes: SitemapRoute[] = MARKETING_ENGINEERING_LOCALE_ORDER.map((code) => ({
-        path: getLocalizedPublicPath(MARKETING_LOCALES[code], "/engineering"),
-        priority: code === "en" ? "0.9" : "0.7",
+    const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, `/docs/${slug}`),
+        priority: slug === "reactnative/overview" ? "0.9" : "0.6",
         changefreq: "weekly",
-        alternates: getLocalizedAlternateLinksForPath("/engineering", MARKETING_ENGINEERING_LOCALE_ORDER),
+        alternates: getLocalizedAlternateLinksForPath(`/docs/${slug}`),
     }));
 
-    const engineeringRoutes: SitemapRoute[] = MARKETING_ENGINEERING_LOCALE_ORDER.flatMap((code) =>
-        ARTICLES.map(article => ({
-            path: getLocalizedPublicPath(MARKETING_LOCALES[code], getArticlePath(article)),
-            priority: code === "en" ? "0.8" : "0.6",
-            changefreq: "monthly",
-            lastmod: article.dateModified ?? article.urlDate,
-            image: getAbsoluteArticleImage(article),
-            imageTitle: article.imageAlt ?? article.title,
-            alternates: getLocalizedAlternateLinksForPath(getArticlePath(article), MARKETING_ENGINEERING_LOCALE_ORDER),
-        }))
-    );
+    const engineeringIndexRoutes: SitemapRoute[] = [{
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/engineering"),
+        priority: "0.9",
+        changefreq: "weekly",
+        alternates: getLocalizedAlternateLinksForPath("/engineering"),
+    }];
+
+    const engineeringRoutes: SitemapRoute[] = ARTICLES.map(article => ({
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, getArticlePath(article)),
+        priority: "0.8",
+        changefreq: "monthly",
+        lastmod: article.dateModified ?? article.urlDate,
+        image: getAbsoluteArticleImage(article),
+        imageTitle: article.imageAlt ?? article.title,
+        alternates: getLocalizedAlternateLinksForPath(getArticlePath(article)),
+    }));
 
     // Generate XML content
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>

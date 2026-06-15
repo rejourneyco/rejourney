@@ -52,11 +52,6 @@ tap、swipe、scroll の位置を把握し、UI 配置を最適化します。
 
 retention、loyalty segment、release の影響を追跡します。
 
-### Team Alerts
-![Team alerts](https://rejourney.co/images/team-alerts.png)
-
-クラッシュ、ANR、エラー急増に対する smart email alerts と role-based access を提供します。
-
 ## Documentation
 
 Integration guides と API reference: https://rejourney.co/docs/reactnative/overview

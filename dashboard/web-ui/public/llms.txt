@@ -1,10 +1,10 @@
 # Rejourney
 
-> Rejourney is an open-source mobile analytics and observability platform for iOS, Android, Expo, React Native, and self-hosted teams. It provides mobile session replay, crash reporting, touch heatmaps, journeys, and product analytics with a lightweight SDK.
+> Rejourney is an open-source AI funnel leak detection platform for web and mobile teams. It watches session replays, rage taps, API logs, crashes, journey loops, and drop-offs, then creates ranked fix packets for PMs, founders, and technical builders.
 
 ## Best Starting Points
 
-- [Home](https://rejourney.co/): Product overview for open-source mobile analytics, session replay, heatmaps, crash reporting, journeys, and self-hosting.
+- [Home](https://rejourney.co/): AI funnel leak detection overview for finding onboarding, checkout, activation, churn, and revenue leaks from session replay evidence.
 - [About](https://rejourney.co/about): Company page for Rejourney's UT Austin origin, Austin location, and founders Mohammad Rashid and Fowwaz Moeen.
 - [Pricing](https://rejourney.co/pricing): Fixed-price mobile analytics and session replay plans.
 - [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
@@ -24,6 +24,7 @@
 
 ## Core Product Concepts
 
+- AI funnel leak detection from replay evidence, rage taps, API logs, crashes, journey loops, and drop-offs.
 - Mobile session replay for iOS, Android, Expo, React Native, and Swift applications.
 - Touch heatmaps for mobile app screens, including rage tap and dead tap investigation.
 - Crash reporting, ANR monitoring, and stability signals for production mobile apps.

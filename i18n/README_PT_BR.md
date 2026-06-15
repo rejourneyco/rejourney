@@ -52,11 +52,6 @@ Monitore performance e estabilidade por região antes que problemas afetem seu p
 
 Acompanhe retenção, segmentos de lealdade e impacto de releases nos seus usuários.
 
-### Alertas de Equipe
-![Alertas de equipe](https://rejourney.co/images/team-alerts.png)
-
-Alertas por e-mail para crashes, ANRs e picos de erro, com acesso por função para times de engenharia.
-
 ## Documentação
 
 Guias de integração e referência de API: https://rejourney.co/docs/reactnative/overview

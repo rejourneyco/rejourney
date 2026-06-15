@@ -484,8 +484,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: ingest-upload
@@ -608,20 +608,31 @@ spec:
               cpu: 75m
               memory: 192Mi
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 750m
+              memory: 768Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            failureThreshold: 60
+            periodSeconds: 2
+            timeoutSeconds: 2
           livenessProbe:
             httpGet:
               path: /health
               port: 3001
-            initialDelaySeconds: 15
+            initialDelaySeconds: 60
             periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /health
               port: 3001
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
 
 ---
 apiVersion: batch/v1

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	AlertCircle,
 	CheckCircle2,
@@ -22,12 +22,14 @@ import {
     getLeaks,
     updateLeak,
     type LeakDetail,
+    type LeakSessionReference,
     type LeakStatus,
     type LeakSummary,
 } from '~/shared/api/client';
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
+import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { buildLeakIdeHandoffUrl, LEAK_IDE_OPTIONS, type LeakIde, type LeakIdeConfig } from './ideLinks';
 
@@ -191,6 +193,13 @@ function filterLeaks(leaks: LeakSummary[], search: string): LeakSummary[] {
     });
 }
 
+function getSessionUuidLabel(sessionId: string): string {
+    const trimmed = sessionId.trim();
+    if (!trimmed) return 'Unknown replay';
+    const parts = trimmed.split('_').filter(Boolean);
+    return parts[parts.length - 1] || trimmed;
+}
+
 function PaneButton({
     children,
     className = '',
@@ -219,6 +228,35 @@ function PaneButton({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
     return <h3 className="dashboard-label leading-5">{children}</h3>;
+}
+
+function LeakReplayLink({
+    pathPrefix,
+    session,
+}: {
+    pathPrefix: string;
+    session: LeakSessionReference;
+}) {
+    const avatarIdentity = { id: session.id };
+    const replayAnimalSeed = getAnimalAvatarSeed(avatarIdentity);
+    const replayAnimal = getAnimalForIdentity(avatarIdentity);
+    const sessionUuid = getSessionUuidLabel(session.id);
+
+    return (
+        <Link
+            to={session.replayUrl || `${pathPrefix}/sessions/${session.id}`}
+            className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#dadce0] bg-white px-3 py-2 text-sm font-semibold text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+            title={`Open replay ${sessionUuid}`}
+        >
+            <span className="flex min-w-0 items-center gap-2">
+                <AnimalAvatar animal={replayAnimal} seed={replayAnimalSeed} size={24} neutral />
+                <span className="min-w-0 truncate font-mono" title={sessionUuid}>
+                    {sessionUuid}
+                </span>
+            </span>
+            <Play className="h-4 w-4 shrink-0" />
+        </Link>
+    );
 }
 
 function LeakRow({
@@ -296,17 +334,46 @@ export const Leaks: React.FC = () => {
     const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
     const [showIdeSetup, setShowIdeSetup] = useState(false);
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
+    const copiedResetTimerRef = useRef<number | null>(null);
+
+    const clearCopiedFeedback = useCallback(() => {
+        if (copiedResetTimerRef.current !== null) {
+            window.clearTimeout(copiedResetTimerRef.current);
+            copiedResetTimerRef.current = null;
+        }
+        setCopied(false);
+    }, []);
+
+    const showCopiedFeedback = useCallback((message: string) => {
+        setCopied(true);
+        setHandoffStatus(message);
+
+        if (copiedResetTimerRef.current !== null) {
+            window.clearTimeout(copiedResetTimerRef.current);
+        }
+
+        copiedResetTimerRef.current = window.setTimeout(() => {
+            setCopied(false);
+            copiedResetTimerRef.current = null;
+        }, 3200);
+    }, []);
 
     useEffect(() => {
         if (!projectId) return;
         setIdeConfig(readIdeConfig(projectId));
     }, [projectId]);
 
+    useEffect(() => () => {
+        if (copiedResetTimerRef.current !== null) {
+            window.clearTimeout(copiedResetTimerRef.current);
+        }
+    }, []);
+
     useEffect(() => {
-        setCopied(false);
+        clearCopiedFeedback();
         setHandoffStatus(null);
         setIsOpeningIde(false);
-    }, [selectedLeakId]);
+    }, [clearCopiedFeedback, selectedLeakId]);
 
     useEffect(() => {
         if (!projectId) {
@@ -417,10 +484,9 @@ export const Leaks: React.FC = () => {
 
         const copiedToClipboard = await writeClipboardText(markdown);
         if (copiedToClipboard) {
-            setCopied(true);
-            setHandoffStatus('Markdown copied.');
-            window.setTimeout(() => setCopied(false), 1600);
+            showCopiedFeedback('Markdown copied to clipboard.');
         } else {
+            clearCopiedFeedback();
             setHandoffStatus('Could not copy automatically. Select the markdown below and copy it manually.');
         }
 
@@ -448,8 +514,12 @@ export const Leaks: React.FC = () => {
 
         const copiedToClipboard = await writeClipboardText(markdown);
         if (copiedToClipboard) {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1600);
+            showCopiedFeedback(handoffMode === 'copy'
+                ? `Markdown copied for ${ideMeta.label}.`
+                : ideMeta.clipboardFallback
+            );
+        } else {
+            clearCopiedFeedback();
         }
 
         if (handoffMode === 'copy') {
@@ -496,6 +566,13 @@ export const Leaks: React.FC = () => {
 
     const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
     const activeIdeMeta = LEAK_IDE_OPTIONS[ideConfig.ide];
+    const copyButtonClassName = copied
+        ? 'min-w-[152px] !border-emerald-500 !bg-emerald-50 !text-emerald-800 !shadow-sm ring-2 ring-emerald-100'
+        : 'min-w-[152px]';
+    const copyButtonIcon = copied
+        ? <CheckCircle2 className="h-4 w-4" />
+        : <FileText className="h-4 w-4" />;
+
     return (
         <div className="rejourney-general-page flex min-h-screen flex-col bg-[#f8fafd] font-sans text-[#202124]">
             <div className="border-b border-[#dadce0] bg-white">
@@ -637,11 +714,12 @@ export const Leaks: React.FC = () => {
 
                                 <div className="mt-3 flex flex-wrap gap-2">
                                     <PaneButton
-                                        icon={<FileText className="h-4 w-4" />}
+                                        icon={copyButtonIcon}
                                         onClick={copyContext}
                                         disabled={!handoffReady}
+                                        className={copyButtonClassName}
                                     >
-                                        {copied ? 'Copied .md' : 'Copy .md context'}
+                                        {copied ? 'Copied to clipboard' : 'Copy .md context'}
                                     </PaneButton>
                                     <PaneButton
                                         icon={<SquareArrowOutUpRight className="h-4 w-4" />}
@@ -665,9 +743,18 @@ export const Leaks: React.FC = () => {
                                             : 'Research is still running. You can review the evidence now, then use the markdown handoff when it is ready.'}
                                 </p>
                                 {handoffStatus && (
-                                    <p className="mt-2 max-w-3xl text-xs font-semibold leading-5 text-[#3c4043]">
-                                        {handoffStatus}
-                                    </p>
+                                    <div
+                                        role={copied ? 'status' : undefined}
+                                        aria-live={copied ? 'polite' : undefined}
+                                        className={`mt-3 flex max-w-3xl items-center gap-2 text-xs font-semibold leading-5 ${
+                                            copied
+                                                ? 'rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800 shadow-sm'
+                                                : 'text-[#3c4043]'
+                                        }`}
+                                    >
+                                        {copied && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                        <span>{handoffStatus}</span>
+                                    </div>
                                 )}
                             </div>
 
@@ -722,14 +809,11 @@ export const Leaks: React.FC = () => {
                                                 <SectionTitle>Replays</SectionTitle>
                                                 <div className="mt-3 grid gap-2 xl:grid-cols-2">
                                                     {selectedLeak.sessions.map((session) => (
-                                                        <Link
+                                                        <LeakReplayLink
                                                             key={session.id}
-                                                            to={session.replayUrl || `${pathPrefix}/sessions/${session.id}`}
-                                                            className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#dadce0] bg-white px-3 py-2 text-sm font-semibold text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
-                                                        >
-                                                            <span className="min-w-0 truncate">{session.id}</span>
-                                                            <Play className="h-4 w-4 shrink-0" />
-                                                        </Link>
+                                                            pathPrefix={pathPrefix}
+                                                            session={session}
+                                                        />
                                                     ))}
                                                 </div>
                                             </section>
@@ -740,11 +824,12 @@ export const Leaks: React.FC = () => {
                                                 <SectionTitle>Markdown context</SectionTitle>
                                                 <div className="flex flex-wrap gap-2">
                                                     <PaneButton
-                                                        icon={<FileText className="h-4 w-4" />}
+                                                        icon={copyButtonIcon}
                                                         onClick={copyContext}
                                                         disabled={!handoffReady}
+                                                        className={copyButtonClassName}
                                                     >
-                                                        {copied ? 'Copied .md' : 'Copy .md'}
+                                                        {copied ? 'Copied to clipboard' : 'Copy .md'}
                                                     </PaneButton>
                                                     <PaneButton
                                                         icon={<SquareArrowOutUpRight className="h-4 w-4" />}
@@ -775,6 +860,20 @@ export const Leaks: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {copied && (
+                <div
+                    role="status"
+                    aria-live="polite"
+                    className="fixed bottom-5 right-5 z-[1200] flex max-w-[min(360px,calc(100vw-2rem))] items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 shadow-lg shadow-emerald-950/10"
+                >
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    <div>
+                        <p>Markdown copied to clipboard</p>
+                        <p className="mt-0.5 text-xs font-medium text-emerald-700">Ready for the issue handoff.</p>
+                    </div>
+                </div>
+            )}
 
             {showIdeSetup && (
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[1px]">

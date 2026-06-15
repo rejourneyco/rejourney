@@ -58,14 +58,6 @@ const features = [
         badge: 'Retention',
         badgeColor: 'bg-[#34d399]',
     },
-    {
-        title: 'Team',
-        highlight: 'Alerts',
-        highlightColor: 'text-blue-500',
-        image: '/images/team-alerts.png',
-        badge: 'Teams',
-        badgeColor: 'bg-blue-400',
-    },
 ];
 
 export const Features: React.FC<{

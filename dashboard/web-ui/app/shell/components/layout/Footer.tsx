@@ -26,12 +26,17 @@ export const Footer: React.FC = () => {
     { label: "vs Hotjar", href: "/alternatives/hotjar" },
   ];
   const featureLinks = [
-    { label: "Record User Sessions", href: "/record-user-sessions" },
-    { label: "Website Session Recording", href: "/web-session-replay" },
-    { label: "Mobile Session Replay", href: "/mobile-session-replay" },
-    { label: "Web Session Replay", href: "/web-session-replay" },
+    { label: "AI Funnel Leak Detection", href: "/ai-funnel-leak-detection" },
+    { label: "Web Replay Evidence", href: "/web-session-replay" },
+    { label: "Mobile Replay Evidence", href: "/mobile-session-replay" },
+    { label: "Funnel Replay Evidence", href: "/funnel-replay-evidence" },
+    { label: "Geographic Analytics", href: "/geographic-analytics" },
+    { label: "Revenue Recovery Analytics", href: "/revenue-recovery-analytics" },
+    { label: "Standardized Context", href: "/standardized-context" },
+    { label: "AI Agent Handoff", href: "/ai-agent-handoff" },
+    { label: "Autonomous Debugging", href: "/autonomous-debugging" },
     { label: "Heatmaps", href: "/heatmaps" },
-    { label: "Replay-First Mentality", href: "/replay-first-mentality" },
+    { label: "Replay Evidence Mentality", href: "/replay-first-mentality" },
     { label: "Importance of Open Source", href: "/importance-of-open-source" },
     { label: "What Is Session Replay", href: "/what-is-session-replay" },
     { label: "How to See What Your Users Do", href: "/how-to-see-what-your-users-do" },
@@ -45,7 +50,6 @@ export const Footer: React.FC = () => {
     { label: copy.selfHosted, href: selfHostedPath },
     { label: copy.pricing, href: pricingPath },
     { label: copy.engineering, href: engineeringPath },
-    { label: "Roadmap", href: getLocalizedPublicPath(locale, "/roadmap") },
     { label: "Demo", href: "/demo" },
   ];
 
@@ -55,32 +59,32 @@ export const Footer: React.FC = () => {
     showToast(copy.copyEmailToast);
   };
 
-  const linkClass = "block text-base font-black leading-tight text-zinc-400 transition hover:text-white sm:text-lg";
-  const headingClass = "text-xl font-black text-white sm:text-2xl";
-  const sectionClass = "min-w-0 space-y-5";
+  const linkClass = "block text-sm font-medium leading-normal text-slate-500 dark:text-slate-400 transition-colors hover:text-slate-900 dark:hover:text-slate-100";
+  const headingClass = "text-xs font-semibold tracking-wider uppercase text-slate-800 dark:text-slate-200";
+  const sectionClass = "min-w-0 space-y-4";
 
   return (
-    <footer className="border-t-2 border-black bg-[#070707] text-white">
+    <footer className="border-t border-slate-200 dark:border-slate-900 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400">
       <div className="mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
         <div className="grid gap-10 lg:grid-cols-[1.05fr_2fr] lg:gap-16">
           <div className="max-w-md">
-            <Link to={locale.path} className="inline-flex items-center gap-3 transition hover:opacity-80">
+            <Link to="/" className="inline-flex items-center gap-3 transition hover:opacity-80">
               <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="h-10 w-10 object-contain" />
-              <span className="font-mono text-2xl font-black uppercase tracking-tight text-white">Rejourney</span>
+              <span className="font-mono text-xl font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100">Rejourney</span>
             </Link>
-            <p className="mt-5 text-base font-bold leading-7 text-zinc-400">
-              Replay-first analytics for web and mobile teams. Session replay, heatmaps, journeys, crashes, API context, and product analytics in one workspace.
+            <p className="mt-5 text-sm font-medium leading-relaxed text-slate-500 dark:text-slate-400">
+              AI funnel leak detection for teams shipping growth. Rejourney watches replay evidence, ranks revenue leaks, and creates fix packets for product and engineering.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
                 to="/demo"
-                className="inline-flex min-h-11 items-center justify-center border-2 border-white bg-[#86efac] px-4 text-sm font-black uppercase text-black shadow-[4px_4px_0_0_rgba(255,255,255,1)] transition hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#fef08a]"
+                className="inline-flex min-h-10 items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 px-5 text-xs font-semibold uppercase text-white shadow-md shadow-indigo-100 hover:shadow-indigo-200 transition-all duration-200 hover:-translate-y-0.5"
               >
                 Demo
               </Link>
               <Link
                 to={pricingPath}
-                className="inline-flex min-h-11 items-center justify-center border-2 border-white bg-transparent px-4 text-sm font-black uppercase text-white transition hover:bg-white hover:text-black"
+                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 px-5 text-xs font-semibold uppercase text-slate-700 dark:text-slate-300 transition-all duration-200 hover:-translate-y-0.5 shadow-sm"
               >
                 {copy.pricing}
               </Link>
@@ -151,7 +155,7 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-zinc-800 pt-6 text-center text-sm font-bold text-zinc-500">
+        <div className="mt-12 border-t border-slate-200 dark:border-slate-900 pt-6 text-center text-sm font-semibold text-slate-400 dark:text-slate-500">
           {copy.copyright}
         </div>
       </div>

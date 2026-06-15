@@ -56,10 +56,6 @@ Performansı ve istikrarı farklı bölgelerde izleyin. Altyapı sorunlarını k
 ![Büyüme Motorları](https://rejourney.co/images/growth-engines.png)
 Kullanıcı elde tutma ve sadakat segmentlerini takip edin. Sürümlerin yoğun kullanıcılarınızı ve hemen çıkma oranlarını nasıl etkilediğini anlayın.
 
-### Ekip Uyarıları
-![Ekip Uyarıları](https://rejourney.co/images/team-alerts.png)
-Çökmeler, ANR'ler ve hata artışları için akıllı e-posta bildirimleri. Mühendislik ekipleri için rol tabanlı erişim.
-
 ## Dokümantasyon
 
 Tam entegrasyon kılavuzları ve API referansı: https://rejourney.co/docs/reactnative/overview

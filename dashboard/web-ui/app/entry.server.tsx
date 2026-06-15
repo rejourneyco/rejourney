@@ -10,10 +10,7 @@ import { isbot } from "isbot";
 import { renderToPipeableStream } from "react-dom/server";
 import { ServerRouter } from "react-router";
 import type { AppLoadContext, EntryContext } from "react-router";
-import {
-    MARKETING_LOCALE_VARY_HEADER,
-    getMarketingLocaleFromPathname,
-} from "./shared/lib/internationalMarketing";
+import { MARKETING_LOCALES } from "./shared/lib/internationalMarketing";
 
 const ABORT_DELAY = 5000;
 
@@ -42,9 +39,7 @@ export default function handleRequest(
     routerContext: EntryContext,
     loadContext: AppLoadContext
 ) {
-    const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
-    responseHeaders.set("Content-Language", locale.languageTag);
-    responseHeaders.append("Vary", MARKETING_LOCALE_VARY_HEADER);
+    responseHeaders.set("Content-Language", MARKETING_LOCALES.en.languageTag);
 
     // Avoid sending duplicate CSP headers in production.
     // In production we rely on Helmet in `server.js` to set CSP.

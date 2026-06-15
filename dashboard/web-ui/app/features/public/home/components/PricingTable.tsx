@@ -5,6 +5,7 @@ import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
 import { getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
+import { PricingThreeField } from './PricingThreeField';
 
 type PricingPlan = BillingPlan & {
     interval?: 'month' | 'year';
@@ -91,20 +92,20 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
 };
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' }> = ({ children, tone = 'check' }) => (
-    <li className="flex gap-3 text-[13px] font-semibold leading-6 text-slate-700">
-        <span className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200' : 'bg-emerald-600 text-white'}`}>
+    <li className="flex gap-3 text-[13px] font-medium leading-6 text-slate-600">
+        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
             {tone === 'minus'
-                ? <Minus className="h-3 w-3 stroke-[3px]" aria-hidden />
-                : <Check className="h-3 w-3 stroke-[3px]" aria-hidden />}
+                ? <Minus className="h-3 w-3 stroke-[2.5px]" aria-hidden />
+                : <Check className="h-3 w-3 stroke-[2.5px]" aria-hidden />}
         </span>
         <span>{children}</span>
     </li>
 );
 
 const PlanGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-    <div className="border-t-2 border-black pt-5 first:border-t-0 first:pt-0">
-        <p className="mb-3 text-[11px] font-black uppercase tracking-normal text-slate-500">{title}</p>
-        <ul className="space-y-3.5">{children}</ul>
+    <div className="border-t border-slate-100 pt-5 first:border-t-0 first:pt-0">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+        <ul className="space-y-3">{children}</ul>
     </div>
 );
 
@@ -265,38 +266,43 @@ export const PricingTable: React.FC = () => {
     };
 
     return (
-        <section className="w-full border-t-2 border-black bg-white text-slate-950">
-            <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-5 py-12 sm:gap-16 sm:px-8 sm:py-16 lg:gap-20 lg:px-10 lg:py-20">
-                <div className="relative z-10 border-b-2 border-black pb-8 sm:pb-10">
+        <section className="relative w-full border-t border-slate-200 bg-white text-slate-950 overflow-hidden">
+            {/* Custom 3D Metallic Ribbon & Light Ambient background */}
+            <PricingThreeField seed={19} />
+
+            <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-5 pb-12 pt-36 sm:gap-16 sm:px-8 sm:pb-16 sm:pt-44 lg:gap-20 lg:px-10 lg:pb-20 lg:pt-48">
+                <div className="relative z-10 border-b border-slate-200 pb-8 sm:pb-10">
                     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-end">
                         <div>
-
-                            <h1 className="break-words text-5xl font-black uppercase leading-none tracking-normal text-slate-950 min-[380px]:text-6xl sm:text-7xl lg:text-8xl">
+                            <h1 className="break-words text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
                                 {copy.heading}
                             </h1>
-                            <p className="mt-5 max-w-3xl text-base font-semibold leading-7 text-slate-600 sm:text-lg">
+                            <p className="mt-4 max-w-3xl text-base font-normal leading-7 text-slate-500 sm:text-lg">
                                 {copy.intro}
                             </p>
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2 lg:relative lg:block lg:min-h-[220px]">
-                            <div className="border-2 border-black bg-[#fef08a] p-4 text-black shadow-neo-sm lg:absolute lg:right-0 lg:top-0 lg:w-72 lg:rotate-[3deg]">
-                                <p className="font-mono text-[10px] font-black uppercase">{copy.contactEyebrow}</p>
-                                <h2 className="mt-3 text-xl font-black uppercase leading-tight min-[380px]:text-2xl">{copy.contactHeading}</h2>
+                        <div className="flex justify-start lg:justify-end">
+                            <div className="border border-slate-200 bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-4 w-full sm:max-w-md lg:w-72">
+                                <div>
+                                    <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.contactEyebrow}</p>
+                                    <h2 className="mt-1.5 text-lg font-bold leading-snug text-slate-900">{copy.contactHeading}</h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyEmail}
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold shadow-sm transition-all duration-200 ${
+                                        contactCopied
+                                            ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                    }`}
+                                    aria-live="polite"
+                                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                                >
+                                    {contactCopied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+                                    {contactCopied ? copy.copied : copy.contactEmail}
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleCopyEmail}
-                                className={`flex min-h-16 items-center justify-center gap-2 border-2 border-black p-4 text-sm font-black uppercase text-black transition-all sm:min-h-20 lg:absolute lg:bottom-1 lg:left-0 lg:w-64 lg:rotate-[-4deg] ${
-                                    contactCopied
-                                        ? 'bg-[#86efac] shadow-none'
-                                        : 'bg-[#86efac] shadow-neo-sm hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#fef08a] hover:shadow-neo active:translate-x-0 active:translate-y-0 active:shadow-none'
-                                }`}
-                                aria-live="polite"
-                            >
-                                {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                                {contactCopied ? copy.copied : copy.contactEmail}
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -307,21 +313,21 @@ export const PricingTable: React.FC = () => {
                             type="button"
                             onClick={() => scrollPlansRail(-1)}
                             disabled={!plansRailState.canScrollPrev}
-                            className="flex h-10 w-10 items-center justify-center border-2 border-black bg-white text-slate-950 shadow-neo-sm transition hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:bg-white disabled:hover:shadow-neo-sm"
+                            className="flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-650 rounded-full shadow-sm hover:border-slate-350 hover:bg-slate-50 transition disabled:opacity-35"
                             aria-label="Show previous pricing plans"
                             title="Previous plans"
                         >
-                            <ChevronLeft className="h-5 w-5" aria-hidden />
+                            <ChevronLeft className="h-4 w-4" aria-hidden />
                         </button>
                         <button
                             type="button"
                             onClick={() => scrollPlansRail(1)}
                             disabled={!plansRailState.canScrollNext}
-                            className="flex h-10 w-10 items-center justify-center border-2 border-black bg-white text-slate-950 shadow-neo-sm transition hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:bg-white disabled:hover:shadow-neo-sm"
+                            className="flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-650 rounded-full shadow-sm hover:border-slate-350 hover:bg-slate-50 transition disabled:opacity-35"
                             aria-label="Show more pricing plans"
                             title="More plans"
                         >
-                            <ChevronRight className="h-5 w-5" aria-hidden />
+                            <ChevronRight className="h-4 w-4" aria-hidden />
                         </button>
                     </div>
 
@@ -333,36 +339,45 @@ export const PricingTable: React.FC = () => {
                             const planName = normalizePlanName(plan);
                             const description = copy.planDescriptions[planName] ?? copy.planDescriptions.fallback;
                             const isFeatured = planName === 'growth';
+                            const isScale = planName === 'scale';
                             const isFree = plan.priceCents === 0;
                             const priceSuffix = isFree ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
                             const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale');
 
+                            const cardClassName = isScale
+                                ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
+                                : isFeatured
+                                    ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-50/20 backdrop-blur-md shadow-md shadow-indigo-100/10 hover:shadow-lg hover:-translate-y-1.5'
+                                    : 'border-slate-200/80 bg-white/70 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
+
+                            const buttonClassName = isScale
+                                ? 'bg-blue-650 text-white hover:bg-blue-700 focus:ring-blue-600'
+                                : isFeatured
+                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-600'
+                                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 focus:ring-indigo-600';
+
                             return (
                                 <article
                                     key={`${plan.name}-${plan.priceCents}`}
-                                    className={`relative flex min-h-[680px] w-[82vw] max-w-[390px] shrink-0 snap-start flex-col overflow-hidden border-2 border-black p-6 shadow-neo-sm transition duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-neo sm:w-[360px] sm:p-7 lg:w-[340px] xl:w-[360px] ${
-                                        isFeatured
-                                            ? 'bg-[#ecfeff]'
-                                            : 'bg-white'
-                                    }`}
+                                    className={`relative flex min-h-[660px] w-[82vw] max-w-[390px] shrink-0 snap-start flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:w-[360px] sm:p-7 lg:w-[340px] xl:w-[360px] ${cardClassName}`}
                                 >
-                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-2 border-b-2 border-black bg-[#5dadec]" aria-hidden />}
+                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-650" aria-hidden />}
 
                                     <div>
                                         <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
-                                            <h2 className="text-2xl font-black uppercase leading-tight text-slate-950 sm:text-3xl">{plan.displayName}</h2>
+                                            <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{plan.displayName}</h2>
                                             {isFeatured && (
-                                                <span className="border-2 border-black bg-white px-2 py-0.5 text-[10px] font-black uppercase text-black shadow-neo-sm">
+                                                <span className="bg-indigo-100 text-indigo-800 px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border border-indigo-200/50">
                                                     {copy.popular}
                                                 </span>
                                             )}
                                         </div>
 
-                                        <p className="mt-4 min-h-[72px] text-sm font-semibold leading-6 text-slate-600">{description}</p>
+                                        <p className="mt-4 min-h-[72px] text-sm font-normal leading-6 text-slate-500">{description}</p>
 
                                         <div className="mt-6 flex flex-wrap items-end gap-x-2 gap-y-1">
-                                            <span className="text-4xl font-black leading-none text-slate-950">{formatPlanPrice(plan.priceCents)}</span>
-                                            {priceSuffix && <span className="pb-1 text-sm font-semibold text-slate-500">{priceSuffix}</span>}
+                                            <span className="text-3xl font-bold tracking-tight text-slate-950">{formatPlanPrice(plan.priceCents)}</span>
+                                            {priceSuffix && <span className="pb-0.5 text-sm font-medium text-slate-450">{priceSuffix}</span>}
                                         </div>
                                     </div>
 
@@ -382,6 +397,11 @@ export const PricingTable: React.FC = () => {
                                         </PlanGroup>
 
                                         <PlanGroup title="Features">
+                                            <PlanCheck>
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
+                                                    + AI Leak Detection
+                                                </span>
+                                            </PlanCheck>
                                             <PlanCheck>Query builder</PlanCheck>
                                             <PlanCheck>Crashes, ANRs, errors, and stability tools</PlanCheck>
                                             <PlanCheck>Heatmaps, journeys, and geo analytics</PlanCheck>
@@ -391,11 +411,8 @@ export const PricingTable: React.FC = () => {
                                     <div className="mt-8 pt-2">
                                         <Link
                                             to="/login"
-                                            className={`inline-flex h-12 w-full items-center justify-center gap-2 border-2 border-black px-4 text-sm font-black uppercase transition-all focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 active:translate-x-0 active:translate-y-0 active:shadow-none ${
-                                                isFeatured
-                                                    ? 'bg-slate-950 text-white shadow-[4px_4px_0px_0px_rgba(93,173,236,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#5dadec] hover:text-slate-950 hover:shadow-neo'
-                                                    : 'bg-white text-slate-950 shadow-neo-sm hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                            }`}
+                                            className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
+                                            style={{ WebkitTapHighlightColor: 'transparent' }}
                                         >
                                             {isFree ? copy.startFree : copy.getStarted}
                                             <ArrowRight className="h-4 w-4" aria-hidden />
@@ -405,19 +422,45 @@ export const PricingTable: React.FC = () => {
                             );
                         })}
                     </div>
+
+                    <div className="relative z-10 mt-8 overflow-hidden border border-slate-200 bg-white/65 backdrop-blur-md p-6 rounded-2xl shadow-sm sm:p-8 md:flex md:items-center md:justify-between md:gap-8 hover:border-indigo-200 transition-all duration-300">
+                        <div className="relative max-w-2xl">
+                            <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.enterpriseEyebrow}</p>
+                            <h2 className="mt-2.5 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{copy.enterpriseHeading(formatShortInteger(1000000))}</h2>
+                            <p className="mt-2 text-sm font-normal text-slate-500 leading-relaxed">
+                                {copy.enterpriseCopy}
+                            </p>
+                        </div>
+                        <div className="relative mt-5 shrink-0 md:mt-0">
+                            <button
+                                type="button"
+                                onClick={handleCopyEmail}
+                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all md:w-44 shadow-sm ${
+                                    contactCopied
+                                        ? 'bg-emerald-500 text-white'
+                                        : 'bg-indigo-650 text-white hover:bg-indigo-700'
+                                }`}
+                                aria-live="polite"
+                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                            >
+                                {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
+                                {contactCopied ? copy.copied : copy.contact}
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="border-t-2 border-black pt-12 sm:pt-16 lg:pt-20">
-                    <div className="mb-8 border-2 border-black bg-white px-5 py-5 text-left shadow-neo-sm">
-                        <span className="block text-xl font-black uppercase leading-tight text-slate-950">{copy.comparisonTitle}</span>
-                        <span className="mt-1.5 block text-base font-semibold leading-6 text-slate-700">{copy.comparisonSubtitle}</span>
+                <div className="border-t border-slate-200 pt-12 sm:pt-16 lg:pt-20">
+                    <div className="mb-8 border border-slate-200 bg-white/60 backdrop-blur-md px-6 py-5 text-left shadow-sm">
+                        <span className="block text-xl font-bold tracking-tight text-slate-950">{copy.comparisonTitle}</span>
+                        <span className="mt-1.5 block text-sm font-medium leading-normal text-slate-500">{copy.comparisonSubtitle}</span>
                     </div>
 
-                    <div className="grid gap-8 border-2 border-black bg-[#f8fafc] px-5 py-8 shadow-neo-sm lg:grid-cols-[0.85fr_1.35fr]">
+                    <div className="grid gap-8 border border-slate-200 bg-white/60 backdrop-blur-md p-6 shadow-sm lg:grid-cols-[0.85fr_1.35fr]">
                         <div>
                             <div className="mb-3 flex items-end justify-between gap-4">
-                                <span className="text-sm font-black uppercase leading-tight text-slate-700">{copy.sessionsPerMonthLabel}</span>
-                                <span className="text-3xl font-black text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
+                                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{copy.sessionsPerMonthLabel}</span>
+                                <span className="text-2xl font-bold text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
                             </div>
                             <input
                                 type="range"
@@ -438,11 +481,12 @@ export const PricingTable: React.FC = () => {
                                             key={preset.label}
                                             type="button"
                                             onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
-                                            className={`h-9 rounded-md border px-3 text-sm font-semibold transition ${
+                                            className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
                                                 active
-                                                    ? 'border-slate-950 bg-slate-950 text-white'
-                                                    : 'border-slate-300 bg-white text-slate-700 hover:border-slate-950'
+                                                    ? 'border-indigo-650 bg-indigo-650 text-white'
+                                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
                                             }`}
+                                            style={{ WebkitTapHighlightColor: 'transparent' }}
                                         >
                                             {preset.label}
                                         </button>
@@ -451,64 +495,64 @@ export const PricingTable: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="grid overflow-hidden border-2 border-black bg-white sm:grid-cols-3">
-                            <div className="border-b-2 border-black bg-[#ecfeff] p-5 sm:border-b-0 sm:border-r-2 sm:p-6">
-                                <p className="text-sm font-black uppercase leading-none text-slate-950">Rejourney</p>
-                                <p className="mt-4 text-4xl font-black leading-none text-slate-950">${rejourneyMonthlyPlan.price}</p>
-                                <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
+                        <div className="grid overflow-hidden border border-slate-200 rounded-xl bg-white/70 backdrop-blur-md shadow-sm sm:grid-cols-3">
+                            <div className="border-b border-slate-100 bg-indigo-50/30 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
+                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Rejourney</p>
+                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">${rejourneyMonthlyPlan.price}</p>
+                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
                             </div>
-                            <div className="border-b-2 border-black p-5 sm:border-b-0 sm:border-r-2 sm:p-6">
-                                <p className="text-sm font-black uppercase leading-none text-slate-950">PostHog</p>
-                                <p className="mt-4 text-4xl font-black leading-none text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
-                                <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.posthogEstimate}</p>
+                            <div className="border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
+                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">PostHog</p>
+                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
+                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.posthogEstimate}</p>
                             </div>
-                            <div className="bg-white p-5 sm:p-6">
-                                <p className="text-sm font-black uppercase leading-none text-slate-950">Sentry</p>
-                                <p className="mt-4 text-4xl font-black leading-none text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
-                                <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.sentryEstimate}</p>
+                            <div className="p-5 sm:p-6">
+                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Sentry</p>
+                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
+                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.sentryEstimate}</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="relative z-10 -mx-5 overflow-hidden border-y-2 border-black bg-[#fff7df] px-5 py-12 sm:-mx-8 sm:px-8 sm:py-16 lg:-mx-10 lg:px-10 lg:py-20">
+                <div className="relative z-10 -mx-5 overflow-hidden border-y border-slate-200 bg-slate-50/70 backdrop-blur-sm px-5 py-12 sm:-mx-8 sm:px-8 sm:py-16 lg:-mx-10 lg:px-10 lg:py-20">
                     <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:radial-gradient(#0f172a_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
 
                     <div className="relative grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
                         <div className="max-w-2xl">
-                            <p className="mb-4 inline-flex border-2 border-black bg-[#67e8f9] px-3 py-1 text-[11px] font-black uppercase tracking-widest text-black shadow-neo-sm">FAQ</p>
-                            <h2 className="text-3xl font-black uppercase leading-[0.96] tracking-normal text-slate-950 sm:text-4xl">
+                            <p className="mb-4 inline-flex rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 text-[11px] font-bold uppercase tracking-wider">FAQ</p>
+                            <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
                                 Everything included, clarified.
                             </h2>
-                            <p className="mt-5 text-base font-bold leading-relaxed text-slate-700">
+                            <p className="mt-5 text-base font-normal leading-relaxed text-slate-500">
                                 Replays are planned by volume. Analytics stays open, and Scale adds Smart Capture for teams that need precise replay selection.
                             </p>
                         </div>
 
-                        <div className="divide-y-2 divide-black border-2 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+                        <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden bg-white/80 backdrop-blur-md shadow-sm">
                             {PRICING_FAQS.map((faq, index) => (
                                 <div key={faq.question}>
                                     <button
                                         type="button"
                                         onClick={() => setOpenFaqIndex(openFaqIndex === index ? null : index)}
-                                        className="flex w-full select-none items-center justify-between gap-6 px-5 py-5 text-left transition-colors hover:bg-[#fef3c7] focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 focus-visible:ring-offset-[#fff7df] sm:px-6"
+                                        className="flex w-full select-none items-center justify-between gap-6 px-5 py-5 text-left transition-colors hover:bg-slate-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:px-6"
                                         style={{ WebkitTapHighlightColor: 'transparent' }}
                                         aria-expanded={openFaqIndex === index}
                                     >
-                                        <span className="text-base font-black uppercase leading-snug tracking-normal text-slate-950 sm:text-lg">
+                                        <span className="text-base font-semibold leading-snug text-slate-900">
                                             {faq.question}
                                         </span>
-                                        <span className="shrink-0 border-2 border-black bg-white p-1 text-slate-950">
+                                        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 p-1 text-slate-500 hover:text-slate-900 transition-colors">
                                             {openFaqIndex === index
-                                                ? <Minus className="h-4 w-4 stroke-[3px]" aria-hidden />
-                                                : <Plus className="h-4 w-4 stroke-[3px]" aria-hidden />
+                                                ? <Minus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />
+                                                : <Plus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />
                                             }
                                         </span>
                                     </button>
 
                                     {openFaqIndex === index && (
-                                        <div className="border-t-2 border-black bg-[#ecfeff] px-5 py-5 sm:px-6">
-                                            <p className="max-w-3xl text-base font-bold leading-relaxed text-slate-600">{faq.answer}</p>
+                                        <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-5 sm:px-6">
+                                            <p className="max-w-3xl text-sm font-normal leading-relaxed text-slate-600">{faq.answer}</p>
                                         </div>
                                     )}
                                 </div>
@@ -517,44 +561,19 @@ export const PricingTable: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="relative z-10 overflow-hidden border-2 border-black bg-[#f8fafc] px-5 py-10 shadow-neo-sm sm:px-8 md:flex md:items-center md:justify-between md:gap-8">
-                    <div className="absolute -right-8 -top-8 h-20 w-32 rotate-[6deg] border-2 border-black bg-[#86efac] shadow-neo-sm" aria-hidden />
-                    <div className="relative max-w-2xl">
-                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.enterpriseEyebrow}</p>
-                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950 sm:text-3xl">{copy.enterpriseHeading(formatShortInteger(1000000))}</h2>
-                        <p className="mt-4 text-[15px] font-semibold leading-7 text-slate-600">
-                            {copy.enterpriseCopy}
-                        </p>
-                    </div>
-                    <div className="relative mt-7 shrink-0 md:mt-0">
-                        <button
-                            type="button"
-                            onClick={handleCopyEmail}
-                            className={`inline-flex h-14 w-full items-center justify-center gap-2 border-2 border-black px-6 text-sm font-black uppercase text-slate-950 transition-all md:w-64 ${
-                                contactCopied
-                                    ? 'bg-[#86efac] shadow-none'
-                                    : 'bg-[#c4b5fd] shadow-neo-sm hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ddd6fe] hover:shadow-neo active:translate-x-0 active:translate-y-0 active:shadow-none'
-                            }`}
-                            aria-live="polite"
-                        >
-                            {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                            {contactCopied ? copy.copied : copy.contact}
-                        </button>
-                    </div>
-                </div>
 
-                <div className="border-t-2 border-black pt-12 sm:pt-16 lg:pt-20">
-                    <div className="max-w-3xl">
-                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.selfHostedEyebrow}</p>
-                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950">{copy.selfHostedHeading}</h2>
-                        <p className="mt-4 text-[15px] font-semibold leading-7 text-slate-600">
+                <div className="border-t border-slate-200 pt-12 sm:pt-16 lg:pt-20">
+                    <div className="max-w-4xl border border-slate-200 bg-white/60 backdrop-blur-md rounded-2xl p-6 sm:p-8 shadow-sm hover:shadow-md transition-all duration-300">
+                        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.selfHostedEyebrow}</p>
+                        <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{copy.selfHostedHeading}</h2>
+                        <p className="mt-4 text-[15px] font-normal leading-7 text-slate-500">
                             {copy.selfHostedCopy}
                         </p>
                         <a
                             href="https://github.com/rejourneyco/rejourney"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border-2 border-black bg-white px-4 text-sm font-black uppercase text-slate-950 shadow-neo-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-755 rounded-full shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 hover:border-slate-350"
                         >
                             <Github className="h-4 w-4" aria-hidden />
                             {copy.viewSource}

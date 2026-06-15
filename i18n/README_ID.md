@@ -52,11 +52,6 @@ Pantau performa dan stabilitas di berbagai region sebelum masalah berdampak ke p
 
 Lacak retensi, segmen loyalitas, dan dampak release terhadap pengguna aktif.
 
-### Team Alerts
-![Team alerts](https://rejourney.co/images/team-alerts.png)
-
-Email alert pintar untuk crash, ANR, dan lonjakan error dengan akses berbasis peran.
-
 ## Dokumentasi
 
 Panduan integrasi dan referensi API: https://rejourney.co/docs/reactnative/overview

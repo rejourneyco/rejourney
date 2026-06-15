@@ -247,6 +247,349 @@ const alternativePage = (config: {
 
 export const SEO_PAGES: SeoPage[] = [
   categoryPage({
+    path: "/ai-funnel-leak-detection",
+    badge: "Leak detection",
+    eyebrow: "AI funnel leaks",
+    title: "AI funnel leak detection that starts from the leaks page",
+    subtitle:
+      "Use the Rejourney leaks page to rank conversion drops, rage taps, crashes, API failures, and journey loops with the replay evidence needed to fix them.",
+    metaTitle: "AI Funnel Leak Detection | Rejourney",
+    metaDescription:
+      "AI funnel leak detection for product and engineering teams. Rank funnel leaks, inspect replay evidence, and create fix-ready context from the Rejourney leaks page.",
+    keywords: ["AI funnel leak detection", "funnel leak detection", "conversion leak detection", "AI session replay", "revenue leak detection", "rage tap detection", "session replay issues"],
+    image: "/images/landing-replay-theater.png",
+    imageAlt: "Rejourney leaks page showing ranked issue detection and funnel leak evidence",
+    proofPoints: ["Ranked leak inbox", "Replay evidence", "AI-ready fix context"],
+    whyTitle: "The leaks page turns raw sessions into a ranked repair queue",
+    whyParagraphs: [
+      "A funnel leak is not just a chart that went down. It is the repeated moment where users lose intent: a dead checkout button, a loop between screens, a slow API call, a rage tap cluster, a crash, or a path that looks healthy until replay shows confusion.",
+      "Rejourney's leaks page groups those signals into ranked issues, then keeps the replay, journey, technical context, and affected user evidence close enough for product and engineering to act together.",
+      "That means teams can move from 'conversion dropped' to 'this path, this screen, this request, these sessions, this likely fix' without stitching together separate dashboards.",
+    ],
+    chooseOtherTitle: "Choose a generic analytics dashboard if...",
+    chooseOther: [
+      "Your team only needs high-level conversion rates and does not investigate the sessions behind them.",
+      "You already have a reliable issue queue that links funnel drops to replay, journey, API, and crash context.",
+      "Your product does not need product and engineering teams to share the same evidence when prioritizing fixes.",
+    ],
+    comparisonTitle: "AI funnel leak detection checklist",
+    comparisonIntro:
+      "A leak-detection workflow should rank the problem, explain why it matters, and preserve enough session evidence for someone to verify the fix.",
+    otherColumnTitle: "Generic analytics",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What does the Rejourney leaks page show?",
+        answer:
+          "It shows ranked product and technical issues such as funnel drop-offs, rage taps, crashes, API failures, and repeated journey loops, with replay evidence and context for each item.",
+      },
+      {
+        question: "How is AI used in funnel leak detection?",
+        answer:
+          "AI helps cluster repeated session signals into fixable issues and prepare context packages, but the workflow stays grounded in real replay, journey, event, crash, and request evidence.",
+      },
+      {
+        question: "Who should use the leaks page?",
+        answer:
+          "Product teams use it to prioritize conversion leaks. Engineering teams use it to reproduce the cause. Growth teams use it to connect leak repair with revenue and retention movement.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/funnel-replay-evidence",
+    badge: "Funnels",
+    eyebrow: "Funnel replay evidence",
+    title: "Funnel replay evidence for the paths where users branch, loop, or drop",
+    subtitle:
+      "Use journey ribbons to find the highest-volume paths, then open the replay evidence behind each branch, loop, and drop-off.",
+    metaTitle: "Funnel Replay Evidence | Rejourney",
+    metaDescription:
+      "Use Rejourney funnel replay evidence to inspect journey ribbons, drop-offs, repeated paths, and the replay sessions behind conversion leaks.",
+    keywords: ["funnel replay evidence", "user journey analytics", "journey map analytics", "funnel drop-off replay", "conversion funnel replay"],
+    image: "/images/readme-user-journeys.png",
+    imageAlt: "Rejourney journey ribbon map showing funnel paths and replay evidence",
+    proofPoints: ["Journey ribbons", "Path drop-offs", "Replay-backed decisions"],
+    whyTitle: "Funnel paths are easier to fix when the replay stays attached",
+    whyParagraphs: [
+      "Most funnel charts flatten the path into a few steps. Real users branch, loop, backtrack, skip, and stall. Rejourney's journey ribbons show those paths with enough weight to reveal which flows carry users forward and which ones leak.",
+      "The important part is that the ribbon is not just a picture. A product team can use the path to open matching sessions, compare healthy and degraded journeys, and hand engineering the replay evidence behind the drop.",
+      "That makes funnel repair less like debating a dashboard and more like reviewing the exact path users took before intent disappeared.",
+    ],
+    chooseOtherTitle: "Use a simple funnel report if...",
+    chooseOther: [
+      "Your flow is linear and a step-count chart answers the full question.",
+      "You do not need to inspect sessions from a specific path before prioritizing work.",
+      "Your team already ties funnel paths to replay samples and issue context elsewhere.",
+    ],
+    comparisonTitle: "Funnel replay evidence checklist",
+    comparisonIntro:
+      "Funnel evidence should show the path, the volume, the drop, and the sessions that prove what happened.",
+    otherColumnTitle: "Step funnel",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What is funnel replay evidence?",
+        answer:
+          "It is the combination of journey-path analytics and the matching session replays behind those paths, so teams can watch the sessions that explain a branch, loop, or drop-off.",
+      },
+      {
+        question: "Can Rejourney show non-linear funnels?",
+        answer:
+          "Yes. Journey ribbons are designed for paths where users branch, loop, or return to earlier screens instead of moving through a perfect sequence.",
+      },
+      {
+        question: "How does this help product teams?",
+        answer:
+          "It helps product teams prioritize the highest-volume leaks and give engineering replay-backed context instead of only a funnel percentage.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/geographic-analytics",
+    badge: "Regions",
+    eyebrow: "Geographic analytics",
+    title: "Geographic analytics for regional sentiment and UX friction",
+    subtitle:
+      "Map positive, neutral, and frustrated sessions by region so teams can see where UX, network, language, or market-specific friction is clustering.",
+    metaTitle: "Geographic Analytics | Rejourney",
+    metaDescription:
+      "Use Rejourney geographic analytics to map regional sentiment, friction, session replay context, and product issues by country.",
+    keywords: ["geographic analytics", "regional sentiment analytics", "session replay by country", "UX friction by region", "product analytics map"],
+    image: "/images/geo-analytics.png",
+    imageAlt: "Rejourney geographic analytics map showing session sentiment by region",
+    proofPoints: ["Regional sentiment", "Country-level friction", "Replay context"],
+    whyTitle: "Regional friction hides inside global averages",
+    whyParagraphs: [
+      "A global conversion rate can look fine while one market is getting slow requests, confusing copy, missing payment options, or frustrated sessions. Geographic analytics makes those regional clusters visible before they become a support pattern.",
+      "Rejourney maps session sentiment and friction by country, then keeps the underlying replay evidence close enough to inspect what users actually experienced in that market.",
+      "That gives product, growth, and support teams a shared way to decide whether a regional issue is UX, infrastructure, localization, or funnel design.",
+    ],
+    chooseOtherTitle: "Use aggregate analytics if...",
+    chooseOther: [
+      "Your product does not vary meaningfully by market, language, infrastructure, or payment method.",
+      "You do not need country-level replay evidence behind a regional spike.",
+      "Your current analytics already connects region, sentiment, and session context.",
+    ],
+    comparisonTitle: "Geographic analytics checklist",
+    comparisonIntro:
+      "Regional analytics should connect the map to the session evidence behind each cluster.",
+    otherColumnTitle: "Aggregate analytics",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What does geographic analytics show?",
+        answer:
+          "It shows where session volume, sentiment, and friction cluster by country or region, with replay context for the sessions behind each cluster.",
+      },
+      {
+        question: "Why track sentiment by region?",
+        answer:
+          "Regional sentiment helps teams catch local UX, network, language, payment, or infrastructure issues that disappear inside global averages.",
+      },
+      {
+        question: "Can I open sessions from a region?",
+        answer:
+          "Yes. The workflow is designed to connect regional signals back to replay evidence so teams can inspect the actual sessions behind the map.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/revenue-recovery-analytics",
+    badge: "Growth",
+    eyebrow: "Revenue recovery",
+    title: "Revenue recovery analytics tied to sessions and releases",
+    subtitle:
+      "Track revenue, transactions, active users, retention, and releases beside the sessions that explain movement.",
+    metaTitle: "Revenue Recovery Analytics | Rejourney",
+    metaDescription:
+      "Use Rejourney revenue recovery analytics to connect revenue movement, transactions, releases, retention, and session replay evidence.",
+    keywords: ["revenue recovery analytics", "growth analytics", "revenue leak detection", "retention analytics", "session replay revenue"],
+    image: "/images/growth-engines.png",
+    imageAlt: "Rejourney revenue analytics dashboard with growth and retention metrics",
+    proofPoints: ["Revenue movement", "Release markers", "Session context"],
+    whyTitle: "Growth metrics are easier to repair when they keep their sessions",
+    whyParagraphs: [
+      "Revenue drops rarely explain themselves. A release, a checkout change, a slow screen, or a confusing path can move gross revenue, transaction count, active users, and retention at the same time.",
+      "Rejourney keeps the revenue view close to session evidence, so growth teams can move from a metric change to the user behavior and product state that likely caused it.",
+      "That makes growth work less about dashboard watching and more about recovery: identify the movement, inspect the sessions, prioritize the leak, and confirm the fix.",
+    ],
+    chooseOtherTitle: "Use a warehouse dashboard if...",
+    chooseOther: [
+      "You only need monthly reporting and do not investigate the sessions behind movement.",
+      "Revenue analysis is handled entirely in a BI workflow that already links to replay context.",
+      "Growth and engineering do not share work based on session evidence.",
+    ],
+    comparisonTitle: "Revenue recovery checklist",
+    comparisonIntro:
+      "Revenue analytics should connect movement to releases, affected users, and replay evidence.",
+    otherColumnTitle: "BI dashboard",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "How does Rejourney connect revenue to sessions?",
+        answer:
+          "It keeps revenue and product metrics near replay, journey, and issue evidence so teams can inspect the sessions behind a movement instead of stopping at the chart.",
+      },
+      {
+        question: "Can growth teams use this without engineering?",
+        answer:
+          "Yes. Growth teams can identify affected flows and users, then bring engineering a bounded issue with replay evidence when a fix is needed.",
+      },
+      {
+        question: "What metrics are useful for recovery?",
+        answer:
+          "Revenue trend, transaction count, active users, retention, release markers, affected segments, and matching sessions are the most useful starting points.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/standardized-context",
+    badge: "Context",
+    eyebrow: "Standardized context",
+    title: "Standardized context for sessions, regions, events, and issues",
+    subtitle:
+      "Turn sessions, regional signals, events, and technical evidence into consistent context that teams can query, share, compare, and hand off.",
+    metaTitle: "Standardized Context | Rejourney",
+    metaDescription:
+      "Use Rejourney standardized context to keep replay, journeys, regions, events, crashes, and API evidence tied to shared identifiers.",
+    keywords: ["standardized context", "session context", "replay context", "product analytics context", "debugging context"],
+    image: "/images/growth-engines.png",
+    imageAlt: "Rejourney analytics dashboard showing standardized product context",
+    proofPoints: ["Shared identifiers", "Replay-linked context", "Exportable evidence"],
+    whyTitle: "Context loses value when every team names it differently",
+    whyParagraphs: [
+      "A session ID, route, screen, region, event, release, request, crash, and user segment are only useful if they mean the same thing across product, data, support, and engineering.",
+      "Rejourney standardizes those signals around the session so teams can compare issues, reopen evidence, and avoid rewriting the same debugging notes in every ticket.",
+      "That gives data teams a cleaner layer for analysis while keeping the evidence attached to real user behavior.",
+    ],
+    chooseOtherTitle: "Use ad hoc notes if...",
+    chooseOther: [
+      "Only one person reviews sessions and the context never needs to travel.",
+      "Your team already has a shared schema for replay, events, regions, releases, and issues.",
+      "You do not need to compare behavior across sessions, regions, or releases.",
+    ],
+    comparisonTitle: "Standardized context checklist",
+    comparisonIntro:
+      "A context layer should make session evidence reusable across product, data, support, and engineering.",
+    otherColumnTitle: "Ad hoc notes",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What is standardized context?",
+        answer:
+          "It is a consistent way to describe sessions, screens, events, regions, releases, requests, crashes, and issues so different teams can interpret the same evidence.",
+      },
+      {
+        question: "Why does this matter for replay?",
+        answer:
+          "Replay is easier to trust when the session carries structured metadata that can be searched, compared, and reopened later.",
+      },
+      {
+        question: "Who uses standardized context?",
+        answer:
+          "Data teams use it for clean analysis, product teams use it for prioritization, and engineering teams use it for reproducible debugging.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/ai-agent-handoff",
+    badge: "AI handoff",
+    eyebrow: "AI agent handoff",
+    title: "AI agent handoff from replay evidence to fix-ready context",
+    subtitle:
+      "Package replay, event, request, crash, and journey evidence into context developers can paste into Cursor, Claude, Codex, or an IDE workflow.",
+    metaTitle: "AI Agent Handoff | Rejourney",
+    metaDescription:
+      "Use Rejourney AI agent handoff to convert session replay evidence into fix-ready context packets for developer and coding-agent workflows.",
+    keywords: ["AI agent handoff", "session replay AI", "AI debugging context", "coding agent context", "replay to fix"],
+    image: "/images/readme-general-demo.png",
+    imageAlt: "Rejourney issue detection context ready for AI agent handoff",
+    proofPoints: ["Replay packets", "Markdown context", "Developer workflow"],
+    whyTitle: "AI agents need evidence, not a vague bug summary",
+    whyParagraphs: [
+      "A coding agent can only help if it receives the right facts: the path, expected behavior, observed behavior, affected release, failed request, event sequence, and replay evidence that proves the issue.",
+      "Rejourney turns session evidence into structured context that a developer can review and hand to an AI workflow without rewriting the same bug report from scratch.",
+      "The goal is not to replace engineering judgment. It is to remove the tedious translation between what happened in a real session and what a coding agent needs to start a fix.",
+    ],
+    chooseOtherTitle: "Write manual bug reports if...",
+    chooseOther: [
+      "Your team does not use coding agents or IDE assistant workflows.",
+      "Issues are rare enough that manual reproduction notes are easy to maintain.",
+      "Your bug tracker already includes replay, event, request, and release context automatically.",
+    ],
+    comparisonTitle: "AI handoff checklist",
+    comparisonIntro:
+      "A good AI handoff should preserve the exact session evidence and describe the fix boundary clearly.",
+    otherColumnTitle: "Manual ticket",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What goes into an AI agent handoff?",
+        answer:
+          "The useful packet includes replay links, route or screen path, expected behavior, observed behavior, product events, release and device context, failed requests, crashes, and likely reproduction steps.",
+      },
+      {
+        question: "Does Rejourney automatically write code?",
+        answer:
+          "Rejourney focuses on preparing evidence and context. Developers can then use that context with their preferred AI coding tools and review the result.",
+      },
+      {
+        question: "Why not just paste a replay link?",
+        answer:
+          "A replay link is useful, but agents and developers also need structured facts: what failed, where, for whom, and which signals support the diagnosis.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/autonomous-debugging",
+    badge: "Debugging",
+    eyebrow: "Autonomous debugging",
+    title: "Autonomous debugging starts with exact session context",
+    subtitle:
+      "Group repeated issue signals with replay links, stack context, events, and handoff text so engineering can reproduce and repair production bugs faster.",
+    metaTitle: "Autonomous Debugging | Rejourney",
+    metaDescription:
+      "Use Rejourney autonomous debugging workflows to connect production bugs, replay links, crash context, API signals, and AI-ready developer handoff text.",
+    keywords: ["autonomous debugging", "AI debugging", "session replay debugging", "production bug replay", "crash replay context"],
+    image: "/images/anr-issues.png",
+    imageAlt: "Rejourney stability issue dashboard with crash and ANR replay context",
+    proofPoints: ["Repeated signals", "Replay links", "Fix-ready handoff"],
+    whyTitle: "Production debugging should begin with the session that proves the bug",
+    whyParagraphs: [
+      "Debugging slows down when the evidence is split between a metric dashboard, a crash tool, a replay clip, a support ticket, and a chat thread. The team spends time reconstructing the story before it can fix anything.",
+      "Rejourney groups repeated signals and keeps replay, crash, API, event, device, release, and journey context together so the bug has a reproducible shape.",
+      "That context can then be handed to an engineer or AI coding workflow with enough detail to start testing a fix instead of asking users to reproduce the failure.",
+    ],
+    chooseOtherTitle: "Use a crash-only workflow if...",
+    chooseOther: [
+      "The stack trace alone is enough to reproduce most production issues.",
+      "Your product bugs do not depend on user path, UI state, device, release, or network context.",
+      "Your existing observability tool already connects crash context to replay and product behavior.",
+    ],
+    comparisonTitle: "Autonomous debugging checklist",
+    comparisonIntro:
+      "Autonomous debugging needs exact evidence, repeated signals, and a context packet that survives handoff.",
+    otherColumnTitle: "Crash-only triage",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What makes debugging autonomous?",
+        answer:
+          "The workflow becomes more autonomous when issue evidence is grouped, replay links are attached, context is structured, and the next agent or engineer can start from reproducible facts.",
+      },
+      {
+        question: "Does this replace crash reporting?",
+        answer:
+          "No. It complements crash reporting by adding replay, product path, events, device, release, and API context around the crash or failure.",
+      },
+      {
+        question: "Can this help with ANRs and freezes?",
+        answer:
+          "Yes. ANR and freeze triage is stronger when the session shows what the user was doing before the app stopped responding.",
+      },
+    ],
+  }),
+  categoryPage({
     path: "/record-user-sessions",
     badge: "Strategy guide",
     eyebrow: "Record user sessions",
@@ -1153,8 +1496,8 @@ export const SEO_PAGES: SeoPage[] = [
     metaDescription:
       "Compare Rejourney and Pendo Session Replay for replay-first analytics, mobile UX, unlimited team members, projects, events, and retention.",
     keywords: ["pendo session replay", "pendo alternatives", "product adoption analytics", "session replay tools"],
-    image: "/images/team-alerts.png",
-    imageAlt: "Rejourney team alerts and shared replay workspace as a Pendo alternative",
+    image: "/images/readme-general-demo.png",
+    imageAlt: "Rejourney issue detection inbox with ranked leak signals",
     proofPoints: ["Replay-led UX", "Team-wide workspace", "Crash + API context"],
     whyParagraphs: [
       "Pendo's pricing is organized around software experience management bundles, monthly active users, analytics, in-app guides, session replays, discovery, sentiment, journey orchestration, and related capabilities.",

@@ -46,7 +46,8 @@
     "react-window-infinite-loader": "^2.0.0",
     "reactflow": "^11.11.4",
     "recharts": "^3.6.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@react-router/dev": "^7.9.6",
@@ -56,6 +57,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-window": "^1.8.8",
     "@types/react-window-infinite-loader": "^1.0.9",
+    "@types/three": "^0.184.1",
     "autoprefixer": "^10.4.22",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.18",

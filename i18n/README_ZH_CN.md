@@ -52,11 +52,6 @@
 
 跟踪 retention、loyalty segments 和 release 对核心用户的影响。
 
-### Team Alerts
-![Team alerts](https://rejourney.co/images/team-alerts.png)
-
-为 crashes、ANRs 和 error spikes 提供智能邮件提醒，并支持 engineering team 的 role-based access。
-
 ## Documentation
 
 Integration guides 和 API reference: https://rejourney.co/docs/reactnative/overview

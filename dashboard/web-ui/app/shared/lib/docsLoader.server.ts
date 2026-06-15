@@ -55,6 +55,7 @@ export type LoadedDocContent = {
  * Load markdown content from the docs folder
  */
 export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLocaleCode = "en"): LoadedDocContent | null {
+    void localeCode;
     try {
         const docInfo = DOCS_MAP[docPath];
         if (!docInfo) {
@@ -62,9 +63,7 @@ export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLo
             return null;
         }
 
-        const localizedFilePath = join(DOCS_ROOT, 'i18n', localeCode, docInfo.file);
-        const hasLocalizedContent = localeCode !== "en" && existsSync(localizedFilePath);
-        const filePath = hasLocalizedContent ? localizedFilePath : join(DOCS_ROOT, docInfo.file);
+        const filePath = join(DOCS_ROOT, docInfo.file);
         console.log(`[docsLoader] Loading doc "${docPath}" from: ${filePath} (DOCS_ROOT: ${DOCS_ROOT})`);
         
         if (!existsSync(filePath)) {
@@ -75,8 +74,8 @@ export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLo
         const content = readFileSync(filePath, 'utf-8');
         return {
             content,
-            localeCode: hasLocalizedContent ? localeCode : "en",
-            usedFallback: !hasLocalizedContent && localeCode !== "en",
+            localeCode: "en",
+            usedFallback: false,
         };
     } catch (error) {
         console.error(`[docsLoader] Failed to load doc "${docPath}" from ${DOCS_ROOT}:`, error);

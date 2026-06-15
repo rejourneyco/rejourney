@@ -237,14 +237,14 @@ export function DocsSidebar({ className }: { className?: string }) {
     };
 
     return (
-        <aside className={cn("relative z-20 hidden w-72 flex-shrink-0 self-stretch border-r-2 border-black bg-white/95 shadow-[5px_0_0_0_rgba(0,0,0,1)] md:block", className)}>
-            <div className="p-5">
+        <aside className={cn("relative z-20 hidden w-64 flex-shrink-0 self-stretch border-r border-slate-200/40 bg-transparent md:block", className)}>
+            <div className="pt-28 pb-5 pr-6 pl-2">
                 {navigation.map((cat) => (
                     <div key={cat.category} className="mb-6 last:mb-0">
                         {/* Category Header */}
                         <button
                             onClick={() => toggleCategory(cat.category)}
-                            className="group mb-3 flex w-full items-center justify-between border-b-2 border-black py-2 text-sm font-black uppercase tracking-normal text-black transition-all hover:bg-[#fefce8] hover:pl-2"
+                            className="group mb-3 flex w-full items-center justify-between border-b border-slate-200/60 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 transition-all hover:text-slate-900"
                         >
                             <span>{cat.category}</span>
                             {expandedCategories.includes(cat.category)
@@ -258,7 +258,7 @@ export function DocsSidebar({ className }: { className?: string }) {
                             <div className="space-y-4">
                                 {cat.sections.map((section) => (
                                     <div key={section.title}>
-                                        <h4 className="px-2 py-1 text-xs font-black text-gray-500 uppercase tracking-wider mb-1">
+                                        <h4 className="px-2 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
                                             {section.title}
                                         </h4>
                                         <nav className="space-y-0.5">
@@ -273,10 +273,10 @@ export function DocsSidebar({ className }: { className?: string }) {
                                                 );
 
                                                 const className = cn(
-                                                    "block px-3 py-2 text-sm font-semibold transition-all border border-transparent",
+                                                    "block px-3 py-1.5 text-sm font-semibold transition-all border border-transparent rounded-lg",
                                                     active
-                                                        ? "text-black bg-[#fff08a] border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] translate-x-1"
-                                                        : "text-slate-600 hover:text-black hover:bg-slate-100 hover:border-slate-300"
+                                                        ? "text-indigo-600 bg-indigo-50 border-indigo-100/50 font-bold"
+                                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-200"
                                                 );
 
                                                 const localizedHref = getLocalizedPublicPath(locale, link.href);

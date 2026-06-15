@@ -147,26 +147,26 @@ function ArticleGrid({
                         aria-label={copy.readArticleLabel(localizedArticle.title)}
                         className="group block"
                     >
-                        <div className="aspect-[1.95/1] overflow-hidden rounded-md border-2 border-black bg-slate-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition duration-200 group-hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+                        <div className="aspect-[1.95/1] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm transition duration-300 group-hover:shadow-md group-hover:scale-[1.01]">
                             <img
                                 src={getArticleImage(article)}
                                 alt={article.imageAlt ?? localizedArticle.title}
-                                className={`h-full w-full object-cover ${getArticleImageCropClass(article)} brightness-[0.96] saturate-[0.95] transition duration-300 group-hover:scale-[1.015] group-hover:brightness-100 group-hover:saturate-100`}
+                                className={`h-full w-full object-cover ${getArticleImageCropClass(article)} brightness-[0.96] saturate-[0.95] transition duration-300 group-hover:brightness-100 group-hover:saturate-100`}
                                 loading={index < 2 ? "eager" : "lazy"}
                             />
                         </div>
-                        <div className="mt-7 flex flex-wrap items-center gap-3">
-                            <span className={`rounded-md border-2 border-black px-3 py-1 text-xs font-black uppercase text-slate-950 ${articleSection.badgeClassName}`}>
+                        <div className="mt-6 flex flex-wrap items-center gap-3">
+                            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ${articleSection.badgeClassName}`}>
                                 {articleSection.label}
                             </span>
-                            <p className="text-base font-semibold text-slate-500">
-                                {article.date} <span className="px-1.5 text-slate-300">·</span> {localizedArticle.readTime}
+                            <p className="text-sm font-medium text-slate-400">
+                                {article.date} <span className="px-1 text-slate-300">·</span> {localizedArticle.readTime}
                             </p>
                         </div>
-                        <h2 className="mt-5 text-3xl font-black leading-tight tracking-normal text-slate-950 transition group-hover:text-sky-700">
+                        <h2 className="mt-4 text-2xl font-bold leading-snug tracking-tight text-slate-950 transition duration-200 group-hover:text-indigo-600">
                             {localizedArticle.title}
                         </h2>
-                        <p className="mt-5 text-xl leading-relaxed text-slate-600">
+                        <p className="mt-3 text-base font-normal leading-relaxed text-slate-500">
                             {localizedArticle.subtitle}
                         </p>
                     </Link>
@@ -290,9 +290,9 @@ export default function EngineeringIndexPage() {
 
             <main className="w-full flex-grow">
                 <section className="mx-auto max-w-[1500px] px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:px-10 lg:pb-24">
-                    <div className="border-b-2 border-black pb-12">
-                        <p className="font-mono text-xs font-black uppercase text-slate-500">{copy.engineeringFromTeam}</p>
-                        <h1 className="mt-6 max-w-5xl text-4xl font-black leading-none tracking-normal text-slate-950 sm:text-5xl lg:text-6xl">
+                    <div className="border-b border-slate-200 pb-12">
+                        <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">{copy.engineeringFromTeam}</p>
+                        <h1 className="mt-6 max-w-5xl text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
                             {copy.engineeringHeading}
                         </h1>
                     </div>
@@ -307,10 +307,10 @@ export default function EngineeringIndexPage() {
                                     key={section.id}
                                     to={href}
                                     aria-current={isActive ? "page" : undefined}
-                                    className={`shrink-0 border-b-4 px-1 pb-5 text-lg font-black transition ${
+                                    className={`shrink-0 border-b-2 px-1 pb-4 text-sm font-semibold transition ${
                                         isActive
-                                            ? "border-black text-slate-950"
-                                            : "border-transparent text-slate-500 hover:text-slate-950"
+                                            ? "border-indigo-600 text-indigo-600"
+                                            : "border-transparent text-slate-500 hover:text-slate-800"
                                     }`}
                                 >
                                     {section.label}
@@ -322,14 +322,14 @@ export default function EngineeringIndexPage() {
                     <div className="mt-14">
                         <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                                <p className="font-mono text-xs font-black uppercase text-slate-500">
+                                <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">
                                     {selectedSection.id === "latest" ? "Newest first" : "Selected track"}
                                 </p>
                                 <p className="mt-2 max-w-2xl text-lg font-semibold leading-7 text-slate-600">
                                     {selectedSection.description}
                                 </p>
                             </div>
-                            <p className="w-fit rounded-md border-2 border-black bg-white px-4 py-2 text-sm font-black uppercase text-slate-950">
+                            <p className="w-fit rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-slate-600">
                                 {selectedArticles.length} articles
                             </p>
                         </div>

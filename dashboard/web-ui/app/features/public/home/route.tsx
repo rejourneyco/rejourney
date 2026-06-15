@@ -5,25 +5,38 @@
  */
 
 import React from "react";
-import { redirect, useLocation } from "react-router";
+import { redirect } from "react-router";
 import type { Route } from "./+types/route";
-import { Hero } from "~/features/public/home/components/Hero";
-import { TrustBanners } from "~/features/public/home/components/TrustBanners";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
-import { EngineeringCTA } from "~/features/public/home/components/EngineeringCTA";
-import { LandingNarrative } from "~/features/public/home/components/LandingNarrative";
-import { PerformanceMetrics } from "~/features/public/home/components/PerformanceMetrics";
+import { AiLeakHomepage } from "~/features/public/home/components/AiLeakHomepage";
 import {
-    MARKETING_INDEXABLE_LOCALE_ORDER,
+    MARKETING_HOME_LOCALE_ORDER,
+    MARKETING_LOCALES,
     MARKETING_LOCALE_VARY_HEADER,
     getMarketingAlternateLinks,
-    getMarketingHomeCopy,
-    getMarketingLocaleFromPathname,
     getMarketingLocaleRedirectPath,
     getMarketingLocaleUrl,
-    isIndexableMarketingLocale,
 } from "~/shared/lib/internationalMarketing";
+
+const homeLocale = MARKETING_LOCALES.en;
+const canonicalUrl = getMarketingLocaleUrl(homeLocale);
+const socialPreviewImage = "https://rejourney.co/images/growth-engines.png";
+const socialPreviewAlt = "Rejourney AI funnel leak detection and revenue analytics preview";
+const homeKeywords = [
+    "AI funnel leak detection",
+    "funnel leak detection",
+    "AI session replay",
+    "session replay AI",
+    "conversion leak detection",
+    "onboarding analytics",
+    "checkout analytics",
+    "revenue analytics",
+    "rage tap detection",
+    "product analytics",
+    "technical founder analytics",
+    "open source analytics",
+];
 
 export function loader({ request }: Route.LoaderArgs) {
     const redirectPath = getMarketingLocaleRedirectPath(request);
@@ -39,72 +52,55 @@ export function loader({ request }: Route.LoaderArgs) {
     return null;
 }
 
-export const meta: Route.MetaFunction = ({ location }) => {
-    const locale = getMarketingLocaleFromPathname(location.pathname);
-    const canonicalUrl = getMarketingLocaleUrl(locale);
-    const alternateLinks = getMarketingAlternateLinks(MARKETING_INDEXABLE_LOCALE_ORDER).map((alternate) => ({
+export const meta: Route.MetaFunction = () => {
+    const alternateLinks = getMarketingAlternateLinks(MARKETING_HOME_LOCALE_ORDER).map((alternate) => ({
         tagName: "link",
         rel: "alternate",
         hrefLang: alternate.hrefLang,
         href: alternate.href,
     }));
-    const alternateOgLocales = getMarketingAlternateLinks(MARKETING_INDEXABLE_LOCALE_ORDER)
-        .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
-        .map((alternate) => ({
-            property: "og:locale:alternate",
-            content: getMarketingLocaleFromPathname(new URL(alternate.href).pathname).ogLocale,
-        }));
-    const robots = isIndexableMarketingLocale(locale)
-        ? "index, follow, max-image-preview:large, max-snippet:-1"
-        : "noindex, follow, max-image-preview:large";
 
     return [
-        { title: locale.metaTitle },
+        { title: homeLocale.metaTitle },
         {
             name: "description",
-            content: locale.metaDescription,
+            content: homeLocale.metaDescription,
         },
         {
             name: "keywords",
-            content: locale.keywords.join(", "),
+            content: homeKeywords.join(", "),
         },
-        { httpEquiv: "Content-Language", content: locale.languageTag },
-        { property: "og:locale", content: locale.ogLocale },
-        ...alternateOgLocales,
-        { property: "og:title", content: locale.metaTitle },
+        { httpEquiv: "Content-Language", content: homeLocale.languageTag },
+        { property: "og:locale", content: homeLocale.ogLocale },
+        { property: "og:title", content: homeLocale.metaTitle },
         {
             property: "og:description",
-            content: locale.metaDescription,
+            content: homeLocale.metaDescription,
         },
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "website" },
-        { property: "og:image", content: "https://rejourney.co/images/heatmaps.png" },
-        { property: "og:image:width", content: "998" },
-        { property: "og:image:height", content: "794" },
-        { property: "og:image:alt", content: "Rejourney heatmaps preview" },
+        { property: "og:image", content: socialPreviewImage },
+        { property: "og:image:width", content: "1564" },
+        { property: "og:image:height", content: "1078" },
+        { property: "og:image:alt", content: socialPreviewAlt },
         { property: "og:image:type", content: "image/png" },
         { name: "twitter:card", content: "summary_large_image" },
-        { name: "twitter:title", content: locale.metaTitle },
+        { name: "twitter:title", content: homeLocale.metaTitle },
         {
             name: "twitter:description",
-            content: locale.metaDescription,
+            content: homeLocale.metaDescription,
         },
-        { name: "twitter:image", content: "https://rejourney.co/images/heatmaps.png" },
-        { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
-        { name: "robots", content: robots },
+        { name: "twitter:image", content: socialPreviewImage },
+        { name: "twitter:image:alt", content: socialPreviewAlt },
+        { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
         { tagName: "link", rel: "canonical", href: canonicalUrl },
         ...alternateLinks,
     ];
 };
 
 export default function LandingPage() {
-    const location = useLocation();
-    const locale = getMarketingLocaleFromPathname(location.pathname);
-    const copy = getMarketingHomeCopy(locale);
-    const canonicalUrl = getMarketingLocaleUrl(locale);
-
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-background text-foreground overflow-x-hidden" lang={locale.languageTag} dir={locale.dir}>
+        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-900 overflow-x-hidden" lang={homeLocale.languageTag} dir={homeLocale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -115,14 +111,14 @@ export default function LandingPage() {
                                 "@type": "WebPage",
                                 "@id": `${canonicalUrl}#webpage`,
                                 url: canonicalUrl,
-                                name: locale.metaTitle,
-                                description: locale.metaDescription,
-                                inLanguage: locale.languageTag,
+                                name: homeLocale.metaTitle,
+                                description: homeLocale.metaDescription,
+                                inLanguage: homeLocale.languageTag,
                                 primaryImageOfPage: {
                                     "@type": "ImageObject",
-                                    url: "https://rejourney.co/images/heatmaps.png",
-                                    width: 998,
-                                    height: 794,
+                                    url: socialPreviewImage,
+                                    width: 1564,
+                                    height: 1078,
                                 },
                                 isPartOf: {
                                     "@type": "WebSite",
@@ -131,7 +127,7 @@ export default function LandingPage() {
                                     url: "https://rejourney.co/",
                                 },
                                 about: [
-                                    ...locale.keywords,
+                                    ...homeKeywords,
                                 ],
                             },
                             {
@@ -140,7 +136,7 @@ export default function LandingPage() {
                                 name: "Rejourney",
                                 applicationCategory: "BusinessApplication",
                                 operatingSystem: "Web, iOS, Android",
-                                description: "Record user sessions with web and mobile session replay, heatmaps, user journeys, crash context, API context, product analytics, and privacy masking.",
+                                description: "AI funnel leak detection that watches session replays, clusters rage taps, API errors, crashes, journey loops, and drop-offs, then creates ranked fix packets for revenue teams.",
                                 url: "https://rejourney.co/",
                                 offers: {
                                     "@type": "Offer",
@@ -159,12 +155,8 @@ export default function LandingPage() {
                 }}
             />
             <Header />
-            <main aria-label={locale.mainAriaLabel} className="w-full">
-                <Hero copy={locale.hero} homeCopy={copy.hero} dir={locale.dir} />
-                <TrustBanners copy={copy.trust} />
-                <LandingNarrative copy={copy.narrative} dir={locale.dir} />
-                <PerformanceMetrics copy={copy.performance} dir={locale.dir} />
-                <EngineeringCTA copy={copy.engineeringCta} />
+            <main aria-label={homeLocale.mainAriaLabel} className="w-full">
+                <AiLeakHomepage />
             </main>
             <Footer />
         </div>

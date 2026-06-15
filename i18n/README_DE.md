@@ -52,11 +52,6 @@ Erkennen Sie, wo Nutzer tippen, wischen und scrollen, um UI-Platzierung gezielt 
 
 Verfolgen Sie Retention, Loyalitätssegmente und die Wirkung neuer Releases.
 
-### Team Alerts
-![Team Alerts](https://rejourney.co/images/team-alerts.png)
-
-Intelligente E-Mail-Benachrichtigungen für Crashes, ANRs und Fehler-Spikes mit rollenbasiertem Zugriff.
-
 ## Dokumentation
 
 Integrationsanleitungen und API-Referenz: https://rejourney.co/docs/reactnative/overview

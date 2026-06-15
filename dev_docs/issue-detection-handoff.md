@@ -37,7 +37,7 @@ REJOURNEY_INTERNAL_SERVICE_SECRET=
 Issue-detection env:
 
 ```env
-REJOURNEY_INTERNAL_API_URL=https://rejourney.co
+REJOURNEY_INTERNAL_API_URL=https://api.rejourney.co
 REJOURNEY_INTERNAL_SERVICE_SECRET=<provided-by-rejourney>
 ISSUE_DETECTION_SERVICE_SECRET=<same value configured in Rejourney for outbound calls>
 SPA_COST_USD=0.03

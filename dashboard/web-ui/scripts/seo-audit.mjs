@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const cwd = process.cwd();
-const repoRoot = resolve(cwd, "..", "..");
 const failures = [];
 
 function read(path) {
@@ -19,19 +18,6 @@ function assertIncludes(path, needle, message) {
 
 function assertNotIncludes(path, needle, message) {
   if (read(path).includes(needle)) fail(message);
-}
-
-function extractStringArray(source, exportName) {
-  const match = source.match(new RegExp(`export const ${exportName}[^=]*= \\[([\\s\\S]*?)\\];`));
-  if (!match) {
-    fail(`Could not find ${exportName}.`);
-    return [];
-  }
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((item) => item[1]);
-}
-
-function extractDocFiles(source) {
-  return [...source.matchAll(/file:\s*'([^']+)'/g)].map((item) => item[1]);
 }
 
 function checkStructuredData() {
@@ -80,29 +66,20 @@ function checkRobotsAndSitemap() {
 function checkHreflangScopes() {
   const sitemap = read("app/features/public/sitemap/route.tsx");
   for (const expected of [
-    "getMarketingAlternateLinks(MARKETING_INDEXABLE_LOCALE_ORDER)",
-    'getLocalizedAlternateLinksForPath("/pricing", MARKETING_INDEXABLE_LOCALE_ORDER)',
-    'getLocalizedAlternateLinksForPath(`/docs/${slug}`, MARKETING_LOCALE_ORDER)',
-    "getLocalizedAlternateLinksForPath(getArticlePath(article), MARKETING_ENGINEERING_LOCALE_ORDER)",
+    "getMarketingAlternateLinks(MARKETING_HOME_LOCALE_ORDER)",
+    'getLocalizedAlternateLinksForPath("/pricing")',
+    'getLocalizedAlternateLinksForPath(`/docs/${slug}`)',
+    "getLocalizedAlternateLinksForPath(getArticlePath(article))",
   ]) {
     if (!sitemap.includes(expected)) fail(`Sitemap hreflang scope changed or is missing: ${expected}`);
   }
+
+  assertNotIncludes("app/features/public/sitemap/route.tsx", "MARKETING_LOCALE_ORDER.flatMap", "Sitemap must not emit locale-prefixed public URLs.");
+  assertNotIncludes("app/features/public/sitemap/route.tsx", "getLocalizedPublicPath(MARKETING_LOCALES[code], `/docs/${slug}`)", "Docs sitemap entries must stay English-only.");
 }
 
 function checkLocalizedDocsCoverage() {
-  const localeSource = read("app/shared/lib/internationalMarketing.ts");
-  const docsSource = read("app/shared/lib/docsConfig.ts");
-  const locales = extractStringArray(localeSource, "MARKETING_LOCALE_ORDER").filter((locale) => locale !== "en");
-  const docFiles = extractDocFiles(docsSource);
-
-  for (const locale of locales) {
-    for (const docFile of docFiles) {
-      const localizedPath = join(repoRoot, "docs", "i18n", locale, docFile);
-      if (!existsSync(localizedPath)) {
-        fail(`Missing localized doc for hreflang ${locale}: docs/i18n/${locale}/${docFile}`);
-      }
-    }
-  }
+  assertNotIncludes("app/shared/lib/docsLoader.server.ts", "DOCS_ROOT, 'i18n'", "Docs loader must not read translated docs from docs/i18n.");
 }
 
 function checkTitles() {
@@ -131,9 +108,12 @@ function checkTitles() {
 
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
-  assertIncludes("app/features/public/home/components/Hero.tsx", 'to={LIVE_DEMO_PATH}', "Hero demo CTA must link directly to /demo/general.");
-  assertIncludes("app/features/public/home/components/LandingNarrative.tsx", 'to="/demo/general"', "Narrative demo CTA must link directly to /demo/general.");
-  assertIncludes("app/shell/components/layout/Footer.tsx", 'to="/demo/general"', "Footer should keep an internal link to the crawlable demo.");
+  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "AI funnel leak detection", "Home page must advertise AI funnel leak detection.");
+  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", 'to={DEMO_PATH}', "Home page demo CTA must link directly to /demo.");
+  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "Find my leaks", "Home page must keep the primary leak-finding CTA.");
+  assertNotIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "<iframe", "Home page must not embed the live demo.");
+  assertIncludes("app/shell/routing/publicRoutes.ts", 'features/public/home/redirect.tsx', "Bare localized homepage routes must redirect to the English homepage.");
+  assertIncludes("app/shell/components/layout/Footer.tsx", 'to="/demo"', "Footer should keep an internal link to the crawlable demo.");
   assertNotIncludes("app/features/public/legal/privacy/route.tsx", "ovhcloud.com/legal/data-processing-agreement", "Privacy page must not link to the 403 OVHCloud DPA URL.");
   assertNotIncludes("app/features/public/legal/dpa/route.tsx", "ovhcloud.com/legal/data-processing-agreement", "DPA page must not link to the 403 OVHCloud DPA URL.");
 }

@@ -4,7 +4,7 @@
     Rejourney
   </h1>
 
-  <img src="dashboard/web-ui/public/images/landing-replay-theater.png" alt="Rejourney Session Replay" width="100%" />
+  <img src="dashboard/web-ui/public/images/landing-replay-theater.png" alt="Rejourney Issue Detection" width="100%" />
 
   <p>
     <strong>Lightweight session replay and observability for Mobile and Web Apps</strong>
@@ -49,10 +49,10 @@
 ### Pixel Perfect Capture
 True FPS video playback capturing every rendered pixel. Unlike competitors, we capture everything—including Mapbox (Metal), custom shaders, and GPU-accelerated views.
 
-### Live Incident Stream
+### Issue Detection
 ![Issues Feed](dashboard/web-ui/public/images/readme-general-demo.png)
 
-See crashes, errors, and rage taps as they happen in real-time with instant crash reporting.
+Rank repeated funnel leaks, rage taps, API failures, and replay evidence into fix-ready context packets.
 
 ### Error/ANR/Crash Detection
 ![ANR Issues](dashboard/web-ui/public/images/anr-issues.png)
@@ -77,10 +77,6 @@ Monitor performance and stability across different regions. Spot infrastructure 
 ### Growth Engines
 ![Growth Engines](dashboard/web-ui/public/images/growth-engines.png)
 Track user retention and loyalty segments. Understand how releases impact your power users versus bounce rates.
-
-### Team Alerts
-![Team Alerts](dashboard/web-ui/public/images/readme-alert-emails.png)
-Smart email notifications for crashes, ANRs, and error spikes. Role-based access for engineering teams.
 
 ## Documentation
 

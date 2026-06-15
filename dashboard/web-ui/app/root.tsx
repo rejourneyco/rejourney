@@ -16,7 +16,6 @@ import {
     Scripts,
     ScrollRestoration,
     isRouteErrorResponse,
-    useLocation,
     useMatches,
 } from "react-router";
 import type { Route } from "./+types/root";
@@ -26,7 +25,7 @@ import { getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
 import {
     getLocalizedPublicUrl,
     getMarketingHomeCopy,
-    getMarketingLocaleFromPathname,
+    MARKETING_LOCALES,
 } from "./shared/lib/internationalMarketing";
 import { isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
 
@@ -58,8 +57,7 @@ export const meta: Route.MetaFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
-    const location = useLocation();
-    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const locale = MARKETING_LOCALES.en;
     const copy = getMarketingHomeCopy(locale);
 
     useEffect(() => {
@@ -70,9 +68,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return (
         <html lang={locale.languageTag} dir={locale.dir}>
             <head>
-                {/* Must be first — sets scrollRestoration=manual globally before the
-                    browser can restore any saved scroll position. ScrollRestoration
-                    component handles restoring scroll on non-landing routes. */}
+                {/* Must be first: prevent the browser from restoring a stale root-page
+                    position before React Router takes over. */}
                 <script dangerouslySetInnerHTML={{ __html: `(function(){try{window.history.scrollRestoration='manual';}catch(e){}if(window.location.pathname==='/'&&!window.location.hash){window.scrollTo(0,0);}})();` }} />
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -107,7 +104,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "Service",
                                     "@id": "https://rejourney.co/#service",
                                     "name": "Rejourney",
-                                    "serviceType": "Open-source web and mobile analytics",
+                                    "serviceType": "AI funnel leak detection",
                                     "provider": { "@id": "https://rejourney.co/#organization" },
                                     "url": "https://rejourney.co/",
                                     "description": locale.metaDescription,
@@ -151,12 +148,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </head>
             <body>
                 {children}
-                <ScrollRestoration
-                    getKey={(location) => {
-                        // Don't restore scroll on the landing page — always start at top
-                        return location.pathname === '/' ? 'landing-always-top' : location.key;
-                    }}
-                />
+                <ScrollRestoration />
                 <Scripts />
             </body>
         </html>

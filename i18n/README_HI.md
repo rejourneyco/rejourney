@@ -52,11 +52,6 @@ Regions के हिसाब से performance और stability monitor क�
 
 Retention, loyalty segments और releases का impact track करें।
 
-### Team Alerts
-![Team alerts](https://rejourney.co/images/team-alerts.png)
-
-Crashes, ANRs और error spikes के लिए smart email alerts और engineering teams के लिए role-based access।
-
 ## Documentation
 
 Integration guides और API reference: https://rejourney.co/docs/reactnative/overview

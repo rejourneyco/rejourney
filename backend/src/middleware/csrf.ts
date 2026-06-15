@@ -17,7 +17,16 @@ const CSRF_TOKEN_LENGTH = 32;
 const PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 // Paths that skip CSRF (API key auth, ingest, webhooks, SDK attestation, device auth, login flows)
-const SKIP_CSRF_PATHS = ['/api/ingest', '/api/webhooks', '/api/attest', '/api/sdk', '/api/devices', '/api/auth/otp', '/health'];
+const SKIP_CSRF_PATHS = [
+    '/api/ingest',
+    '/api/webhooks',
+    '/api/attest',
+    '/api/sdk',
+    '/api/devices',
+    '/api/auth/otp',
+    '/api/internal/issue-detection',
+    '/health',
+];
 
 /**
  * Generate CSRF token

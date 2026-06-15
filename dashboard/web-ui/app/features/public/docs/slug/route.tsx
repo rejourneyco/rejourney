@@ -247,25 +247,25 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                     })
                 }}
             />
-            <header className="mb-10 border-2 border-black bg-white p-5 shadow-[8px_8px_0_0_rgba(0,0,0,1)] sm:p-7 lg:p-8">
+            <header className="mb-10 border border-slate-200 bg-white p-6 rounded-2xl shadow-sm sm:p-7 lg:p-8">
                 <div className="mb-6 flex flex-wrap items-center gap-3">
                     {localizedMetadata.category && (
-                        <p className="inline-flex items-center border-2 border-black bg-[#fff08a] px-3 py-1 text-xs font-black uppercase text-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+                        <p className="inline-flex items-center border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-xs font-bold uppercase text-indigo-700 rounded-md">
                             {localizedMetadata.category}
                         </p>
                     )}
-                    <p className="inline-flex items-center gap-2 border border-slate-300 bg-slate-50 px-3 py-1 text-xs font-bold uppercase text-slate-700">
+                    <p className="inline-flex items-center gap-2 border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold uppercase text-slate-600 rounded-md">
                         <BookOpen className="h-3.5 w-3.5" />
                         {copy.docsBreadcrumb}
                     </p>
                 </div>
                 <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_330px] lg:items-end">
                     <div>
-                        <h1 className="text-balance text-4xl font-black leading-[0.98] tracking-normal text-black sm:text-5xl lg:text-6xl">
+                        <h1 className="text-balance text-4xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
                             {localizedMetadata.title}
                         </h1>
                         {localizedMetadata.description && (
-                            <p className="mt-5 max-w-3xl text-base font-semibold leading-relaxed text-slate-700 sm:text-lg">
+                            <p className="mt-5 max-w-3xl text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
                                 {localizedMetadata.description}
                             </p>
                         )}

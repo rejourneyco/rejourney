@@ -58,7 +58,6 @@ const englishFeatures: MarketingFeatureCopy[] = [
   { title: "Click", highlight: "Heatmaps", badge: "Taps" },
   { title: "Global", highlight: "Stability", badge: "Geo" },
   { title: "Growth", highlight: "Loops", badge: "Retention" },
-  { title: "Team", highlight: "Alerts", badge: "Teams" },
 ];
 
 export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
@@ -71,29 +70,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "en-US",
     ogLocale: "en_US",
     dir: "ltr",
-    metaTitle: "Record User Sessions with Rejourney",
+    metaTitle: "AI Funnel Leak Detection | Rejourney",
     metaDescription:
-      "Record user sessions on web and mobile with open-source replay, heatmaps, journeys, crashes, privacy controls, and a light SDK.",
+      "AI watches session replays, finds funnel leaks, ranks revenue impact, and creates fix packets for PMs, founders, and technical builders.",
     keywords: [
-      "record user sessions",
-      "open source web analytics",
-      "web session replay",
-      "mobile session replay",
+      "AI funnel leak detection",
+      "funnel leak detection",
+      "AI session replay",
+      "conversion leak detection",
+      "onboarding analytics",
+      "checkout analytics",
+      "revenue analytics",
+      "rage tap detection",
       "product analytics",
-      "web observability",
-      "mobile analytics",
-      "crash reporting",
-      "heatmaps",
-      "React Native analytics",
-      "JavaScript SDK analytics",
-      "self-hosted analytics",
+      "technical founder analytics",
+      "open source analytics",
     ],
-    mainAriaLabel: "Rejourney - Open Source Web and Mobile Analytics",
+    mainAriaLabel: "Rejourney - AI Funnel Leak Detection",
     hero: {
-      headlinePrimary: "Record User Sessions",
-      headlineSecondary: "Replay-First Analytics",
-      primaryCta: "Get started free",
-      secondaryCta: "Self-host instead",
+      headlinePrimary: "AI finds funnel leaks",
+      headlineSecondary: "Fix revenue leaks",
+      primaryCta: "Find my leaks",
+      secondaryCta: "Watch live demo",
     },
     featuresHeading: "Web and mobile stack.",
     featuresEyebrow: "Eight signals",
@@ -321,7 +319,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
       { title: "Globale", highlight: "Stabilität", badge: "Geo" },
       { title: "Growth", highlight: "Loops", badge: "Retention" },
-      { title: "Team", highlight: "Alerts", badge: "Teams" },
     ],
   },
   fr: {
@@ -452,7 +449,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "Touch", highlight: "Heatmap", badge: "Tap" },
       { title: "Stabilitas", highlight: "Global", badge: "Geo" },
       { title: "Growth", highlight: "Loops", badge: "Retensi" },
-      { title: "Team", highlight: "Alerts", badge: "Tim" },
     ],
   },
   ja: {
@@ -495,7 +491,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "タッチ", highlight: "ヒートマップ", badge: "Taps" },
       { title: "グローバル", highlight: "安定性", badge: "Geo" },
       { title: "成長", highlight: "ループ", badge: "Retention" },
-      { title: "チーム", highlight: "アラート", badge: "Teams" },
     ],
   },
   ko: {
@@ -538,7 +533,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "터치", highlight: "히트맵", badge: "Taps" },
       { title: "글로벌", highlight: "안정성", badge: "Geo" },
       { title: "성장", highlight: "루프", badge: "Retention" },
-      { title: "팀", highlight: "알림", badge: "Teams" },
     ],
   },
   "zh-cn": {
@@ -581,7 +575,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "触控", highlight: "热力图", badge: "Taps" },
       { title: "全球", highlight: "稳定性", badge: "Geo" },
       { title: "增长", highlight: "循环", badge: "Retention" },
-      { title: "团队", highlight: "告警", badge: "Teams" },
     ],
   },
   it: {
@@ -668,7 +661,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
       { title: "Globale", highlight: "Stabiliteit", badge: "Geo" },
       { title: "Growth", highlight: "Loops", badge: "Retention" },
-      { title: "Team", highlight: "Alerts", badge: "Teams" },
     ],
   },
   pl: {
@@ -799,7 +791,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "Touch", highlight: "heatmap", badge: "Taps" },
       { title: "Глобальная", highlight: "стабильность", badge: "Geo" },
       { title: "Петли", highlight: "роста", badge: "Retention" },
-      { title: "Командные", highlight: "alerts", badge: "Teams" },
     ],
   },
   vi: {
@@ -843,7 +834,6 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
       { title: "Global", highlight: "Stability", badge: "Geo" },
       { title: "Growth", highlight: "Loops", badge: "Retention" },
-      { title: "Team", highlight: "Alerts", badge: "Teams" },
     ],
   },
 };
@@ -871,10 +861,9 @@ export const MARKETING_LOCALE_ORDER: MarketingLocaleCode[] = [
 
 export const MARKETING_INDEXABLE_LOCALE_ORDER: MarketingLocaleCode[] = [
   "en",
-  "ar",
-  "es",
-  "tr",
 ];
+
+export const MARKETING_HOME_LOCALE_ORDER: MarketingLocaleCode[] = ["en"];
 
 export const MARKETING_ENGINEERING_LOCALE_ORDER: MarketingLocaleCode[] = ["en"];
 
@@ -928,22 +917,18 @@ export function stripMarketingLocaleFromPathname(pathname: string): {
 
 export function isLocalizableMarketingPath(pathname: string): boolean {
   const { pathname: basePathname } = stripMarketingLocaleFromPathname(pathname);
-  return basePathname === "/" || /^\/(?:docs|engineering|pricing|roadmap)(?:\/.*)?$/.test(basePathname);
+  return /^\/(?:docs|engineering|pricing|roadmap)(?:\/.*)?$/.test(basePathname);
 }
 
 export function getLocalizedPublicPath(localeOrCode: MarketingLocale | MarketingLocaleCode, pathname: string): string {
-  const locale = typeof localeOrCode === "string" ? MARKETING_LOCALES[localeOrCode] : localeOrCode;
+  void localeOrCode;
   const normalizedPathname = pathname.startsWith("/") ? pathname : `/${pathname}`;
 
   if (normalizedPathname === "/") {
-    return locale.path;
+    return MARKETING_LOCALES.en.path;
   }
 
-  if (locale.code === "en") {
-    return normalizedPathname;
-  }
-
-  return `${locale.path}${normalizedPathname}`;
+  return normalizedPathname;
 }
 
 export function getLocalizedPublicUrl(localeOrCode: MarketingLocale | MarketingLocaleCode, pathname: string): string {
@@ -962,16 +947,14 @@ export function getLocalizedAlternateLinksForPath(
   pathname: string,
   localeCodes: MarketingLocaleCode[] = MARKETING_INDEXABLE_LOCALE_ORDER,
 ) {
+  void localeCodes;
   const basePathname = stripMarketingLocaleFromPathname(pathname).pathname;
 
   return [
-    ...localeCodes.map((code) => {
-      const locale = MARKETING_LOCALES[code];
-      return {
-        hrefLang: locale.languageTag,
-        href: getLocalizedPublicUrl(locale, basePathname),
-      };
-    }),
+    {
+      hrefLang: MARKETING_LOCALES.en.languageTag,
+      href: getLocalizedPublicUrl(MARKETING_LOCALES.en, basePathname),
+    },
     {
       hrefLang: "x-default",
       href: getLocalizedPublicUrl(MARKETING_LOCALES.en, basePathname),
@@ -986,14 +969,12 @@ export function getMarketingLocaleUrl(locale: MarketingLocale): string {
 export function getMarketingAlternateLinks(
   localeCodes: MarketingLocaleCode[] = MARKETING_INDEXABLE_LOCALE_ORDER,
 ) {
+  void localeCodes;
   return [
-    ...localeCodes.map((code) => {
-      const locale = MARKETING_LOCALES[code];
-      return {
-        hrefLang: locale.languageTag,
-        href: getMarketingLocaleUrl(locale),
-      };
-    }),
+    {
+      hrefLang: MARKETING_LOCALES.en.languageTag,
+      href: getMarketingLocaleUrl(MARKETING_LOCALES.en),
+    },
     {
       hrefLang: "x-default",
       href: `${SITE_URL}/`,
@@ -1002,163 +983,26 @@ export function getMarketingAlternateLinks(
 }
 
 export const MARKETING_LOCALE_VARY_HEADER =
-  "Accept-Language, CF-IPCountry, CloudFront-Viewer-Country, X-Vercel-IP-Country, X-Country-Code";
+  "Accept-Language";
 
-const COUNTRY_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
-  AE: "ar",
-  BH: "ar",
-  DZ: "ar",
-  DJ: "ar",
-  EG: "ar",
-  IQ: "ar",
-  JO: "ar",
-  KM: "ar",
-  KW: "ar",
-  LB: "ar",
-  LY: "ar",
-  MA: "ar",
-  MR: "ar",
-  OM: "ar",
-  PS: "ar",
-  QA: "ar",
-  SA: "ar",
-  SD: "ar",
-  SO: "ar",
-  SY: "ar",
-  TN: "ar",
-  YE: "ar",
-  AR: "es",
-  BO: "es",
-  BZ: "es",
-  CL: "es",
-  CO: "es",
-  CR: "es",
-  CU: "es",
-  DO: "es",
-  EC: "es",
-  ES: "es",
-  GQ: "es",
-  GT: "es",
-  HN: "es",
-  MX: "es",
-  NI: "es",
-  PA: "es",
-  PE: "es",
-  PR: "es",
-  PY: "es",
-  SV: "es",
-  UY: "es",
-  VE: "es",
-  TR: "tr",
-  BR: "pt-br",
-  PT: "pt",
-  AO: "pt",
-  MZ: "pt",
-  DE: "de",
-  AT: "de",
-  FR: "fr",
-  SN: "fr",
-  CI: "fr",
-  IN: "hi",
-  ID: "id",
-  JP: "ja",
-  KR: "ko",
-  CN: "zh-cn",
-  IT: "it",
-  NL: "nl",
-  PL: "pl",
-  RU: "ru",
-  VN: "vi",
-};
-
-const LANGUAGE_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
-  ar: "ar",
-  es: "es",
-  tr: "tr",
-  pt: "pt",
-  de: "de",
-  fr: "fr",
-  hi: "hi",
-  id: "id",
-  ja: "ja",
-  ko: "ko",
-  zh: "zh-cn",
-  it: "it",
-  nl: "nl",
-  pl: "pl",
-  ru: "ru",
-  vi: "vi",
-  en: "en",
-};
-
-function normalizeCountryCode(countryCode: string | null | undefined): string | null {
-  const normalized = countryCode?.trim().toUpperCase();
-  return normalized && normalized !== "XX" && normalized !== "T1" ? normalized : null;
-}
-
-function getHeaderValue(headers: Headers, names: string[]): string | null {
-  for (const name of names) {
-    const value = headers.get(name);
-    if (value) return value;
-  }
+export function getMarketingLocaleFromCountryCode(countryCode: string | null | undefined): MarketingLocale | null {
+  void countryCode;
   return null;
 }
 
-export function getMarketingLocaleFromCountryCode(countryCode: string | null | undefined): MarketingLocale | null {
-  const normalized = normalizeCountryCode(countryCode);
-  if (!normalized) return null;
-  const localeCode = COUNTRY_LOCALE_MAP[normalized];
-  return localeCode && isIndexableMarketingLocaleCode(localeCode) ? MARKETING_LOCALES[localeCode] : null;
-}
-
 export function getMarketingLocaleFromAcceptLanguage(acceptLanguage: string | null | undefined): MarketingLocale | null {
-  if (!acceptLanguage) return null;
-
-  const requested = acceptLanguage
-    .split(",")
-    .map((part) => {
-      const [rawTag, ...params] = part.trim().split(";");
-      const qParam = params.find((param) => param.trim().startsWith("q="));
-      const q = qParam ? Number(qParam.trim().slice(2)) : 1;
-      return {
-        tag: rawTag.trim().replace("_", "-").toLowerCase(),
-        q: Number.isFinite(q) ? q : 1,
-      };
-    })
-    .filter((entry) => entry.tag.length > 0 && entry.q > 0)
-    .sort((a, b) => b.q - a.q);
-
-  for (const { tag } of requested) {
-    const exactLocale = MARKETING_INDEXABLE_LOCALE_ORDER.find((code) => {
-      const locale = MARKETING_LOCALES[code];
-      return locale.languageTag.toLowerCase() === tag || locale.slug === tag || code === tag;
-    });
-    if (exactLocale) return MARKETING_LOCALES[exactLocale];
-
-    const baseLanguage = tag.split("-")[0];
-    const mappedLocale = LANGUAGE_LOCALE_MAP[baseLanguage];
-    if (mappedLocale && isIndexableMarketingLocaleCode(mappedLocale)) return MARKETING_LOCALES[mappedLocale];
-  }
-
+  void acceptLanguage;
   return null;
 }
 
 export function getPreferredMarketingLocaleFromRequest(request: Request): MarketingLocale | null {
-  const countryLocale = getMarketingLocaleFromCountryCode(
-    getHeaderValue(request.headers, [
-      "cf-ipcountry",
-      "cloudfront-viewer-country",
-      "x-vercel-ip-country",
-      "x-country-code",
-    ]),
-  );
-
-  return countryLocale ?? getMarketingLocaleFromAcceptLanguage(request.headers.get("accept-language"));
+  void request;
+  return null;
 }
 
 export function getMarketingLocaleRedirectPath(request: Request): string | null {
   void request;
-  // Locale pages are opt-in from the language switcher instead of automatic geo/browser redirects.
+  // The public website is English-only. Legacy locale-prefixed paths redirect at the route level.
   return null;
 }
 
@@ -1441,10 +1285,10 @@ const englishHomeCopy: MarketingHomeCopy = {
       },
       {
         eyebrow: "Geographic analytics",
-        title: "See API response and sentiment by region.",
-        copy: "Spot where latency, errors, and user sentiment change across countries before regional issues turn into churn.",
-        bullets: ["API response times by city", "Regional sentiment signals", "Geo health and session context"],
-        alt: "Rejourney geographic analytics globe preview",
+        title: "Sentiment by region.",
+        copy: "See where positive, neutral, and frustrated sessions cluster across regions so teams can prioritize local UX issues.",
+        bullets: ["Regional sentiment clusters", "Session replay context by country", "Location-level friction signals"],
+        alt: "Rejourney sentiment by region map preview",
       },
     ],
     faq: {

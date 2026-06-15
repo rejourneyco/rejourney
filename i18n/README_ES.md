@@ -56,10 +56,6 @@ Monitoree el rendimiento y la estabilidad en diferentes regiones. Identifique pr
 ![Motores de Crecimiento](https://rejourney.co/images/growth-engines.png)
 Rastree la retención de usuarios y los segmentos de lealtad. Entienda cómo impactan los lanzamientos a sus usuarios avanzados frente a las tasas de rebote.
 
-### Alertas de Equipo
-![Alertas de Equipo](https://rejourney.co/images/team-alerts.png)
-Notificaciones inteligentes por correo electrónico para bloqueos, ANRs y picos de errores. Acceso basado en roles para equipos de ingeniería.
-
 ## Documentación
 
 Guías de integración completas y referencia de API: https://rejourney.co/docs/reactnative/overview

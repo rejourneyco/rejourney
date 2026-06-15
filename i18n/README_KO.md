@@ -52,11 +52,6 @@ Mapbox (Metal), 커스텀 셰이더, GPU 가속 view까지 렌더링된 모든 p
 
 retention, loyalty segment, release impact를 추적합니다.
 
-### Team Alerts
-![Team alerts](https://rejourney.co/images/team-alerts.png)
-
-크래시, ANR, 에러 급증을 위한 smart email alerts와 role-based access를 제공합니다.
-
 ## Documentation
 
 Integration guides 및 API reference: https://rejourney.co/docs/reactnative/overview

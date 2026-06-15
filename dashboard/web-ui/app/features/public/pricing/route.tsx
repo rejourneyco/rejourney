@@ -176,7 +176,7 @@ export default function Pricing() {
                     }),
                 }}
             />
-            <Header />
+            <Header noSpacer />
             <main aria-label={copy.ariaLabel} className="w-full">
                 <PricingTable />
             </main>
