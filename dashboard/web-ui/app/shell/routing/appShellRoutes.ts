@@ -24,6 +24,7 @@ const SHARED_APP_ROUTE_MODULES = [
   { key: "billing-return", path: "billing/return", file: "features/app/billing/return/route.tsx" },
   { key: "account", path: "account", file: "features/app/account/route.tsx" },
   { key: "project-settings", path: "settings/:projectId", file: "features/app/settings/project/route.tsx" },
+  { key: "github-setup", path: "settings/:projectId/github", file: "features/app/settings/github/route.tsx" },
   { key: "search", path: "search", file: "features/app/search/route.tsx" },
 ] as const;
 
