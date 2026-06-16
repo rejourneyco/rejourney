@@ -521,7 +521,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
         };
     const wrapperClassName = isLandingPage
         ? `pointer-events-none fixed inset-0 z-0 overflow-hidden ${className}`
-        : `pointer-events-none absolute inset-0 z-0 overflow-visible ${className}`;
+        : `pointer-events-none absolute inset-0 z-0 overflow-hidden lg:overflow-visible ${className}`;
 
     return (
         <div

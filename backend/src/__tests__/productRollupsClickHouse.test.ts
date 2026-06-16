@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    isConfigured: vi.fn(() => true),
     isProductReadsEnabled: vi.fn(() => true),
     isProductWritesEnabled: vi.fn(() => true),
     query: vi.fn(),
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../db/clickhouse.js', () => ({
     getClickHouseClient: () => ({ query: mocks.query, insert: mocks.insert }),
+    isClickHouseConfigured: mocks.isConfigured,
     isClickHouseProductRollupsReadsEnabled: mocks.isProductReadsEnabled,
     isClickHouseProductRollupsWritesEnabled: mocks.isProductWritesEnabled,
 }));
@@ -27,6 +29,7 @@ import {
 
 describe('ClickHouse product analytics rollups', () => {
     beforeEach(() => {
+        mocks.isConfigured.mockReturnValue(true);
         mocks.isProductReadsEnabled.mockReturnValue(true);
         mocks.isProductWritesEnabled.mockReturnValue(true);
         mocks.query.mockReset();
@@ -278,5 +281,21 @@ describe('ClickHouse product analytics rollups', () => {
 
         expect(rows).toEqual([]);
         expect(mocks.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns empty rollup rows when ClickHouse is not configured', async () => {
+        mocks.isConfigured.mockReturnValue(false);
+
+        await expect(queryProductDailyStatsFromClickHouse({
+            projectIds: ['3f4f7d8a-7660-4a78-b944-442051c62eca'],
+        })).resolves.toEqual([]);
+        await expect(queryDeviceUsageDailyRollupsFromClickHouse({
+            projectIds: ['3f4f7d8a-7660-4a78-b944-442051c62eca'],
+        })).resolves.toEqual([]);
+        await expect(queryScreenTouchHeatmapsFromClickHouse({
+            projectIds: ['3f4f7d8a-7660-4a78-b944-442051c62eca'],
+        })).resolves.toEqual([]);
+
+        expect(mocks.query).not.toHaveBeenCalled();
     });
 });

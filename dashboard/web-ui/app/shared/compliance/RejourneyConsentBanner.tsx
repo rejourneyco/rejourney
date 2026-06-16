@@ -147,7 +147,7 @@ export function RejourneyConsentBanner() {
                             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide text-xs px-3 py-2 uppercase"
                         >
                             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                            Allow replay
+                            All
                         </button>
                     </div>
                     <div className="mt-4 flex justify-between items-center">

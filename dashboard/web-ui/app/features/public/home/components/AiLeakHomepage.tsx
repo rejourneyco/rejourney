@@ -278,7 +278,7 @@ export const AiLeakHomepage: React.FC = () => {
 
             <div className="relative z-10">
                 {/* Hero Section */}
-                <section className="relative overflow-visible px-5 pb-28 pt-36 text-center sm:px-8 sm:pb-40 sm:pt-44 lg:px-10 lg:pb-44 lg:pt-48">
+                <section className="relative overflow-hidden px-5 pb-28 pt-36 text-center sm:px-8 sm:pb-40 sm:pt-44 lg:overflow-visible lg:px-10 lg:pb-44 lg:pt-48">
                     <LandingThreeField variant="landing-hero" seed={11} />
 
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
@@ -365,8 +365,8 @@ export const AiLeakHomepage: React.FC = () => {
                             <span className="h-3 w-3 rounded-full bg-rose-400" />
                             <span className="h-3 w-3 rounded-full bg-amber-400" />
                             <span className="h-3 w-3 rounded-full bg-emerald-400" />
-                            <div className="h-5 w-px bg-slate-200 mx-2" />
-                            <span className="text-xs font-bold text-slate-400 font-mono">https://rejourney.co/dashboard/leaks</span>
+                            <div className="mx-2 h-5 w-px shrink-0 bg-slate-200" />
+                            <span className="min-w-0 truncate font-mono text-xs font-bold text-slate-400">https://rejourney.co/dashboard/leaks</span>
                         </div>
                         <img 
                             src="/images/landing-replay-theater.png" 
@@ -548,7 +548,7 @@ export const AiLeakHomepage: React.FC = () => {
                     </div>
 
                     {/* Horizontal Tabs selector */}
-                    <div className="mt-12 flex justify-center overflow-x-auto pb-4 no-scrollbar">
+                    <div className="mt-12 flex justify-start overflow-x-auto pb-4 no-scrollbar sm:justify-center">
                         <div className="inline-flex gap-2 rounded-full border border-slate-200/80 bg-white/50 backdrop-blur-md p-1.5 shadow-sm">
                             {winTogetherTabs.map(tab => {
                                 const isActive = activeWinTab === tab.id;

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	AlertCircle,
+	BookOpen,
 	CheckCircle2,
 	ClipboardPaste,
 	FileText,
@@ -11,6 +12,7 @@ import {
     Settings,
     SlidersHorizontal,
     SquareArrowOutUpRight,
+    Wrench,
     X,
     XCircle,
 } from 'lucide-react';
@@ -27,6 +29,7 @@ import {
     type LeakSummary,
 } from '~/shared/api/client';
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
+import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
@@ -283,7 +286,7 @@ function LeakRow({
             }`}
         >
             <span className={`absolute bottom-0 left-0 top-0 w-[3px] ${accentClass}`} />
-            <div className="grid grid-cols-[minmax(0,1fr)_128px] gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_128px]">
                 <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${accentClass}`} />
@@ -302,7 +305,7 @@ function LeakRow({
                         <span className="truncate">{formatIssueType(leak.issueType)}</span>
                     </div>
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-2">
+                <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
 	                    <span className={`inline-flex h-6 items-center rounded-sm border px-2 text-[10px] font-bold uppercase leading-none tabular-nums ${affectedPercentClass(affectedPercent)}`}>
 	                        Est affected {affectedPercent}%
 	                    </span>
@@ -333,8 +336,16 @@ export const Leaks: React.FC = () => {
     const [openAfterSetup, setOpenAfterSetup] = useState(false);
     const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
     const [showIdeSetup, setShowIdeSetup] = useState(false);
+    const [copiedSetupPrompt, setCopiedSetupPrompt] = useState(false);
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
     const copiedResetTimerRef = useRef<number | null>(null);
+    const setupPrompt = useMemo(() => (
+        selectedProject ? buildProjectAIIntegrationPrompt(selectedProject) : ''
+    ), [selectedProject]);
+    const selectedProjectHasRecentData = useMemo(() => Boolean(
+        (selectedProject?.sessionsLast7Days ?? 0) > 0 ||
+        (selectedProject?.errorsLast7Days ?? 0) > 0,
+    ), [selectedProject?.errorsLast7Days, selectedProject?.sessionsLast7Days]);
 
     const clearCopiedFeedback = useCallback(() => {
         if (copiedResetTimerRef.current !== null) {
@@ -382,6 +393,14 @@ export const Leaks: React.FC = () => {
             return;
         }
 
+        if (!isDemoMode && !selectedProjectHasRecentData) {
+            setLeaks([]);
+            setSelectedLeakId(null);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
+
         let cancelled = false;
         setIsLoading(true);
         setError(null);
@@ -405,7 +424,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [projectId]);
+    }, [isDemoMode, projectId, selectedProjectHasRecentData]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -564,11 +583,20 @@ export const Leaks: React.FC = () => {
         }
     };
 
+    const handleCopySetupPrompt = async () => {
+        if (!setupPrompt) return;
+        const copiedToClipboard = await writeClipboardText(setupPrompt);
+        if (!copiedToClipboard) return;
+        setCopiedSetupPrompt(true);
+        window.setTimeout(() => setCopiedSetupPrompt(false), 1800);
+    };
+
     const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
     const activeIdeMeta = LEAK_IDE_OPTIONS[ideConfig.ide];
+    const showSetupEmptyState = Boolean(selectedProject?.id) && !isDemoMode && !isLoading && !selectedProjectHasRecentData && leaks.length === 0;
     const copyButtonClassName = copied
-        ? 'min-w-[152px] !border-emerald-500 !bg-emerald-50 !text-emerald-800 !shadow-sm ring-2 ring-emerald-100'
-        : 'min-w-[152px]';
+        ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-500 !bg-emerald-50 !text-emerald-800 !shadow-sm ring-2 ring-emerald-100'
+        : 'w-full sm:w-auto sm:min-w-[152px]';
     const copyButtonIcon = copied
         ? <CheckCircle2 className="h-4 w-4" />
         : <FileText className="h-4 w-4" />;
@@ -598,7 +626,7 @@ export const Leaks: React.FC = () => {
 
             <div className="flex min-h-0 w-full flex-1">
                 <div className={`grid min-h-[calc(100dvh-44px)] w-full bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[minmax(390px,0.49fr)_minmax(480px,0.51fr)]' : 'grid-cols-1'}`}>
-                    <section className={`flex min-h-[560px] min-w-0 flex-col bg-white ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
+                    <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
                         <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
@@ -670,12 +698,53 @@ export const Leaks: React.FC = () => {
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading signals
                                 </div>
                             )}
-                            {!isLoading && error && (
+                            {!isLoading && error && !showSetupEmptyState && (
                                 <div className="m-5 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
                                     Issue detection is not configured.
                                 </div>
                             )}
-                            {!isLoading && !error && filteredLeaks.length === 0 && (
+                            {showSetupEmptyState && (
+                                <div className="m-4 overflow-hidden rounded-lg border border-[#dadce0] bg-white shadow-sm sm:m-5">
+                                    <div className="border-b border-[#dadce0] bg-[#e6f4ea] px-4 py-4 sm:px-5">
+                                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase text-[#137333]">
+                                            <Wrench className="h-4 w-4 shrink-0" aria-hidden />
+                                            New project setup
+                                        </div>
+                                        <h3 className="mt-2 text-base font-semibold leading-6 text-[#202124] sm:text-lg">No leaks yet - connect your project first</h3>
+                                        <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[#3c4043]">
+                                            Leaks become useful after the SDK sends sessions. Open setup to invite teammates, copy the AI prompt, or finish app identifiers.
+                                        </p>
+                                    </div>
+                                    <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-[1.1fr,0.9fr,0.8fr]">
+                                        <Link
+                                            to={`${pathPrefix}/setup`}
+                                            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#1d4ed8] bg-[#1a73e8] px-4 py-3 text-center text-sm font-bold leading-snug !text-white shadow-sm transition-colors hover:border-[#1e40af] hover:bg-[#2563eb]"
+                                            style={{ color: '#ffffff' }}
+                                        >
+                                            <Wrench className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                                            <span className="text-white">Open setup wizard</span>
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleCopySetupPrompt()}
+                                            className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#202124] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                        >
+                                            <BookOpen className="h-4 w-4 shrink-0" />
+                                            {copiedSetupPrompt ? 'AI prompt copied' : 'Copy AI prompt'}
+                                        </button>
+                                        <a
+                                            href="/docs"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                        >
+                                            <SquareArrowOutUpRight className="h-4 w-4 shrink-0" />
+                                            Docs
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+                            {!showSetupEmptyState && !isLoading && !error && filteredLeaks.length === 0 && (
                                 <div className="flex h-56 flex-col items-center justify-center px-6 text-center text-sm font-semibold text-[#5f6368]">
                                     <CheckCircle2 className="mb-3 h-8 w-8 text-emerald-500" />
                                     No signals match this view.
@@ -693,7 +762,7 @@ export const Leaks: React.FC = () => {
                     </section>
 
                     {activeLeak && (
-                        <section className="flex min-h-[560px] min-w-0 flex-col bg-white">
+                        <section className="flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px]">
                             <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                                 <div className="flex items-start justify-between gap-4">
                                     <h2 className="max-w-[760px] text-lg font-medium leading-7 text-[#202124]">
@@ -712,7 +781,7 @@ export const Leaks: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <div className="mt-3 flex flex-wrap gap-2">
+                                <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
                                     <PaneButton
                                         icon={copyButtonIcon}
                                         onClick={copyContext}

@@ -756,8 +756,8 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                             ))}
                         </div>
 
-                        <div className="hidden overflow-hidden border border-slate-200 rounded-2xl bg-white md:block shadow-sm">
-                            <table className="w-full min-w-[720px] border-collapse">
+                        <div className="hidden overflow-x-auto overflow-y-hidden border border-slate-200 rounded-2xl bg-white md:block shadow-sm">
+                            <table className="w-full min-w-[620px] lg:min-w-[720px] border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-700">
                                         <th className="text-left py-3.5 px-4 text-xs font-bold uppercase tracking-wider">{copy.tableMetric}</th>

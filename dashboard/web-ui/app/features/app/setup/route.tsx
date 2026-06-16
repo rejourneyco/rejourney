@@ -13,9 +13,10 @@ import {
   Mail,
   Send,
   Terminal,
+  X,
   Users,
 } from 'lucide-react';
-import { addTeamMember, createTeam, sendProjectSetupEmail } from '~/shared/api/client';
+import { addTeamMember, createTeam, sendProjectSetupEmail, updateTeam } from '~/shared/api/client';
 import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { cn } from '~/shared/lib/cn';
 import { useAuth } from '~/shared/providers/AuthContext';
@@ -38,10 +39,19 @@ import {
 } from './setupUtils';
 
 type CopyTarget = 'key' | 'prompt' | 'instructions' | 'contact' | null;
+type TeamInviteRole = 'member' | 'admin';
+type TeammateInviteRecipient = {
+  email: string;
+  role: TeamInviteRole;
+};
 
 const setupCardClass = "relative overflow-hidden border border-white/45 dark:border-slate-900/40 bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl p-6 rounded-2xl shadow-xl shadow-slate-100/30 dark:shadow-none hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 z-10";
 const setupActionButtonClass = "!text-xs !font-bold uppercase tracking-normal";
 const setupProjectFormId = 'setup-project-form';
+
+function getWorkspaceConfirmationStorageKey(teamId: string): string {
+  return `rejourney.setup.workspaceConfirmed.${teamId}`;
+}
 
 function isValidEmailAddress(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -94,7 +104,13 @@ export const SetupRoute: React.FC = () => {
   const [newTeamName, setNewTeamName] = useState('');
   const [teamError, setTeamError] = useState<string | null>(null);
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
+  const [workspaceConfirmError, setWorkspaceConfirmError] = useState<string | null>(null);
+  const [isConfirmingWorkspace, setIsConfirmingWorkspace] = useState(false);
+  const [confirmedWorkspaceIds, setConfirmedWorkspaceIds] = useState<Set<string>>(() => new Set());
   const [teammateInviteEmails, setTeammateInviteEmails] = useState('');
+  const [teammateInviteRole, setTeammateInviteRole] = useState<TeamInviteRole>('member');
+  const [teammateInviteRecipients, setTeammateInviteRecipients] = useState<TeammateInviteRecipient[]>([]);
   const [teammateInviteError, setTeammateInviteError] = useState<string | null>(null);
   const [teammateInviteState, setTeammateInviteState] = useState<string | null>(null);
   const [teammateInviteStateKind, setTeammateInviteStateKind] = useState<'success' | 'error' | null>(null);
@@ -124,7 +140,10 @@ export const SetupRoute: React.FC = () => {
   const canManageTeam = Boolean(isOwner || currentMember?.role === 'admin');
   const activeProject = selectedProject ?? projects[0] ?? null;
   const hasRecentData = projectHasRecentData(activeProject);
-  const workspaceDone = Boolean(currentTeam);
+  const defaultWorkspaceName = user?.email ? `${user.email.split('@')[0]}'s Team` : null;
+  const isAutoCreatedWorkspace = Boolean(currentTeam?.name && defaultWorkspaceName && currentTeam.name === defaultWorkspaceName);
+  const workspaceNeedsConfirmation = Boolean(currentTeam && isAutoCreatedWorkspace && !isJoinedTeam && !confirmedWorkspaceIds.has(currentTeam.id));
+  const workspaceDone = Boolean(currentTeam && !workspaceNeedsConfirmation);
   const projectDone = Boolean(activeProject);
   const verifyDone = hasRecentData;
 
@@ -149,6 +168,21 @@ export const SetupRoute: React.FC = () => {
     setManualStep(null);
     setIsEditingProject(false);
   }, [suggestedStepIndex]);
+
+  useEffect(() => {
+    setWorkspaceNameDraft(currentTeam?.name ?? '');
+    setWorkspaceConfirmError(null);
+
+    if (!currentTeam?.id || typeof window === 'undefined') return;
+    if (window.localStorage.getItem(getWorkspaceConfirmationStorageKey(currentTeam.id)) === 'true') {
+      setConfirmedWorkspaceIds((current) => {
+        if (current.has(currentTeam.id)) return current;
+        const next = new Set(current);
+        next.add(currentTeam.id);
+        return next;
+      });
+    }
+  }, [currentTeam?.id, currentTeam?.name]);
 
   const aiPrompt = useMemo(() => buildProjectAIIntegrationPrompt({
     ...activeProject,
@@ -177,6 +211,18 @@ export const SetupRoute: React.FC = () => {
     setIsEmailModalOpen(true);
   }, []);
 
+  const markWorkspaceConfirmed = useCallback((teamId: string) => {
+    setConfirmedWorkspaceIds((current) => {
+      if (current.has(teamId)) return current;
+      const next = new Set(current);
+      next.add(teamId);
+      return next;
+    });
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(getWorkspaceConfirmationStorageKey(teamId), 'true');
+    }
+  }, []);
+
   const handleCreateTeam = async () => {
     const name = newTeamName.trim();
     if (!name) {
@@ -188,6 +234,7 @@ export const SetupRoute: React.FC = () => {
       setTeamError(null);
       const team = await createTeam(name);
       setCurrentTeam(team);
+      markWorkspaceConfirmed(team.id);
       await refreshTeams(team.id);
       window.dispatchEvent(new CustomEvent('teamCreated', { detail: { teamId: team.id } }));
       setNewTeamName('');
@@ -196,6 +243,71 @@ export const SetupRoute: React.FC = () => {
     } finally {
       setIsCreatingTeam(false);
     }
+  };
+
+  const handleConfirmWorkspace = async () => {
+    if (!currentTeam) return;
+    const name = workspaceNameDraft.trim();
+    if (!name) {
+      setWorkspaceConfirmError('Add a workspace name before continuing.');
+      return;
+    }
+
+    try {
+      setIsConfirmingWorkspace(true);
+      setWorkspaceConfirmError(null);
+      let teamToUse = currentTeam;
+      if (name !== (currentTeam.name ?? '')) {
+        teamToUse = await updateTeam(currentTeam.id, { name });
+        setCurrentTeam(teamToUse);
+        await refreshTeams(teamToUse.id);
+      }
+      markWorkspaceConfirmed(teamToUse.id);
+      setManualStep(1);
+    } catch (error) {
+      setWorkspaceConfirmError(error instanceof Error ? error.message : 'Failed to save workspace.');
+    } finally {
+      setIsConfirmingWorkspace(false);
+    }
+  };
+
+  const handleAddTeammateDraft = () => {
+    const { emails, invalidEmails } = parseInviteEmails(teammateInviteEmails);
+    if (!emails.length) {
+      setTeammateInviteError('Enter one or more teammate emails.');
+      return;
+    }
+    if (invalidEmails.length) {
+      setTeammateInviteError(`Check ${invalidEmails.slice(0, 3).join(', ')}${invalidEmails.length > 3 ? '...' : ''}`);
+      return;
+    }
+
+    setTeammateInviteRecipients((current) => {
+      const next = [...current];
+      emails.forEach((email) => {
+        const existingIndex = next.findIndex((recipient) => recipient.email === email);
+        if (existingIndex >= 0) {
+          next[existingIndex] = { ...next[existingIndex], role: teammateInviteRole };
+        } else {
+          next.push({ email, role: teammateInviteRole });
+        }
+      });
+      return next;
+    });
+    setTeammateInviteEmails('');
+    setTeammateInviteError(null);
+    setTeammateInviteState(null);
+    setTeammateInviteStateKind(null);
+  };
+
+  const updateTeammateInviteRole = (email: string, role: TeamInviteRole) => {
+    setTeammateInviteRecipients((current) => current.map((recipient) => (
+      recipient.email === email ? { ...recipient, role } : recipient
+    )));
+  };
+
+  const removeTeammateInviteRecipient = (email: string) => {
+    setTeammateInviteRecipients((current) => current.filter((recipient) => recipient.email !== email));
   };
 
   const handleProjectCreated = async (project: Project) => {
@@ -218,15 +330,31 @@ export const SetupRoute: React.FC = () => {
       return;
     }
 
-    const { emails, invalidEmails } = parseInviteEmails(teammateInviteEmails);
-    if (!emails.length) {
-      setTeammateInviteError('Enter one or more teammate emails.');
-      setTeammateInviteState(null);
-      setTeammateInviteStateKind(null);
-      return;
+    let recipients = teammateInviteRecipients;
+    if (teammateInviteEmails.trim()) {
+      const { emails, invalidEmails } = parseInviteEmails(teammateInviteEmails);
+      if (invalidEmails.length) {
+        setTeammateInviteError(`Check ${invalidEmails.slice(0, 3).join(', ')}${invalidEmails.length > 3 ? '...' : ''}`);
+        setTeammateInviteState(null);
+        setTeammateInviteStateKind(null);
+        return;
+      }
+      const merged = [...teammateInviteRecipients];
+      emails.forEach((email) => {
+        const existingIndex = merged.findIndex((recipient) => recipient.email === email);
+        if (existingIndex >= 0) {
+          merged[existingIndex] = { ...merged[existingIndex], role: teammateInviteRole };
+        } else {
+          merged.push({ email, role: teammateInviteRole });
+        }
+      });
+      recipients = merged;
+      setTeammateInviteRecipients(merged);
+      setTeammateInviteEmails('');
     }
-    if (invalidEmails.length) {
-      setTeammateInviteError(`Check ${invalidEmails.slice(0, 3).join(', ')}${invalidEmails.length > 3 ? '...' : ''}`);
+
+    if (!recipients.length) {
+      setTeammateInviteError('Add at least one teammate before inviting.');
       setTeammateInviteState(null);
       setTeammateInviteStateKind(null);
       return;
@@ -242,9 +370,9 @@ export const SetupRoute: React.FC = () => {
       let invitedCount = 0;
       const failures: string[] = [];
 
-      for (const email of emails) {
+      for (const recipient of recipients) {
         try {
-          const result = await addTeamMember(currentTeam.id, email, 'member');
+          const result = await addTeamMember(currentTeam.id, recipient.email, recipient.role);
           if (result.member) {
             addedCount += 1;
           } else {
@@ -252,7 +380,7 @@ export const SetupRoute: React.FC = () => {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Invite failed';
-          failures.push(`${email}: ${message}`);
+          failures.push(`${recipient.email}: ${message}`);
         }
       }
 
@@ -270,9 +398,13 @@ export const SetupRoute: React.FC = () => {
         setTeammateInviteState(`${successParts.join(' and ')}.`);
         setTeammateInviteStateKind('success');
         setTeammateInviteEmails('');
+        setTeammateInviteRecipients([]);
       } else if (successCount > 0) {
         setTeammateInviteState(`${successParts.join(' and ')}. ${failures.length} failed: ${failures.slice(0, 2).join('; ')}${failures.length > 2 ? '...' : ''}`);
         setTeammateInviteStateKind('success');
+        setTeammateInviteRecipients((current) => current.filter((recipient) => (
+          failures.some((failure) => failure.startsWith(`${recipient.email}:`))
+        )));
       } else {
         setTeammateInviteState(failures.slice(0, 2).join('; ') || 'Failed to invite teammates.');
         setTeammateInviteStateKind('error');
@@ -377,7 +509,7 @@ export const SetupRoute: React.FC = () => {
 
   const actionBarTitle = setupSteps[activeStepIndex]?.label ?? 'Setup';
   const actionBarHint = activeStepIndex === 0
-    ? currentTeam ? 'Workspace ready' : 'Create a workspace to continue'
+    ? currentTeam ? workspaceNeedsConfirmation ? 'Confirm this starter workspace' : 'Workspace ready' : 'Create a workspace to continue'
     : activeStepIndex === 1
       ? activeProject && !isEditingProject ? 'Project selected' : isEditingProject ? 'Editing project' : 'Create a project to continue'
       : activeStepIndex === 2
@@ -394,11 +526,12 @@ export const SetupRoute: React.FC = () => {
         type="button"
         size="sm"
         variant="primary"
-        onClick={() => setManualStep(1)}
+        onClick={workspaceNeedsConfirmation ? handleConfirmWorkspace : () => setManualStep(1)}
+        disabled={isConfirmingWorkspace || (workspaceNeedsConfirmation && !workspaceNameDraft.trim())}
         rightIcon={<ArrowRight />}
         className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
       >
-        Next
+        {isConfirmingWorkspace ? 'Saving...' : workspaceNeedsConfirmation ? 'Save Workspace' : 'Next'}
       </Button>
     ) : (
       <Button
@@ -586,7 +719,7 @@ export const SetupRoute: React.FC = () => {
 
           {/* Stepper tracker */}
           <section className="bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl border border-white/45 dark:border-slate-900/40 rounded-2xl p-6 shadow-xl shadow-slate-100/10 dark:shadow-none">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-2">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center lg:gap-2">
               {setupSteps.map((step, index) => {
                 const isLast = index === setupSteps.length - 1;
                 const isClickable = index <= highestAccessibleStepIndex;
@@ -643,7 +776,7 @@ export const SetupRoute: React.FC = () => {
                     {/* Connecting Line (Only on Desktop) */}
                     {!isLast && (
                       <div className={cn(
-                        'hidden md:block h-0.5 flex-1 mx-4 rounded-full transition-all duration-500',
+                        'hidden h-0.5 flex-1 rounded-full transition-all duration-500 lg:mx-4 lg:block',
                         step.done
                           ? 'bg-emerald-500'
                           : 'bg-slate-100 dark:bg-slate-800'
@@ -693,15 +826,66 @@ export const SetupRoute: React.FC = () => {
                       </div>
                     </div>
                     {canManageTeam && (
+                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/30 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-slate-900 dark:text-white">
+                              {workspaceNeedsConfirmation ? 'Confirm starter workspace' : 'Workspace name'}
+                            </div>
+                            <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                              {workspaceNeedsConfirmation
+                                ? 'We created this workspace automatically so you have somewhere to start. Rename it now or keep it before creating a project.'
+                                : 'Use a name your teammates will recognize in invites, setup instructions, and billing.'}
+                            </p>
+                          </div>
+                          {workspaceNeedsConfirmation && (
+                            <span className="inline-flex shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase text-amber-700">
+                              Needs review
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                          <Input
+                            label="Workspace name"
+                            placeholder="Mobile team, Growth, Engineering"
+                            value={workspaceNameDraft}
+                            onChange={(event) => {
+                              setWorkspaceNameDraft(event.target.value);
+                              setWorkspaceConfirmError(null);
+                            }}
+                            error={workspaceConfirmError ?? undefined}
+                            className="h-11 bg-card font-medium"
+                          />
+                          <Button
+                            type="button"
+                            variant={workspaceNeedsConfirmation ? 'primary' : 'secondary'}
+                            onClick={handleConfirmWorkspace}
+                            disabled={isConfirmingWorkspace || !workspaceNameDraft.trim()}
+                            className={cn(
+                              'h-11 whitespace-nowrap font-semibold',
+                              workspaceNeedsConfirmation
+                                ? '!bg-indigo-600 !text-white hover:!bg-indigo-700'
+                                : ''
+                            )}
+                          >
+                            {isConfirmingWorkspace ? 'Saving...' : workspaceNeedsConfirmation ? 'Save and continue' : 'Save name'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {canManageTeam && (
                       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4">
                         <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
                           <Users className="h-4 w-4 text-slate-400" />
                           <span>Invite teammates</span>
                         </div>
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
-                          <div className="min-w-0 flex-1 space-y-1.5">
+                        <p className="mt-2 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                          Add multiple people, choose the right role for each, then send. Existing Rejourney users are added immediately; new users receive an email invite.
+                        </p>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_auto] lg:items-end">
+                          <div className="min-w-0 space-y-1.5">
                             <label htmlFor="setup-teammate-invites" className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                              Teammate emails
+                              Emails to add
                             </label>
                             <input
                               id="setup-teammate-invites"
@@ -716,27 +900,85 @@ export const SetupRoute: React.FC = () => {
                               onKeyDown={(event) => {
                                 if (event.key === 'Enter') {
                                   event.preventDefault();
-                                  void handleInviteTeammates();
+                                  handleAddTeammateDraft();
                                 }
                               }}
-                              placeholder="alex@company.com, sam@company.com"
-                              className="h-10 w-full rounded-full border border-white/40 dark:border-slate-900/40 bg-white/60 dark:bg-slate-950/60 px-4 text-sm font-semibold text-slate-900 dark:text-white shadow-sm outline-none transition-all placeholder:text-slate-400 hover:border-slate-350 dark:hover:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                              placeholder="alex@company.com"
+                              className="h-11 w-full rounded-xl border border-white/40 dark:border-slate-900/40 bg-white/60 dark:bg-slate-950/60 px-4 text-sm font-semibold text-slate-900 dark:text-white shadow-sm outline-none transition-all placeholder:text-slate-400 hover:border-slate-350 dark:hover:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
                             />
                             {teammateInviteError && (
                               <p className="text-xs font-bold text-red-500">{teammateInviteError}</p>
                             )}
                           </div>
+                          <label className="space-y-1.5">
+                            <span className="block text-xs font-bold uppercase tracking-wider text-slate-400">Role for new emails</span>
+                            <select
+                              value={teammateInviteRole}
+                              onChange={(event) => setTeammateInviteRole(event.target.value as TeamInviteRole)}
+                              className="h-11 w-full rounded-xl border border-white/40 dark:border-slate-900/40 bg-white/60 dark:bg-slate-950/60 px-3 text-sm font-bold text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-slate-350 dark:hover:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                            >
+                              <option value="member">Member</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </label>
                           <Button
                             type="button"
                             size="sm"
-                            variant="primary"
-                            onClick={handleInviteTeammates}
-                            disabled={isInvitingTeammates || !teammateInviteEmails.trim()}
-                            className="!h-10 w-full !rounded-full !bg-indigo-600 !px-5 !text-xs !font-bold uppercase !text-white shadow-sm hover:!bg-indigo-700 sm:mt-6 sm:w-auto"
+                            variant="secondary"
+                            onClick={handleAddTeammateDraft}
+                            disabled={!teammateInviteEmails.trim()}
+                            className="!h-11 w-full !rounded-xl !px-5 !text-xs !font-bold uppercase lg:w-auto"
                           >
-                            {isInvitingTeammates ? 'Inviting...' : 'Invite'}
+                            Add to list
                           </Button>
                         </div>
+                        {teammateInviteRecipients.length > 0 && (
+                          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white/75 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="grid grid-cols-[minmax(0,1fr)_132px_40px] gap-2 border-b border-slate-200 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:border-slate-800">
+                              <span>Email</span>
+                              <span>Role</span>
+                              <span className="sr-only">Remove</span>
+                            </div>
+                            {teammateInviteRecipients.map((recipient) => (
+                              <div key={recipient.email} className="grid grid-cols-[minmax(0,1fr)_132px_40px] items-center gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0 dark:border-slate-850">
+                                <div className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-white" title={recipient.email}>
+                                  {recipient.email}
+                                </div>
+                                <select
+                                  value={recipient.role}
+                                  onChange={(event) => updateTeammateInviteRole(recipient.email, event.target.value as TeamInviteRole)}
+                                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                                  aria-label={`Role for ${recipient.email}`}
+                                >
+                                  <option value="member">Member</option>
+                                  <option value="admin">Admin</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => removeTeammateInviteRecipient(recipient.email)}
+                                  className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-red-500 dark:hover:bg-slate-900"
+                                  aria-label={`Remove ${recipient.email}`}
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="primary"
+                          onClick={handleInviteTeammates}
+                          disabled={isInvitingTeammates || (!teammateInviteRecipients.length && !teammateInviteEmails.trim())}
+                          className="mt-4 !h-11 w-full !rounded-xl !bg-indigo-600 !px-5 !text-xs !font-bold uppercase !text-white shadow-sm hover:!bg-indigo-700"
+                        >
+                          {isInvitingTeammates
+                            ? 'Inviting...'
+                            : teammateInviteRecipients.length
+                              ? `Invite ${teammateInviteRecipients.length} teammate${teammateInviteRecipients.length === 1 ? '' : 's'}`
+                              : 'Invite teammates'}
+                        </Button>
                         {teammateInviteState && (
                           <p className={cn(
                             'mt-3 text-xs font-bold',
@@ -1002,7 +1244,7 @@ export const SetupRoute: React.FC = () => {
                       onClick={openEmailModal}
                       leftIcon={<Mail />}
                     >
-                      Email Developer
+                      Email Instructions
                     </Button>
                     <Button
                       type="button"

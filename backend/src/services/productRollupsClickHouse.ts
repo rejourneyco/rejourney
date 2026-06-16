@@ -1,4 +1,4 @@
-import { getClickHouseClient, isClickHouseProductRollupsReadsEnabled } from '../db/clickhouse.js';
+import { getClickHouseClient, isClickHouseConfigured } from '../db/clickhouse.js';
 
 export type ProductAnalyticsDailyStatsRow = {
     projectId: string;
@@ -226,7 +226,7 @@ function dailyRowFromClickHouse(row: ClickHouseDailyRow): ProductAnalyticsDailyS
 }
 
 export function canReadProductRollupsFromClickHouse(): boolean {
-    return isClickHouseProductRollupsReadsEnabled();
+    return isClickHouseConfigured();
 }
 
 export async function queryProductDailyStatsFromClickHouse(params: {
@@ -234,7 +234,7 @@ export async function queryProductDailyStatsFromClickHouse(params: {
     startDate?: string;
     endDate?: string;
 }): Promise<ProductAnalyticsDailyStatsRow[]> {
-    if (params.projectIds.length === 0) return [];
+    if (!canReadProductRollupsFromClickHouse() || params.projectIds.length === 0) return [];
 
     const dailyResult = await getClickHouseClient().query({
         query: `
@@ -452,7 +452,7 @@ export async function queryScreenTouchHeatmapsFromClickHouse(params: {
     startDate?: string;
     endDate?: string;
 }): Promise<ProductScreenTouchHeatmapRow[]> {
-    if (params.projectIds.length === 0) return [];
+    if (!canReadProductRollupsFromClickHouse() || params.projectIds.length === 0) return [];
 
     const result = await getClickHouseClient().query({
         query: `
@@ -531,7 +531,7 @@ export async function queryDeviceUsageDailyRollupsFromClickHouse(params: {
     startDate?: string;
     endDate?: string;
 }): Promise<ProductDeviceUsageDailyRow[]> {
-    if (params.projectIds.length === 0) return [];
+    if (!canReadProductRollupsFromClickHouse() || params.projectIds.length === 0) return [];
 
     const result = await getClickHouseClient().query({
         query: `

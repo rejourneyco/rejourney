@@ -13,9 +13,9 @@ import {
     RefreshCw,
     Search,
     Settings,
-    Sparkles,
     Trash2,
     Unplug,
+    Wrench,
     X,
 } from 'lucide-react';
 import {
@@ -3964,8 +3964,8 @@ export const GeneralOverview: React.FC = () => {
                                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#1d4ed8] bg-[#1a73e8] px-4 py-3 text-center text-sm font-bold leading-snug !text-white shadow-sm transition-colors hover:border-[#1e40af] hover:bg-[#2563eb]"
                                 style={{ color: '#ffffff' }}
                             >
-                                <Sparkles className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                                <span className="text-white">Open guided setup</span>
+                                <Wrench className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                                <span className="text-white">Open setup wizard</span>
                             </Link>
                             <button
                                 type="button"
