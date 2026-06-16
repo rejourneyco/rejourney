@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router';
 import {
     ArrowLeft,
@@ -1126,6 +1127,10 @@ const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string;
 
 const PLAYBACK_STATE_COMMIT_INTERVAL_MS = 250;
 const REPLAY_SKIP_SECONDS = 10;
+const PLAYBACK_SPEED_OPTIONS = [0.5, 1, 1.5, 2, 4] as const;
+const SPEED_MENU_WIDTH_PX = 92;
+const SPEED_MENU_ESTIMATED_HEIGHT_PX = 172;
+const SPEED_MENU_VIEWPORT_GAP_PX = 8;
 // Failsafe: if the next screenshot frame still hasn't decoded after this long while
 // buffering, resume playback anyway so a single broken/slow frame can't hang the replay.
 const MAX_BUFFER_STALL_MS = 8000;
@@ -1337,6 +1342,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+    const [speedMenuPosition, setSpeedMenuPosition] = useState<{ top: number; left: number } | null>(null);
     const [showTouchOverlay, setShowTouchOverlay] = useState(true);
     const [touchEvents, setTouchEvents] = useState<OverlayTouchEvent[]>([]);
     const [activitySearch, setActivitySearch] = useState<string>('');
@@ -1398,6 +1404,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const replayDeferredTaskCleanupsRef = useRef<Array<() => void>>([]);
     const shareButtonRef = useRef<HTMLButtonElement>(null);
     const shareMenuRef = useRef<HTMLDivElement>(null);
+    const speedButtonRef = useRef<HTMLButtonElement>(null);
     const revealedReplaySessionIdRef = useRef<string | null>(null);
 
     // Ref-based playback state to avoid stale closures in animation loop
@@ -1418,6 +1425,69 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     useEffect(() => {
         currentFrameIndexRef.current = currentFrameIndex;
     }, [currentFrameIndex]);
+
+    const updateSpeedMenuPosition = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const button = speedButtonRef.current;
+        if (!button) return;
+
+        const rect = button.getBoundingClientRect();
+        const maxLeft = Math.max(
+            SPEED_MENU_VIEWPORT_GAP_PX,
+            window.innerWidth - SPEED_MENU_WIDTH_PX - SPEED_MENU_VIEWPORT_GAP_PX,
+        );
+        const left = Math.min(
+            maxLeft,
+            Math.max(SPEED_MENU_VIEWPORT_GAP_PX, rect.right - SPEED_MENU_WIDTH_PX),
+        );
+
+        const maxTop = Math.max(
+            SPEED_MENU_VIEWPORT_GAP_PX,
+            window.innerHeight - SPEED_MENU_ESTIMATED_HEIGHT_PX - SPEED_MENU_VIEWPORT_GAP_PX,
+        );
+        const topAbove = rect.top - SPEED_MENU_ESTIMATED_HEIGHT_PX - SPEED_MENU_VIEWPORT_GAP_PX;
+        const topBelow = rect.bottom + SPEED_MENU_VIEWPORT_GAP_PX;
+        const hasRoomAbove = topAbove >= SPEED_MENU_VIEWPORT_GAP_PX;
+        const hasRoomBelow = topBelow + SPEED_MENU_ESTIMATED_HEIGHT_PX <= window.innerHeight - SPEED_MENU_VIEWPORT_GAP_PX;
+        const top = Math.min(
+            maxTop,
+            Math.max(SPEED_MENU_VIEWPORT_GAP_PX, hasRoomAbove || !hasRoomBelow ? topAbove : topBelow),
+        );
+
+        setSpeedMenuPosition({ top, left });
+    }, []);
+
+    const toggleSpeedMenu = useCallback(() => {
+        if (showSpeedMenu) {
+            setShowSpeedMenu(false);
+            return;
+        }
+        updateSpeedMenuPosition();
+        setShowSpeedMenu(true);
+    }, [showSpeedMenu, updateSpeedMenuPosition]);
+
+    useEffect(() => {
+        if (!showSpeedMenu || typeof window === 'undefined' || typeof document === 'undefined') return;
+
+        updateSpeedMenuPosition();
+
+        const handleViewportChange = () => updateSpeedMenuPosition();
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setShowSpeedMenu(false);
+            }
+        };
+
+        window.addEventListener('resize', handleViewportChange);
+        window.addEventListener('scroll', handleViewportChange, true);
+        document.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('resize', handleViewportChange);
+            window.removeEventListener('scroll', handleViewportChange, true);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [showSpeedMenu, updateSpeedMenuPosition]);
 
     // Get basic session from context. Non-demo detail routes may not have the
     // archive list hydrated, so a small fallback fetch below keeps Prev/Next usable.
@@ -4908,7 +4978,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                         {playbackMode !== 'none' ? (
                             <>
                                 <div className="replay-playback-controls border-b-2 border-black bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
-                                    <div className="dashboard-mobile-scroll flex w-full flex-nowrap items-center gap-2 overflow-x-auto lg:justify-between lg:overflow-visible">
+                                    <div className="flex w-full flex-wrap items-center justify-center gap-2 overflow-visible lg:flex-nowrap lg:justify-between">
                                         {/* Primary Controls */}
                                         <div className="replay-controls-primary flex shrink-0 items-center justify-center gap-1.5 sm:justify-start">
                                             {playbackMode === 'screenshots' && (
@@ -5033,20 +5103,34 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                                             <div className="relative">
                                                 <button
-                                                    onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                                                    ref={speedButtonRef}
+                                                    type="button"
+                                                    onClick={toggleSpeedMenu}
                                                     onMouseDown={(event) => event.preventDefault()}
+                                                    aria-haspopup="menu"
+                                                    aria-expanded={showSpeedMenu}
                                                     className="flex h-7 items-center border-2 border-black bg-white px-3 font-mono text-xs font-black text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
                                                 >
                                                     {playbackRate}x
                                                 </button>
 
-                                                {showSpeedMenu && (
+                                                {showSpeedMenu && typeof document !== 'undefined' && createPortal(
                                                     <>
-                                                        <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(false)} />
-                                                        <div className="absolute bottom-full right-0 z-50 mb-2 min-w-[92px] overflow-hidden border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                                                            {[0.5, 1, 1.5, 2, 4].map((rate) => (
+                                                        <div className="fixed inset-0 z-[1190]" onClick={() => setShowSpeedMenu(false)} />
+                                                        <div
+                                                            role="menu"
+                                                            className="fixed z-[1200] min-w-[92px] overflow-hidden border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                                                            style={{
+                                                                left: speedMenuPosition?.left ?? SPEED_MENU_VIEWPORT_GAP_PX,
+                                                                top: speedMenuPosition?.top ?? SPEED_MENU_VIEWPORT_GAP_PX,
+                                                            }}
+                                                        >
+                                                            {PLAYBACK_SPEED_OPTIONS.map((rate) => (
                                                                 <button
                                                                     key={rate}
+                                                                    type="button"
+                                                                    role="menuitemradio"
+                                                                    aria-checked={playbackRate === rate}
                                                                     onClick={() => {
                                                                         setPlaybackRate(rate);
                                                                         setShowSpeedMenu(false);
@@ -5061,7 +5145,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                                 </button>
                                                             ))}
                                                         </div>
-                                                    </>
+                                                    </>,
+                                                    document.body,
                                                 )}
                                             </div>
                                         </div>

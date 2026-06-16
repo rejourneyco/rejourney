@@ -10,7 +10,7 @@ import {
     YAxis,
 } from 'recharts';
 import type { MarketingHomeCopy } from '~/shared/lib/internationalMarketing';
-import { NetworkConstellation } from './SparseThreeAnimations';
+import { FloatingDataNodes, NetworkConstellation } from './SparseThreeAnimations';
 
 const BUNDLEPHOBIA_REJOURNEY =
     'https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17';
@@ -230,7 +230,8 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
     return (
         <section ref={sectionRef} dir={dir} className="relative w-full overflow-visible border-t border-transparent bg-gradient-to-b from-transparent via-slate-50/30 to-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(37,99,235,0.06),transparent_40%),radial-gradient(circle_at_10%_80%,rgba(125,211,252,0.08),transparent_45%),radial-gradient(circle_at_90%_70%,rgba(14,165,233,0.06),transparent_42%)]" aria-hidden="true" />
-            <NetworkConstellation className="opacity-45" seed={299} />
+            <NetworkConstellation className="opacity-55" seed={299} />
+            <FloatingDataNodes variant="alternate" className="opacity-40" seed={612} />
             
             <div className="max-w-7xl mx-auto relative z-10 text-left">
 

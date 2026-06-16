@@ -9,7 +9,6 @@ import {
     Gauge,
     Globe2,
     Play,
-    Droplet,
     TerminalSquare,
     TrendingUp,
     Users
@@ -23,7 +22,6 @@ import { FaqSection } from './FaqSection';
 import { CodeBlock } from '~/shared/ui/core/CodeBlock';
 import { NetworkConstellation, FloatingDataNodes, TechRingsScanner } from './SparseThreeAnimations';
 
-const DEMO_PATH = '/demo';
 const LOGIN_PATH = '/login';
 
 const shellClass = 'mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10';
@@ -243,26 +241,41 @@ export const AiLeakHomepage: React.FC = () => {
     // Bottom CTA Playground state
     const [activeSdkPlatform, setActiveSdkPlatform] = useState<'nextjs' | 'reactnative' | 'swift' | 'vue'>('reactnative');
     const [copied, setCopied] = useState(false);
+    const [salesCopied, setSalesCopied] = useState(false);
+
+    const writeToClipboard = async (text: string) => {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+    };
 
     const copyToClipboard = async (text: string) => {
         try {
-            if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(text);
-            } else {
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                textarea.setAttribute('readonly', '');
-                textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-            }
+            await writeToClipboard(text);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (error) {
             console.error('Failed to copy SDK setup code:', error);
+        }
+    };
+
+    const copySalesEmail = async () => {
+        try {
+            await writeToClipboard('contact@rejourney.co');
+            setSalesCopied(true);
+            setTimeout(() => setSalesCopied(false), 2000);
+        } catch (error) {
+            console.error('Failed to copy sales email:', error);
         }
     };
 
@@ -293,18 +306,17 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="mt-11 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
                         <Link
                             to={LOGIN_PATH}
-                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-blue-500/40 bg-sky-50/20 backdrop-blur-md px-8 text-base font-bold text-blue-700 ring-1 ring-blue-500/30 shadow-md shadow-blue-100/10 transition-all duration-300 hover:-translate-y-0.5 hover:bg-sky-50/40 hover:border-blue-500 hover:shadow-lg active:translate-y-0 sm:w-auto"
+                            className="inline-flex min-h-[64px] w-full min-w-[220px] items-center justify-center rounded-full border border-blue-500/40 bg-sky-50/20 px-10 text-lg font-bold text-blue-700 shadow-md shadow-blue-100/10 ring-1 ring-blue-500/30 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500 hover:bg-sky-50/40 hover:shadow-lg active:translate-y-0 sm:w-auto"
                         >
-                            <Droplet className="h-4 w-4 fill-current transition-transform duration-300 group-hover:-translate-y-0.5" />
-                            Find my leaks
+                            Free Tier
                         </Link>
-                        <Link
-                            to={DEMO_PATH}
-                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-slate-300/40 bg-slate-50/15 backdrop-blur-md px-8 text-base font-bold text-slate-700 ring-1 ring-slate-400/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-slate-50/30 hover:border-slate-400 hover:shadow-lg active:translate-y-0 sm:w-auto"
+                        <button
+                            type="button"
+                            onClick={() => void copySalesEmail()}
+                            className="inline-flex min-h-[64px] w-full min-w-[220px] items-center justify-center rounded-full border border-slate-300/40 bg-slate-50/15 px-10 text-lg font-bold text-slate-700 ring-1 ring-slate-400/20 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50/30 hover:shadow-lg active:translate-y-0 sm:w-auto"
                         >
-                            <Play className="h-4 w-4 fill-current transition-transform duration-300 group-hover:translate-x-0.5" />
-                            Explore demo
-                        </Link>
+                            {salesCopied ? 'Email copied' : 'Talk To Sales'}
+                        </button>
                     </div>
 
                     {/* Supported Platforms */}
@@ -452,9 +464,10 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Understand What Your Customers Want Section */}
-                <section className="relative overflow-visible border-t border-transparent bg-gradient-to-b from-slate-50/50 via-sky-50/20 to-transparent py-24 sm:py-28">
+                <section className="relative overflow-hidden border-t border-transparent bg-gradient-to-b from-slate-50/50 via-sky-50/20 to-transparent py-24 sm:py-28 lg:overflow-visible">
+                    <LandingThreeField variant="landing-sparse" seed={317} className="opacity-65" />
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_25%,rgba(56,189,248,0.18),transparent_50%),radial-gradient(circle_at_85%_75%,rgba(37,99,235,0.14),transparent_50%)]" aria-hidden="true" />
-                    <FloatingDataNodes className="opacity-45" />
+                    <FloatingDataNodes className="opacity-65" />
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
@@ -535,9 +548,10 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Win Together Section (Horizontal tabs + Testimonials + Images) */}
-                <section className="relative overflow-visible border-t border-transparent bg-slate-50/10 py-24 sm:py-28">
+                <section className="relative overflow-hidden border-t border-transparent bg-slate-50/10 py-24 sm:py-28 lg:overflow-visible">
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_25%,rgba(59,130,246,0.12),transparent_48%),radial-gradient(circle_at_20%_75%,rgba(125,211,252,0.19),transparent_45%),radial-gradient(circle_at_50%_50%,rgba(14,165,233,0.06),transparent_40%)]" aria-hidden="true" />
-                    <FloatingDataNodes variant="alternate" className="opacity-45" />
+                    <FloatingDataNodes variant="alternate" className="opacity-60" />
+                    <TechRingsScanner className="opacity-45" seed={526} />
                 
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
@@ -632,8 +646,9 @@ export const AiLeakHomepage: React.FC = () => {
 
             {/* Bottom Call-To-Action (CTA) */}
                 <section className="relative overflow-hidden border-t border-transparent bg-gradient-to-b from-transparent via-sky-50/20 to-slate-50 px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                    <LandingThreeField variant="landing-sparse" seed={811} className="opacity-60" />
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(37,99,235,0.08),transparent_50%)]" aria-hidden="true" />
-                    <TechRingsScanner className="opacity-55" />
+                    <TechRingsScanner className="opacity-70" />
                 
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
