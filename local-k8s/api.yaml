@@ -85,6 +85,18 @@ spec:
                   name: app-secret
                   key: ISSUE_DETECTION_SERVICE_SECRET
                   optional: true
+            - name: GITHUB_APP_SLUG
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GITHUB_APP_SLUG
+                  optional: true
+            - name: GITHUB_APP_STATE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GITHUB_APP_STATE_SECRET
+                  optional: true
             - name: REJOURNEY_INTERNAL_API_URL
               valueFrom:
                 secretKeyRef:

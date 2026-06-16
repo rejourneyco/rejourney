@@ -3826,6 +3826,105 @@ export async function updateLeak(
     });
 }
 
+// =============================================================================
+// Issue Detection / GitHub link
+// =============================================================================
+
+export type GithubInstallationState = 'active' | 'suspended' | 'revoked' | 'none';
+
+export interface GithubLinkRepo {
+    repoId: number;
+    owner: string;
+    repo: string;
+    defaultBranch: string | null;
+    private: boolean;
+}
+
+export interface GithubLinkStatus {
+    linked: boolean;
+    installationId: number | null;
+    repo: GithubLinkRepo | null;
+    sourceGlobs: string[] | null;
+    installationState: GithubInstallationState;
+    linkedAt: string | null;
+}
+
+export interface GithubFolderNode {
+    name: string;
+    children: string[];
+}
+
+export interface GithubInstallationRepos {
+    installationId: number;
+    repositorySelection: 'all' | 'selected';
+    repos: GithubLinkRepo[];
+    folderTree?: GithubFolderNode[];
+    truncated?: boolean;
+}
+
+export async function getGithubLinkStatus(projectId: string): Promise<GithubLinkStatus> {
+    if (isDemoMode()) {
+        return {
+            linked: true,
+            installationId: null,
+            repo: null,
+            sourceGlobs: null,
+            installationState: 'active',
+            linkedAt: null,
+        };
+    }
+    return fetchJson<GithubLinkStatus>(
+        `/api/automations/github/link?projectId=${encodeURIComponent(projectId)}`,
+    );
+}
+
+export async function getGithubInstallUrl(projectId: string): Promise<{ installUrl: string }> {
+    return fetchJson<{ installUrl: string }>(
+        `/api/automations/github/install-url?projectId=${encodeURIComponent(projectId)}`,
+    );
+}
+
+export async function getGithubInstallationRepos(
+    projectId: string,
+    opts: { installationId?: number; withFolders?: boolean; repoId?: number } = {},
+): Promise<GithubInstallationRepos> {
+    const query = new URLSearchParams();
+    query.set('projectId', projectId);
+    if (opts.installationId != null) query.set('installationId', String(opts.installationId));
+    if (opts.withFolders) query.set('withFolders', 'true');
+    if (opts.repoId != null) query.set('repoId', String(opts.repoId));
+    return fetchJson<GithubInstallationRepos>(
+        `/api/automations/github/installation/repos?${query.toString()}`,
+    );
+}
+
+export async function bindGithubLink(
+    projectId: string,
+    body: { installationId: number; repoId: number; sourceGlobs: string[] },
+): Promise<GithubLinkStatus> {
+    return fetchJson<GithubLinkStatus>(`/api/automations/github/link`, {
+        method: 'POST',
+        body: JSON.stringify({ projectId, ...body }),
+    });
+}
+
+export async function updateGithubGlobs(
+    projectId: string,
+    sourceGlobs: string[],
+): Promise<GithubLinkStatus> {
+    return fetchJson<GithubLinkStatus>(`/api/automations/github/link`, {
+        method: 'PATCH',
+        body: JSON.stringify({ projectId, sourceGlobs }),
+    });
+}
+
+export async function unlinkGithub(projectId: string): Promise<GithubLinkStatus> {
+    return fetchJson<GithubLinkStatus>(
+        `/api/automations/github/link?projectId=${encodeURIComponent(projectId)}`,
+        { method: 'DELETE' },
+    );
+}
+
 /**
  * All-time heatmap screen data
  */

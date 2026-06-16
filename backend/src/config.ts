@@ -95,6 +95,14 @@ const envSchema = z.object({
     ).default(false),
     ISSUE_DETECTION_API_URL: z.string().optional(),
     ISSUE_DETECTION_SERVICE_SECRET: z.string().optional(),
+    // Customer-facing GitHub App (issue-detection source access). SLUG builds the
+    // install URL; STATE_SECRET signs the setup-redirect state. Unset => the
+    // install-url / setup-callback routes answer 503 (closed by default).
+    GITHUB_APP_SLUG: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
+    GITHUB_APP_STATE_SECRET: z.preprocess(
+        (value) => value === '' ? undefined : value,
+        z.string().min(32).optional(),
+    ),
     REJOURNEY_INTERNAL_API_URL: z.string().optional(),
     REJOURNEY_INTERNAL_SERVICE_SECRET: z.string().optional(),
     RJ_API_ROLE: z.enum(['dashboard', 'ingest']).optional(),

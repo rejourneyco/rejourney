@@ -7,6 +7,7 @@ import {
 	FileText,
 	Inbox,
 	Loader2,
+    Github,
     Play,
     Search,
     Settings,
@@ -19,10 +20,13 @@ import {
 import { Link } from 'react-router';
 import type { LoaderFunctionArgs } from 'react-router';
 import {
+    getGithubInstallUrl,
+    getGithubLinkStatus,
     getLeak,
     getLeakContextRaw,
     getLeaks,
     updateLeak,
+    type GithubLinkStatus,
     type LeakDetail,
     type LeakSessionReference,
     type LeakStatus,
@@ -316,6 +320,46 @@ function LeakRow({
     );
 }
 
+function GithubNotLinked({
+    projectId,
+    suspended,
+    busy,
+    error,
+    onInstall,
+}: {
+    projectId: string;
+    suspended: boolean;
+    busy: boolean;
+    error: string | null;
+    onInstall: () => void;
+}) {
+    return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-white px-6 py-16 text-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#f1f3f4]">
+                <Github className="h-8 w-8 text-[#3c4043]" />
+            </span>
+            <h2 className="text-lg font-semibold text-[#202124]">
+                {suspended ? 'GitHub App suspended' : 'Connect your GitHub repository'}
+            </h2>
+            <p className="max-w-sm text-sm font-medium leading-6 text-[#5f6368]">
+                {suspended
+                    ? 'Reauthorize the Rejourney GitHub App to resume detecting leaks for this project.'
+                    : 'Link your repo so Rejourney can detect issues and pinpoint their source in your code. Your inbox appears here once GitHub is connected.'}
+            </p>
+            <button
+                type="button"
+                onClick={onInstall}
+                disabled={busy || !projectId}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#1a73e8] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#2563eb] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+                <Github className="h-4 w-4" />
+                {busy ? 'Starting…' : suspended ? 'Reauthorize GitHub App' : 'Install GitHub App'}
+            </button>
+            {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
+        </div>
+    );
+}
+
 export const Leaks: React.FC = () => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
@@ -338,6 +382,10 @@ export const Leaks: React.FC = () => {
     const [showIdeSetup, setShowIdeSetup] = useState(false);
     const [copiedSetupPrompt, setCopiedSetupPrompt] = useState(false);
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
+    const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(null);
+    const [linkLoading, setLinkLoading] = useState(true);
+    const [installBusy, setInstallBusy] = useState(false);
+    const [installError, setInstallError] = useState<string | null>(null);
     const copiedResetTimerRef = useRef<number | null>(null);
     const setupPrompt = useMemo(() => (
         selectedProject ? buildProjectAIIntegrationPrompt(selectedProject) : ''
@@ -346,6 +394,12 @@ export const Leaks: React.FC = () => {
         (selectedProject?.sessionsLast7Days ?? 0) > 0 ||
         (selectedProject?.errorsLast7Days ?? 0) > 0,
     ), [selectedProject?.errorsLast7Days, selectedProject?.sessionsLast7Days]);
+    const githubLinked = Boolean(linkStatus?.linked && linkStatus.installationState === 'active');
+    const githubSuspended = Boolean(
+        linkStatus?.linked &&
+            linkStatus.installationState !== 'active' &&
+            linkStatus.installationState !== 'none',
+    );
 
     const clearCopiedFeedback = useCallback(() => {
         if (copiedResetTimerRef.current !== null) {
@@ -381,13 +435,49 @@ export const Leaks: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        if (!projectId) {
+            setLinkStatus(null);
+            setLinkLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setLinkLoading(true);
+        getGithubLinkStatus(projectId)
+            .then((status) => {
+                if (!cancelled) setLinkStatus(status);
+            })
+            .catch(() => {
+                if (!cancelled) setLinkStatus(null);
+            })
+            .finally(() => {
+                if (!cancelled) setLinkLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [projectId]);
+
+    const startInstall = async () => {
+        if (!projectId) return;
+        setInstallBusy(true);
+        setInstallError(null);
+        try {
+            const { installUrl } = await getGithubInstallUrl(projectId);
+            window.location.href = installUrl;
+        } catch (err) {
+            setInstallError(err instanceof Error ? err.message : 'Could not start the GitHub App install');
+            setInstallBusy(false);
+        }
+    };
+
+    useEffect(() => {
         clearCopiedFeedback();
         setHandoffStatus(null);
         setIsOpeningIde(false);
     }, [clearCopiedFeedback, selectedLeakId]);
 
     useEffect(() => {
-        if (!projectId) {
+        if (!projectId || !githubLinked) {
             setLeaks([]);
             setIsLoading(false);
             return;
@@ -424,7 +514,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [isDemoMode, projectId, selectedProjectHasRecentData]);
+    }, [githubLinked, isDemoMode, projectId, selectedProjectHasRecentData]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -624,6 +714,19 @@ export const Leaks: React.FC = () => {
                 </div>
             </div>
 
+            {linkLoading ? (
+                <div className="flex flex-1 items-center justify-center bg-white text-sm font-semibold text-[#5f6368]">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking GitHub connection
+                </div>
+            ) : !githubLinked ? (
+                <GithubNotLinked
+                    projectId={projectId}
+                    suspended={githubSuspended}
+                    busy={installBusy}
+                    error={installError}
+                    onInstall={() => void startInstall()}
+                />
+            ) : (
             <div className="flex min-h-0 w-full flex-1">
                 <div className={`grid min-h-[calc(100dvh-44px)] w-full bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[minmax(390px,0.49fr)_minmax(480px,0.51fr)]' : 'grid-cols-1'}`}>
                     <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
@@ -929,6 +1032,7 @@ export const Leaks: React.FC = () => {
                     )}
                 </div>
             </div>
+            )}
 
             {copied && (
                 <div

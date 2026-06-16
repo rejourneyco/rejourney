@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { config } from '../config.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
-import { signInternalServiceRequest } from '../services/internalServiceAuth.js';
-import { userCanAccessProject } from '../services/projectAccess.js';
+import {
+    callIssueDetection,
+    ensureIssueDetectionEnabled,
+    requireProjectAccess,
+} from '../services/issueDetectionClient.js';
 
 const router = Router();
 
@@ -13,70 +15,6 @@ type LeakLike = {
     projectId?: string;
     project_id?: string;
 };
-
-function ensureLeaksUiEnabled() {
-    if (!config.SHOW_ISSUE_DETECTION_UI) {
-        throw ApiError.notFound('Not found');
-    }
-}
-
-function getIssueDetectionBaseUrl(): URL {
-    ensureLeaksUiEnabled();
-    if (!config.ISSUE_DETECTION_API_URL || !config.ISSUE_DETECTION_SERVICE_SECRET) {
-        throw ApiError.serviceUnavailable('Issue detection is not configured');
-    }
-    return new URL(config.ISSUE_DETECTION_API_URL);
-}
-
-function buildUpstreamUrl(pathWithQuery: string): URL {
-    const baseUrl = getIssueDetectionBaseUrl();
-    return new URL(pathWithQuery, baseUrl.toString());
-}
-
-async function callIssueDetection<T>(input: {
-    body?: unknown;
-    method?: string;
-    pathWithQuery: string;
-    raw?: boolean;
-}): Promise<T> {
-    const method = input.method ?? 'GET';
-    const headers = new Headers({
-        ...signInternalServiceRequest({
-            body: input.body,
-            method,
-            pathWithQuery: input.pathWithQuery,
-            secret: config.ISSUE_DETECTION_SERVICE_SECRET!,
-            service: 'rejourney',
-        }),
-    });
-
-    let body: string | undefined;
-    if (input.body !== undefined) {
-        body = JSON.stringify(input.body);
-        headers.set('Content-Type', 'application/json');
-    }
-
-    const response = await fetch(buildUpstreamUrl(input.pathWithQuery), {
-        method,
-        headers,
-        body,
-    });
-
-    if (!response.ok) {
-        if (response.status === 404) throw ApiError.notFound('Leak not found');
-        if (response.status === 409) throw ApiError.conflict('Issue detection rejected the request');
-        if (response.status === 429) throw ApiError.tooManyRequests('Issue detection is rate limited');
-        throw ApiError.serviceUnavailable('Issue detection service unavailable');
-    }
-
-    if (input.raw) return response as T;
-    return await response.json() as T;
-}
-
-async function requireProjectAccess(userId: string, projectId: string) {
-    const allowed = await userCanAccessProject(userId, projectId);
-    if (!allowed) throw ApiError.forbidden('Access denied');
-}
 
 function getLeakProjectId(leak: LeakLike): string | null {
     return leak.projectId ?? leak.project_id ?? null;
@@ -94,7 +32,7 @@ async function fetchLeakForAccessCheck(leakId: string): Promise<LeakLike> {
 router.use(sessionAuth);
 
 router.get('/leaks', asyncHandler(async (req, res) => {
-    ensureLeaksUiEnabled();
+    ensureIssueDetectionEnabled();
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : '';
     if (!projectId) throw ApiError.badRequest('projectId is required');
     await requireProjectAccess(req.user!.id, projectId);
@@ -113,14 +51,14 @@ router.get('/leaks', asyncHandler(async (req, res) => {
 }));
 
 router.get('/leaks/:leakId', asyncHandler(async (req, res) => {
-    ensureLeaksUiEnabled();
+    ensureIssueDetectionEnabled();
     const leak = await fetchLeakForAccessCheck(req.params.leakId);
     await requireProjectAccess(req.user!.id, getLeakProjectId(leak)!);
     res.json(leak);
 }));
 
 router.post('/leaks/:leakId/context', asyncHandler(async (req, res) => {
-    ensureLeaksUiEnabled();
+    ensureIssueDetectionEnabled();
     const leak = await fetchLeakForAccessCheck(req.params.leakId);
     await requireProjectAccess(req.user!.id, getLeakProjectId(leak)!);
 
@@ -135,7 +73,7 @@ router.post('/leaks/:leakId/context', asyncHandler(async (req, res) => {
 }));
 
 router.get('/leaks/:leakId/context/raw.md', asyncHandler(async (req, res) => {
-    ensureLeaksUiEnabled();
+    ensureIssueDetectionEnabled();
     const leak = await fetchLeakForAccessCheck(req.params.leakId);
     await requireProjectAccess(req.user!.id, getLeakProjectId(leak)!);
 
@@ -150,7 +88,7 @@ router.get('/leaks/:leakId/context/raw.md', asyncHandler(async (req, res) => {
 }));
 
 router.patch('/leaks/:leakId', asyncHandler(async (req, res) => {
-    ensureLeaksUiEnabled();
+    ensureIssueDetectionEnabled();
     const status = req.body?.status;
     if (status !== undefined && (!ALLOWED_LEAK_STATUSES.has(status))) {
         throw ApiError.badRequest('Invalid leak status');
