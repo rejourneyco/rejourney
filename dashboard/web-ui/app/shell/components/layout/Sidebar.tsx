@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { Project } from '~/shared/types';
-import { createProject, createTeam, ApiTeam } from '~/shared/api/client';
+import { createTeam, ApiTeam } from '~/shared/api/client';
 import { TabRegistry } from '~/shell/tabs/TabRegistry';
 import { Modal } from '~/shared/ui/core/Modal';
 import { Input } from '~/shared/ui/core/Input';
 import { Button } from '~/shared/ui/core/Button';
 import { ProjectCreatedModal } from '~/shared/ui/core/ProjectCreatedModal';
-import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
+import { CreateProjectModal } from '~/features/app/setup/CreateProjectModal';
+import { shouldSurfaceSetup } from '~/features/app/setup/setupUtils';
 import { DASHBOARD_PAGE_META, DashboardPageKey } from '~/shell/navigation/dashboardPageMeta';
 import {
   ChartNoAxesColumnIncreasing,
@@ -22,8 +23,6 @@ import {
   ChevronDown,
   ChevronRight,
   Check,
-  Apple,
-  AlertTriangle,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
@@ -108,13 +107,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAppSelector, setShowAppSelector] = useState(false);
   const [showTeamSelector, setShowTeamSelector] = useState(false);
   const [showAddAppModal, setShowAddAppModal] = useState(false);
-  const [newAppName, setNewAppName] = useState('');
-  const [newBundleId, setNewBundleId] = useState('');
-  const [newPackageName, setNewPackageName] = useState('');
-  const [newWebAllowedDomains, setNewWebAllowedDomains] = useState('');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
@@ -236,6 +228,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Resize only on desktop — a full-height strip on mobile steals touches and breaks the drawer.
   const showResizeHandle = isDesktop && !collapsed;
   const showIssueDetectionUi = isIssueDetectionUiEnabled();
+  const showSetupNavItem = !currentTeam || shouldSurfaceSetup(projects, currentProject);
 
   const startResize = (e: React.PointerEvent) => {
     if (typeof window === 'undefined') return;
@@ -304,21 +297,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Helper to prefix paths for demo mode
   const p = (path: string) => pathPrefix + path;
-  const defaultDashboardPath = p(isIssueDetectionUiEnabled() ? '/leaks' : '/general');
+  const defaultDashboardPath = p(showSetupNavItem ? '/setup' : isIssueDetectionUiEnabled() ? '/leaks' : '/general');
 
   const closeCreateTeamModal = () => {
     setShowCreateTeamModal(false);
     setNewTeamName('');
     setCreateTeamError(null);
-  };
-
-  const resetCreateProjectForm = () => {
-    setNewAppName('');
-    setNewBundleId('');
-    setNewPackageName('');
-    setNewWebAllowedDomains('');
-    setSelectedPlatforms([]);
-    setCreateError(null);
   };
 
   const navSections = React.useMemo<Array<{
@@ -376,6 +360,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Settings,
       accent: '#475569',
       items: [
+        ...(showSetupNavItem ? [createSidebarNavItem(p('/setup'), 'setup')] : []),
         ...(currentProject ? [createSidebarNavItem(p(`/settings/${currentProject.id}`), 'project')] : []),
         createSidebarNavItem(p('/team'), 'team'),
         createSidebarNavItem(p('/billing'), 'billing'),
@@ -390,7 +375,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         createSidebarNavItem(p('/account'), 'account'),
       ],
     },
-  ], [currentProject, pathPrefix, showIssueDetectionUi]);
+  ], [currentProject, pathPrefix, projects, showIssueDetectionUi, showSetupNavItem]);
 
   // isActive needs to check if path matches, accounting for demo prefix
   const isActive = (path: string) => location.pathname === path;
@@ -449,12 +434,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const timeoutId = globalThis.setTimeout(schedule, 350);
     return () => globalThis.clearTimeout(timeoutId);
   }, [location.pathname, navSections, prefetchPath]);
-
-  const parsedWebAllowedDomains = parseWebAllowedDomainsInput(newWebAllowedDomains);
-  const webAllowedDomainsError = selectedPlatforms.includes('web')
-    ? getWebAllowedDomainsError(newWebAllowedDomains, true)
-    : null;
-  const visibleWebAllowedDomainsError = newWebAllowedDomains.trim() ? webAllowedDomainsError : null;
 
   return (
     <>
@@ -737,206 +716,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Add Project Modal */}
-      <Modal
+      <CreateProjectModal
         isOpen={showAddAppModal}
-        onClose={() => {
-          setShowAddAppModal(false);
-          resetCreateProjectForm();
+        onClose={() => setShowAddAppModal(false)}
+        currentTeam={currentTeam}
+        onCreated={async (project) => {
+          setCreatedProject(project);
+          setShowProjectCreatedModal(true);
+          onProjectChange(project);
+          if (onProjectCreated) onProjectCreated();
+          window.dispatchEvent(new CustomEvent('projectCreated', { detail: project }));
+          navigate(defaultDashboardPath);
         }}
-        title="Create New Project"
-        panelClassName="rounded-none border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)]"
-        bodyClassName="p-0"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              className="rounded-none border-2 border-black bg-white px-5 font-black uppercase text-black shadow-neo-sm hover:bg-[#ecfeff] hover:border-black"
-              onClick={() => {
-                setShowAddAppModal(false);
-                resetCreateProjectForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              className="rounded-none border-2 border-black bg-[#67e8f9] px-5 font-black uppercase text-black shadow-neo-sm hover:bg-[#22d3ee]"
-              onClick={async () => {
-                if (!newAppName || selectedPlatforms.length === 0) return;
-                if (selectedPlatforms.includes('ios') && !newBundleId) return;
-                if (selectedPlatforms.includes('android') && !newPackageName) return;
-                if (selectedPlatforms.includes('web') && webAllowedDomainsError) return;
-
-                try {
-                  setIsCreating(true);
-                  setCreateError(null);
-
-                  const newProject = await createProject({
-                    name: newAppName,
-                    bundleId: newBundleId || undefined,
-                    packageName: newPackageName || undefined,
-                    webDomain: selectedPlatforms.includes('web') ? parsedWebAllowedDomains[0] : undefined,
-                    webAllowedDomains: selectedPlatforms.includes('web') ? parsedWebAllowedDomains : undefined,
-                    teamId: currentTeam?.id,
-                    platforms: selectedPlatforms,
-                  });
-
-                  const createdProjectData: Project = { ...newProject } as any;
-
-                  setShowAddAppModal(false);
-                  resetCreateProjectForm();
-
-                  setCreatedProject(createdProjectData);
-                  setShowProjectCreatedModal(true);
-
-                  onProjectChange(createdProjectData);
-                  if (onProjectCreated) onProjectCreated();
-                  window.dispatchEvent(new CustomEvent('projectCreated', { detail: newProject }));
-                  navigate(defaultDashboardPath);
-                } catch (error) {
-                  setCreateError(error instanceof Error ? error.message : 'Failed to create project');
-                } finally {
-                  setIsCreating(false);
-                }
-              }}
-              disabled={
-                isCreating ||
-                !newAppName ||
-                selectedPlatforms.length === 0 ||
-                (selectedPlatforms.includes('ios') && !newBundleId) ||
-                (selectedPlatforms.includes('android') && !newPackageName) ||
-                (selectedPlatforms.includes('ios') && !!getIosBundleIdError(newBundleId)) ||
-                (selectedPlatforms.includes('android') && !!getAndroidPackageError(newPackageName)) ||
-                (selectedPlatforms.includes('web') && !!webAllowedDomainsError)
-              }
-            >
-              {isCreating ? 'Creating...' : 'Create Project'}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4 p-6">
-          {createError && (
-            <div className="border-2 border-black bg-[#fecaca] p-3 text-sm font-black uppercase text-black shadow-neo-sm">
-              {createError}
-            </div>
-          )}
-          <Input
-            label="Project Name"
-            placeholder="e.g. Consumer iOS App"
-            value={newAppName}
-            onChange={(e) => setNewAppName(e.target.value)}
-            className="h-11 rounded-none border-2 border-black bg-white font-medium text-black placeholder:text-slate-500 focus-visible:ring-0 focus-visible:border-black"
-          />
-
-          <div className="space-y-2">
-            <label className="text-sm font-bold font-mono uppercase text-slate-700">Platform (Select All)</label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {[
-                { id: 'ios', label: 'iOS App', icon: Apple },
-                { id: 'android', label: 'Android App', icon: Smartphone },
-                { id: 'web', label: 'Web App', icon: Globe },
-              ].map(platform => (
-                <div
-                  key={platform.id}
-                  onClick={() => {
-                    if (selectedPlatforms.includes(platform.id)) {
-                      setSelectedPlatforms(selectedPlatforms.filter(p => p !== platform.id));
-                    } else {
-                      setSelectedPlatforms([...selectedPlatforms, platform.id]);
-                    }
-                  }}
-                  className={`
-                      cursor-pointer border-2 rounded-none p-3 flex flex-col items-center gap-2 transition-all
-                      ${selectedPlatforms.includes(platform.id)
-                      ? 'border-black bg-black text-white shadow-neo-sm'
-                      : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo'
-                    }
-                   `}
-                >
-                  <platform.icon className={`w-6 h-6 ${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-400'}`} />
-                  <span className={`text-sm font-bold font-mono uppercase ${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-600'}`}>{platform.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {selectedPlatforms.includes('ios') && (
-            <div className="space-y-3 border-2 border-black bg-[#f8fafc] p-4 shadow-neo-sm rounded-none">
-              <div className="flex items-center gap-2 mb-2">
-                <Apple className="w-4 h-4 text-slate-900" />
-                <h4 className="text-sm font-bold text-slate-900 font-mono uppercase">iOS Configuration</h4>
-              </div>
-              <Input
-                label="Bundle Identifier"
-                placeholder="com.example.app"
-                value={newBundleId}
-                onChange={(e) => setNewBundleId(e.target.value)}
-                className="h-11 rounded-none border-2 border-black bg-white font-medium text-black placeholder:text-slate-500 focus-visible:ring-0 focus-visible:border-black"
-              />
-              {getIosBundleIdError(newBundleId) && (
-                <p className="text-xs font-bold text-red-600 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> {getIosBundleIdError(newBundleId)}
-                </p>
-              )}
-            </div>
-          )}
-
-          {selectedPlatforms.includes('android') && (
-            <div className="space-y-3 border-2 border-black bg-[#f8fafc] p-4 shadow-neo-sm rounded-none">
-              <div className="flex items-center gap-2 mb-2">
-                <Smartphone className="w-4 h-4 text-slate-900" />
-                <h4 className="text-sm font-bold text-slate-900 font-mono uppercase">Android Configuration</h4>
-              </div>
-              <Input
-                label="Package Name"
-                placeholder="com.example.app"
-                value={newPackageName}
-                onChange={(e) => setNewPackageName(e.target.value)}
-                className="h-11 rounded-none border-2 border-black bg-white font-medium text-black placeholder:text-slate-500 focus-visible:ring-0 focus-visible:border-black"
-              />
-              {getAndroidPackageError(newPackageName) && (
-                <p className="text-xs font-bold text-red-600 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError(newPackageName)}
-                </p>
-              )}
-            </div>
-          )}
-
-          {selectedPlatforms.includes('web') && (
-            <div className="space-y-3 border-2 border-black bg-[#f8fafc] p-4 shadow-neo-sm rounded-none">
-              <div className="flex items-center gap-2 mb-2">
-                <Globe className="w-4 h-4 text-slate-900" />
-                <h4 className="text-sm font-bold text-slate-900 font-mono uppercase">Web Configuration</h4>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold font-mono uppercase text-slate-700">
-                  Allowed Domains ({parsedWebAllowedDomains.length})
-                </label>
-                <textarea
-                  placeholder="app.example.com, www.example.com, *.example.com"
-                  value={newWebAllowedDomains}
-                  onChange={(e) => {
-                    setNewWebAllowedDomains(e.target.value);
-                    setCreateError(null);
-                  }}
-                  rows={4}
-                  className="w-full resize-y rounded-none border-2 border-black bg-white px-3 py-2 font-mono text-sm font-medium text-black placeholder:text-slate-500 focus-visible:border-black focus-visible:outline-none focus-visible:ring-0"
-                />
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Comma or line separated. Add local domains only for local test projects.
-                </p>
-              </div>
-              {visibleWebAllowedDomainsError && (
-                <p className="text-xs font-bold text-red-600 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> {visibleWebAllowedDomainsError}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </Modal>
+      />
 
       {/* Create Team Modal */}
       <Modal

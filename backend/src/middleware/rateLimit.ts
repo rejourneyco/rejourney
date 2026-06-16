@@ -414,6 +414,15 @@ export const inviteRateLimiter = rateLimit({
     message: 'Too many invitations sent. Please wait before sending more.',
 });
 
+// Project setup email limiter
+export const projectSetupEmailRateLimiter = rateLimit({
+    windowMs: 60 * 60_000,
+    max: 30,
+    keyGenerator: (req) => `rate:project-setup-email:${req.user?.id || rateLimitClientIp(req)}:${req.params.id || 'global'}`,
+    failOpen: false,
+    message: 'Too many setup emails sent. Please wait before sending more.',
+});
+
 // API key rate limiter
 export const apiKeyRateLimiter = rateLimit({
     ...rateLimits.apiKey.perProject,

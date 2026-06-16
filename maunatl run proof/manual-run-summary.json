@@ -1,0 +1,48 @@
+{
+  "ownerEmail": "manual-owner-340328@rejourney.test",
+  "ownerCode": "QA20260616",
+  "suffix": "340328",
+  "projectAName": "Manual Run App A 340328",
+  "projectA": {
+    "id": "c5a14fc2-f207-481f-82dc-dc2ccbb6fe35",
+    "name": "Manual Run App A 340328"
+  },
+  "teamTwoName": "Manual Run Team B 340328",
+  "inviteeEmail": "manual-invitee-340328@rejourney.test",
+  "teamTwo": {
+    "id": "f6e20f51-5bfe-4235-902f-f413da471f37",
+    "name": "Manual Run Team B 340328"
+  },
+  "invitation": {
+    "token": "edc892f9ca44da73c1fa0223ee39c4749cc85b494ac7d0466636e139fcaefbc1",
+    "email": "manual-invitee-340328@rejourney.test",
+    "team_id": "f6e20f51-5bfe-4235-902f-f413da471f37",
+    "accepted_at": null
+  },
+  "inviteUrl": "http://localhost:8080/invite/accept/edc892f9ca44da73c1fa0223ee39c4749cc85b494ac7d0466636e139fcaefbc1",
+  "inviteeCode": "QB20260616",
+  "acceptedAt": "2026-06-15T20:34:12.049Z",
+  "inviteeMember": {
+    "team_id": "f6e20f51-5bfe-4235-902f-f413da471f37",
+    "user_id": "e029899c-db8f-4719-bd55-bb93c1cfacaf",
+    "role": "member",
+    "email": "manual-invitee-340328@rejourney.test"
+  },
+  "screenshots": [
+    "01-owner-01-login-email.png",
+    "01-owner-02-otp-entry.png",
+    "03-owner-setup-empty-default-team.png",
+    "04-owner-team-a-project-created-handoff.png",
+    "04-owner-team-a-project-form-filled.png",
+    "06-owner-new-team-empty-setup.png",
+    "07-owner-team-b-project-created-handoff.png",
+    "07-owner-team-b-project-form-filled.png",
+    "08-owner-invite-before-send.png",
+    "10-invite-link-logged-out.png",
+    "11-invitee-01-login-email.png",
+    "11-invitee-02-otp-entry.png",
+    "12-invitee-accept-page.png",
+    "13-invitee-accepted-setup.png",
+    "14-invitee-existing-project-setup.png"
+  ]
+}

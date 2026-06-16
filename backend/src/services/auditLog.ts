@@ -23,6 +23,7 @@ export type AuditAction =
     | 'billing_checkout_completed'
     | 'project_created'
     | 'project_deleted'
+    | 'project_setup_email_sent'
     | 'project_smart_capture_updated'
     | 'project_updated'
     | 'team_created'

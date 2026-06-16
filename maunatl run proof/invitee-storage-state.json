@@ -1,0 +1,71 @@
+{
+  "cookies": [
+    {
+      "name": "csrf",
+      "value": "5e64467316de6890cd6180f031122d09363c2cc43205bc5d83bde3db08388bba",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1781652834.890461,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "session",
+      "value": "02b29326616201abb5ce31d23096e9d3969506a7615bcfb01a0b7a3fa2ea6895",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1784158444.990391,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "rj_selected_team_id",
+      "value": "f6e20f51-5bfe-4235-902f-f413da471f37",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1813102461.766623,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "rj_selected_project_id",
+      "value": "e55bc361-cadc-409d-bf57-afaf5f3bc075",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1813102462.196725,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:8080",
+      "localStorage": [
+        {
+          "name": "rj-dashboard-sidebar-section-collapsed",
+          "value": "{}"
+        },
+        {
+          "name": "rejourney_selected_project_id:f6e20f51-5bfe-4235-902f-f413da471f37",
+          "value": "e55bc361-cadc-409d-bf57-afaf5f3bc075"
+        },
+        {
+          "name": "selectedTeamId",
+          "value": "f6e20f51-5bfe-4235-902f-f413da471f37"
+        },
+        {
+          "name": "rj-dashboard-sidebar-collapsed",
+          "value": "0"
+        },
+        {
+          "name": "rj-dashboard-sidebar-width",
+          "value": "300"
+        }
+      ]
+    }
+  ]
+}

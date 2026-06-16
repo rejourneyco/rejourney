@@ -8,6 +8,7 @@ import {
   Globe,
   LayoutDashboard,
   Mail,
+  Rocket,
   Route,
   Settings,
   Smartphone,
@@ -27,6 +28,7 @@ export type DashboardPageKey =
   | 'devices'
   | 'leaks'
   | 'emails'
+  | 'setup'
   | 'project'
   | 'team'
   | 'billing'
@@ -121,6 +123,14 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     accent: '#d97706',
     activeBg: '#fffbeb',
     iconBgClass: 'bg-[#fffbeb]',
+  },
+  setup: {
+    sidebarLabel: 'Setup',
+    tabTitle: 'Setup',
+    icon: Rocket,
+    accent: '#1a73e8',
+    activeBg: '#eef4ff',
+    iconBgClass: 'bg-[#eef4ff]',
   },
   project: {
     sidebarLabel: 'Project',

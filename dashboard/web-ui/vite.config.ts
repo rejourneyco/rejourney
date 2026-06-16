@@ -2,6 +2,8 @@ import { defineConfig, type Plugin } from "vite";
 import { reactRouter } from "@react-router/dev/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || process.env.VITE_API_URL || "http://localhost:3000";
+
 function noStoreOptimizedDeps(): Plugin {
     return {
         name: "no-store-optimized-deps",
@@ -126,7 +128,7 @@ export default defineConfig({
     server: {
         proxy: {
             '/api': {
-                target: 'http://localhost:3000',
+                target: apiProxyTarget,
                 changeOrigin: true,
             },
         },

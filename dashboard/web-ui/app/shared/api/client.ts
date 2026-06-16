@@ -1589,6 +1589,16 @@ export async function updateProjectSmartCaptureConfig(projectId: string, config:
     return response;
 }
 
+export async function sendProjectSetupEmail(
+    projectId: string,
+    payload: { email: string; aiPrompt: string },
+): Promise<{ success: boolean; message?: string }> {
+    return fetchJson<{ success: boolean; message?: string }>(`/api/projects/${projectId}/setup-email`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
 /**
  * Create a new project
  */
@@ -5049,6 +5059,7 @@ export const api = {
     createProject,
     getProject,
     updateProject,
+    sendProjectSetupEmail,
     deleteProject,
     getTeamBillingUsage,
     getTeamBillingDashboard,

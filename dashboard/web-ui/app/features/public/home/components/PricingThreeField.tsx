@@ -4,7 +4,8 @@ import type { BufferAttribute, Mesh, MeshPhysicalMaterial, PointsMaterial, Group
 type PricingThreeFieldProps = {
     className?: string;
     seed?: number;
-    variant?: 'hero' | 'sparse';
+    variant?: 'hero' | 'sparse' | 'icosahedron';
+    layout?: 'pricing' | 'wizard' | 'center';
 };
 
 type ParticleState = {
@@ -30,9 +31,11 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
     className = '',
     seed = 42,
     variant = 'hero',
+    layout = 'pricing',
 }) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const isHero = variant === 'hero';
+    const isIcosahedron = variant === 'icosahedron' || layout === 'wizard';
+    const isHero = variant === 'hero' && !isIcosahedron;
 
     useEffect(() => {
         if (typeof window === 'undefined' || !canvasRef.current) return;
@@ -196,46 +199,62 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             let ring1: Mesh | null = null;
             let ring2: Mesh | null = null;
 
-            if (isHero) {
-                // Create the main abstract 3D ribbon - a TorusKnot
-                // Parameters: radius, tube, tubular segments, radial segments, p, q
-                const knotGeometry = register(new THREE.TorusKnotGeometry(1.6, 0.45, 280, 24, 2, 3));
-                const knotMaterial = register(new THREE.MeshPhysicalMaterial({
-                    color: 0x38bdf8, // Sky blue / cyan base
-                    metalness: 0.2, // Low metalness for glass/refraction look
-                    roughness: 0.05, // Glossy surface
-                    clearcoat: 1.0,
-                    clearcoatRoughness: 0.05,
-                    transmission: 0.65, // More transparent and glassy
-                    thickness: 1.2, // Deeper refraction
-                    ior: 1.5,
-                    transparent: true,
-                    opacity: 0.9,
-                    depthWrite: false,
-                }));
+            if (isHero || isIcosahedron) {
+                 // Create the main abstract 3D shape
+                 const knotGeometry = isIcosahedron
+                     ? register(new THREE.IcosahedronGeometry(1.4, 0)) // Faceted glass gem!
+                     : register(new THREE.TorusKnotGeometry(1.6, 0.45, 280, 24, 2, 3));
 
-                knotMesh = new THREE.Mesh(knotGeometry, knotMaterial);
-                root.add(knotMesh);
+                 const knotMaterial = register(new THREE.MeshPhysicalMaterial({
+                     color: isIcosahedron ? 0x6366f1 : 0x38bdf8, // Indigo for gem, cyan/sky-blue for torus knot
+                     metalness: isIcosahedron ? 0.05 : 0.2, // Lower metalness for clear crystal glass
+                     roughness: 0.05, // Glossy surface
+                     clearcoat: 1.0,
+                     clearcoatRoughness: 0.05,
+                     transmission: 0.8, // More transparent and glassy
+                     thickness: 1.5, // Deeper refraction
+                     ior: 1.55,
+                     transparent: true,
+                     opacity: 0.9,
+                     depthWrite: isIcosahedron ? true : false,
+                 }));
 
-                // Add thin glowing wireframe orbit rings for extra detail
-                const ringMaterial = register(new THREE.MeshBasicMaterial({
-                    color: 0x38bdf8,
-                    wireframe: true,
-                    transparent: true,
-                    opacity: 0.18,
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false,
-                }));
+                 knotMesh = new THREE.Mesh(knotGeometry, knotMaterial);
+                 root.add(knotMesh);
 
-                ring1 = new THREE.Mesh(register(new THREE.TorusGeometry(2.8, 0.008, 6, 120)), ringMaterial);
-                ring1.rotation.x = Math.PI / 3;
-                root.add(ring1);
+                 // Add a holographic glowing wireframe overlay for sharp faceted outlines
+                 const wireframeMaterial = register(new THREE.MeshBasicMaterial({
+                     color: isIcosahedron ? 0x818cf8 : 0x38bdf8, // Indigo glow or cyan glow
+                     wireframe: true,
+                     transparent: true,
+                     opacity: isIcosahedron ? 0.35 : 0.18,
+                     blending: THREE.AdditiveBlending,
+                     depthWrite: false,
+                 }));
+                 
+                 const wireframeMesh = new THREE.Mesh(knotGeometry, wireframeMaterial);
+                 wireframeMesh.scale.setScalar(1.002);
+                 knotMesh.add(wireframeMesh);
 
-                ring2 = new THREE.Mesh(register(new THREE.TorusGeometry(3.1, 0.006, 6, 120)), ringMaterial);
-                ring2.rotation.y = Math.PI / 4;
-                ring2.rotation.x = -Math.PI / 6;
-                root.add(ring2);
-            }
+                 // Add thin glowing wireframe orbit rings for extra detail
+                 const ringMaterial = register(new THREE.MeshBasicMaterial({
+                     color: isIcosahedron ? 0x6366f1 : 0x38bdf8,
+                     wireframe: true,
+                     transparent: true,
+                     opacity: 0.18,
+                     blending: THREE.AdditiveBlending,
+                     depthWrite: false,
+                 }));
+
+                 ring1 = new THREE.Mesh(register(new THREE.TorusGeometry(2.8, 0.008, 6, 120)), ringMaterial);
+                 ring1.rotation.x = Math.PI / 3;
+                 root.add(ring1);
+
+                 ring2 = new THREE.Mesh(register(new THREE.TorusGeometry(3.1, 0.006, 6, 120)), ringMaterial);
+                 ring2.rotation.y = Math.PI / 4;
+                 ring2.rotation.x = -Math.PI / 6;
+                 root.add(ring2);
+             }
 
             const resize = () => {
                 const width = Math.max(1, container.clientWidth);
@@ -243,20 +262,47 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 renderer.setSize(width, height, false);
                 camera.aspect = width / height;
 
-                // Adjust camera position based on screen width
-                if (width < 640) {
-                    camera.position.z = 10.0;
-                    root.position.set(0, 0.8, 0); // Position it slightly higher on mobile
-                    root.scale.setScalar(0.75);
-                } else if (width < 1024) {
-                    camera.position.z = 9.0;
-                    root.position.set(0.8, 0.2, 0);
-                    root.scale.setScalar(0.9);
+                // Adjust camera position based on screen width and layout
+                if (layout === 'wizard') {
+                    if (width < 640) {
+                        camera.position.z = 10.0;
+                        root.position.set(0, 0.6, 0); // Position it slightly higher on mobile
+                        root.scale.setScalar(0.7);
+                    } else if (width < 1024) {
+                        camera.position.z = 9.0;
+                        root.position.set(0, 0.15, 0);
+                        root.scale.setScalar(0.85);
+                    } else {
+                        camera.position.z = 8.5;
+                        root.position.set(0, -0.05, 0);
+                        root.scale.setScalar(1.05);
+                    }
+                } else if (layout === 'center') {
+                    if (width < 640) {
+                        camera.position.z = 10.0;
+                        root.position.set(0, 0, 0);
+                        root.scale.setScalar(0.75);
+                    } else {
+                        camera.position.z = 8.5;
+                        root.position.set(0, 0, 0);
+                        root.scale.setScalar(1.1);
+                    }
                 } else {
-                    camera.position.z = 8.5;
-                    // Push the 3D model to the right side on desktop, matching Amplitude's visual layout
-                    root.position.set(1.8, 0.1, 0);
-                    root.scale.setScalar(1.1);
+                    // default 'pricing'
+                    if (width < 640) {
+                        camera.position.z = 10.0;
+                        root.position.set(0, 0.8, 0); // Position it slightly higher on mobile
+                        root.scale.setScalar(0.75);
+                    } else if (width < 1024) {
+                        camera.position.z = 9.0;
+                        root.position.set(0.8, 0.2, 0);
+                        root.scale.setScalar(0.9);
+                    } else {
+                        camera.position.z = 8.5;
+                        // Push the 3D model to the right side on desktop, matching Amplitude's visual layout
+                        root.position.set(1.8, 0.1, 0);
+                        root.scale.setScalar(1.1);
+                    }
                 }
 
                 camera.updateProjectionMatrix();
@@ -288,14 +334,14 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 lastTime = totalTime;
 
                 // Rotate knot and background groups
-                if (isHero && knotMesh && ring1 && ring2) {
-                    knotMesh.rotation.x = elapsed * 0.15;
-                    knotMesh.rotation.y = elapsed * 0.2;
-                    knotMesh.rotation.z = elapsed * 0.08;
+                 if ((isHero || isIcosahedron) && knotMesh && ring1 && ring2) {
+                     knotMesh.rotation.x = elapsed * 0.15;
+                     knotMesh.rotation.y = elapsed * 0.2;
+                     knotMesh.rotation.z = elapsed * 0.08;
 
-                    ring1.rotation.z = -elapsed * 0.12;
-                    ring2.rotation.z = elapsed * 0.08;
-                }
+                     ring1.rotation.z = -elapsed * 0.12;
+                     ring2.rotation.z = elapsed * 0.08;
+                 }
 
                 root.rotation.y = Math.sin(elapsed * 0.1) * 0.05;
 
@@ -325,11 +371,11 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 }
                 starPosAttr.needsUpdate = true;
 
-                // Dynamic scale pulsing on the knot to make it feel organic and alive
-                if (isHero && knotMesh && !reducedMotion) {
-                    const scalePulse = 1.0 + Math.sin(elapsed * 0.8) * 0.03;
-                    knotMesh.scale.set(scalePulse, scalePulse, scalePulse);
-                }
+                 // Dynamic scale pulsing on the knot to make it feel organic and alive
+                 if ((isHero || isIcosahedron) && knotMesh && !reducedMotion) {
+                     const scalePulse = 1.0 + Math.sin(elapsed * 0.8) * 0.03;
+                     knotMesh.scale.set(scalePulse, scalePulse, scalePulse);
+                 }
 
                 renderer.render(scene, camera);
 
@@ -360,7 +406,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             disposed = true;
             teardownScene?.();
         };
-    }, [seed, variant]);
+    }, [seed, variant, layout]);
 
     const canvasStyle: React.CSSProperties = {
         height: isHero ? 'max(140%, 1020px)' : '100%',
@@ -404,6 +450,20 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                         }
                         .pricing-three-canvas {
                             opacity: ${isHero ? '0.65' : '0.4'};
+                        }
+                        .dark .pricing-light-bg {
+                            background:
+                                radial-gradient(circle at 80% 25%, rgba(99, 102, 241, 0.15), transparent 45%),
+                                radial-gradient(circle at 20% 65%, rgba(168, 85, 247, 0.15), transparent 40%),
+                                radial-gradient(circle at 50% 10%, rgba(20, 184, 166, 0.04), transparent 35%),
+                                linear-gradient(180deg, #030712 0%, #0b0f19 60%, #030712 100%);
+                        }
+                        .dark .pricing-light-haze {
+                            background:
+                                radial-gradient(ellipse at 75% 30%, rgba(99, 102, 241, 0.12), transparent 45%),
+                                radial-gradient(ellipse at 25% 60%, rgba(168, 85, 247, 0.1), transparent 42%),
+                                radial-gradient(ellipse at 50% 85%, rgba(244, 114, 182, 0.04), transparent 38%);
+                            filter: blur(45px);
                         }
                         @media (max-width: 640px) {
                             .pricing-three-canvas {

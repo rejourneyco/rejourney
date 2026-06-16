@@ -58,6 +58,7 @@ const loadJourneys = () => import('~/features/app/analytics/journeys/route').the
 const loadHeatmaps = () => import('~/features/app/analytics/heatmaps/route').then((module) => ({ default: module.Heatmaps }));
 const loadLeaks = () => import('~/features/app/automations/leaks/route').then((module) => ({ default: module.Leaks }));
 const loadAlertEmails = () => import('~/features/app/alerts/email/route').then((module) => ({ default: module.AlertEmails }));
+const loadSetup = () => import('~/features/app/setup/route').then((module) => ({ default: module.SetupRoute }));
 const loadStability = () => import('~/features/app/stability/index/route').then((module) => ({ default: module.Stability }));
 const loadTeamSettings = () => import('~/features/app/team/route').then((module) => ({ default: module.TeamSettings }));
 const loadBillingSettings = () => import('~/features/app/billing/route').then((module) => ({ default: module.BillingSettings }));
@@ -183,6 +184,12 @@ const routes: RouteDefinition[] = [
         getInfo: () => ({ id: 'alerts-emails', title: DASHBOARD_PAGE_META.emails.tabTitle, icon: DASHBOARD_PAGE_META.emails.icon }),
         Component: React.lazy(loadAlertEmails),
         loadComponent: loadAlertEmails,
+    },
+    {
+        pattern: '/setup',
+        getInfo: () => ({ id: 'setup', title: DASHBOARD_PAGE_META.setup.tabTitle, icon: DASHBOARD_PAGE_META.setup.icon }),
+        Component: React.lazy(loadSetup),
+        loadComponent: loadSetup,
     },
     {
         pattern: '/sessions/:sessionId',

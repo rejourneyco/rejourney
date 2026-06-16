@@ -723,6 +723,125 @@ export async function sendSubscriptionExpiredEmail(
   logger.info({ email: recipients, teamName, planName }, 'Subscription expired email sent');
 }
 
+export interface DeveloperSetupEmailProject {
+  id: string;
+  name: string;
+  publicKey: string;
+  platforms?: string[];
+  bundleId?: string | null;
+  packageName?: string | null;
+  webDomain?: string | null;
+  webAllowedDomains?: string[] | null;
+}
+
+export interface DeveloperSetupEmailParams {
+  email: string;
+  project: DeveloperSetupEmailProject;
+  teamName?: string | null;
+  requesterName?: string | null;
+  aiPrompt: string;
+}
+
+function formatProjectPlatformsForEmail(project: DeveloperSetupEmailProject): string {
+  const platforms = project.platforms ?? [];
+  if (platforms.length === 0) return 'No platform selected';
+  return platforms.map((platform) => {
+    if (platform === 'ios') return 'iOS';
+    if (platform === 'android') return 'Android';
+    if (platform === 'web') return 'Web';
+    if (platform === 'react-native') return 'React Native';
+    return platform;
+  }).join(', ');
+}
+
+function buildDeveloperSetupEmailBody(params: DeveloperSetupEmailParams): string {
+  const { project, teamName, aiPrompt } = params;
+  return [
+    'Hi,',
+    '',
+    `Could you please integrate Rejourney into ${project.name || 'our web application'}? It will allow us to record sessions and track user diagnostics.`,
+    '',
+    'Project details:',
+    teamName ? `- Team: ${teamName}` : null,
+    project.name ? `- Project: ${project.name}` : null,
+    `- API Key: ${project.publicKey}`,
+    `- Platforms: ${formatProjectPlatformsForEmail(project)}`,
+    project.webAllowedDomains?.length
+      ? `- Web allowed domains: ${project.webAllowedDomains.join(', ')}`
+      : project.webDomain
+        ? `- Web allowed domain: ${project.webDomain}`
+        : null,
+    project.bundleId ? `- iOS bundle ID: ${project.bundleId}` : null,
+    project.packageName ? `- Android package name: ${project.packageName}` : null,
+    '',
+    'Here are the quick options to get it set up:',
+    '',
+    'Option 1: Using an AI Coding Agent (Cursor, Copilot, v0, etc.) - Recommended',
+    'Just copy and paste the prompt below into your AI editor. It has all the files and configurations needed:',
+    '--------------------------------------------------',
+    aiPrompt,
+    '--------------------------------------------------',
+    '',
+    'Option 2: Manual Setup',
+    '- Package install: Install the Rejourney package.',
+    '- Initialize: Start the SDK with our project API key.',
+    `  API Key: ${project.publicKey}`,
+    '',
+    'Once complete, please trigger a local test session so we can verify the data on our end.',
+    '',
+    'Thank you!',
+  ].filter((line): line is string => line !== null).join('\n');
+}
+
+/**
+ * Send project setup instructions directly to a developer.
+ */
+export async function sendDeveloperSetupEmail(params: DeveloperSetupEmailParams): Promise<void> {
+  const transport = getTransporter();
+  if (!transport) return;
+
+  const requester = params.requesterName?.trim() || 'Your teammate';
+  const projectName = params.project.name || 'Rejourney project';
+  const setupUrl = emailDashboardAppPath('/setup');
+  const text = buildDeveloperSetupEmailBody(params);
+
+  const html = generateEmailHtml({
+    title: 'Rejourney Setup Instructions',
+    previewText: `${requester} sent Rejourney SDK setup instructions for ${projectName}`,
+    projectName,
+    projectUrl: setupUrl,
+    sections: [
+      {
+        content: `
+          <div style="font-size: 16px; font-weight: 600;">
+            <strong>${escapeHtml(requester)}</strong> sent setup instructions for <strong>${escapeHtml(projectName)}</strong>.
+          </div>
+        `,
+      },
+      {
+        title: 'Setup Email',
+        style: 'highlight',
+        content: `<pre style="white-space: pre-wrap; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55;">${escapeHtml(text)}</pre>`,
+      },
+    ],
+    action: {
+      label: 'Open Rejourney Setup',
+      url: setupUrl,
+    },
+    alertType: 'general',
+  });
+
+  await transport.sendMail({
+    from: config.SMTP_FROM || 'Rejourney <noreply@rejourney.co>',
+    to: params.email,
+    subject: `Rejourney SDK integration for ${projectName}`,
+    text,
+    html,
+  });
+
+  logger.info({ email: params.email, projectId: params.project.id }, 'Developer setup email sent');
+}
+
 /**
  * Send team invitation email
  */

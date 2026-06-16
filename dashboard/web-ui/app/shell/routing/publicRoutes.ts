@@ -13,6 +13,7 @@ export const publicRoutes = [
   route("changelog", "features/public/changelog/route.tsx", { id: "public-changelog" }),
   route("roadmap", "features/public/roadmap/route.tsx", { id: "public-roadmap" }),
   route("pricing", "features/public/pricing/route.tsx", { id: "public-pricing" }),
+  route("setup", "shell/routing/redirects/SetupRedirect.tsx", { id: "public-setup-redirect" }),
   route("share/replay/:shareToken", "features/public/replay-share/route.tsx", { id: "public-replay-share" }),
   route("about", "features/public/about/route.tsx", { id: "public-about" }),
   ...SEO_PAGE_PATHS.map((path) =>

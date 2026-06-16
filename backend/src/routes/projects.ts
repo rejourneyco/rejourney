@@ -15,6 +15,7 @@ import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../mi
 import { validate } from '../middleware/validation.js';
 import {
     dashboardRateLimiter,
+    projectSetupEmailRateLimiter,
     queryBuilderIpRateLimiter,
     queryBuilderProjectRateLimiter,
     queryBuilderUserRateLimiter,
@@ -27,14 +28,17 @@ import {
     projectIdParamSchema,
     requestDeleteProjectOtpSchema,
     deleteProjectSchema,
+    sendProjectSetupEmailSchema,
 } from '../validation/projects.js';
 import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { hardDeleteProject } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
+import { sendDeveloperSetupEmail } from '../services/email.js';
 import {
     assertNoDuplicateContentSpam,
     enforceNewAccountActionLimit,
 } from '../services/abuseDetection.js';
+import { isDisposableEmail } from '../utils/disposableEmail.js';
 import {
     queryProductAllTimeStatsFromClickHouse,
     queryProductDailyStatsFromClickHouse,
@@ -58,6 +62,7 @@ function getProjectWebAllowedDomains(project: { webAllowedDomains?: string[] | n
 
 function getProjectPlatforms(project: { bundleId?: string | null; packageName?: string | null; webDomain?: string | null; webAllowedDomains?: string[] | null; platform?: string | null }): string[] {
     const platforms: string[] = [];
+    if (project.platform === 'react-native') platforms.push('react-native');
     if (project.bundleId) platforms.push('ios');
     if (project.packageName) platforms.push('android');
     if (project.webDomain || getProjectWebAllowedDomains(project).length > 0 || project.platform === 'web') platforms.push('web');
@@ -1394,7 +1399,7 @@ router.post(
                     packageName: data.packageName,
                     webDomain: webAllowedDomains[0] ?? null,
                     webAllowedDomains,
-                    platform: data.platforms?.[0],
+                    platform: data.platforms?.includes('react-native') ? 'react-native' : data.platforms?.[0],
                     publicKey,
                     rejourneyEnabled: data.rejourneyEnabled ?? true,
                     recordingEnabled: data.recordingEnabled ?? true,
@@ -1473,6 +1478,81 @@ router.post(
                 platforms: getProjectPlatforms(project),
             },
         });
+    })
+);
+
+/**
+ * Send project setup instructions to a developer.
+ * POST /api/projects/:id/setup-email
+ */
+router.post(
+    '/:id/setup-email',
+    sessionAuth,
+    writeApiRateLimiter,
+    projectSetupEmailRateLimiter,
+    validate(projectIdParamSchema, 'params'),
+    validate(sendProjectSetupEmailSchema),
+    requireProjectAccess,
+    asyncHandler(async (req, res) => {
+        const { email, aiPrompt } = req.body;
+        const normalizedEmail = email.toLowerCase().trim();
+
+        if (isDisposableEmail(normalizedEmail)) {
+            throw ApiError.badRequest('Sending setup instructions to disposable email domains is blocked.');
+        }
+
+        await assertNoDuplicateContentSpam({
+            actorId: req.user!.id,
+            action: 'project_setup_email',
+            contentParts: [normalizedEmail, req.params.id],
+            targetId: req.params.id,
+            checkLinks: false,
+            maxIdenticalInWindow: 5,
+            maxIdenticalTargets: 3,
+        });
+
+        const [projectResult] = await db
+            .select({
+                project: projects,
+                teamName: teams.name,
+            })
+            .from(projects)
+            .innerJoin(teams, eq(projects.teamId, teams.id))
+            .where(eq(projects.id, req.params.id))
+            .limit(1);
+
+        if (!projectResult || projectResult.project.deletedAt) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        const project = projectResult.project;
+        await sendDeveloperSetupEmail({
+            email: normalizedEmail,
+            teamName: projectResult.teamName,
+            requesterName: req.user!.displayName || req.user!.email,
+            aiPrompt,
+            project: {
+                id: project.id,
+                name: project.name,
+                publicKey: project.publicKey,
+                platforms: getProjectPlatforms(project),
+                bundleId: project.bundleId,
+                packageName: project.packageName,
+                webDomain: project.webDomain,
+                webAllowedDomains: getProjectWebAllowedDomains(project),
+            },
+        });
+
+        await auditFromRequest(req, 'project_setup_email_sent', {
+            targetType: 'project',
+            targetId: project.id,
+            teamId: project.teamId,
+            metadata: {
+                email: normalizedEmail,
+            },
+        });
+
+        res.json({ success: true, message: 'Setup instructions sent.' });
     })
 );
 

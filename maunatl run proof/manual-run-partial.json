@@ -1,0 +1,23 @@
+{
+  "ownerEmail": "manual-owner-340328@rejourney.test",
+  "ownerCode": "QA20260616",
+  "suffix": "340328",
+  "projectAName": "Manual Run App A 340328",
+  "projectA": {
+    "id": "c5a14fc2-f207-481f-82dc-dc2ccbb6fe35",
+    "name": "Manual Run App A 340328"
+  },
+  "teamTwoName": "Manual Run Team B 340328",
+  "inviteeEmail": "manual-invitee-340328@rejourney.test",
+  "teamTwo": {
+    "id": "f6e20f51-5bfe-4235-902f-f413da471f37",
+    "name": "Manual Run Team B 340328"
+  },
+  "invitation": {
+    "token": "edc892f9ca44da73c1fa0223ee39c4749cc85b494ac7d0466636e139fcaefbc1",
+    "email": "manual-invitee-340328@rejourney.test",
+    "team_id": "f6e20f51-5bfe-4235-902f-f413da471f37",
+    "accepted_at": null
+  },
+  "inviteUrl": "http://localhost:8080/invite/accept/edc892f9ca44da73c1fa0223ee39c4749cc85b494ac7d0466636e139fcaefbc1"
+}

@@ -144,6 +144,11 @@ export const requestDeleteProjectOtpSchema = z.object({
     confirmText: z.string().min(1, 'Confirmation text is required'),
 });
 
+export const sendProjectSetupEmailSchema = z.object({
+    email: z.string().trim().email('Invalid email address'),
+    aiPrompt: z.string().trim().min(1, 'AI setup prompt is required').max(50000, 'AI setup prompt is too long'),
+});
+
 export const deleteProjectSchema = z.object({
     confirmText: z.string().min(1, 'Confirmation text is required'),
     otpCode: z
@@ -155,3 +160,4 @@ export const deleteProjectSchema = z.object({
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export type SmartCaptureConfigInput = z.infer<typeof smartCaptureConfigSchema>;
+export type SendProjectSetupEmailInput = z.infer<typeof sendProjectSetupEmailSchema>;

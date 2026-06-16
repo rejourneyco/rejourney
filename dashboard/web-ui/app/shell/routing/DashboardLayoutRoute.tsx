@@ -5,14 +5,17 @@
  * It handles auth checking and provides the sidebar, topbar, and session data context.
  */
 
-import { isRouteErrorResponse, Outlet, redirect, useLoaderData, useNavigate, useRouteError } from "react-router";
+import { isRouteErrorResponse, Outlet, redirect, useLoaderData, useNavigate, useRouteError, useLocation } from "react-router";
 import type { Route } from "./+types/DashboardLayoutRoute";
 import { useEffect, useState } from "react";
 import { ProjectLayout } from "~/shell/components/layout/AppLayout";
 import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { useAuth } from "~/shared/providers/AuthContext";
-import { SessionDataProvider } from "~/shared/providers/SessionContext";
+import { SessionDataProvider, useSessionData } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
+import { shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
+import type { Project } from "~/shared/types";
+import { readCookieValue } from "~/shared/utils/selectionCookies";
 import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
 import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
@@ -41,6 +44,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     if (bootstrap) {
+        const url = new URL(request.url);
+        const isSetupPage = url.pathname === "/dashboard/setup" || url.pathname.endsWith("/setup");
+        if (!isSetupPage) {
+            const selectedProject = bootstrap.projects.find((p) => p.id === bootstrap.selectedProjectId) ?? bootstrap.projects[0] ?? null;
+            const cookieHeader = request.headers.get("cookie");
+            const isBypassed = selectedProject && readCookieValue(cookieHeader, `bypass_setup_${selectedProject.id}`) === "true";
+            if (!isBypassed && shouldSurfaceSetup(bootstrap.projects as unknown as Project[], selectedProject as unknown as Project)) {
+                throw redirect("/dashboard/setup");
+            }
+        }
         return bootstrap;
     }
 
@@ -102,8 +115,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
 }
 
-// Dashboard Layout - wraps protected content with sidebar and tabs
 function DashboardLayoutContent() {
+    const { projects, selectedProject, isLoading } = useSessionData();
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    useEffect(() => {
+        if (!isLoading) {
+            const isSetupPage = location.pathname === "/dashboard/setup" || location.pathname.endsWith("/setup");
+            const isBypassed = selectedProject && typeof document !== "undefined" && document.cookie.includes(`bypass_setup_${selectedProject.id}=true`);
+            if (!isBypassed && shouldSurfaceSetup(projects, selectedProject) && !isSetupPage) {
+                navigate("/dashboard/setup", { replace: true });
+            }
+        }
+    }, [isLoading, projects, selectedProject, location.pathname, navigate]);
+
     return (
         <ProjectLayout pathPrefix="/dashboard">
             <div className="flex flex-col h-full min-h-0 bg-transparent">

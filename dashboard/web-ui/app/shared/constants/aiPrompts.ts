@@ -629,15 +629,51 @@ Style:
 - Prefer short checklists and clear next actions over long theory.`;
 
 type ProjectForPrompt = {
+  name?: string;
+  teamName?: string;
   publicKey?: string;
   platforms?: string[];
   bundleId?: string;
   packageName?: string;
+  webDomain?: string | null;
+  webAllowedDomains?: string[] | null;
 } | null;
+
+function formatPromptPlatform(platform: string): string {
+  if (platform === 'ios') return 'iOS';
+  if (platform === 'android') return 'Android';
+  if (platform === 'web') return 'Web';
+  if (platform === 'react-native') return 'React Native';
+  return platform;
+}
+
+function buildProjectContextBlock(project: ProjectForPrompt, key: string): string {
+  const contextLines = [
+    'PROJECT CONTEXT FROM REJOURNEY DASHBOARD:',
+    project?.teamName ? `- Team: ${project.teamName}` : null,
+    project?.name ? `- Project: ${project.name}` : null,
+    `- Public key: ${key}`,
+    project?.platforms?.length ? `- Selected platforms: ${project.platforms.map(formatPromptPlatform).join(', ')}` : null,
+    project?.webAllowedDomains?.length
+      ? `- Web allowed domains: ${project.webAllowedDomains.join(', ')}`
+      : project?.webDomain
+        ? `- Web allowed domain: ${project.webDomain}`
+        : null,
+    project?.bundleId ? `- iOS bundle ID: ${project.bundleId}` : null,
+    project?.packageName ? `- Android package name: ${project.packageName}` : null,
+    '- Before shipping, verify the detected app matches these domains, bundle IDs, and package names. If the repository uses different production identifiers, tell me exactly what to update in Rejourney project settings.',
+  ].filter((line): line is string => line !== null);
+
+  return contextLines.join('\n');
+}
 
 export function buildProjectAIIntegrationPrompt(project: ProjectForPrompt): string {
   const key = project?.publicKey?.trim() || EXAMPLE_PROJECT_KEY;
-  return AI_INTEGRATION_PROMPT.replace(/PUBLIC_KEY_HERE/g, key);
+  return [
+    buildProjectContextBlock(project, key),
+    '',
+    AI_INTEGRATION_PROMPT.replace(/PUBLIC_KEY_HERE/g, key),
+  ].join('\n');
 }
 
 export function buildSelfHostedAIDeploymentPrompt(): string {
