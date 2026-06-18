@@ -46,6 +46,7 @@ import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { buildLeakIdeHandoffUrl, LEAK_IDE_OPTIONS, type LeakIde, type LeakIdeConfig } from './ideLinks';
 
 const IDE_STORAGE_PREFIX = 'rejourney.issueDetection.ide';
+const GITHUB_LINK_STATUS_STORAGE_PREFIX = 'rejourney.issueDetection.githubLinkStatus';
 const ISSUE_SCAN_WINDOW_HOURS = 24;
 const ISSUE_SCAN_DAILY_SESSION_CAP = 150;
 type AffectedFilter = 'all' | 'high' | 'medium' | 'low';
@@ -209,6 +210,44 @@ function readIdeConfig(projectId: string): LeakIdeConfig {
 function saveIdeConfig(projectId: string, config: LeakIdeConfig) {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(`${IDE_STORAGE_PREFIX}:${projectId}`, JSON.stringify(config));
+}
+
+function githubStatusStorageKey(projectId: string): string {
+    return `${GITHUB_LINK_STATUS_STORAGE_PREFIX}:${projectId}`;
+}
+
+function isGithubInstallationState(value: unknown): value is GithubLinkStatus['installationState'] {
+    return value === 'active' || value === 'suspended' || value === 'revoked' || value === 'none';
+}
+
+function readGithubLinkStatusCache(projectId: string): GithubLinkStatus | null {
+    if (!projectId || typeof window === 'undefined') return null;
+    try {
+        const raw = window.sessionStorage.getItem(githubStatusStorageKey(projectId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Partial<GithubLinkStatus>;
+        if (typeof parsed.linked !== 'boolean' || !isGithubInstallationState(parsed.installationState)) return null;
+
+        return {
+            linked: parsed.linked,
+            installationId: typeof parsed.installationId === 'number' ? parsed.installationId : null,
+            repo: parsed.repo ?? null,
+            sourceGlobs: Array.isArray(parsed.sourceGlobs) ? parsed.sourceGlobs : null,
+            installationState: parsed.installationState,
+            linkedAt: typeof parsed.linkedAt === 'string' ? parsed.linkedAt : null,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveGithubLinkStatusCache(projectId: string, status: GithubLinkStatus) {
+    if (!projectId || typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(githubStatusStorageKey(projectId), JSON.stringify(status));
+    } catch {
+        // Ignore storage failures; the live status request still drives the UI.
+    }
 }
 
 function getAlertHeaders(includeBody = false): HeadersInit {
@@ -680,8 +719,9 @@ export const Leaks: React.FC = () => {
     const [leakAlertError, setLeakAlertError] = useState<string | null>(null);
     const [copiedSetupPrompt, setCopiedSetupPrompt] = useState(false);
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
-    const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(null);
-    const [linkLoading, setLinkLoading] = useState(true);
+    const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(() => readGithubLinkStatusCache(projectId));
+    const [linkLoading, setLinkLoading] = useState(false);
+    const [linkHasLoaded, setLinkHasLoaded] = useState(() => Boolean(readGithubLinkStatusCache(projectId)));
     const [installBusy, setInstallBusy] = useState(false);
     const [installError, setInstallError] = useState<string | null>(null);
     const copiedResetTimerRef = useRef<number | null>(null);
@@ -692,7 +732,8 @@ export const Leaks: React.FC = () => {
         (selectedProject?.sessionsLast7Days ?? 0) > 0 ||
         (selectedProject?.errorsLast7Days ?? 0) > 0,
     ), [selectedProject?.errorsLast7Days, selectedProject?.sessionsLast7Days]);
-    const githubLinked = Boolean(linkStatus?.linked && linkStatus.installationState === 'active');
+    const githubStatusKnown = Boolean(linkStatus) || linkHasLoaded;
+    const githubLinked = isDemoMode || Boolean(linkStatus?.linked && linkStatus.installationState === 'active');
     const githubSuspended = Boolean(
         linkStatus?.linked &&
             linkStatus.installationState !== 'active' &&
@@ -810,17 +851,28 @@ export const Leaks: React.FC = () => {
     useEffect(() => {
         if (!projectId) {
             setLinkStatus(null);
+            setLinkHasLoaded(false);
             setLinkLoading(false);
             return;
         }
         let cancelled = false;
+        const cachedStatus = readGithubLinkStatusCache(projectId);
+        setLinkStatus(cachedStatus);
+        setLinkHasLoaded(Boolean(cachedStatus));
         setLinkLoading(true);
         getGithubLinkStatus(projectId)
             .then((status) => {
-                if (!cancelled) setLinkStatus(status);
+                if (!cancelled) {
+                    setLinkStatus(status);
+                    setLinkHasLoaded(true);
+                    saveGithubLinkStatusCache(projectId, status);
+                }
             })
             .catch(() => {
-                if (!cancelled) setLinkStatus(null);
+                if (!cancelled) {
+                    setLinkStatus(cachedStatus);
+                    setLinkHasLoaded(true);
+                }
             })
             .finally(() => {
                 if (!cancelled) setLinkLoading(false);
@@ -852,7 +904,9 @@ export const Leaks: React.FC = () => {
     useEffect(() => {
         if (!projectId || !githubLinked) {
             setLeaks([]);
-            setIsLoading(false);
+            setSelectedLeakId(null);
+            setError(null);
+            setIsLoading(Boolean(projectId && !githubStatusKnown && linkLoading));
             return;
         }
 
@@ -887,7 +941,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [githubLinked, isDemoMode, projectId, selectedProjectHasRecentData]);
+    }, [githubLinked, githubStatusKnown, isDemoMode, linkLoading, projectId, selectedProjectHasRecentData]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1061,6 +1115,8 @@ export const Leaks: React.FC = () => {
     const hasSignalViewFilter = search.trim().length > 0 || affectedFilter !== 'all';
     const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && githubLinked && leaks.length === 0 && !hasSignalViewFilter;
     const showFilteredEmptyState = !showSetupEmptyState && !showNoIssuesDetectedState && !isLoading && !error && filteredLeaks.length === 0;
+    const showGithubNotLinkedState = githubStatusKnown && !githubLinked;
+    const loadingSignalsLabel = !githubStatusKnown && linkLoading ? 'Preparing signal inbox' : 'Loading signals';
     const copyButtonClassName = copied
         ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-800 !bg-emerald-800 !text-white hover:!border-emerald-900 hover:!bg-emerald-900 ring-2 ring-emerald-200'
         : 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-700 !bg-emerald-700 !text-white hover:!border-emerald-800 hover:!bg-emerald-800 disabled:!border-[#dadce0] disabled:!bg-slate-100 disabled:!text-slate-400';
@@ -1074,9 +1130,9 @@ export const Leaks: React.FC = () => {
     const leakScanTiming = useMemo(() => getLeakScanTiming(), []);
 
     return (
-        <div className="rejourney-general-page flex min-h-screen flex-col bg-[#f8fafd] font-sans text-[#202124]">
-            <div className="border-b border-[#dadce0] bg-white">
-                <div className="mx-auto flex h-11 w-full max-w-[1560px] items-center justify-between gap-3 px-4 sm:px-6">
+        <div className="rejourney-general-page flex h-full min-h-0 flex-col overflow-hidden bg-[#f8fafd] font-sans text-[#202124]">
+            <div className="shrink-0 border-b border-[#dadce0] bg-white">
+                <div className="flex h-11 w-full items-center justify-between gap-3 px-4 sm:px-6">
                     <div className="flex min-w-0 items-center gap-2">
                         <Inbox className="h-4 w-4 shrink-0 text-[#6f7785]" />
                         <h1 className="truncate text-[15px] font-semibold leading-none text-[#202124]">Inbox</h1>
@@ -1094,19 +1150,14 @@ export const Leaks: React.FC = () => {
                 </div>
             </div>
 
-            {linkLoading ? (
-                <div className="flex flex-1 items-center justify-center bg-white text-sm font-semibold text-[#5f6368]">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking GitHub connection
-                </div>
-            ) : !githubLinked ? (
+            {showGithubNotLinkedState ? (
                 <GithubNotLinked
                     suspended={githubSuspended}
                 />
             ) : (
-            <div className="flex min-h-0 w-full flex-1">
-                <div className={`grid min-h-[calc(100dvh-44px)] w-full bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[minmax(390px,0.49fr)_minmax(480px,0.51fr)]' : 'grid-cols-1'}`}>
-                    <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
+            <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+                <div className={`grid min-h-0 w-full flex-1 bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[minmax(390px,0.49fr)_minmax(480px,0.51fr)]' : 'grid-cols-1'}`}>
+                    <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] lg:min-h-0 ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
                         <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
@@ -1172,12 +1223,12 @@ export const Leaks: React.FC = () => {
                             )}
                         </div>
 
-                        <div className="min-h-0 flex-1 overflow-y-auto">
-                            {isLoading && (
-                                <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading signals
-                                </div>
-                            )}
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                {isLoading && (
+                                    <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {loadingSignalsLabel}
+                                    </div>
+                                )}
                             {!isLoading && error && !showSetupEmptyState && (
                                 <div className="m-5 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
                                     Issue detection is not configured.
@@ -1234,7 +1285,7 @@ export const Leaks: React.FC = () => {
                     </section>
 
                     {activeLeak && (
-                        <section className="flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px]">
+                        <section className="flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] lg:min-h-0">
                             <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                                 <div className="flex items-start justify-between gap-4">
                                     <h2 className="max-w-[760px] text-lg font-medium leading-7 text-[#202124]">
@@ -1428,7 +1479,7 @@ export const Leaks: React.FC = () => {
                 <div className="divide-y divide-slate-100 bg-white">
                     <GithubRepositorySettings
                         status={linkStatus}
-                        loading={linkLoading}
+                        loading={linkLoading && !linkStatus}
                         setupHref={githubSetupHref}
                         installBusy={installBusy}
                         installError={installError}

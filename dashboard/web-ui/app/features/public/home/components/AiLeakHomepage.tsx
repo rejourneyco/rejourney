@@ -339,8 +339,8 @@ export const AiLeakHomepage: React.FC = () => {
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
 
     return (
-        <div className="relative isolate w-full bg-white text-slate-900 overflow-x-hidden">
-            <LandingThreeField variant="landing-page" seed={211} className="opacity-70" />
+        <div className="relative isolate w-full overflow-x-hidden bg-[#f8fbff] text-slate-900">
+            <LandingThreeField variant="landing-page" seed={211} className="opacity-90" />
 
             <div className="relative z-10">
                 {/* Hero Section */}
@@ -446,16 +446,16 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#f4fbff_14%,#eef8ff_36%,#f8fbff_58%,#eff7ff_80%,#f8fafc_100%)]">
-                <LandingThreeField variant="landing-sparse" seed={661} className="opacity-45" />
-                <FloatingDataNodes className="opacity-45" seed={662} />
-                <TechRingsScanner className="opacity-25" seed={526} />
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(45,212,191,0.12),transparent_38%),radial-gradient(circle_at_82%_28%,rgba(37,99,235,0.1),transparent_42%),radial-gradient(circle_at_22%_64%,rgba(125,211,252,0.16),transparent_44%),radial-gradient(circle_at_72%_94%,rgba(59,130,246,0.1),transparent_42%)]" aria-hidden="true" />
+            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#e8fbff_18%,#eef2ff_39%,#ecfdf5_62%,#fff7ed_82%,#f8fafc_100%)]">
+                <LandingThreeField variant="landing-sparse" seed={661} className="opacity-75" />
+                <FloatingDataNodes className="opacity-70" seed={662} />
+                <TechRingsScanner className="opacity-[0.55]" seed={526} />
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(45,212,191,0.18),transparent_36%),radial-gradient(circle_at_82%_25%,rgba(79,70,229,0.14),transparent_40%),radial-gradient(circle_at_20%_61%,rgba(16,185,129,0.16),transparent_42%),radial-gradient(circle_at_73%_92%,rgba(249,115,22,0.12),transparent_40%)]" aria-hidden="true" />
 
             {/* Your Unfair AI Advantage Cards Section */}
-                <section className="relative overflow-visible border-t border-transparent bg-transparent px-5 py-24 sm:px-8 lg:px-10">
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.1),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(59,130,246,0.08),transparent_42%)]" aria-hidden="true" />
-                    <NetworkConstellation className="opacity-60" />
+                <section className="relative overflow-visible border-t border-transparent bg-[linear-gradient(180deg,rgba(248,253,255,0.94)_0%,rgba(228,248,255,0.9)_100%)] px-5 py-24 sm:px-8 lg:px-10">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.16),transparent_38%),radial-gradient(circle_at_80%_60%,rgba(59,130,246,0.12),transparent_40%)]" aria-hidden="true" />
+                    <NetworkConstellation className="opacity-[0.85]" />
                 
                 <div className="relative z-10 mx-auto max-w-7xl">
                     <div className="mx-auto max-w-3xl text-center">
@@ -524,7 +524,7 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Understand What Your Customers Want Section */}
-                <section className="relative overflow-hidden py-24 sm:py-28 lg:overflow-visible">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(228,248,255,0.9)_0%,rgba(239,244,255,0.9)_56%,rgba(246,240,255,0.88)_100%)] py-24 sm:py-28 lg:overflow-visible">
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
@@ -605,32 +605,32 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Win Together Section (Horizontal tabs + Testimonials + Images) */}
-                <section className="relative overflow-hidden py-24 sm:py-28 lg:overflow-visible">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(246,240,255,0.88)_0%,rgba(236,253,245,0.92)_100%)] py-20 sm:py-28 lg:overflow-visible">
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">Plug leaks as a team</h2>
-                        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
+                        <h2 className="text-balance pb-1 font-display text-4xl font-extrabold tracking-normal bg-gradient-to-br from-slate-950 via-blue-950 to-emerald-900 bg-clip-text text-transparent sm:text-5xl">Plug leaks as a team</h2>
+                        <p className="mx-auto mt-4 max-w-2xl text-balance text-lg font-medium text-slate-500">
                             Unite your product, growth, and engineering teams to isolate conversion friction and stream code-fix context packages directly to developer AI workflows.
                         </p>
                     </div>
 
                     {/* Horizontal Tabs selector */}
-                    <div className="mt-12 flex justify-start overflow-x-auto pb-4 no-scrollbar sm:justify-center">
-                        <div className="inline-flex gap-2 rounded-full border border-slate-200/80 bg-white/50 backdrop-blur-md p-1.5 shadow-sm">
+                    <div className="mt-10 flex justify-center sm:mt-12">
+                        <div className="grid w-full max-w-xl grid-cols-2 gap-2 rounded-2xl border border-slate-200/80 bg-white/60 p-2 shadow-sm backdrop-blur-md sm:inline-flex sm:w-auto sm:max-w-none sm:rounded-full sm:p-1.5">
                             {winTogetherTabs.map(tab => {
                                 const isActive = activeWinTab === tab.id;
                                 return (
                                     <button
                                         key={tab.id}
                                         onClick={() => setActiveWinTab(tab.id as 'product' | 'growth' | 'data' | 'engineering')}
-                                        className={`rounded-full px-5 py-2.5 font-sans text-xs font-bold transition flex flex-col items-center shrink-0 border ${
+                                        className={`flex min-w-0 flex-col items-center rounded-xl border px-2.5 py-2.5 text-center font-sans text-xs font-bold transition sm:shrink-0 sm:rounded-full sm:px-5 ${
                                             isActive 
-                                                ? 'bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md border-blue-600/30 ring-1 ring-blue-500/20' 
+                                                ? 'border-blue-600/30 bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md ring-1 ring-blue-500/20'
                                                 : 'border-transparent text-slate-500 hover:text-slate-950 hover:bg-white/45'
                                         }`}
                                     >
-                                        <span className="text-[10px] font-medium opacity-65 uppercase tracking-wider">{tab.category}</span>
-                                        <span className="mt-0.5">{tab.title}</span>
+                                        <span className="max-w-full break-words text-[9px] font-medium uppercase leading-tight tracking-[0.06em] opacity-[0.65] sm:text-[10px] sm:tracking-wider">{tab.category}</span>
+                                        <span className="mt-0.5 max-w-full break-words leading-tight">{tab.title}</span>
                                     </button>
                                 );
                             })}
@@ -638,10 +638,10 @@ export const AiLeakHomepage: React.FC = () => {
                     </div>
 
                     {/* Dynamic Tabs Content */}
-                    <div className="mt-12 grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center text-left bg-white/45 backdrop-blur-md border border-slate-200/80 rounded-3xl p-6 sm:p-10 shadow-xl ring-1 ring-slate-100/5 relative z-10">
+                    <div className="relative z-10 mt-10 grid min-w-0 gap-8 rounded-[1.5rem] border border-slate-200/80 bg-white/[0.52] p-5 text-left shadow-xl ring-1 ring-slate-100/5 backdrop-blur-md sm:mt-12 sm:rounded-3xl sm:p-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center lg:gap-12">
                         {/* Workflow details */}
                         <div className="space-y-6">
-                            <h3 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 leading-tight">
+                            <h3 className="text-balance text-2xl font-extrabold leading-tight tracking-normal text-slate-900 [overflow-wrap:anywhere] sm:text-3xl">
                                 {activeWin.headline}
                             </h3>
                             
@@ -692,7 +692,7 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Rejourney Marlin GitHub App Section */}
-                <section className="relative overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:overflow-visible lg:px-10">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(236,253,245,0.92)_0%,rgba(240,249,255,0.9)_44%,rgba(255,247,237,0.9)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:overflow-visible lg:px-10">
                 <div className="relative z-10 mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
                     <div className="max-w-3xl">
                         <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">
@@ -755,7 +755,7 @@ export const AiLeakHomepage: React.FC = () => {
             <FaqSection />
 
             {/* Bottom Call-To-Action (CTA) */}
-                <section className="relative overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(255,247,237,0.9)_0%,rgba(248,251,255,0.95)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mx-auto max-w-3xl text-center mb-16">

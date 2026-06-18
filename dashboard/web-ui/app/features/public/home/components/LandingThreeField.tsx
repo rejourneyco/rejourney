@@ -113,7 +113,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const particleTexture = createParticleTexture();
 
             // Ambient background lighting
-            scene.add(new THREE.AmbientLight(0xf0f7ff, isHero ? 3.2 : 1.4));
+            scene.add(new THREE.AmbientLight(0xf0f7ff, isHero ? 3.4 : 1.85));
 
             // Floating neon point lights to illuminate the metallic ribbon (only for heroes)
             const cyanLight = new THREE.PointLight(0x38bdf8, isHero ? 18 : 0, 20);
@@ -135,7 +135,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             scene.add(root);
 
             // Create background stars/particles
-            const starCount = isHero ? 100 : (isLandingPage ? 90 : 65);
+            const starCount = isHero ? 110 : (isLandingPage ? 128 : 90);
             const starPositions = new Float32Array(starCount * 3);
             const starColors = new Float32Array(starCount * 3);
             const starSizes = new Float32Array(starCount);
@@ -148,7 +148,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 const z = -2.0 - random() * 4.0;
 
                 const color = new THREE.Color(starPalette[Math.floor(random() * starPalette.length)]);
-                const brightness = 0.4 + random() * 0.6;
+                const brightness = 0.52 + random() * 0.62;
 
                 starPositions[i * 3] = x;
                 starPositions[i * 3 + 1] = y;
@@ -156,7 +156,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 starColors[i * 3] = color.r * brightness;
                 starColors[i * 3 + 1] = color.g * brightness;
                 starColors[i * 3 + 2] = color.b * brightness;
-                starSizes[i] = random() * 0.08 + 0.03;
+                starSizes[i] = random() * (isHero ? 0.09 : 0.12) + (isHero ? 0.035 : 0.045);
 
                 starStates.push({
                     x,
@@ -176,7 +176,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const starMaterial = register(new THREE.ShaderMaterial({
                 uniforms: {
                     map: { value: particleTexture },
-                    opacity: { value: 0.35 },
+                    opacity: { value: isHero ? 0.42 : 0.56 },
                 },
                 vertexShader: `
                     attribute float size;
@@ -281,7 +281,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                         color: 0x3b82f6,
                         wireframe: true,
                         transparent: true,
-                        opacity: 0.18,
+                        opacity: 0.28,
                         blending: THREE.AdditiveBlending,
                         depthWrite: false,
                     }));
@@ -331,7 +331,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                         const material = register(new THREE.LineBasicMaterial({
                             color: flowPalette[i % flowPalette.length],
                             transparent: true,
-                            opacity: 0.018 + random() * 0.022,
+                            opacity: 0.052 + random() * 0.048,
                             blending: THREE.AdditiveBlending,
                             depthWrite: false,
                         }));
@@ -343,8 +343,8 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                             material,
                             baseOpacity: material.opacity,
                             phase,
-                            speed: 0.05 + random() * 0.06,
-                            sway: 0.08 + random() * 0.18,
+                            speed: 0.085 + random() * 0.085,
+                            sway: 0.16 + random() * 0.26,
                             y: line.position.y,
                         });
                     }
@@ -423,18 +423,18 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
 
                 root.rotation.y = Math.sin(elapsed * (isLandingPage ? 0.07 : 0.1)) * (isLandingPage ? 0.025 : 0.05);
                 if (isLandingPage) {
-                    root.rotation.x = Math.sin(elapsed * 0.045) * 0.018;
-                    root.position.y = Math.cos(elapsed * 0.035) * 0.16;
-                    stars.rotation.z = Math.sin(elapsed * 0.035) * 0.012;
+                    root.rotation.x = Math.sin(elapsed * 0.06) * 0.026;
+                    root.position.y = Math.cos(elapsed * 0.05) * 0.24;
+                    stars.rotation.z = Math.sin(elapsed * 0.052) * 0.02;
                     if (flowGroup) {
-                        flowGroup.rotation.z = Math.sin(elapsed * 0.035) * 0.014;
-                        flowGroup.position.x = Math.sin(elapsed * 0.025) * 0.22;
-                        flowGroup.position.y = -0.25 + Math.cos(elapsed * 0.032) * 0.22;
+                        flowGroup.rotation.z = Math.sin(elapsed * 0.055) * 0.026;
+                        flowGroup.position.x = Math.sin(elapsed * 0.04) * 0.34;
+                        flowGroup.position.y = -0.25 + Math.cos(elapsed * 0.046) * 0.32;
                         flowLines.forEach((flow, index) => {
                             const pulse = elapsed * flow.speed + flow.phase;
                             flow.line.position.x = Math.sin(pulse) * flow.sway;
-                            flow.line.position.y = flow.y + Math.cos(pulse * 0.8 + index) * 0.08;
-                            flow.material.opacity = flow.baseOpacity * (0.72 + Math.sin(pulse * 1.3) * 0.28);
+                            flow.line.position.y = flow.y + Math.cos(pulse * 0.8 + index) * 0.14;
+                            flow.material.opacity = flow.baseOpacity * (0.62 + Math.sin(pulse * 1.45) * 0.38);
                         });
                     }
                 }
@@ -553,11 +553,11 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                             animation: landingHazeDrift 28s ease-in-out infinite alternate;
                         }
                         .landing-three-canvas {
-                            opacity: ${isHero ? '0.5' : (isLandingPage ? '0.62' : '0.45')};
+                            opacity: ${isHero ? '0.58' : (isLandingPage ? '0.78' : '0.64')};
                         }
                         @media (max-width: 640px) {
                             .landing-three-canvas {
-                                opacity: ${isHero ? '0.4' : '0.25'};
+                                opacity: ${isHero ? '0.46' : (isLandingPage ? '0.42' : '0.36')};
                             }
                         }
                         @media (prefers-reduced-motion: reduce) {

@@ -72,6 +72,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     || routeWithoutPrefix.startsWith('/sessions')
     || routeWithoutPrefix.startsWith('/analytics')
     || routeWithoutPrefix.startsWith('/stability')
+    || routeWithoutPrefix.startsWith('/leaks')
     || routeWithoutPrefix.startsWith('/automations')
     || routeWithoutPrefix.startsWith('/alerts')
     || routeWithoutPrefix.startsWith('/settings')
