@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     sendApiDegradationAlertEmail,
     sendCrashAlertEmail,
+    sendLeakScanEmail,
 } from '../services/email.js';
 
 const { sentMails } = vi.hoisted(() => ({
@@ -96,5 +97,46 @@ describe('alert email content', () => {
         expect(sentMails[0].subject).toContain('API latency degradation in Mobile App');
         expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/api');
         expect(sentMails[0].html).toContain('Slowest Endpoints');
+    });
+
+    it('sends leak scan digests ordered by estimated affected users', async () => {
+        await sendLeakScanEmail([
+            { email: 'marlin@example.com', timeZone: 'UTC' },
+        ], {
+            projectId: 'p_123',
+            projectName: 'Checkout',
+            dashboardUrl: 'http://localhost:8080/dashboard/leaks',
+            completedAt: new Date('2026-06-18T09:00:00.000Z'),
+            issues: [
+                {
+                    id: '00000000-0000-0000-0000-000000000002',
+                    shortId: 'IDM-2',
+                    title: 'Coupon modal traps users',
+                    issueType: 'sp_confusion',
+                    severity: 'medium',
+                    estimatedAffectedUsers: 3,
+                    affectedSessions: 5,
+                    lastSeen: new Date('2026-06-18T08:30:00.000Z'),
+                },
+                {
+                    id: '00000000-0000-0000-0000-000000000001',
+                    shortId: 'IDM-1',
+                    title: 'Checkout button never enables',
+                    issueType: 'sp_failure',
+                    severity: 'high',
+                    estimatedAffectedUsers: 12,
+                    affectedSessions: 14,
+                    lastSeen: new Date('2026-06-18T08:45:00.000Z'),
+                },
+            ],
+        });
+
+        expect(sentMails).toHaveLength(1);
+        expect(sentMails[0].subject).toBe('Leak Scan Today');
+        expect(sentMails[0].text).toContain('Rejourney Marlin has watched your session replays');
+        expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/leaks');
+        expect(sentMails[0].html.indexOf('Checkout button never enables')).toBeLessThan(
+            sentMails[0].html.indexOf('Coupon modal traps users'),
+        );
     });
 });

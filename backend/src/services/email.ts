@@ -75,7 +75,7 @@ interface EmailTemplateProps {
   footerText?: string;
   projectName?: string;
   projectUrl?: string;
-  alertType?: 'crash' | 'anr' | 'error_spike' | 'api_degradation' | 'billing' | 'general';
+  alertType?: 'crash' | 'anr' | 'error_spike' | 'api_degradation' | 'billing' | 'general' | 'leak_scan';
   metaBadges?: EmailMetaBadge[];
   timestamp?: Date;
   timeZone?: string | null;
@@ -108,6 +108,7 @@ const ALERT_LABELS: Record<string, string> = {
   error_spike: 'ERROR SPIKE',
   api_degradation: 'PERFORMANCE',
   billing: 'BILLING NOTICE',
+  leak_scan: 'LEAK SCAN',
   general: 'NOTIFICATION',
 };
 
@@ -926,6 +927,157 @@ export interface CrashAlertData {
   sampleAppVersion?: string;
   sampleOsVersion?: string;
   sampleDeviceModel?: string;
+}
+
+export interface LeakScanEmailIssue {
+  id: string;
+  shortId?: string | null;
+  title: string;
+  issueType?: string | null;
+  severity?: string | null;
+  estimatedAffectedUsers: number;
+  affectedSessions?: number | null;
+  lastSeen?: Date | null;
+}
+
+export interface LeakScanEmailData {
+  projectId: string;
+  projectName: string;
+  dashboardUrl: string;
+  issues: LeakScanEmailIssue[];
+  completedAt: Date;
+  admittedSessions?: number | null;
+}
+
+function formatIssueType(value: string | null | undefined): string {
+  if (!value) return 'Leak';
+  return value
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function renderLeakScanIssueTable(issues: LeakScanEmailIssue[], timeZone: string): string {
+  const rows = issues.map((issue, index) => {
+    const affectedUsers = Math.max(0, Number(issue.estimatedAffectedUsers || 0));
+    const affectedSessions = Math.max(0, Number(issue.affectedSessions || 0));
+    const lastSeen = issue.lastSeen ? formatEmailDate(issue.lastSeen, timeZone) : null;
+
+    return `
+      <tr>
+        <td style="border-bottom: 2px solid #000; padding: 14px 0; vertical-align: top; width: 36px; font-family: monospace; font-weight: 900;">${index + 1}</td>
+        <td style="border-bottom: 2px solid #000; padding: 14px 12px 14px 0; vertical-align: top;">
+          <div style="font-weight: 900; font-size: 16px; margin-bottom: 4px;">${escapeHtml(issue.title)}</div>
+          <div style="font-family: monospace; font-size: 12px; color: #525252;">
+            ${issue.shortId ? `${escapeHtml(issue.shortId)} · ` : ''}${escapeHtml(formatIssueType(issue.issueType))}
+            ${issue.severity ? ` · ${escapeHtml(issue.severity.toUpperCase())}` : ''}
+            ${lastSeen ? ` · last seen ${escapeHtml(lastSeen)}` : ''}
+          </div>
+        </td>
+        <td style="border-bottom: 2px solid #000; padding: 14px 0; vertical-align: top; text-align: right; white-space: nowrap;">
+          <div style="font-size: 20px; font-weight: 900;">${affectedUsers.toLocaleString()}</div>
+          <div style="font-family: monospace; font-size: 11px; color: #525252;">EST. USERS</div>
+          ${affectedSessions > 0 ? `<div style="font-family: monospace; font-size: 11px; color: #525252; margin-top: 4px;">${affectedSessions.toLocaleString()} sessions</div>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+      ${rows}
+    </table>
+  `;
+}
+
+export async function sendLeakScanEmail(
+  recipients: AlertEmailRecipientInput[],
+  data: LeakScanEmailData
+): Promise<void> {
+  if (recipients.length === 0 || data.issues.length === 0) return;
+  const transport = getTransporter();
+  if (!transport) return;
+
+  const recipientGroups = groupAlertRecipientsByTimeZone(recipients);
+  if (recipientGroups.length === 0) return;
+
+  const sortedIssues = data.issues
+    .slice()
+    .sort((a, b) =>
+      (b.estimatedAffectedUsers || 0) - (a.estimatedAffectedUsers || 0) ||
+      (b.affectedSessions || 0) - (a.affectedSessions || 0)
+    );
+  const totalUsers = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.estimatedAffectedUsers || 0)), 0);
+  const totalSessions = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.affectedSessions || 0)), 0);
+  const issueLabel = formatCountWithLabel(sortedIssues.length, 'issue', 'issues');
+  const userLabel = formatCountWithLabel(totalUsers, 'estimated affected user', 'estimated affected users');
+  const subject = 'Leak Scan Today';
+  const projectSettingsLink = emailDashboardAppPath(`/settings/${data.projectId}`);
+
+  const metaBadges: EmailMetaBadge[] = [
+    { label: 'ISSUES', value: sortedIssues.length.toLocaleString() },
+    { label: 'EST. USERS', value: totalUsers.toLocaleString() },
+  ];
+  if (totalSessions > 0) metaBadges.push({ label: 'SESSIONS', value: totalSessions.toLocaleString() });
+
+  const buildSections = (timeZone: string): EmailSection[] => [
+    {
+      style: 'warning',
+      content: `
+        <div style="font-size: 16px; line-height: 1.65;">
+          Rejourney Marlin has watched your session replays and found these leaks that blocked the funnel:
+        </div>
+      `,
+    },
+    {
+      title: 'Leaks Found',
+      content: renderLeakScanIssueTable(sortedIssues, timeZone),
+    },
+    {
+      title: 'What This Means',
+      style: 'info',
+      content: `
+        A problem is one affected session. An issue is Rejourney Marlin grouping similar problems together so your coding agent has one actionable item to fix.
+      `,
+    },
+  ];
+
+  for (const group of recipientGroups) {
+    const completedAtText = formatEmailDate(data.completedAt, group.timeZone);
+    const textLines = [
+      'Rejourney Marlin has watched your session replays and found these leaks that blocked the funnel:',
+      '',
+      ...sortedIssues.map((issue, index) =>
+        `${index + 1}. ${issue.title} — ${Math.max(0, Number(issue.estimatedAffectedUsers || 0)).toLocaleString()} estimated affected users`
+      ),
+      '',
+      `Open dashboard: ${data.dashboardUrl}`,
+    ];
+
+    await transport.sendMail({
+      from: config.SMTP_FROM || 'Rejourney Alerts <alerts@rejourney.co>',
+      to: group.recipients.map((recipient) => recipient.email).join(','),
+      subject,
+      text: textLines.join('\n'),
+      html: generateEmailHtml({
+        title: subject,
+        previewText: `${data.projectName}: ${issueLabel}, ${userLabel}`,
+        sections: buildSections(group.timeZone),
+        action: {
+          label: 'Open Dashboard',
+          url: data.dashboardUrl,
+        },
+        projectName: data.projectName,
+        projectUrl: projectSettingsLink,
+        alertType: 'leak_scan',
+        metaBadges,
+        timestamp: data.completedAt,
+        timeZone: group.timeZone,
+        footerText: `Scan completed ${completedAtText}. Sent to alert recipients for ${data.projectName}. Times shown in ${group.timeZone}.`,
+      })
+    });
+  }
 }
 
 export async function sendCrashAlertEmail(

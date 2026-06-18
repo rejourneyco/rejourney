@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { config } from '../config.js';
 import {
@@ -16,6 +17,7 @@ import {
 import { downloadRawFromS3ForArtifactStrict, StorageDownloadError } from '../db/s3.js';
 import { requireIssueDetectionInternalAuth } from '../middleware/internalServiceAuth.js';
 import { ApiError, asyncHandler } from '../middleware/index.js';
+import { triggerLeakScanDigestEmail } from '../services/alertService.js';
 
 const router = Router();
 
@@ -28,6 +30,23 @@ const MAX_BATCH_SESSION_IDS = 2000;
 const DEFAULT_DIGEST_LIMIT_PER_SESSION = 3;
 const MAX_DIGEST_LIMIT_PER_SESSION = 10;
 const VISUAL_ARTIFACT_KINDS = ['screenshots', 'hierarchy', 'rrweb', 'video'];
+
+const leakScanEmailBodySchema = z.object({
+    projectId: z.string().uuid(),
+    scanRunId: z.string().uuid(),
+    completedAt: z.string().datetime().optional(),
+    admittedSessions: z.number().int().nonnegative().optional(),
+    issues: z.array(z.object({
+        id: z.string().uuid(),
+        shortId: z.string().min(1).max(40).nullable().optional(),
+        title: z.string().min(1).max(500),
+        issueType: z.string().max(80).nullable().optional(),
+        severity: z.string().max(40).nullable().optional(),
+        estimatedAffectedUsers: z.number().int().nonnegative(),
+        affectedSessions: z.number().int().nonnegative().nullable().optional(),
+        lastSeen: z.string().datetime().nullable().optional(),
+    })).min(1).max(50),
+});
 
 type CandidateTimeWindow = {
     lookback: string;
@@ -184,6 +203,26 @@ router.use((_req, _res, next) => {
 });
 
 router.use(requireIssueDetectionInternalAuth);
+
+router.post('/leak-scan-email', asyncHandler(async (req, res) => {
+    const parsed = leakScanEmailBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+        throw ApiError.badRequest('Invalid leak scan email payload');
+    }
+
+    const result = await triggerLeakScanDigestEmail({
+        projectId: parsed.data.projectId,
+        scanRunId: parsed.data.scanRunId,
+        completedAt: parsed.data.completedAt ? new Date(parsed.data.completedAt) : new Date(),
+        admittedSessions: parsed.data.admittedSessions,
+        issues: parsed.data.issues.map((issue) => ({
+            ...issue,
+            lastSeen: issue.lastSeen ? new Date(issue.lastSeen) : null,
+        })),
+    });
+
+    res.status(result.sent ? 202 : 200).json(result);
+}));
 
 router.get('/projects', asyncHandler(async (_req, res) => {
     const rows = await dbRead

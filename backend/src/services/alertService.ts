@@ -15,6 +15,7 @@ import {
     sendAnrAlertEmail,
     sendErrorSpikeAlertEmail,
     sendApiDegradationAlertEmail,
+    sendLeakScanEmail,
 } from './email.js';
 import { shouldSendForEmailRules } from './emailAlertRules.js';
 import { querySlowestApiEndpointsFromClickHouse } from './apiEndpointStatsClickHouse.js';
@@ -26,7 +27,33 @@ const SAME_TYPE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 const DAILY_ALERT_CAP = 20;
 
 // Alert types
-type AlertType = 'crash' | 'anr' | 'error_spike' | 'api_degradation';
+type AlertType = 'crash' | 'anr' | 'error_spike' | 'api_degradation' | 'leak_scan';
+
+export interface LeakScanDigestIssue {
+    id: string;
+    shortId?: string | null;
+    title: string;
+    issueType?: string | null;
+    severity?: string | null;
+    estimatedAffectedUsers: number;
+    affectedSessions?: number | null;
+    lastSeen?: Date | null;
+}
+
+export interface TriggerLeakScanDigestEmailInput {
+    projectId: string;
+    scanRunId: string;
+    completedAt?: Date;
+    admittedSessions?: number;
+    issues: LeakScanDigestIssue[];
+}
+
+export interface TriggerLeakScanDigestEmailResult {
+    sent: boolean;
+    issueCount: number;
+    recipientCount: number;
+    reason?: string;
+}
 
 interface ErrorSpikeAlertWindowOptions {
     currentWindowStart: Date;
@@ -157,6 +184,24 @@ async function recordAlertSent(
     });
 }
 
+async function hasAlertBeenSent(
+    projectId: string,
+    alertType: AlertType,
+    fingerprint: string
+): Promise<boolean> {
+    const [existing] = await db
+        .select({ id: alertHistory.id })
+        .from(alertHistory)
+        .where(and(
+            eq(alertHistory.projectId, projectId),
+            eq(alertHistory.alertType, alertType),
+            eq(alertHistory.fingerprint, fingerprint)
+        ))
+        .limit(1);
+
+    return Boolean(existing);
+}
+
 /**
  * Get alert recipients with name and email for logging
  */
@@ -237,6 +282,104 @@ async function getProjectAlertSettings(projectId: string) {
 // =============================================================================
 // Public Alert Functions
 // =============================================================================
+
+export async function triggerLeakScanDigestEmail(
+    input: TriggerLeakScanDigestEmailInput
+): Promise<TriggerLeakScanDigestEmailResult> {
+    const sortedIssues = input.issues
+        .filter((issue) => issue.title.trim().length > 0)
+        .sort((a, b) =>
+            (b.estimatedAffectedUsers || 0) - (a.estimatedAffectedUsers || 0) ||
+            (b.affectedSessions || 0) - (a.affectedSessions || 0)
+        );
+
+        if (sortedIssues.length === 0) {
+            return { sent: false, issueCount: 0, recipientCount: 0, reason: 'no_issues' };
+        }
+
+    try {
+        const settings = await getProjectAlertSettings(input.projectId);
+        if (settings?.leakScanAlertsEnabled === false) {
+            logger.debug({ projectId: input.projectId }, 'Leak scan digest emails disabled');
+            return {
+                sent: false,
+                issueCount: sortedIssues.length,
+                recipientCount: 0,
+                reason: 'disabled',
+            };
+        }
+
+        if (await hasAlertBeenSent(input.projectId, 'leak_scan', input.scanRunId)) {
+            return {
+                sent: false,
+                issueCount: sortedIssues.length,
+                recipientCount: 0,
+                reason: 'already_sent',
+            };
+        }
+
+        const recipientDetails = await getRecipientDetails(input.projectId);
+        if (recipientDetails.length === 0) {
+            logger.debug({ projectId: input.projectId }, 'No leak scan alert recipients');
+            return {
+                sent: false,
+                issueCount: sortedIssues.length,
+                recipientCount: 0,
+                reason: 'no_recipients',
+            };
+        }
+
+        const recipients = recipientDetails.map(r => ({
+            email: r.email,
+            name: r.name,
+            timeZone: r.timeZone,
+        }));
+        const projectName = await getProjectName(input.projectId);
+        const dashboardUrl = emailDashboardAppPath('/leaks');
+
+        await sendLeakScanEmail(recipients, {
+            projectId: input.projectId,
+            projectName,
+            dashboardUrl,
+            issues: sortedIssues,
+            completedAt: input.completedAt ?? new Date(),
+            admittedSessions: input.admittedSessions ?? null,
+        });
+
+        await recordAlertSent(input.projectId, 'leak_scan', recipients.length, input.scanRunId);
+        await logEmailSends(
+            input.projectId,
+            recipientDetails,
+            'leak_scan',
+            'Leak Scan Today',
+            `${sortedIssues.length} leak ${sortedIssues.length === 1 ? 'issue' : 'issues'}`,
+        );
+
+        logger.info(
+            {
+                projectId: input.projectId,
+                scanRunId: input.scanRunId,
+                recipients: recipients.length,
+                issueCount: sortedIssues.length,
+            },
+            'Leak scan digest email sent',
+        );
+
+        return {
+            sent: true,
+            issueCount: sortedIssues.length,
+            recipientCount: recipients.length,
+        };
+    } catch (error) {
+        logger.error({ projectId: input.projectId, scanRunId: input.scanRunId, error }, 'Failed to send leak scan digest email');
+        return {
+            sent: false,
+            issueCount: sortedIssues.length,
+            recipientCount: 0,
+            reason: 'send_failed',
+        };
+    }
+}
 
 /**
  * Send crash alert if enabled and not rate limited

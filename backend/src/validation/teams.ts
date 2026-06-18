@@ -12,6 +12,7 @@ export const updateTeamSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     billingPlan: z.string().optional(),
     retentionTier: z.number().int().min(1).max(6).optional(),
+    workspaceConfirmed: z.boolean().optional(),
 });
 
 export const addTeamMemberSchema = z.object({

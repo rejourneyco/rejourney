@@ -72,6 +72,14 @@ export function MarkSvelte(props: React.SVGProps<SVGSVGElement>) {
     );
 }
 
+export function MarkRemix(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+            <path d="M4 4h9.3c3.9 0 6.5 2.3 6.5 5.7 0 2.3-1.2 4-3.2 4.9 1.2.6 1.9 1.6 2.4 3.1l.7 2.3h-5.2l-.5-1.8c-.5-1.7-1.3-2.4-3-2.4H4v-4.1h8.8c1.4 0 2.2-.7 2.2-1.9 0-1.2-.8-1.9-2.2-1.9H4V4z" />
+        </svg>
+    );
+}
+
 export function MarkSolid(props: React.SVGProps<SVGSVGElement>) {
     return (
         <svg viewBox="0 0 24 28" fill="currentColor" aria-hidden {...props}>
@@ -79,4 +87,3 @@ export function MarkSolid(props: React.SVGProps<SVGSVGElement>) {
         </svg>
     );
 }
-

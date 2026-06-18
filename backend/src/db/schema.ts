@@ -103,6 +103,7 @@ export const teams = pgTable('teams', {
     bonusSessions: integer('bonus_sessions').default(0).notNull(), // Manual override: extra sessions beyond plan limit
     /** When set, bonus_sessions only applies for this billing period string (see getTeamBillingPeriod). */
     bonusSessionsBillingPeriod: text('bonus_sessions_billing_period'),
+    workspaceConfirmedAt: timestamp('workspace_confirmed_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -1193,6 +1194,7 @@ export const alertSettings = pgTable('alert_settings', {
     anrAlertsEnabled: boolean('anr_alerts_enabled').default(true).notNull(),
     errorSpikeAlertsEnabled: boolean('error_spike_alerts_enabled').default(true).notNull(),
     apiDegradationAlertsEnabled: boolean('api_degradation_alerts_enabled').default(true).notNull(),
+    leakScanAlertsEnabled: boolean('leak_scan_alerts_enabled').default(true).notNull(),
 
     // Thresholds
     errorSpikeThresholdPercent: integer('error_spike_threshold_percent').default(50), // 50% increase triggers alert

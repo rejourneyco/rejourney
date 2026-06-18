@@ -23,6 +23,7 @@ function getAlertSettingsAuditState(settings?: {
     anrAlertsEnabled?: boolean | null;
     errorSpikeAlertsEnabled?: boolean | null;
     apiDegradationAlertsEnabled?: boolean | null;
+    leakScanAlertsEnabled?: boolean | null;
     errorSpikeThresholdPercent?: number | null;
     apiDegradationThresholdPercent?: number | null;
     apiLatencyThresholdMs?: number | null;
@@ -34,6 +35,7 @@ function getAlertSettingsAuditState(settings?: {
         anrAlertsEnabled: settings?.anrAlertsEnabled ?? true,
         errorSpikeAlertsEnabled: settings?.errorSpikeAlertsEnabled ?? true,
         apiDegradationAlertsEnabled: settings?.apiDegradationAlertsEnabled ?? true,
+        leakScanAlertsEnabled: settings?.leakScanAlertsEnabled ?? true,
         errorSpikeThresholdPercent: settings?.errorSpikeThresholdPercent ?? 50,
         apiDegradationThresholdPercent: settings?.apiDegradationThresholdPercent ?? 100,
         apiLatencyThresholdMs: settings?.apiLatencyThresholdMs ?? 3000,
@@ -70,6 +72,7 @@ const updateAlertSettingsSchema = z.object({
     anrAlertsEnabled: z.boolean().optional(),
     errorSpikeAlertsEnabled: z.boolean().optional(),
     apiDegradationAlertsEnabled: z.boolean().optional(),
+    leakScanAlertsEnabled: z.boolean().optional(),
     dailyDigestEnabled: z.boolean().optional(),
     errorSpikeThresholdPercent: z.number().min(10).max(500).optional(),
     apiDegradationThresholdPercent: z.number().min(10).max(1000).optional(),

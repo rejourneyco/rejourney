@@ -40,10 +40,12 @@ const router = Router();
 function getTeamAuditState(team: {
     name: string | null;
     retentionTier?: number | null;
+    workspaceConfirmedAt?: Date | null;
 }): Record<string, unknown> {
     return {
         name: team.name ?? null,
         retentionTier: team.retentionTier ?? null,
+        workspaceConfirmedAt: team.workspaceConfirmedAt ?? null,
     };
 }
 
@@ -105,6 +107,7 @@ router.post(
         const [team] = await db.insert(teams).values({
             name: req.body.name || `${req.user!.email.split('@')[0]}'s Team`,
             ownerUserId: req.user!.id,
+            workspaceConfirmedAt: new Date(),
         }).returning();
 
         // Create team member entry for owner
@@ -205,6 +208,9 @@ router.put(
         };
         if (req.body.name !== undefined) setParams.name = req.body.name;
         if (req.body.retentionTier !== undefined) setParams.retentionTier = req.body.retentionTier;
+        if ((req.body.workspaceConfirmed === true || req.body.name !== undefined) && !currentTeam.workspaceConfirmedAt) {
+            setParams.workspaceConfirmedAt = new Date();
+        }
 
         const [team] = await db.update(teams)
             .set(setParams)

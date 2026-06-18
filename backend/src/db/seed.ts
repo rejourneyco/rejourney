@@ -187,6 +187,7 @@ async function main() {
             const [team] = await db.insert(teams).values({
                 ownerUserId: testUser.id,
                 name: 'Test Team',
+                workspaceConfirmedAt: new Date(),
             }).returning();
 
             // Add user as team owner

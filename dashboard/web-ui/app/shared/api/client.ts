@@ -3862,6 +3862,19 @@ export interface GithubInstallationRepos {
     truncated?: boolean;
 }
 
+export interface GithubInstallationCandidate {
+    installationId: number;
+    accountLogin: string;
+    accountType: 'Organization' | 'User';
+    repositorySelection: 'all' | 'selected';
+    installationState: Exclude<GithubInstallationState, 'none'>;
+    repos: GithubLinkRepo[];
+}
+
+export interface GithubInstallationsResponse {
+    installations: GithubInstallationCandidate[];
+}
+
 export async function getGithubLinkStatus(projectId: string): Promise<GithubLinkStatus> {
     if (isDemoMode()) {
         return {
@@ -3875,6 +3888,12 @@ export async function getGithubLinkStatus(projectId: string): Promise<GithubLink
     }
     return fetchJson<GithubLinkStatus>(
         `/api/automations/github/link?projectId=${encodeURIComponent(projectId)}`,
+    );
+}
+
+export async function getGithubInstallations(projectId: string): Promise<GithubInstallationsResponse> {
+    return fetchJson<GithubInstallationsResponse>(
+        `/api/automations/github/installations?projectId=${encodeURIComponent(projectId)}`,
     );
 }
 
@@ -4036,6 +4055,7 @@ export interface ApiTeam {
     ownerUserId: string;
     name?: string;
     billingPlan?: string;
+    workspaceConfirmedAt?: string | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -4074,17 +4094,19 @@ export async function createTeam(name?: string): Promise<ApiTeam> {
         method: 'POST',
         body: JSON.stringify({ name }),
     });
+    clearCache('/api/teams');
     return data.team;
 }
 
 /**
  * Update team settings
  */
-export async function updateTeam(teamId: string, updates: { name?: string; billingPlan?: string }): Promise<ApiTeam> {
+export async function updateTeam(teamId: string, updates: { name?: string; billingPlan?: string; workspaceConfirmed?: boolean }): Promise<ApiTeam> {
     const data = await fetchJson<{ team: ApiTeam }>(`/api/teams/${teamId}`, {
         method: 'PUT',
         body: JSON.stringify(updates),
     });
+    clearCache('/api/teams');
     return data.team;
 }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import {
     Activity,
     AlertOctagon,
@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
-import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
+import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
+import { Modal } from '~/shared/ui/core/Modal';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
@@ -140,6 +141,14 @@ const EVENT_META: Record<EmailRuleAlertType, {
         accent: 'bg-[#67e8f9]',
         badgeVariant: 'info',
     },
+};
+
+const EMAIL_LOG_META: Record<string, { shortLabel: string; accent: string }> = {
+    crash: { shortLabel: EVENT_META.crash.shortLabel, accent: EVENT_META.crash.accent },
+    anr: { shortLabel: EVENT_META.anr.shortLabel, accent: EVENT_META.anr.accent },
+    error_spike: { shortLabel: EVENT_META.error_spike.shortLabel, accent: EVENT_META.error_spike.accent },
+    api_degradation: { shortLabel: EVENT_META.api_degradation.shortLabel, accent: EVENT_META.api_degradation.accent },
+    leak_scan: { shortLabel: 'Leak Scan', accent: 'bg-[#86efac]' },
 };
 
 const METRIC_LABELS: Record<EmailRuleMetric, string> = {
@@ -452,44 +461,76 @@ function formatSentAt(value: string): { date: string; time: string } {
     };
 }
 
-const Toggle: React.FC<{
-    enabled: boolean;
-    onChange: (enabled: boolean) => void;
-    disabled?: boolean;
-    label: string;
-}> = ({ enabled, onChange, disabled, label }) => (
-    <button
-        type="button"
-        aria-label={label}
-        aria-pressed={enabled}
-        onClick={() => !disabled && onChange(!enabled)}
-        disabled={disabled}
-        className={`relative h-6 w-11 rounded-full border transition-colors ${enabled ? 'border-[#14532d] bg-[#166534]' : 'border-slate-300 bg-slate-100'} ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-[#15803d]'}`}
-    >
-        <span
-            className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full border bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5 border-[#14532d]' : 'translate-x-0 border-slate-300'}`}
-        />
-    </button>
+interface SettingsSectionProps {
+    id: string;
+    title: string;
+    description: string;
+    action?: React.ReactNode;
+    children: React.ReactNode;
+}
+
+const SettingsSection: React.FC<SettingsSectionProps> = ({
+    id,
+    title,
+    description,
+    action,
+    children,
+}) => (
+    <section id={id} className="project-settings-section dashboard-surface scroll-mt-24 overflow-hidden">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-black">{title}</h2>
+                <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-500">{description}</p>
+            </div>
+            {action}
+        </div>
+        <div className="divide-y divide-slate-100 bg-white">
+            {children}
+        </div>
+    </section>
 );
 
-const SectionHeading: React.FC<{
-    icon: React.ReactNode;
-    title: string;
-    eyebrow?: string;
-    action?: React.ReactNode;
-}> = ({ icon, title, eyebrow, action }) => (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaed] bg-white px-5 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dadce0] bg-[#f8fafd] text-[#1a73e8]">
-                {icon}
-            </div>
-            <div className="min-w-0">
-                {eyebrow && <div className="text-[11px] font-semibold uppercase text-slate-500">{eyebrow}</div>}
-                <h2 className="truncate text-base font-semibold text-[#202124]">{title}</h2>
-            </div>
+interface SettingRowProps {
+    title: React.ReactNode;
+    description?: React.ReactNode;
+    children: React.ReactNode;
+}
+
+const SettingRow: React.FC<SettingRowProps> = ({ title, description, children }) => (
+    <div className="project-settings-row grid gap-4 px-5 py-4 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1fr)] lg:items-start">
+        <div className="min-w-0">
+            {typeof title === 'string' ? <h3 className="text-sm font-semibold text-slate-950">{title}</h3> : title}
+            {description && (
+                <div className="mt-1 max-w-md text-xs font-medium leading-5 text-slate-500">
+                    {description}
+                </div>
+            )}
         </div>
-        {action}
+        <div className="min-w-0">
+            {children}
+        </div>
     </div>
+);
+
+interface SwitchControlProps {
+    checked: boolean;
+    disabled?: boolean;
+    onChange: (checked: boolean) => void;
+    label: string;
+}
+
+const SwitchControl: React.FC<SwitchControlProps> = ({ checked, disabled, onChange, label }) => (
+    <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        disabled={disabled}
+        className={`project-settings-switch ${checked ? 'project-settings-switch-on' : ''}`}
+    >
+        <span />
+    </button>
 );
 
 interface RuleDraft {
@@ -514,10 +555,53 @@ const createEmptyRuleDraft = (): RuleDraft => ({
     description: '',
 });
 
+function getBrowserTimeZone(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'your local timezone';
+    } catch {
+        return 'your local timezone';
+    }
+}
+
+function getLeakScanLocalTime() {
+    const timeZone = getBrowserTimeZone();
+    const scanReference = new Date();
+    scanReference.setUTCHours(3, 0, 0, 0);
+
+    try {
+        return {
+            timeZone,
+            localScanLabel: new Intl.DateTimeFormat(undefined, {
+                hour: 'numeric',
+                minute: '2-digit',
+                timeZone,
+                timeZoneName: 'short',
+            }).format(scanReference),
+        };
+    } catch {
+        return {
+            timeZone,
+            localScanLabel: scanReference.toLocaleTimeString(),
+        };
+    }
+}
+
 export const AlertEmails: React.FC = () => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const pathPrefix = usePathPrefix();
+    const location = useLocation();
+    const leakScanTiming = useMemo(() => getLeakScanLocalTime(), []);
+
+    const navItems = [
+        { href: '#recipients', label: 'Email Recipients' },
+        { href: '#rules', label: 'Alert Rules' },
+        { href: '#logs', label: 'Delivery Logs' },
+    ];
+    const activeSectionHref = navItems.some((item) => item.href === location.hash)
+        ? location.hash
+        : navItems[0]?.href;
+
     const [settings, setSettings] = useState<AlertSettings | null>(null);
     const [rules, setRules] = useState<EmailAlertRule[]>([]);
     const [recipients, setRecipients] = useState<AlertRecipient[]>([]);
@@ -754,12 +838,12 @@ export const AlertEmails: React.FC = () => {
     }
 
     return (
-        <div className="rejourney-alerts-page min-h-screen animate-fade-in bg-[#f8fafd] pb-10 font-sans text-[#202124]">
-            <DashboardPageHeader
-                title="Email Alerts"
-                subtitle="Choose which signals send email and who receives them"
-                {...dashboardPageHeaderProps('emails')}
-            >
+        <SettingsLayout
+            {...dashboardPageHeaderProps('emails')}
+            className="rejourney-settings-page rejourney-alerts-page rejourney-project-settings-page"
+            title="Email Alerts"
+            description="Choose which signals send email and who receives them"
+            headerAction={
                 <div className="flex flex-wrap items-center gap-2">
                     {isRulesDirty && (
                         <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
@@ -787,501 +871,507 @@ export const AlertEmails: React.FC = () => {
                         Save changes
                     </NeoButton>
                 </div>
-            </DashboardPageHeader>
-
-            <div className="mx-auto max-w-[1360px] space-y-5 px-3 py-5 sm:px-6">
-                {error && (
-                    <div className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
-                        <AlertTriangle className="h-5 w-5 shrink-0" />
-                        <span className="min-w-0 flex-1">{error}</span>
-                        <button type="button" onClick={() => setError(null)} className="rounded-md p-1 hover:bg-white">
-                            <X className="h-5 w-5" />
-                        </button>
+            }
+        >
+            <div className="project-settings-console grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
+                <aside className="project-settings-rail" aria-label="Alerts settings navigation">
+                    <div className="project-settings-rail-header">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sections</p>
                     </div>
-                )}
-
-                <section className="dashboard-surface p-5">
-                    <div className="grid gap-4 md:grid-cols-3">
-                        {[
-                            {
-                                label: 'Rules turned on',
-                                value: `${summary.activeRules}/${rules.length || 0}`,
-                                helper: 'Only enabled rules can send email.',
-                            },
-                            {
-                                label: 'People receiving email',
-                                value: `${recipients.length}/5`,
-                                helper: 'Recipients are team members on this project.',
-                            },
-                            {
-                                label: 'Delivery issues shown',
-                                value: summary.failedLogs,
-                                helper: 'Failed or bounced emails in the current log view.',
-                            },
-                        ].map((item) => (
-                            <div key={item.label} className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-4">
-                                <div className="text-xs font-semibold uppercase text-slate-500">{item.label}</div>
-                                <div className="mt-2 text-2xl font-semibold text-[#202124]">{item.value}</div>
-                                <p className="mt-1 text-xs font-medium text-slate-500">{item.helper}</p>
-                            </div>
+                    <nav className="project-settings-rail-nav" aria-label="Alerts settings sections">
+                        {navItems.map((item) => (
+                            <a
+                                key={item.href}
+                                href={item.href}
+                                aria-current={activeSectionHref === item.href ? 'true' : undefined}
+                                className="project-settings-rail-item"
+                            >
+                                <span className="project-settings-rail-marker" />
+                                <span className="truncate">{item.label}</span>
+                            </a>
                         ))}
-                    </div>
-                </section>
+                    </nav>
+                </aside>
 
-                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-                    <section className="dashboard-surface overflow-hidden">
-                        <SectionHeading
-                            icon={<SlidersHorizontal className="h-5 w-5" />}
-                            eyebrow="Alert rules"
-                            title="When should Rejourney send email?"
-                            action={(
-                                <button
-                                    type="button"
-                                    onClick={() => setShowComposer((open) => !open)}
-                                    className="inline-flex h-9 items-center gap-2 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] hover:bg-[#f8fafd]"
-                                >
-                                    {showComposer ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                                    {showComposer ? 'Close' : 'Add rule'}
-                                </button>
-                            )}
-                        />
+                <div className="min-w-0 space-y-5">
+                    {error && (
+                        <div className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+                            <AlertTriangle className="h-5 w-5 shrink-0" />
+                            <span className="min-w-0 flex-1">{error}</span>
+                            <button type="button" onClick={() => setError(null)} className="rounded-md p-1 hover:bg-white">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                    )}
 
-                        <div className="border-b border-[#e8eaed] bg-blue-50/60 px-5 py-3">
-                            <div className="flex gap-2 text-sm text-blue-900">
-                                <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                                <p className="font-medium">
-                                    Rule numbers are thresholds. A rule sends email only when the signal reaches that number, then duplicate emails are suppressed for one hour.
+                    <div className="dashboard-surface overflow-hidden border border-[#dadce0] bg-white">
+                        <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 text-xs font-bold uppercase text-[#1a73e8]">
+                                    <Mail className="h-4 w-4" />
+                                    Looking for Leaks Alerts?
+                                </div>
+                                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-900">
+                                    Leak Scan Today digests are configured from the Leaks inbox, where Marlin shows the issues that triggered the email.
+                                </p>
+                                <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-500">
+                                    Scans run around 3:00 AM UTC, about {leakScanTiming.localScanLabel} in {leakScanTiming.timeZone}. Issues usually begin appearing a few minutes after the run starts.
                                 </p>
                             </div>
+                            <Link
+                                to={`${pathPrefix}/leaks?settings=leak-alerts`}
+                                className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-[#1a73e8] bg-[#1a73e8] px-3 text-sm font-semibold text-white transition-colors hover:border-[#1e40af] hover:bg-[#2563eb]"
+                            >
+                                Open leak alert settings
+                            </Link>
                         </div>
+                    </div>
 
-                        <div className="divide-y divide-[#e8eaed]">
-                            {(Object.keys(EVENT_META) as EmailRuleAlertType[]).map((alertType) => {
-                                const meta = EVENT_META[alertType];
-                                const eventRules = rulesByEvent[alertType];
-                                return (
-                                    <div key={alertType} className="bg-white">
-                                        <div className="flex items-center justify-between gap-3 bg-[#f8fafd] px-5 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${meta.accent} text-[#202124]`}>
-                                                    {meta.icon}
-                                                </span>
-                                                <div>
-                                                    <div className="text-sm font-semibold text-[#202124]">{meta.label}</div>
-                                                    <div className="text-xs font-medium text-slate-500">
-                                                        {eventRules.filter((rule) => rule.enabled).length} of {eventRules.length} rules on
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="divide-y divide-[#edf0f3]">
-                                            {eventRules.map((rule) => (
-                                                <div key={rule.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_300px_auto] lg:items-center">
-                                                    <div className="min-w-0">
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <h3 className="text-sm font-semibold text-[#202124]">{rule.name}</h3>
-                                                            <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${rule.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                                                                {rule.enabled ? 'On' : 'Off'}
-                                                            </span>
-                                                            {rule.source === 'custom' && (
-                                                                <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                                                                    Custom
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className="mt-1 text-sm font-medium text-slate-700">{ruleTriggerSentence(rule)}</p>
-                                                        <p className="mt-1 text-xs font-medium text-slate-500">{ruleNumberHelp(rule)}</p>
-                                                    </div>
-
-                                                    <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] lg:grid-cols-[108px_minmax(0,1fr)]">
-                                                        <label className="block">
-                                                            <span className="mb-1 block text-xs font-semibold text-slate-500">Trigger</span>
-                                                            <select
-                                                                value={rule.operator}
-                                                                onChange={(event) => handleRuleUpdate(rule.id, { operator: event.target.value as EmailRuleOperator })}
-                                                                className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-2 text-sm font-medium outline-none"
-                                                            >
-                                                                {(Object.keys(OPERATOR_WORDS) as EmailRuleOperator[]).map((operator) => (
-                                                                    <option key={operator} value={operator}>{OPERATOR_WORDS[operator]}</option>
-                                                                ))}
-                                                            </select>
-                                                        </label>
-                                                        <label className="block">
-                                                            <span className="mb-1 block text-xs font-semibold text-slate-500">Threshold</span>
-                                                            <div className="flex h-10 overflow-hidden rounded-md border border-[#dadce0] bg-white">
-                                                                <input
-                                                                    type="number"
-                                                                    min={0}
-                                                                    step={rule.metric === 'duration_ms' ? 0.5 : 1}
-                                                                    value={thresholdInputValue(rule)}
-                                                                    onChange={(event) => handleRuleUpdate(rule.id, { threshold: thresholdFromInput(rule.metric, Number(event.target.value)) })}
-                                                                    className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold outline-none"
-                                                                />
-                                                                <span className="flex items-center border-l border-[#e8eaed] bg-[#f8fafd] px-3 text-xs font-semibold text-slate-500">
-                                                                    {thresholdUnitLabel(rule.metric)}
-                                                                </span>
-                                                            </div>
-                                                        </label>
-                                                    </div>
-
-                                                    <div className="flex items-center justify-between gap-2 lg:justify-end">
-                                                        <Toggle
-                                                            label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.name}`}
-                                                            enabled={rule.enabled}
-                                                            onChange={(enabled) => handleRuleUpdate(rule.id, { enabled })}
-                                                        />
-                                                        {rule.source === 'custom' && (
-                                                            <button
-                                                                type="button"
-                                                                aria-label={`Delete ${rule.name}`}
-                                                                onClick={() => handleDeleteRule(rule.id)}
-                                                                className="flex h-9 w-9 items-center justify-center rounded-md border border-[#dadce0] bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </section>
-
-                    <aside className="space-y-5">
-                        <section className="dashboard-surface overflow-hidden">
-                            <SectionHeading icon={<Users className="h-5 w-5" />} eyebrow="Recipients" title="Who gets emails?" />
-                            <div className="space-y-3 p-5">
-                                {recipients.length === 0 ? (
-                                    <div className="rounded-lg border border-dashed border-slate-300 bg-[#f8fafd] p-5 text-center">
-                                        <Mail className="mx-auto h-8 w-8 text-slate-300" />
-                                        <p className="mt-3 text-sm font-semibold text-slate-600">No recipients yet</p>
-                                        <p className="mt-1 text-xs font-medium text-slate-500">Add a team member before alerts can be delivered.</p>
-                                    </div>
-                                ) : (
-                                    recipients.map((recipient) => (
-                                        <div key={recipient.id} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#e8eaed] bg-white p-3">
-                                            <div className="flex min-w-0 items-center gap-3">
-                                                {recipient.avatarUrl ? (
-                                                    <img src={recipient.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-[#dadce0] object-cover" />
-                                                ) : (
-                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
-                                                        {(recipient.displayName || recipient.email)[0].toUpperCase()}
-                                                    </div>
-                                                )}
-                                                <div className="min-w-0">
-                                                    <p className="truncate text-sm font-semibold text-[#202124]">{recipient.displayName || recipient.email}</p>
-                                                    <p className="truncate text-xs font-medium text-slate-500">{recipient.email}</p>
-                                                </div>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                aria-label={`Remove ${recipient.displayName || recipient.email}`}
-                                                onClick={() => handleRemoveRecipient(recipient.userId)}
-                                                className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                                            >
-                                                <X className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    ))
-                                )}
+                    {/* SECTION 1: RECIPIENTS */}
+                    <SettingsSection
+                        id="recipients"
+                        title="Email Recipients"
+                        description="Choose which team members receive alert emails when rules are triggered."
+                        action={
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-semibold text-slate-500">{recipients.length} / 5 members</span>
                                 {recipients.length < 5 && (
-                                    <button
+                                    <NeoButton
                                         type="button"
+                                        variant="primary"
+                                        size="sm"
                                         onClick={() => setShowAddRecipient(true)}
-                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white text-sm font-semibold text-[#202124] hover:bg-[#f8fafd]"
+                                        leftIcon={<UserPlus className="h-3.5 w-3.5" />}
                                     >
-                                        <UserPlus className="h-4 w-4" />
                                         Add recipient
-                                    </button>
+                                    </NeoButton>
                                 )}
                             </div>
-                        </section>
-
-                        <section className="dashboard-surface overflow-hidden">
-                            <SectionHeading icon={<Filter className="h-5 w-5" />} eyebrow="Guardrails" title="Noise controls" />
-                            <div className="space-y-3 p-5 text-sm">
-                                <div className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-3">
-                                    <div className="font-semibold text-[#202124]">Same issue cooldown</div>
-                                    <p className="mt-1 text-xs font-medium text-slate-500">Duplicate emails for the same issue are held for 1 hour.</p>
-                                </div>
-                                <div className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-3">
-                                    <div className="font-semibold text-[#202124]">Project daily cap</div>
-                                    <p className="mt-1 text-xs font-medium text-slate-500">A project sends at most 20 alert emails per day.</p>
-                                </div>
+                        }
+                    >
+                        {recipients.length === 0 ? (
+                            <div className="py-8 text-center bg-white">
+                                <Mail className="mx-auto h-8 w-8 text-slate-300" />
+                                <p className="mt-3 text-sm font-semibold text-slate-600">No recipients configured yet</p>
+                                <p className="mt-1 text-xs font-medium text-slate-500">Alert emails will not be delivered until a recipient is added.</p>
                             </div>
-                        </section>
-                    </aside>
-                </div>
-
-                {showComposer && (
-                    <section className="dashboard-surface overflow-hidden">
-                        <SectionHeading icon={<Plus className="h-5 w-5" />} eyebrow="Custom rule" title="Add a rule" />
-                        <div className="grid gap-4 p-5 lg:grid-cols-[minmax(220px,1fr)_180px_180px_160px] lg:items-end">
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-semibold text-slate-500">Rule name</span>
-                                <input
-                                    value={ruleDraft.name}
-                                    onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
-                                    placeholder="Production crash surge"
-                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
-                                />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-semibold text-slate-500">Alert type</span>
-                                <select
-                                    value={ruleDraft.alertType}
-                                    onChange={(event) => handleDraftAlertTypeChange(event.target.value as EmailRuleAlertType)}
-                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
-                                >
-                                    {(Object.keys(EVENT_META) as EmailRuleAlertType[]).map((alertType) => (
-                                        <option key={alertType} value={alertType}>{EVENT_META[alertType].label}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-semibold text-slate-500">Measure</span>
-                                <select
-                                    value={ruleDraft.metric}
-                                    onChange={(event) => setRuleDraft((current) => ({ ...current, metric: event.target.value as EmailRuleMetric }))}
-                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
-                                >
-                                    {METRICS_BY_EVENT[ruleDraft.alertType].map((metric) => (
-                                        <option key={metric} value={metric}>{METRIC_LABELS[metric]}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="block">
-                                <span className="mb-1 block text-xs font-semibold text-slate-500">Threshold</span>
-                                <div className="flex h-10 overflow-hidden rounded-md border border-[#dadce0] bg-white">
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        step={ruleDraft.metric === 'duration_ms' ? 0.5 : 1}
-                                        value={thresholdInputValue(ruleDraft)}
-                                        onChange={(event) => setRuleDraft((current) => ({
-                                            ...current,
-                                            threshold: thresholdFromInput(current.metric, Number(event.target.value)),
-                                        }))}
-                                        className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold outline-none"
-                                    />
-                                    <span className="flex items-center border-l border-[#e8eaed] bg-[#f8fafd] px-3 text-xs font-semibold text-slate-500">
-                                        {thresholdUnitLabel(ruleDraft.metric)}
-                                    </span>
+                        ) : (
+                            recipients.map((recipient) => (
+                                <div key={recipient.id} className="flex items-center justify-between px-5 py-4 hover:bg-[#fbfdff]">
+                                    <div className="flex items-center gap-3">
+                                        {recipient.avatarUrl ? (
+                                            <img src={recipient.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                        ) : (
+                                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                                                {(recipient.displayName || recipient.email)[0].toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-slate-900">{recipient.displayName || recipient.email}</p>
+                                            <p className="truncate text-xs font-medium text-slate-500">{recipient.email}</p>
+                                        </div>
+                                    </div>
+                                    <NeoButton
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => handleRemoveRecipient(recipient.userId)}
+                                        leftIcon={<Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-rose-600" />}
+                                    >
+                                        Remove
+                                    </NeoButton>
                                 </div>
-                            </label>
-                            <div className="lg:col-span-3">
-                                <p className="text-xs font-medium text-slate-500">{ruleNumberHelp(ruleDraft)}</p>
-                            </div>
+                            ))
+                        )}
+                    </SettingsSection>
+
+                    {/* SECTION 2: RULES */}
+                    <SettingsSection
+                        id="rules"
+                        title="Alert Rules"
+                        description="Define thresholds for crashes, ANR freezes, error spikes, and API degradation."
+                        action={
                             <NeoButton
                                 type="button"
                                 variant="primary"
-                                leftIcon={<Zap className="h-4 w-4" />}
-                                onClick={handleAddRule}
+                                size="sm"
+                                onClick={() => setShowComposer(true)}
+                                leftIcon={<Plus className="h-3.5 w-3.5" />}
                             >
                                 Add rule
                             </NeoButton>
-                        </div>
-                    </section>
-                )}
-
-                {showAddRecipient && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-                        <div className="dashboard-surface w-full max-w-md overflow-hidden bg-white">
-                            <div className="flex items-center justify-between border-b border-[#e8eaed] px-5 py-4">
-                                <div>
-                                    <h3 className="text-base font-semibold text-[#202124]">Add recipient</h3>
-                                    <p className="mt-1 text-xs font-medium text-slate-500">Choose a team member to receive matched alert emails.</p>
-                                </div>
-                                <button type="button" onClick={() => setShowAddRecipient(false)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
-                                    <X className="h-5 w-5" />
-                                </button>
-                            </div>
-                            <div className="max-h-[62vh] overflow-y-auto bg-white p-5">
-                                {nonRecipientMembers.length === 0 ? (
-                                    <div className="py-8 text-center">
-                                        <Check className="mx-auto mb-3 h-9 w-9 text-emerald-500" />
-                                        <p className="font-semibold text-[#202124]">Everyone is already included.</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {nonRecipientMembers.map((member) => (
-                                            <button
-                                                type="button"
-                                                key={member.userId}
-                                                onClick={() => handleAddRecipient(member.userId)}
-                                                className="flex w-full items-center justify-between gap-3 rounded-lg border border-[#e8eaed] bg-white p-3 text-left hover:bg-[#f8fafd]"
+                        }
+                    >
+                        {rules.map((rule) => {
+                            const meta = EVENT_META[rule.alertType];
+                            return (
+                                <SettingRow
+                                    key={rule.id}
+                                    title={
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <h3 className="text-sm font-semibold text-slate-900">{rule.name}</h3>
+                                            <NeoBadge variant={meta.badgeVariant} size="sm">{meta.shortLabel}</NeoBadge>
+                                            {rule.source === 'custom' && (
+                                                <NeoBadge variant="info" size="sm">Custom</NeoBadge>
+                                            )}
+                                        </div>
+                                    }
+                                    description={
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-medium text-slate-700">{ruleTriggerSentence(rule)}</p>
+                                            <p className="text-xs font-medium text-slate-400">{ruleNumberHelp(rule)}</p>
+                                        </div>
+                                    }
+                                >
+                                    <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap lg:justify-end">
+                                        <div className="w-full sm:w-[130px] shrink-0">
+                                            <select
+                                                value={rule.operator}
+                                                onChange={(event) => handleRuleUpdate(rule.id, { operator: event.target.value as EmailRuleOperator })}
+                                                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                             >
-                                                <div className="flex min-w-0 items-center gap-3">
-                                                    {member.avatarUrl ? (
-                                                        <img src={member.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-[#dadce0] object-cover" />
-                                                    ) : (
-                                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
-                                                            {(member.displayName || member.email)[0].toUpperCase()}
-                                                        </div>
-                                                    )}
-                                                    <div className="min-w-0">
-                                                        <p className="truncate text-sm font-semibold text-[#202124]">{member.displayName || member.email}</p>
-                                                        <p className="truncate text-xs font-medium text-slate-500">{member.role}</p>
-                                                    </div>
-                                                </div>
-                                                <UserPlus className="h-4 w-4 shrink-0 text-slate-500" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                                                {(Object.keys(OPERATOR_WORDS) as EmailRuleOperator[]).map((operator) => (
+                                                    <option key={operator} value={operator}>{OPERATOR_WORDS[operator]}</option>
+                                                ))}
+                                            </select>
+                                        </div>
 
-                <section className="dashboard-surface overflow-hidden">
-                    <SectionHeading
-                        icon={<Mail className="h-5 w-5" />}
-                        eyebrow="History"
+                                        <div className="flex h-9 w-full sm:w-[150px] shrink-0 overflow-hidden rounded-md border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step={rule.metric === 'duration_ms' ? 0.5 : 1}
+                                                value={thresholdInputValue(rule)}
+                                                onChange={(event) => handleRuleUpdate(rule.id, { threshold: thresholdFromInput(rule.metric, Number(event.target.value)) })}
+                                                className="min-w-0 flex-1 border-0 bg-transparent px-3 text-xs font-semibold outline-none"
+                                            />
+                                            <span className="flex items-center border-l border-slate-100 bg-[#f8fafd] px-2.5 text-[10px] font-bold text-slate-500 uppercase">
+                                                {thresholdUnitLabel(rule.metric)}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-3 ml-auto shrink-0 sm:ml-0">
+                                            <SwitchControl
+                                                label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.name}`}
+                                                checked={rule.enabled}
+                                                onChange={(enabled) => handleRuleUpdate(rule.id, { enabled })}
+                                            />
+                                            {rule.source === 'custom' && (
+                                                <button
+                                                    type="button"
+                                                    aria-label={`Delete ${rule.name}`}
+                                                    onClick={() => handleDeleteRule(rule.id)}
+                                                    className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </SettingRow>
+                            );
+                        })}
+                    </SettingsSection>
+
+
+                    {/* SECTION 4: DELIVERY LOGS */}
+                    <SettingsSection
+                        id="logs"
                         title="Delivery Logs"
-                        action={(
+                        description="Review recent alert email delivery status and recipients."
+                        action={
                             <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
                                 {summary.sentLogs} delivered
                             </span>
-                        )}
-                    />
-
-                    <div className="flex flex-col gap-3 border-b border-[#e8eaed] bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
-                        <div className="relative w-full md:max-w-md">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                value={emailLogSearch}
-                                onChange={(event) => setEmailLogSearch(event.target.value)}
-                                placeholder="Filter logs"
-                                className="h-10 w-full rounded-md border border-[#dadce0] bg-white pl-10 pr-3 text-sm font-medium outline-none"
-                            />
+                        }
+                    >
+                        <div className="flex flex-col gap-3 border-b border-slate-100 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
+                            <div className="relative w-full md:max-w-md">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={emailLogSearch}
+                                    onChange={(event) => setEmailLogSearch(event.target.value)}
+                                    placeholder="Filter logs by recipient or subject"
+                                    className="h-9 w-full rounded-md border border-slate-200 bg-white pl-10 pr-3 text-xs font-semibold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                />
+                            </div>
+                            <select
+                                value={emailLogTypeFilter}
+                                onChange={(event) => setEmailLogTypeFilter(event.target.value)}
+                                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            >
+                                <option value="all">All Types</option>
+                                <option value="crash">Crashes</option>
+                                <option value="anr">ANRs</option>
+                                <option value="error_spike">Error Spikes</option>
+                                <option value="api_degradation">API Degradation</option>
+                                <option value="leak_scan">Leak Scans</option>
+                            </select>
                         </div>
-                        <select
-                            value={emailLogTypeFilter}
-                            onChange={(event) => setEmailLogTypeFilter(event.target.value)}
-                            className="h-10 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
-                        >
-                            <option value="all">All Types</option>
-                            <option value="crash">Crashes</option>
-                            <option value="anr">ANRs</option>
-                            <option value="error_spike">Error Spikes</option>
-                            <option value="api_degradation">API Degradation</option>
-                        </select>
-                    </div>
 
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[820px] text-left text-sm">
-                            <thead className="border-b border-[#e8eaed] bg-[#f8fafd] text-xs font-semibold uppercase text-slate-500">
-                                <tr>
-                                    <th className="p-4">Time</th>
-                                    <th className="p-4">Class</th>
-                                    <th className="p-4">Recipient</th>
-                                    <th className="p-4">Subject</th>
-                                    <th className="p-4 text-right">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#edf0f3]">
-                                {isLoadingLogs ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[820px] text-left text-sm">
+                                <thead className="border-b border-[#dadce0] bg-[#f8fafd] text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                     <tr>
-                                        <td colSpan={5} className="p-10 text-center text-sm font-semibold text-slate-400">
-                                            Loading email logs
-                                        </td>
+                                        <th className="px-5 py-3 font-bold">Time</th>
+                                        <th className="px-5 py-3 font-bold">Class</th>
+                                        <th className="px-5 py-3 font-bold">Recipient</th>
+                                        <th className="px-5 py-3 font-bold">Subject</th>
+                                        <th className="px-5 py-3 text-right font-bold">Status</th>
                                     </tr>
-                                ) : emailLogs.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={5} className="p-12 text-center">
-                                            <Mail className="mx-auto mb-3 h-10 w-10 text-slate-200" />
-                                            <p className="text-base font-semibold text-slate-500">No emails sent yet</p>
-                                            <p className="mt-1 text-xs font-medium text-slate-400">Alert emails will appear here after a rule matches.</p>
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    emailLogs.map((log) => {
-                                        const sentAt = formatSentAt(log.sentAt);
-                                        const meta = EVENT_META[(log.alertType as EmailRuleAlertType)] ?? EVENT_META.crash;
-                                        return (
-                                            <tr key={log.id} className="transition-colors hover:bg-[#f8fafc]">
-                                                <td className="p-4 whitespace-nowrap">
-                                                    <div className="font-semibold text-slate-900">{sentAt.date}</div>
-                                                    <div className="text-xs font-medium text-slate-400">{sentAt.time}</div>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`h-2.5 w-2.5 rounded-full ${meta.accent}`} />
-                                                        <span className="font-semibold text-slate-800">{meta.shortLabel}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="font-semibold text-slate-900">{log.recipientName || log.recipientEmail}</div>
-                                                    {log.recipientName && (
-                                                        <div className="text-xs font-medium text-slate-500">{log.recipientEmail}</div>
-                                                    )}
-                                                </td>
-                                                <td className="max-w-sm p-4">
-                                                    <div className="truncate font-medium text-slate-700" title={log.subject}>{log.subject}</div>
-                                                    {log.issueId && (
-                                                        <Link
-                                                            to={`${pathPrefix}/general/${log.issueId}`}
-                                                            className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                                        >
-                                                            View issue
-                                                        </Link>
-                                                    )}
-                                                </td>
-                                                <td className="p-4 text-right">
-                                                    {log.status === 'sent' ? (
-                                                        <NeoBadge variant="success" size="sm" className="shadow-none">Delivered</NeoBadge>
-                                                    ) : log.status === 'failed' ? (
-                                                        <span title={log.errorMessage || 'Email delivery failed'}>
-                                                            <NeoBadge variant="danger" size="sm" className="shadow-none">Failed</NeoBadge>
-                                                        </span>
-                                                    ) : (
-                                                        <NeoBadge variant="warning" size="sm" className="shadow-none">Bounced</NeoBadge>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody className="divide-y divide-[#edf0f3] bg-white">
+                                    {isLoadingLogs ? (
+                                        <tr>
+                                            <td colSpan={5} className="p-10 text-center text-sm font-semibold text-slate-400 bg-white">
+                                                Loading email logs...
+                                            </td>
+                                        </tr>
+                                    ) : emailLogs.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} className="p-12 text-center bg-white">
+                                                <Mail className="mx-auto mb-3 h-10 w-10 text-slate-200" />
+                                                <p className="text-sm font-semibold text-slate-500">No emails sent yet</p>
+                                                <p className="mt-1 text-xs font-medium text-slate-400">Alert emails will appear here after a rule matches.</p>
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        emailLogs.map((log) => {
+                                            const sentAt = formatSentAt(log.sentAt);
+                                            const meta = EMAIL_LOG_META[log.alertType] ?? EMAIL_LOG_META.crash;
+                                            return (
+                                                <tr key={log.id} className="transition-colors hover:bg-[#f8fafc]">
+                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                        <div className="font-semibold text-slate-900">{sentAt.date}</div>
+                                                        <div className="text-xs font-medium text-slate-400">{sentAt.time}</div>
+                                                    </td>
+                                                    <td className="px-5 py-3.5">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`h-2.5 w-2.5 rounded-full ${meta.accent}`} />
+                                                            <span className="font-semibold text-slate-800">{meta.shortLabel}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-5 py-3.5">
+                                                        <div className="font-semibold text-slate-900">{log.recipientName || log.recipientEmail}</div>
+                                                        {log.recipientName && (
+                                                            <div className="text-xs font-medium text-slate-400">{log.recipientEmail}</div>
+                                                        )}
+                                                    </td>
+                                                    <td className="max-w-sm px-5 py-3.5">
+                                                        <div className="truncate font-medium text-slate-700" title={log.subject}>{log.subject}</div>
+                                                        {log.issueId && (
+                                                            <Link
+                                                                to={`${pathPrefix}/general/${log.issueId}`}
+                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                View issue
+                                                            </Link>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-5 py-3.5 text-right">
+                                                        {log.status === 'sent' ? (
+                                                            <NeoBadge variant="success" size="sm" className="shadow-none">Delivered</NeoBadge>
+                                                        ) : log.status === 'failed' ? (
+                                                            <span title={log.errorMessage || 'Email delivery failed'}>
+                                                                <NeoBadge variant="danger" size="sm" className="shadow-none">Failed</NeoBadge>
+                                                            </span>
+                                                        ) : (
+                                                            <NeoBadge variant="warning" size="sm" className="shadow-none">Bounced</NeoBadge>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
 
-                    {emailLogPagination.totalPages > 1 && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8eaed] bg-white px-5 py-4">
-                            <div className="text-xs font-medium text-slate-500">
-                                Page {emailLogPagination.page} / {emailLogPagination.totalPages} | Total {emailLogPagination.total}
+                        {emailLogPagination.totalPages > 1 && (
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-[#f8fafd] px-5 py-4">
+                                <div className="text-xs font-medium text-slate-500">
+                                    Page {emailLogPagination.page} / {emailLogPagination.totalPages} | Total {emailLogPagination.total}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <NeoButton
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => loadEmailLogs(emailLogPagination.page - 1)}
+                                        disabled={emailLogPagination.page <= 1}
+                                        leftIcon={<ChevronLeft className="h-3.5 w-3.5" />}
+                                    >
+                                        Previous
+                                    </NeoButton>
+                                    <NeoButton
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => loadEmailLogs(emailLogPagination.page + 1)}
+                                        disabled={emailLogPagination.page >= emailLogPagination.totalPages}
+                                        rightIcon={<ChevronRight className="h-3.5 w-3.5" />}
+                                    >
+                                        Next
+                                    </NeoButton>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <NeoButton
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => loadEmailLogs(emailLogPagination.page - 1)}
-                                    disabled={emailLogPagination.page <= 1}
-                                    leftIcon={<ChevronLeft className="h-3.5 w-3.5" />}
+                        )}
+                    </SettingsSection>
+                </div>
+            </div>
+
+            {/* Add Recipient Modal */}
+            <Modal
+                isOpen={showAddRecipient}
+                onClose={() => setShowAddRecipient(false)}
+                title="Add Recipient"
+                size="sm"
+            >
+                <div className="space-y-4 py-2">
+                    <p className="text-xs font-medium text-slate-500">
+                        Choose a team member to receive matched alert emails.
+                    </p>
+                    {nonRecipientMembers.length === 0 ? (
+                        <div className="py-8 text-center">
+                            <Check className="mx-auto mb-3 h-9 w-9 text-emerald-500" />
+                            <p className="font-semibold text-slate-900">Everyone is already included.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                            {nonRecipientMembers.map((member) => (
+                                <button
+                                    type="button"
+                                    key={member.userId}
+                                    onClick={() => handleAddRecipient(member.userId)}
+                                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left hover:bg-[#f8fafd] transition-colors"
                                 >
-                                    Previous
-                                </NeoButton>
-                                <NeoButton
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => loadEmailLogs(emailLogPagination.page + 1)}
-                                    disabled={emailLogPagination.page >= emailLogPagination.totalPages}
-                                    rightIcon={<ChevronRight className="h-3.5 w-3.5" />}
-                                >
-                                    Next
-                                </NeoButton>
-                            </div>
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        {member.avatarUrl ? (
+                                            <img src={member.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                        ) : (
+                                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                                                {(member.displayName || member.email)[0].toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-slate-900">{member.displayName || member.email}</p>
+                                            <p className="truncate text-xs font-medium text-slate-500">{member.role}</p>
+                                        </div>
+                                    </div>
+                                    <UserPlus className="h-4 w-4 shrink-0 text-slate-400" />
+                                </button>
+                            ))}
                         </div>
                     )}
-                </section>
-            </div>
-        </div>
+                </div>
+            </Modal>
+
+            {/* Add Custom Rule Modal */}
+            <Modal
+                isOpen={showComposer}
+                onClose={() => setShowComposer(false)}
+                title="Add Custom Alert Rule"
+                size="md"
+                footer={
+                    <div className="flex gap-2">
+                        <NeoButton
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setShowComposer(false)}
+                        >
+                            Cancel
+                        </NeoButton>
+                        <NeoButton
+                            type="button"
+                            variant="primary"
+                            leftIcon={<Zap className="h-4 w-4" />}
+                            onClick={handleAddRule}
+                        >
+                            Add rule
+                        </NeoButton>
+                    </div>
+                }
+            >
+                <div className="space-y-4 py-2">
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold text-slate-500">Rule name</span>
+                        <input
+                            value={ruleDraft.name}
+                            onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="e.g. Production crash surge"
+                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
+                    </label>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold text-slate-500">Alert type</span>
+                            <select
+                                value={ruleDraft.alertType}
+                                onChange={(event) => handleDraftAlertTypeChange(event.target.value as EmailRuleAlertType)}
+                                className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            >
+                                {(Object.keys(EVENT_META) as EmailRuleAlertType[]).map((alertType) => (
+                                    <option key={alertType} value={alertType}>{EVENT_META[alertType].label}</option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold text-slate-500">Measure</span>
+                            <select
+                                value={ruleDraft.metric}
+                                onChange={(event) => setRuleDraft((current) => ({ ...current, metric: event.target.value as EmailRuleMetric }))}
+                                className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            >
+                                {METRICS_BY_EVENT[ruleDraft.alertType].map((metric) => (
+                                    <option key={metric} value={metric}>{METRIC_LABELS[metric]}</option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold text-slate-500">Trigger</span>
+                            <select
+                                value={ruleDraft.operator}
+                                onChange={(event) => setRuleDraft((current) => ({ ...current, operator: event.target.value as EmailRuleOperator }))}
+                                className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            >
+                                {(Object.keys(OPERATOR_WORDS) as EmailRuleOperator[]).map((operator) => (
+                                    <option key={operator} value={operator}>{OPERATOR_WORDS[operator]}</option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold text-slate-500">Threshold</span>
+                            <div className="flex h-9 overflow-hidden rounded-md border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    step={ruleDraft.metric === 'duration_ms' ? 0.5 : 1}
+                                    value={thresholdInputValue(ruleDraft)}
+                                    onChange={(event) => setRuleDraft((current) => ({
+                                        ...current,
+                                        threshold: thresholdFromInput(current.metric, Number(event.target.value)),
+                                    }))}
+                                    className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold outline-none"
+                                />
+                                <span className="flex items-center border-l border-slate-100 bg-[#f8fafd] px-3 text-xs font-semibold text-slate-500 uppercase">
+                                    {thresholdUnitLabel(ruleDraft.metric)}
+                                </span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <p className="text-xs font-medium text-slate-500 bg-blue-50/50 p-2.5 rounded-md border border-blue-100 flex items-start gap-2">
+                        <Info className="h-4 w-4 shrink-0 text-blue-500 mt-0.5" />
+                        <span>{ruleNumberHelp(ruleDraft) || "Custom rule matching defined parameters."}</span>
+                    </p>
+                </div>
+            </Modal>
+        </SettingsLayout>
     );
 };
 

@@ -56,6 +56,10 @@ const LEGACY_PUBLIC_HTML_REDIRECTS = new Map([
   ['/](https:/rejourney.co/', '/'],
 ]);
 
+function isApiRequestPath(pathname) {
+  return pathname === '/api' || pathname.startsWith('/api/');
+}
+
 function isEdgeCacheableHtmlPath(pathname) {
   return EDGE_CACHEABLE_HTML_PATTERNS.some((pattern) => pattern.test(pathname));
 }
@@ -223,7 +227,7 @@ app.use('/assets', (req, res, next) => {
 });
 
 app.use((req, res, next) => {
-  if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api')) {
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || isApiRequestPath(req.path)) {
     next();
     return;
   }

@@ -25,22 +25,24 @@ export const Footer: React.FC = () => {
     { label: "vs Smartlook", href: "/alternatives/smartlook" },
     { label: "vs Hotjar", href: "/alternatives/hotjar" },
   ];
-  const featureLinks = [
+  const platformLinks = [
     { label: "AI Funnel Leak Detection", href: "/ai-funnel-leak-detection" },
+    { label: "Rejourney Marlin", href: "/rejourney-marlin" },
+    { label: "Self-Healing Software", href: "/self-healing-software" },
+    { label: "Stability Monitoring", href: "/stability-monitoring" },
+    { label: "API Endpoint Insights", href: "/api-endpoint-insights" },
+    { label: "Device Insights", href: "/device-insights" },
+    { label: "Geographic Analytics", href: "/geographic-analytics" },
+  ];
+  const replayAnalyticsLinks = [
     { label: "Web Replay Evidence", href: "/web-session-replay" },
     { label: "Mobile Replay Evidence", href: "/mobile-session-replay" },
     { label: "Funnel Replay Evidence", href: "/funnel-replay-evidence" },
-    { label: "Geographic Analytics", href: "/geographic-analytics" },
+    { label: "Heatmaps", href: "/heatmaps" },
     { label: "Revenue Recovery Analytics", href: "/revenue-recovery-analytics" },
     { label: "Standardized Context", href: "/standardized-context" },
     { label: "AI Agent Handoff", href: "/ai-agent-handoff" },
     { label: "Autonomous Debugging", href: "/autonomous-debugging" },
-    { label: "Heatmaps", href: "/heatmaps" },
-    { label: "Replay Evidence Mentality", href: "/replay-first-mentality" },
-    { label: "Importance of Open Source", href: "/importance-of-open-source" },
-    { label: "What Is Session Replay", href: "/what-is-session-replay" },
-    { label: "How to See What Your Users Do", href: "/how-to-see-what-your-users-do" },
-    { label: "Be Your Users", href: "/be-your-users" },
   ];
   const resourceLinks = [
     { label: copy.docs, href: docsPath },
@@ -49,6 +51,7 @@ export const Footer: React.FC = () => {
     { label: "iOS SDK", href: swiftDocsPath },
     { label: copy.selfHosted, href: selfHostedPath },
     { label: copy.pricing, href: pricingPath },
+    { label: "Benchmarks", href: "/benchmarks" },
     { label: copy.engineering, href: engineeringPath },
     { label: "Demo", href: "/demo" },
   ];
@@ -91,22 +94,22 @@ export const Footer: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid gap-10 sm:grid-cols-2 xl:grid-cols-4">
-            <nav className={sectionClass} aria-label="Comparison pages">
-              <h2 className={headingClass}>Comparisons</h2>
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <nav className={sectionClass} aria-label="Platform pages">
+              <h2 className={headingClass}>Platform</h2>
               <div className="space-y-4">
-                {comparisonLinks.map((item) => (
-                  <Link key={item.href} to={item.href} className={linkClass}>
+                {platformLinks.map((item) => (
+                  <Link key={`${item.href}-${item.label}`} to={item.href} className={linkClass}>
                     {item.label}
                   </Link>
                 ))}
               </div>
             </nav>
 
-            <nav className={sectionClass} aria-label="Feature pages">
-              <h2 className={headingClass}>Features</h2>
+            <nav className={sectionClass} aria-label="Replay and analytics pages">
+              <h2 className={headingClass}>Replay & Analytics</h2>
               <div className="space-y-4">
-                {featureLinks.map((item) => (
+                {replayAnalyticsLinks.map((item) => (
                   <Link key={`${item.href}-${item.label}`} to={item.href} className={linkClass}>
                     {item.label}
                   </Link>
@@ -125,6 +128,17 @@ export const Footer: React.FC = () => {
                 <a href="https://github.com/rejourneyco/rejourney/releases" target="_blank" rel="noopener noreferrer" className={linkClass}>
                   {copy.changelog}
                 </a>
+              </div>
+            </nav>
+
+            <nav className={sectionClass} aria-label="Comparison pages">
+              <h2 className={headingClass}>Comparisons</h2>
+              <div className="space-y-4">
+                {comparisonLinks.map((item) => (
+                  <Link key={item.href} to={item.href} className={linkClass}>
+                    {item.label}
+                  </Link>
+                ))}
               </div>
             </nav>
 

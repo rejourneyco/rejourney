@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const cwd = process.cwd();
@@ -10,6 +10,10 @@ function read(path) {
 
 function fail(message) {
   failures.push(message);
+}
+
+function assertFileExists(path, message) {
+  if (!existsSync(join(cwd, path))) fail(message);
 }
 
 function assertIncludes(path, needle, message) {
@@ -108,9 +112,24 @@ function checkTitles() {
 
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
-  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "AI funnel leak detection", "Home page must advertise AI funnel leak detection.");
-  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", 'to={DEMO_PATH}', "Home page demo CTA must link directly to /demo.");
-  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "Find my leaks", "Home page must keep the primary leak-finding CTA.");
+  assertIncludes("app/features/public/home/route.tsx", "AI funnel leak detection", "Home page metadata must keep AI funnel leak detection discoverability.");
+  assertIncludes("app/shell/components/layout/Header.tsx", "Self-Healing Software", "Header Platform menu must include Self-Healing Software.");
+  assertIncludes("app/shell/components/layout/Header.tsx", "Stability Monitoring", "Header Platform menu must include Stability Monitoring.");
+  assertIncludes("app/shell/components/layout/Header.tsx", "API Endpoint Insights", "Header Platform menu must include API Endpoint Insights.");
+  assertIncludes("app/shell/components/layout/Header.tsx", "Device Insights", "Header Platform menu must include Device Insights.");
+  assertIncludes("app/shell/components/layout/Footer.tsx", "Replay & Analytics", "Footer must keep features organized into a Replay & Analytics group.");
+  for (const path of [
+    "/self-healing-software",
+    "/stability-monitoring",
+    "/api-endpoint-insights",
+    "/device-insights",
+  ]) {
+    assertIncludes("app/features/public/seo/seoPages.ts", `path: "${path}"`, `SEO page is missing: ${path}`);
+    assertIncludes("app/shell/components/layout/Footer.tsx", path, `Footer must link to ${path}.`);
+    assertIncludes("app/shell/components/layout/Header.tsx", path, `Header must link to ${path}.`);
+  }
+  assertFileExists("public/images/engineering/product-tools-live-api-endpoints.png", "API endpoint insights screenshot is missing.");
+  assertFileExists("public/images/engineering/product-tools-live-devices.png", "Device insights screenshot is missing.");
   assertNotIncludes("app/features/public/home/components/AiLeakHomepage.tsx", "<iframe", "Home page must not embed the live demo.");
   assertIncludes("app/shell/routing/publicRoutes.ts", 'features/public/home/redirect.tsx', "Bare localized homepage routes must redirect to the English homepage.");
   assertIncludes("app/shell/components/layout/Footer.tsx", 'to="/demo"', "Footer should keep an internal link to the crawlable demo.");

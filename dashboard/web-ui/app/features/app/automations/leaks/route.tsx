@@ -1,23 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	AlertCircle,
+    Bell,
 	BookOpen,
 	CheckCircle2,
 	ClipboardPaste,
 	FileText,
+	Github,
 	Inbox,
 	Loader2,
-    Github,
     Play,
     Search,
     Settings,
     SlidersHorizontal,
     SquareArrowOutUpRight,
+    Trash2,
+    UserPlus,
     Wrench,
     X,
     XCircle,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import type { LoaderFunctionArgs } from 'react-router';
 import {
     getGithubInstallUrl,
@@ -37,11 +40,36 @@ import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
+import { Modal } from '~/shared/ui/core/Modal';
+import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { buildLeakIdeHandoffUrl, LEAK_IDE_OPTIONS, type LeakIde, type LeakIdeConfig } from './ideLinks';
 
 const IDE_STORAGE_PREFIX = 'rejourney.issueDetection.ide';
+const ISSUE_SCAN_WINDOW_HOURS = 24;
+const ISSUE_SCAN_DAILY_SESSION_CAP = 150;
 type AffectedFilter = 'all' | 'high' | 'medium' | 'low';
+
+interface LeakAlertSettings {
+    leakScanAlertsEnabled: boolean;
+}
+
+interface LeakAlertRecipient {
+    id: string;
+    userId: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+}
+
+interface LeakAlertTeamMember {
+    userId: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+    role: string;
+    isRecipient: boolean;
+}
 
 export function loader(_args: LoaderFunctionArgs) {
     if (!isIssueDetectionUiEnabled()) {
@@ -92,6 +120,67 @@ function affectedFilterLabel(filter: AffectedFilter): string {
     return 'All signals';
 }
 
+function getBrowserTimeZone(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'your local timezone';
+    } catch {
+        return 'your local timezone';
+    }
+}
+
+function formatLocalDateTime(date: Date, timeZone: string): string {
+    try {
+        return new Intl.DateTimeFormat(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone,
+        }).format(date);
+    } catch {
+        return date.toLocaleString();
+    }
+}
+
+function formatLocalTime(date: Date, timeZone: string): string {
+    try {
+        return new Intl.DateTimeFormat(undefined, {
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZone,
+            timeZoneName: 'short',
+        }).format(date);
+    } catch {
+        return date.toLocaleTimeString();
+    }
+}
+
+function getLeakScanTiming() {
+    const timeZone = getBrowserTimeZone();
+    const nextScanReference = new Date();
+    nextScanReference.setUTCHours(3, 0, 0, 0);
+
+    return {
+        timeZone,
+        localScanLabel: formatLocalTime(nextScanReference, timeZone),
+    };
+}
+
+function formatReadableScope(sourceGlobs: string[] | null | undefined): { label: string; extraCount: number } {
+    const globs = (sourceGlobs ?? []).map((glob) => glob.trim()).filter(Boolean);
+    if (globs.length === 0 || globs.some((glob) => glob === '**' || glob === '**/*')) {
+        return { label: 'Whole repository', extraCount: 0 };
+    }
+
+    const labels = globs.map((glob) => {
+        const withoutRecursive = glob.replace(/\/\*\*$/u, '').replace(/\*\*$/u, '');
+        return withoutRecursive || glob;
+    });
+
+    return {
+        label: labels.slice(0, 3).join(', '),
+        extraCount: Math.max(labels.length - 3, 0),
+    };
+}
+
 function isLeakIde(value: unknown): value is LeakIde {
     return value === 'cursor' || value === 'claude' || value === 'codex' || value === 'vscode';
 }
@@ -120,6 +209,82 @@ function readIdeConfig(projectId: string): LeakIdeConfig {
 function saveIdeConfig(projectId: string, config: LeakIdeConfig) {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(`${IDE_STORAGE_PREFIX}:${projectId}`, JSON.stringify(config));
+}
+
+function getAlertHeaders(includeBody = false): HeadersInit {
+    const headers: HeadersInit = {};
+    const csrf = getCsrfToken();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+    if (includeBody) headers['Content-Type'] = 'application/json';
+    return headers;
+}
+
+async function getLeakAlertSettings(projectId: string): Promise<LeakAlertSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/alert-settings`, {
+        credentials: 'include',
+        headers: getAlertHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to load leak alert settings');
+    const data = await response.json();
+    return {
+        leakScanAlertsEnabled: data.settings?.leakScanAlertsEnabled ?? true,
+    };
+}
+
+async function updateLeakAlertSettings(projectId: string, settings: Partial<LeakAlertSettings>): Promise<LeakAlertSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/alert-settings`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: getAlertHeaders(true),
+        body: JSON.stringify(settings),
+    });
+    if (!response.ok) throw new Error('Failed to save leak alert settings');
+    const data = await response.json();
+    return {
+        leakScanAlertsEnabled: data.settings?.leakScanAlertsEnabled ?? true,
+    };
+}
+
+async function getLeakAlertRecipients(projectId: string): Promise<LeakAlertRecipient[]> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/alert-recipients`, {
+        credentials: 'include',
+        headers: getAlertHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to load alert recipients');
+    const data = await response.json();
+    return data.recipients;
+}
+
+async function getLeakAlertTeamMembers(projectId: string): Promise<LeakAlertTeamMember[]> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/available-recipients`, {
+        credentials: 'include',
+        headers: getAlertHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to load team members');
+    const data = await response.json();
+    return data.members;
+}
+
+async function addLeakAlertRecipient(projectId: string, userId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/alert-recipients`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAlertHeaders(true),
+        body: JSON.stringify({ userId }),
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to add alert recipient');
+    }
+}
+
+async function removeLeakAlertRecipient(projectId: string, userId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/alert-recipients/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAlertHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to remove alert recipient');
 }
 
 async function writeClipboardText(text: string): Promise<boolean> {
@@ -321,17 +486,9 @@ function LeakRow({
 }
 
 function GithubNotLinked({
-    projectId,
     suspended,
-    busy,
-    error,
-    onInstall,
 }: {
-    projectId: string;
     suspended: boolean;
-    busy: boolean;
-    error: string | null;
-    onInstall: () => void;
 }) {
     return (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-white px-6 py-16 text-center">
@@ -339,23 +496,156 @@ function GithubNotLinked({
                 <Github className="h-8 w-8 text-[#3c4043]" />
             </span>
             <h2 className="text-lg font-semibold text-[#202124]">
-                {suspended ? 'GitHub App suspended' : 'Connect your GitHub repository'}
+                {suspended ? 'GitHub access needs attention' : 'No GitHub repository connected'}
             </h2>
             <p className="max-w-sm text-sm font-medium leading-6 text-[#5f6368]">
                 {suspended
-                    ? 'Reauthorize the Rejourney GitHub App to resume detecting leaks for this project.'
-                    : 'Link your repo so Rejourney can detect issues and pinpoint their source in your code. Your inbox appears here once GitHub is connected.'}
+                    ? 'Reconnect GitHub to resume detecting leaks for this project.'
+                    : 'Leak signals will appear here after a GitHub repository is connected and scans find issues.'}
             </p>
-            <button
-                type="button"
-                onClick={onInstall}
-                disabled={busy || !projectId}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#1a73e8] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#2563eb] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-                <Github className="h-4 w-4" />
-                {busy ? 'Starting…' : suspended ? 'Reauthorize GitHub App' : 'Install GitHub App'}
-            </button>
-            {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
+        </div>
+    );
+}
+
+function NoIssuesDetectedState() {
+    const timing = useMemo(() => getLeakScanTiming(), []);
+
+    return (
+        <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f1f3f4]">
+                <Inbox className="h-7 w-7 text-[#9aa0a6]" aria-hidden />
+            </span>
+            <div className="max-w-xs">
+                <p className="text-sm font-semibold text-[#202124]">Your inbox is empty</p>
+                <p className="mt-1.5 text-sm font-medium leading-6 text-[#5f6368]">
+                    Scans run daily around {timing.localScanLabel}. Issues appear here once Rejourney groups problems across sessions.
+                </p>
+            </div>
+        </div>
+    );
+}
+
+function GithubRepositorySettings({
+    status,
+    loading,
+    setupHref,
+    installBusy,
+    installError,
+    onInstall,
+    timeZone,
+}: {
+    status: GithubLinkStatus | null;
+    loading: boolean;
+    setupHref: string;
+    installBusy: boolean;
+    installError: string | null;
+    onInstall: () => void;
+    timeZone: string;
+}) {
+    const repo = status?.repo ?? null;
+    const linked = Boolean(status?.linked && status.installationState === 'active');
+    const needsAttention = Boolean(status?.linked && status.installationState !== 'active' && status.installationState !== 'none');
+    const repoName = repo ? `${repo.owner}/${repo.repo}` : 'No repository connected';
+    const linkedAtDate = status?.linkedAt ? new Date(status.linkedAt) : null;
+    const linkedAtLabel = linkedAtDate && !Number.isNaN(linkedAtDate.getTime())
+        ? formatLocalDateTime(linkedAtDate, timeZone)
+        : null;
+    const readableScope = formatReadableScope(status?.sourceGlobs);
+    const stateLabel = loading
+        ? 'Checking'
+        : linked
+            ? 'Connected'
+            : needsAttention
+                ? 'Needs attention'
+                : 'Not connected';
+    const stateClassName = linked
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : needsAttention
+            ? 'border-amber-200 bg-amber-50 text-amber-700'
+            : 'border-slate-200 bg-slate-50 text-slate-600';
+
+    return (
+        <div className="px-5 py-4 sm:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                        <Github className="h-4 w-4 text-[#3c4043]" />
+                        <h3 className="text-sm font-semibold text-[#202124]">GitHub repository</h3>
+                    </div>
+                    <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
+                        Rejourney uses this repo to map leak signals back to source code.
+                    </p>
+                </div>
+                <span className={`inline-flex h-7 shrink-0 items-center self-start rounded-md border px-2.5 text-xs font-semibold ${stateClassName}`}>
+                    {stateLabel}
+                </span>
+            </div>
+
+            {loading ? (
+                <div className="mt-4 flex h-12 items-center border-t border-[#edf0f3] text-sm font-semibold text-[#5f6368]">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Checking GitHub repository
+                </div>
+            ) : (
+                <div className="mt-4 border-t border-[#edf0f3] pt-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[#202124]">{repoName}</p>
+                            {repo ? (
+                                <>
+                                    <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
+                                        {[
+                                            repo.defaultBranch ? `Branch ${repo.defaultBranch}` : null,
+                                            repo.private ? 'Private repo' : 'Public repo',
+                                            linkedAtLabel ? `Linked ${linkedAtLabel}` : null,
+                                        ].filter(Boolean).join(' · ')}
+                                    </p>
+                                    <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
+                                        Readable scope:{' '}
+                                        <span className="font-semibold text-[#202124]">
+                                            {readableScope.label}{readableScope.extraCount > 0 ? `, +${readableScope.extraCount} more` : ''}
+                                        </span>
+                                    </p>
+                                </>
+                            ) : (
+                                <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
+                                    Connect a repository before leak scans can find source locations.
+                                </p>
+                            )}
+                        </div>
+                        <Link
+                            to={setupHref}
+                            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold !text-white transition-colors hover:bg-[#2563eb] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                            style={{ color: '#ffffff' }}
+                        >
+                            <Settings className="h-4 w-4 text-white" />
+                            <span className="text-white">{repo ? 'Change repository' : 'Connect repository'}</span>
+                        </Link>
+                    </div>
+
+                    {installError && (
+                        <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                            {installError}
+                        </p>
+                    )}
+
+                    {!linked && (
+                        <button
+                            type="button"
+                            onClick={onInstall}
+                            disabled={installBusy}
+                            className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {installBusy ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <SquareArrowOutUpRight className="h-4 w-4" />
+                            )}
+                            {needsAttention ? 'Reauthorize GitHub App' : 'Install or update GitHub App'}
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -364,6 +654,7 @@ export const Leaks: React.FC = () => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
     const pathPrefix = usePathPrefix();
+    const location = useLocation();
     const projectId = selectedProject?.id || (isDemoMode ? 'demo-project-001' : '');
     const [leaks, setLeaks] = useState<LeakSummary[]>([]);
     const [selectedLeakId, setSelectedLeakId] = useState<string | null>(null);
@@ -380,6 +671,13 @@ export const Leaks: React.FC = () => {
     const [openAfterSetup, setOpenAfterSetup] = useState(false);
     const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
     const [showIdeSetup, setShowIdeSetup] = useState(false);
+    const [showLeakAlertSettings, setShowLeakAlertSettings] = useState(false);
+    const [leakAlertSettings, setLeakAlertSettings] = useState<LeakAlertSettings>({ leakScanAlertsEnabled: true });
+    const [leakAlertRecipients, setLeakAlertRecipients] = useState<LeakAlertRecipient[]>([]);
+    const [leakAlertMembers, setLeakAlertMembers] = useState<LeakAlertTeamMember[]>([]);
+    const [leakAlertLoading, setLeakAlertLoading] = useState(false);
+    const [leakAlertSaving, setLeakAlertSaving] = useState(false);
+    const [leakAlertError, setLeakAlertError] = useState<string | null>(null);
     const [copiedSetupPrompt, setCopiedSetupPrompt] = useState(false);
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
     const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(null);
@@ -408,6 +706,81 @@ export const Leaks: React.FC = () => {
         }
         setCopied(false);
     }, []);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const settingsTarget = params.get('settings');
+        if (settingsTarget === 'leak-alerts' || settingsTarget === 'leak-settings' || settingsTarget === 'github') {
+            setShowLeakAlertSettings(true);
+        }
+    }, [location.search]);
+
+    const loadLeakAlertSettings = useCallback(async () => {
+        if (!projectId || isDemoMode) return;
+        setLeakAlertLoading(true);
+        setLeakAlertError(null);
+        try {
+            const [settings, recipients, members] = await Promise.all([
+                getLeakAlertSettings(projectId),
+                getLeakAlertRecipients(projectId),
+                getLeakAlertTeamMembers(projectId),
+            ]);
+            setLeakAlertSettings(settings);
+            setLeakAlertRecipients(recipients);
+            setLeakAlertMembers(members);
+        } catch (err) {
+            setLeakAlertError(err instanceof Error ? err.message : 'Failed to load leak alert settings');
+        } finally {
+            setLeakAlertLoading(false);
+        }
+    }, [isDemoMode, projectId]);
+
+    useEffect(() => {
+        if (!showLeakAlertSettings) return;
+        void loadLeakAlertSettings();
+    }, [loadLeakAlertSettings, showLeakAlertSettings]);
+
+    const toggleLeakScanAlerts = async (enabled: boolean) => {
+        if (!projectId || isDemoMode) return;
+        setLeakAlertSaving(true);
+        setLeakAlertError(null);
+        try {
+            const next = await updateLeakAlertSettings(projectId, { leakScanAlertsEnabled: enabled });
+            setLeakAlertSettings(next);
+        } catch (err) {
+            setLeakAlertError(err instanceof Error ? err.message : 'Failed to save leak alert settings');
+        } finally {
+            setLeakAlertSaving(false);
+        }
+    };
+
+    const handleAddLeakAlertRecipient = async (userId: string) => {
+        if (!projectId || isDemoMode) return;
+        setLeakAlertSaving(true);
+        setLeakAlertError(null);
+        try {
+            await addLeakAlertRecipient(projectId, userId);
+            await loadLeakAlertSettings();
+        } catch (err) {
+            setLeakAlertError(err instanceof Error ? err.message : 'Failed to add recipient');
+        } finally {
+            setLeakAlertSaving(false);
+        }
+    };
+
+    const handleRemoveLeakAlertRecipient = async (userId: string) => {
+        if (!projectId || isDemoMode) return;
+        setLeakAlertSaving(true);
+        setLeakAlertError(null);
+        try {
+            await removeLeakAlertRecipient(projectId, userId);
+            await loadLeakAlertSettings();
+        } catch (err) {
+            setLeakAlertError(err instanceof Error ? err.message : 'Failed to remove recipient');
+        } finally {
+            setLeakAlertSaving(false);
+        }
+    };
 
     const showCopiedFeedback = useCallback((message: string) => {
         setCopied(true);
@@ -684,12 +1057,21 @@ export const Leaks: React.FC = () => {
     const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
     const activeIdeMeta = LEAK_IDE_OPTIONS[ideConfig.ide];
     const showSetupEmptyState = Boolean(selectedProject?.id) && !isDemoMode && !isLoading && !selectedProjectHasRecentData && leaks.length === 0;
+    const githubSetupHref = `${pathPrefix}/settings/${encodeURIComponent(projectId)}/github`;
+    const hasSignalViewFilter = search.trim().length > 0 || affectedFilter !== 'all';
+    const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && githubLinked && leaks.length === 0 && !hasSignalViewFilter;
+    const showFilteredEmptyState = !showSetupEmptyState && !showNoIssuesDetectedState && !isLoading && !error && filteredLeaks.length === 0;
     const copyButtonClassName = copied
-        ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-500 !bg-emerald-50 !text-emerald-800 !shadow-sm ring-2 ring-emerald-100'
-        : 'w-full sm:w-auto sm:min-w-[152px]';
+        ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-800 !bg-emerald-800 !text-white hover:!border-emerald-900 hover:!bg-emerald-900 ring-2 ring-emerald-200'
+        : 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-700 !bg-emerald-700 !text-white hover:!border-emerald-800 hover:!bg-emerald-800 disabled:!border-[#dadce0] disabled:!bg-slate-100 disabled:!text-slate-400';
     const copyButtonIcon = copied
         ? <CheckCircle2 className="h-4 w-4" />
         : <FileText className="h-4 w-4" />;
+    const leakAlertAvailableMembers = useMemo(
+        () => leakAlertMembers.filter((member) => !member.isRecipient),
+        [leakAlertMembers],
+    );
+    const leakScanTiming = useMemo(() => getLeakScanTiming(), []);
 
     return (
         <div className="rejourney-general-page flex min-h-screen flex-col bg-[#f8fafd] font-sans text-[#202124]">
@@ -699,32 +1081,27 @@ export const Leaks: React.FC = () => {
                         <Inbox className="h-4 w-4 shrink-0 text-[#6f7785]" />
                         <h1 className="truncate text-[15px] font-semibold leading-none text-[#202124]">Inbox</h1>
                     </div>
-	                    <button
-	                        type="button"
-	                        onClick={() => {
-	                            setOpenAfterSetup(false);
-	                            setPathPasteStatus(null);
-	                            setShowIdeSetup(true);
-	                        }}
-	                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
-	                    >
-	                        <Settings className="h-4 w-4" />
-	                        IDE handoff
-	                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowLeakAlertSettings(true);
+                        }}
+                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    >
+                        <Settings className="h-4 w-4" />
+                        Settings
+                    </button>
                 </div>
             </div>
 
             {linkLoading ? (
                 <div className="flex flex-1 items-center justify-center bg-white text-sm font-semibold text-[#5f6368]">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking GitHub connection
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Checking GitHub connection
                 </div>
             ) : !githubLinked ? (
                 <GithubNotLinked
-                    projectId={projectId}
                     suspended={githubSuspended}
-                    busy={installBusy}
-                    error={installError}
-                    onInstall={() => void startInstall()}
                 />
             ) : (
             <div className="flex min-h-0 w-full flex-1">
@@ -807,47 +1184,39 @@ export const Leaks: React.FC = () => {
                                 </div>
                             )}
                             {showSetupEmptyState && (
-                                <div className="m-4 overflow-hidden rounded-lg border border-[#dadce0] bg-white shadow-sm sm:m-5">
-                                    <div className="border-b border-[#dadce0] bg-[#e6f4ea] px-4 py-4 sm:px-5">
-                                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase text-[#137333]">
-                                            <Wrench className="h-4 w-4 shrink-0" aria-hidden />
-                                            New project setup
-                                        </div>
-                                        <h3 className="mt-2 text-base font-semibold leading-6 text-[#202124] sm:text-lg">No leaks yet - connect your project first</h3>
-                                        <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[#3c4043]">
-                                            Leaks become useful after the SDK sends sessions. Open setup to invite teammates, copy the AI prompt, or finish app identifiers.
+                                <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+                                    <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#e6f4ea]">
+                                        <Wrench className="h-7 w-7 text-[#137333]" aria-hidden />
+                                    </span>
+                                    <div className="max-w-xs">
+                                        <p className="text-sm font-semibold text-[#202124]">Finish setting up your project</p>
+                                        <p className="mt-1.5 text-sm font-medium leading-6 text-[#5f6368]">
+                                            Issues appear here once the SDK sends sessions. Complete setup to get started.
                                         </p>
                                     </div>
-                                    <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-[1.1fr,0.9fr,0.8fr]">
+                                    <div className="flex flex-wrap justify-center gap-2">
                                         <Link
                                             to={`${pathPrefix}/setup`}
-                                            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#1d4ed8] bg-[#1a73e8] px-4 py-3 text-center text-sm font-bold leading-snug !text-white shadow-sm transition-colors hover:border-[#1e40af] hover:bg-[#2563eb]"
-                                            style={{ color: '#ffffff' }}
+                                            className="inline-flex h-9 items-center gap-2 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold text-white transition-colors hover:bg-[#2563eb]"
                                         >
-                                            <Wrench className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                                            <span className="text-white">Open setup wizard</span>
+                                            <Wrench className="h-4 w-4" />
+                                            Open setup
                                         </Link>
                                         <button
                                             type="button"
                                             onClick={() => void handleCopySetupPrompt()}
-                                            className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#202124] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                            className="inline-flex h-9 items-center gap-2 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
                                         >
-                                            <BookOpen className="h-4 w-4 shrink-0" />
-                                            {copiedSetupPrompt ? 'AI prompt copied' : 'Copy AI prompt'}
+                                            <BookOpen className="h-4 w-4" />
+                                            {copiedSetupPrompt ? 'Copied' : 'Copy AI prompt'}
                                         </button>
-                                        <a
-                                            href="/docs"
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
-                                        >
-                                            <SquareArrowOutUpRight className="h-4 w-4 shrink-0" />
-                                            Docs
-                                        </a>
                                     </div>
                                 </div>
                             )}
-                            {!showSetupEmptyState && !isLoading && !error && filteredLeaks.length === 0 && (
+                            {showNoIssuesDetectedState && (
+                                <NoIssuesDetectedState />
+                            )}
+                            {showFilteredEmptyState && (
                                 <div className="flex h-56 flex-col items-center justify-center px-6 text-center text-sm font-semibold text-[#5f6368]">
                                     <CheckCircle2 className="mb-3 h-8 w-8 text-emerald-500" />
                                     No signals match this view.
@@ -897,7 +1266,7 @@ export const Leaks: React.FC = () => {
                                         icon={<SquareArrowOutUpRight className="h-4 w-4" />}
                                         onClick={() => void sendContextToIde()}
                                         disabled={!handoffReady || isOpeningIde}
-                                        className="!border-[#1a73e8] !bg-[#1a73e8] !text-white hover:!border-[#1e40af] hover:!bg-[#2563eb] disabled:!border-[#dadce0] disabled:!bg-slate-100 disabled:!text-slate-400"
+                                        className="w-full sm:w-auto"
                                     >
                                         {isOpeningIde ? 'Opening...' : getIdeActionLabel(ideConfig)}
                                     </PaneButton>
@@ -1047,6 +1416,168 @@ export const Leaks: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <Modal
+                isOpen={showLeakAlertSettings}
+                onClose={() => setShowLeakAlertSettings(false)}
+                title="Leak settings"
+                size="md"
+                variant="modern"
+                bodyClassName="p-0"
+            >
+                <div className="divide-y divide-slate-100 bg-white">
+                    <GithubRepositorySettings
+                        status={linkStatus}
+                        loading={linkLoading}
+                        setupHref={githubSetupHref}
+                        installBusy={installBusy}
+                        installError={installError}
+                        onInstall={() => void startInstall()}
+                        timeZone={leakScanTiming.timeZone}
+                    />
+
+                    <div className="px-5 py-4 sm:px-6">
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <Bell className="h-4 w-4 text-[#3c4043]" />
+                                    <p className="text-sm font-semibold text-[#202124]">Daily digest email</p>
+                                </div>
+                                <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
+                                    Sent after each scan that finds new issues. Scans run around {leakScanTiming.localScanLabel}.
+                                </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                <span className={`text-xs font-semibold ${leakAlertSettings.leakScanAlertsEnabled ? 'text-[#1a73e8]' : 'text-[#5f6368]'}`}>
+                                    {leakAlertSettings.leakScanAlertsEnabled ? 'On' : 'Off'}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={leakAlertSettings.leakScanAlertsEnabled}
+                                    aria-label="Receive leak scan digest emails"
+                                    disabled={leakAlertLoading || leakAlertSaving || isDemoMode}
+                                    onClick={() => void toggleLeakScanAlerts(!leakAlertSettings.leakScanAlertsEnabled)}
+                                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60 ${
+                                        leakAlertSettings.leakScanAlertsEnabled
+                                            ? 'border-[#1a73e8] bg-[#1a73e8]'
+                                            : 'border-slate-300 bg-slate-200'
+                                    }`}
+                                >
+                                    <span
+                                        className={`pointer-events-none absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform ${
+                                            leakAlertSettings.leakScanAlertsEnabled ? 'translate-x-5' : 'translate-x-0'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="px-5 py-4 sm:px-6">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                                <h3 className="text-sm font-semibold text-[#202124]">Recipients</h3>
+                                <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
+                                    Add team members who should receive the daily digest.
+                                </p>
+                            </div>
+                            <span className="inline-flex h-7 shrink-0 items-center self-start rounded-md border border-[#dadce0] bg-white px-2.5 text-xs font-semibold text-[#5f6368]">
+                                {leakAlertRecipients.length} / 5 recipients
+                            </span>
+                        </div>
+
+                        {leakAlertRecipients.length < 5 && leakAlertAvailableMembers.length > 0 && (
+                            <div className="mt-4 border-t border-[#edf0f3] pt-3">
+                                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1967d2]">
+                                    <UserPlus className="h-3.5 w-3.5" />
+                                    Add recipient
+                                </div>
+                                <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                    {leakAlertAvailableMembers.map((member) => (
+                                        <button
+                                            key={member.userId}
+                                            type="button"
+                                            disabled={leakAlertSaving || leakAlertLoading}
+                                            onClick={() => void handleAddLeakAlertRecipient(member.userId)}
+                                            className="group flex w-full items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-[#f8fafd] disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            <span className="flex min-w-0 items-center gap-2.5">
+                                                {member.avatarUrl ? (
+                                                    <img src={member.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                                ) : (
+                                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-[#1a73e8] ring-1 ring-blue-100">
+                                                        {(member.displayName || member.email)[0].toUpperCase()}
+                                                    </span>
+                                                )}
+                                                <span className="min-w-0">
+                                                    <span className="block truncate text-sm font-semibold text-[#202124]">{member.displayName || member.email}</span>
+                                                    {member.displayName && member.displayName !== member.email && (
+                                                        <span className="block truncate text-xs font-medium text-[#5f6368]">{member.email}</span>
+                                                    )}
+                                                </span>
+                                            </span>
+                                            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-[#1a73e8] px-2.5 text-xs font-semibold text-white transition-colors group-hover:bg-[#1558b0]">
+                                                <UserPlus className="h-3.5 w-3.5" />
+                                                Add
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {leakAlertError && (
+                            <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                                {leakAlertError}
+                            </div>
+                        )}
+
+                        {leakAlertLoading ? (
+                            <div className="flex h-24 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Loading…
+                            </div>
+                        ) : leakAlertRecipients.length === 0 ? (
+                            <div className="mt-4 border-y border-dashed border-[#dadce0] px-4 py-6 text-center">
+                                <p className="text-sm font-semibold text-[#3c4043]">No recipients yet</p>
+                                <p className="mt-1 text-xs font-medium text-[#5f6368]">Add a team member above to receive digests.</p>
+                            </div>
+                        ) : (
+                            <div className="mt-4 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                {leakAlertRecipients.map((recipient) => (
+                                    <div key={recipient.id} className="flex items-center justify-between gap-3 py-3">
+                                        <div className="flex min-w-0 items-center gap-3">
+                                            {recipient.avatarUrl ? (
+                                                <img src={recipient.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                            ) : (
+                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                                                    {(recipient.displayName || recipient.email)[0].toUpperCase()}
+                                                </div>
+                                            )}
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-semibold text-[#202124]">{recipient.displayName || recipient.email}</p>
+                                                {recipient.displayName && recipient.displayName !== recipient.email && (
+                                                    <p className="truncate text-xs font-medium text-[#5f6368]">{recipient.email}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={leakAlertSaving}
+                                            onClick={() => void handleRemoveLeakAlertRecipient(recipient.userId)}
+                                            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-2.5 text-xs font-semibold text-[#3c4043] transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
 
             {showIdeSetup && (
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[1px]">

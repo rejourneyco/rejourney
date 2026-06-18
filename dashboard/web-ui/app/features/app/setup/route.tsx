@@ -49,10 +49,6 @@ const setupCardClass = "relative overflow-hidden border border-white/45 dark:bor
 const setupActionButtonClass = "!text-xs !font-bold uppercase tracking-normal";
 const setupProjectFormId = 'setup-project-form';
 
-function getWorkspaceConfirmationStorageKey(teamId: string): string {
-  return `rejourney.setup.workspaceConfirmed.${teamId}`;
-}
-
 function isValidEmailAddress(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -107,7 +103,6 @@ export const SetupRoute: React.FC = () => {
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [workspaceConfirmError, setWorkspaceConfirmError] = useState<string | null>(null);
   const [isConfirmingWorkspace, setIsConfirmingWorkspace] = useState(false);
-  const [confirmedWorkspaceIds, setConfirmedWorkspaceIds] = useState<Set<string>>(() => new Set());
   const [teammateInviteEmails, setTeammateInviteEmails] = useState('');
   const [teammateInviteRole, setTeammateInviteRole] = useState<TeamInviteRole>('member');
   const [teammateInviteRecipients, setTeammateInviteRecipients] = useState<TeammateInviteRecipient[]>([]);
@@ -142,7 +137,14 @@ export const SetupRoute: React.FC = () => {
   const hasRecentData = projectHasRecentData(activeProject);
   const defaultWorkspaceName = user?.email ? `${user.email.split('@')[0]}'s Team` : null;
   const isAutoCreatedWorkspace = Boolean(currentTeam?.name && defaultWorkspaceName && currentTeam.name === defaultWorkspaceName);
-  const workspaceNeedsConfirmation = Boolean(currentTeam && isAutoCreatedWorkspace && !isJoinedTeam && !confirmedWorkspaceIds.has(currentTeam.id));
+  const hasMeaningfulSetup = Boolean(projects.length > 0 || activeProject || hasRecentData);
+  const workspaceNeedsConfirmation = Boolean(
+    currentTeam
+    && isAutoCreatedWorkspace
+    && !isJoinedTeam
+    && !currentTeam.workspaceConfirmedAt
+    && !hasMeaningfulSetup,
+  );
   const workspaceDone = Boolean(currentTeam && !workspaceNeedsConfirmation);
   const projectDone = Boolean(activeProject);
   const verifyDone = hasRecentData;
@@ -172,16 +174,6 @@ export const SetupRoute: React.FC = () => {
   useEffect(() => {
     setWorkspaceNameDraft(currentTeam?.name ?? '');
     setWorkspaceConfirmError(null);
-
-    if (!currentTeam?.id || typeof window === 'undefined') return;
-    if (window.localStorage.getItem(getWorkspaceConfirmationStorageKey(currentTeam.id)) === 'true') {
-      setConfirmedWorkspaceIds((current) => {
-        if (current.has(currentTeam.id)) return current;
-        const next = new Set(current);
-        next.add(currentTeam.id);
-        return next;
-      });
-    }
   }, [currentTeam?.id, currentTeam?.name]);
 
   const aiPrompt = useMemo(() => buildProjectAIIntegrationPrompt({
@@ -211,18 +203,6 @@ export const SetupRoute: React.FC = () => {
     setIsEmailModalOpen(true);
   }, []);
 
-  const markWorkspaceConfirmed = useCallback((teamId: string) => {
-    setConfirmedWorkspaceIds((current) => {
-      if (current.has(teamId)) return current;
-      const next = new Set(current);
-      next.add(teamId);
-      return next;
-    });
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(getWorkspaceConfirmationStorageKey(teamId), 'true');
-    }
-  }, []);
-
   const handleCreateTeam = async () => {
     const name = newTeamName.trim();
     if (!name) {
@@ -234,7 +214,6 @@ export const SetupRoute: React.FC = () => {
       setTeamError(null);
       const team = await createTeam(name);
       setCurrentTeam(team);
-      markWorkspaceConfirmed(team.id);
       await refreshTeams(team.id);
       window.dispatchEvent(new CustomEvent('teamCreated', { detail: { teamId: team.id } }));
       setNewTeamName('');
@@ -256,13 +235,12 @@ export const SetupRoute: React.FC = () => {
     try {
       setIsConfirmingWorkspace(true);
       setWorkspaceConfirmError(null);
-      let teamToUse = currentTeam;
-      if (name !== (currentTeam.name ?? '')) {
-        teamToUse = await updateTeam(currentTeam.id, { name });
-        setCurrentTeam(teamToUse);
-        await refreshTeams(teamToUse.id);
-      }
-      markWorkspaceConfirmed(teamToUse.id);
+      const teamToUse = await updateTeam(currentTeam.id, {
+        ...(name !== (currentTeam.name ?? '') ? { name } : {}),
+        workspaceConfirmed: true,
+      });
+      setCurrentTeam(teamToUse);
+      await refreshTeams(teamToUse.id);
       setManualStep(1);
     } catch (error) {
       setWorkspaceConfirmError(error instanceof Error ? error.message : 'Failed to save workspace.');

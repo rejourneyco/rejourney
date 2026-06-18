@@ -110,8 +110,13 @@ fi
 
 # 2. Redis Secret
 log "Creating redis-secret..."
-create_or_update_secret redis-secret \
+REDIS_SECRET_ARGS=(
     --from-literal=REDIS_URL="${REDIS_URL:-redis://redis:6379/0}"
+)
+if [ -n "${REDIS_PASSWORD:-}" ]; then
+    REDIS_SECRET_ARGS+=(--from-literal=REDIS_PASSWORD="$REDIS_PASSWORD")
+fi
+create_or_update_secret redis-secret "${REDIS_SECRET_ARGS[@]}"
 
 # 2b. ClickHouse Secret (optional, disabled by default)
 CLICKHOUSE_ENABLED="${CLICKHOUSE_ENABLED:-false}"

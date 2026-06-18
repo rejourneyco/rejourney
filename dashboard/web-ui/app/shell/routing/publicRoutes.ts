@@ -9,6 +9,8 @@ export const publicRoutes = [
   ),
   route("docs", "features/public/docs/index/route.tsx", { id: "public-docs-index" }),
   route("docs/*", "features/public/docs/slug/route.tsx", { id: "public-docs-slug" }),
+  route("rejourney-marlin", "features/public/marlin/route.tsx", { id: "public-marlin" }),
+  route("benchmarks", "features/public/benchmarks/route.tsx", { id: "public-benchmarks" }),
   route("contribute", "features/public/contribute/route.tsx", { id: "public-contribute" }),
   route("changelog", "features/public/changelog/route.tsx", { id: "public-changelog" }),
   route("roadmap", "features/public/roadmap/route.tsx", { id: "public-roadmap" }),

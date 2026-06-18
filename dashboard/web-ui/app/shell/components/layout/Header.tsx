@@ -15,33 +15,33 @@ const FALLBACK_GITHUB_STARS = 146;
 
 const FEATURE_GROUPS = [
   {
-    title: "Capabilities",
+    title: "AI Workflows",
     items: [
       { label: "AI Funnel Leak Detection", href: "/ai-funnel-leak-detection", desc: "Automatically map, rank, and track revenue friction points" },
+      { label: "Rejourney Marlin", href: "/rejourney-marlin", desc: "Use replay context to suggest GitHub code fixes for revenue leaks" },
+      { label: "Self-Healing Software", href: "/self-healing-software", desc: "Turn repeated production friction into fix-ready repair loops" },
+      { label: "Autonomous Debugging", href: "/autonomous-debugging", desc: "Let developer agents start from exact session context" },
+      { label: "AI Agent Handoff", href: "/ai-agent-handoff", desc: "Pass diagnostic packets directly to Claude, Cursor, or Codex" },
+    ]
+  },
+  {
+    title: "Product Evidence",
+    items: [
       { label: "Web Replay Evidence", href: "/web-session-replay", desc: "Track DOM mutations and console exceptions in web apps" },
       { label: "Mobile Replay Evidence", href: "/mobile-session-replay", desc: "Record native sessions on React Native and Swift" },
       { label: "Funnel Replay Evidence", href: "/funnel-replay-evidence", desc: "Drill directly into dropped-off sessions from funnels" },
+      { label: "Heatmaps", href: "/heatmaps", desc: "Aggregate scroll maps, click patterns, and rage clicks" },
       { label: "Geographic Analytics", href: "/geographic-analytics", desc: "Visualize sentiment and infrastructure issues by country" },
     ]
   },
   {
-    title: "Workflows & Actions",
+    title: "Operational Insights",
     items: [
+      { label: "Stability Monitoring", href: "/stability-monitoring", desc: "Group crashes, errors, ANRs, and API spikes with replay context" },
+      { label: "API Endpoint Insights", href: "/api-endpoint-insights", desc: "Rank endpoints by latency, failure codes, volume, and user impact" },
+      { label: "Device Insights", href: "/device-insights", desc: "Find device, OS, and app-version friction hidden in averages" },
       { label: "Revenue Recovery Analytics", href: "/revenue-recovery-analytics", desc: "Connect revenue metrics with session-level evidence" },
       { label: "Standardized Context", href: "/standardized-context", desc: "Format session data into LLM-friendly schemas" },
-      { label: "AI Agent Handoff", href: "/ai-agent-handoff", desc: "Pass diagnostic packets directly to Claude or Cursor" },
-      { label: "Autonomous Debugging", href: "/autonomous-debugging", desc: "Let developer agents fix production bugs in real-time" },
-      { label: "Heatmaps", href: "/heatmaps", desc: "Aggregate scroll maps, click patterns, and rage clicks" },
-    ]
-  },
-  {
-    title: "Philosophy & Guides",
-    items: [
-      { label: "Replay Evidence Mentality", href: "/replay-first-mentality", desc: "Why session-first evidence beats generic metrics" },
-      { label: "Importance of Open Source", href: "/importance-of-open-source", desc: "Our commitment to open transparency" },
-      { label: "What Is Session Replay", href: "/what-is-session-replay", desc: "A complete primer on session recording technology" },
-      { label: "How to See What Your Users Do", href: "/how-to-see-what-your-users-do", desc: "Best practices for tracking customer behavior" },
-      { label: "Be Your Users", href: "/be-your-users", desc: "Empathy-driven growth engineering" },
     ]
   }
 ];
@@ -60,8 +60,8 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const navigationLocale = MARKETING_LOCALES.en;
   const copy = getMarketingHomeCopy(navigationLocale).header;
   const docsPath = getLocalizedPublicPath(navigationLocale, "/docs/web/getting-started");
+  const benchmarksPath = getLocalizedPublicPath(navigationLocale, "/benchmarks");
   const pricingPath = getLocalizedPublicPath(navigationLocale, "/pricing");
-  const selfHostedPath = getLocalizedPublicPath(navigationLocale, "/docs/selfhosted");
   const publicNavLinkClass = "text-base font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white transition-colors duration-200";
   const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-1.5 font-sans text-xs font-semibold text-slate-600 dark:text-slate-100 rounded-full transition hover:border-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm";
   
@@ -153,13 +153,19 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                   </div>
                 </div>
               </div>
-
+<Link
+                to={benchmarksPath}
+                className={publicNavLinkClass}
+              >
+                Benchmarks
+              </Link>
               <Link
                 to={docsPath}
                 className={publicNavLinkClass}
               >
                 {copy.docs}
               </Link>
+              
               <Link
                 to={pricingPath}
                 className={publicNavLinkClass}
@@ -248,6 +254,9 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
 
               <Link to={docsPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-600 dark:text-slate-350 hover:text-slate-950 dark:hover:text-white transition-colors">
                 {copy.docs}
+              </Link>
+              <Link to={benchmarksPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-600 dark:text-slate-350 hover:text-slate-950 dark:hover:text-white transition-colors">
+                Benchmarks
               </Link>
               <Link to={pricingPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-600 dark:text-slate-350 hover:text-slate-950 dark:hover:text-white transition-colors">
                 {copy.pricing}

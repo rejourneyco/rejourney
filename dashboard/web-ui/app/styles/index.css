@@ -5237,3 +5237,44 @@
   animation: dashboard-ghost-shimmer 2.1s ease-in-out infinite;
   opacity: 0.92;
 }
+
+/* Glassmorphic Billing Page Header Override */
+.rejourney-billing-settings-page .dashboard-page-header {
+  background: rgba(255, 255, 255, 0.45) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6) !important;
+}
+
+/* Glassmorphic Billing Cards */
+.rejourney-billing-settings-page .billing-glass-card {
+  position: relative;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(16px) saturate(110%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(110%) !important;
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.rejourney-billing-settings-page .billing-glass-card:hover {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(99, 102, 241, 0.35) !important;
+  box-shadow: 0 12px 24px rgba(99, 102, 241, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04) !important;
+  transform: translateY(-2px) !important;
+}
+
+.rejourney-billing-settings-page .billing-glass-card .dashboard-inner-surface {
+  background: rgba(248, 250, 253, 0.5) !important;
+  border: 1px solid rgba(232, 234, 237, 0.7) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.rejourney-billing-settings-page .billing-glass-card .billing-progress-track {
+  background: rgba(238, 242, 247, 0.5) !important;
+  border-color: rgba(218, 220, 224, 0.5) !important;
+}
+

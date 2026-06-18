@@ -4,7 +4,7 @@ import { ArrowRight, Check, ChevronLeft, ChevronRight, Copy, Github, Minus, Plus
 import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
-import { getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
+import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 import { PricingThreeField } from './PricingThreeField';
 
 type PricingPlan = BillingPlan & {
@@ -165,6 +165,7 @@ export const PricingTable: React.FC = () => {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale).pricing;
+    const footerCopy = getMarketingHomeCopy(location.pathname).footer;
     const [availablePlans, setAvailablePlans] = useState<PricingPlan[]>([]);
     const [sliderValue, setSliderValue] = useState(DEFAULT_CALCULATOR_SLIDER_VALUE);
     const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
@@ -254,7 +255,7 @@ export const PricingTable: React.FC = () => {
         try {
             await navigator.clipboard.writeText('contact@rejourney.co');
             setContactCopied(true);
-            showToast(copy.emailCopiedToast);
+            showToast(footerCopy.copyEmailToast);
         } catch {
             setContactCopied(true);
             showToast('Email: contact@rejourney.co');
@@ -351,7 +352,7 @@ export const PricingTable: React.FC = () => {
                                     : 'border-slate-200/80 bg-white/70 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
 
                             const buttonClassName = isScale
-                                ? 'bg-blue-650 text-white hover:bg-blue-700 focus:ring-blue-600'
+                                ? 'bg-blue-600 text-white ring-1 ring-blue-500/20 shadow-blue-200/70 hover:bg-blue-700 focus:ring-blue-600'
                                 : isFeatured
                                     ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-600'
                                     : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 focus:ring-indigo-600';
@@ -361,7 +362,7 @@ export const PricingTable: React.FC = () => {
                                     key={`${plan.name}-${plan.priceCents}`}
                                     className={`relative flex min-h-[660px] w-[82vw] max-w-[390px] shrink-0 snap-start flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:w-[360px] sm:p-7 lg:w-[340px] xl:w-[360px] ${cardClassName}`}
                                 >
-                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-650" aria-hidden />}
+                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-600" aria-hidden />}
 
                                     <div>
                                         <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
@@ -435,10 +436,10 @@ export const PricingTable: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleCopyEmail}
-                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all md:w-44 shadow-sm ${
+                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all md:w-44 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                                     contactCopied
-                                        ? 'bg-emerald-500 text-white'
-                                        : 'bg-indigo-650 text-white hover:bg-indigo-700'
+                                        ? 'bg-emerald-600 text-white ring-1 ring-emerald-500/20 hover:bg-emerald-700 focus:ring-emerald-600'
+                                        : 'bg-indigo-600 text-white ring-1 ring-indigo-500/20 hover:bg-indigo-700 focus:ring-indigo-600'
                                 }`}
                                 aria-live="polite"
                                 style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -483,7 +484,7 @@ export const PricingTable: React.FC = () => {
                                             onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
                                             className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
                                                 active
-                                                    ? 'border-indigo-650 bg-indigo-650 text-white'
+                                                    ? 'border-indigo-600 bg-indigo-600 text-white'
                                                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
                                             }`}
                                             style={{ WebkitTapHighlightColor: 'transparent' }}

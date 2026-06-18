@@ -231,6 +231,62 @@ const featureDisplayByPath: Record<string, FeatureDisplay> = {
     showcaseBullets: ["Avoid reconstructing evidence by hand", "Open sessions behind repeated issues", "Hand off reproducible context"],
     steps: ["Group the repeated signal", "Inspect replay and technical context", "Send the fix packet"],
   },
+  "/self-healing-software": {
+    title: "Self-healing software",
+    subtitle: "Turn repeated session, stability, API, device, and journey signals into fix-ready work.",
+    guideTitle: "Start with evidence",
+    fitTitle: "Best fit",
+    tradeoffTitle: "Use generic monitoring when",
+    heroBullets: ["Detect repeated friction", "Package repair context", "Verify recovery"],
+    available: ["Engineering", "Product teams", "AI workflows"],
+    showcaseTabs: ["Observe", "Group", "Replay", "Handoff", "Verify"],
+    showcaseTitle: "Make self-healing a repair loop",
+    showcaseCopy: "Self-healing software needs user evidence, technical context, and a clear handoff before automation can be trusted.",
+    showcaseBullets: ["Keep replay with each signal", "Attach stability and API context", "Use device and release evidence"],
+    steps: ["Find the repeated issue", "Inspect the session evidence", "Hand off the fix context"],
+  },
+  "/stability-monitoring": {
+    title: "Stability monitoring",
+    subtitle: "Group crashes, errors, ANRs, and API spikes with replay, devices, releases, and users.",
+    guideTitle: "Debug from the failing session",
+    fitTitle: "Best fit",
+    tradeoffTitle: "Use crash-only tools when",
+    heroBullets: ["Crash groups", "Error and ANR context", "Replay-backed triage"],
+    available: ["Mobile apps", "Web apps", "Engineering"],
+    showcaseTabs: ["Group", "Prioritize", "Replay", "Inspect", "Resolve"],
+    showcaseTitle: "Connect failures to the user path",
+    showcaseCopy: "Stability monitoring is stronger when the failure carries the path, device, app version, and replay context that shaped it.",
+    showcaseBullets: ["Group repeated failures", "See affected users and devices", "Open replay evidence before filing the fix"],
+    steps: ["Open stability", "Filter by issue type", "Inspect replay and device context"],
+  },
+  "/api-endpoint-insights": {
+    title: "API endpoint insights",
+    subtitle: "Track endpoint volume, latency, failure codes, and risk beside affected session evidence.",
+    guideTitle: "Find the endpoint users felt",
+    fitTitle: "Best fit",
+    tradeoffTitle: "Use server-only monitoring when",
+    heroBullets: ["Endpoint risk", "Failure code filters", "Session-level impact"],
+    available: ["Web apps", "Mobile apps", "Backend teams"],
+    showcaseTabs: ["Volume", "Latency", "Failures", "Risk", "Replay"],
+    showcaseTitle: "Turn API telemetry into product evidence",
+    showcaseCopy: "Endpoint insights show which backend behavior became user-visible friction in captured sessions.",
+    showcaseBullets: ["Sort by risk and latency", "Filter by status family", "Tie endpoint failures to user paths"],
+    steps: ["Open API Insights", "Find risky endpoints", "Inspect affected sessions"],
+  },
+  "/device-insights": {
+    title: "Device insights",
+    subtitle: "Find device, platform, OS, and app-version friction hidden inside average metrics.",
+    guideTitle: "Find the device cohort",
+    fitTitle: "Best fit",
+    tradeoffTitle: "Use aggregate analytics when",
+    heroBullets: ["Device cohorts", "Issue pressure", "Engagement quality"],
+    available: ["Mobile apps", "React Native", "iOS and Android"],
+    showcaseTabs: ["Portfolio", "Engagement", "Stability", "Versions", "Replay"],
+    showcaseTitle: "Spot device-specific product friction",
+    showcaseCopy: "Device insights show which devices carry engagement, stability, duration, and issue patterns that averages hide.",
+    showcaseBullets: ["Compare device models", "Track crash and ANR pressure", "Find device-version hotspots"],
+    steps: ["Open Devices", "Review pressure leaders", "Connect the cohort to replay"],
+  },
   "/record-user-sessions": {
     title: "Record user sessions",
     subtitle: "Find the sessions that answer a specific product, support, or engineering question.",
@@ -404,6 +460,8 @@ const featureImageDimensionsBySrc: Record<string, { width: number; height: numbe
   "/images/engineering/product-tools-live-journeys.png": { width: 1440, height: 820 },
   "/images/engineering/product-tools-live-replay.png": { width: 1440, height: 820 },
   "/images/engineering/product-tools-live-stability.png": { width: 1440, height: 820 },
+  "/images/engineering/product-tools-live-api-endpoints.png": { width: 1440, height: 900 },
+  "/images/engineering/product-tools-live-devices.png": { width: 1440, height: 900 },
   "/images/engineering/record-sessions-ai-query-builder.png": { width: 943, height: 180 },
   "/images/engineering/record-sessions-journey-selection.png": { width: 1000, height: 640 },
   "/images/engineering/heatmaps-attention-docs.png": { width: 1006, height: 834 },
@@ -580,6 +638,92 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
       alt: "Rejourney replay evidence for production debugging",
       title: "Replay context",
       copy: "Use the session to reproduce what the user experienced.",
+    },
+  ],
+  "/self-healing-software": [
+    {
+      src: "/images/engineering/product-tools-live-stability.png",
+      alt: "Rejourney live demo stability dashboard for self-healing software",
+      title: "Stability evidence",
+      copy: "Start from grouped crashes, errors, ANRs, and API spikes with real session context.",
+    },
+    {
+      src: "/images/engineering/product-tools-live-api-endpoints.png",
+      alt: "Rejourney API endpoint insights dashboard used for self-healing workflows",
+      title: "API context",
+      copy: "Use endpoint risk, latency, and status codes to identify backend friction users felt.",
+    },
+    {
+      src: "/images/engineering/product-tools-live-devices.png",
+      alt: "Rejourney device insights dashboard showing device-specific friction",
+      title: "Device pressure",
+      copy: "Find the devices, platforms, and app versions where issues concentrate.",
+    },
+    {
+      src: "/images/session-replay-preview.png",
+      alt: "Rejourney session replay evidence for debugging",
+      title: "Replay evidence",
+      copy: "Keep the actual session attached before sending work to a developer or AI agent.",
+    },
+  ],
+  "/stability-monitoring": [
+    {
+      src: "/images/engineering/product-tools-live-stability.png",
+      alt: "Rejourney stability monitoring dashboard with grouped crashes errors ANRs and API spikes",
+      title: "Stability dashboard",
+      copy: "Review crashes, errors, ANRs, and API spikes from one stability workflow.",
+    },
+    {
+      src: "/images/anr-issues.png",
+      alt: "Rejourney ANR issue dashboard with production failure context",
+      title: "ANR context",
+      copy: "Use replay and issue context to understand freezes and unresponsive moments.",
+    },
+    {
+      src: "/images/engineering/product-tools-live-devices.png",
+      alt: "Rejourney device insights linked to stability monitoring",
+      title: "Affected devices",
+      copy: "Prioritize failures by the device and app-version cohorts that carry them.",
+    },
+  ],
+  "/api-endpoint-insights": [
+    {
+      src: "/images/engineering/product-tools-live-api-endpoints.png",
+      alt: "Rejourney API endpoint insights dashboard with risk latency and failure code filters",
+      title: "Endpoint database",
+      copy: "Sort endpoints by calls, errors, fail rate, latency, status codes, and risk.",
+    },
+    {
+      src: "/images/engineering/ambiguity-api-error-rate-by-country.png",
+      alt: "Rejourney API error analytics by country",
+      title: "API error impact",
+      copy: "Use regional and product context to understand where API errors shape user behavior.",
+    },
+    {
+      src: "/images/session-replay-preview.png",
+      alt: "Rejourney replay evidence for API failure sessions",
+      title: "Replay evidence",
+      copy: "Open sessions where endpoint behavior changed the user experience.",
+    },
+  ],
+  "/device-insights": [
+    {
+      src: "/images/engineering/product-tools-live-devices.png",
+      alt: "Rejourney device insights dashboard with device portfolio engagement and issue pressure",
+      title: "Device insights",
+      copy: "Compare session volume, engagement, duration, and issue pressure by device model.",
+    },
+    {
+      src: "/images/anr-issues.png",
+      alt: "Rejourney stability issue context for affected devices",
+      title: "Stability by device",
+      copy: "Connect device cohorts to crashes, ANRs, errors, and affected sessions.",
+    },
+    {
+      src: "/images/engineering/product-tools-live-replay.png",
+      alt: "Rejourney replay workbench for device-specific session evidence",
+      title: "Replay by cohort",
+      copy: "Open the sessions behind a device-specific pattern before deciding what to fix.",
     },
   ],
   "/record-user-sessions": [
@@ -1501,6 +1645,14 @@ function CategoryLimitsSection({ page }: { page: SeoPage }) {
 }
 
 function categoryDocsLink(page: SeoPage) {
+  if (page.path === "/self-healing-software") {
+    return { href: "/demo", label: "Open live demo" };
+  }
+
+  if (page.path === "/stability-monitoring" || page.path === "/device-insights") {
+    return { href: "/docs/reactnative/overview", label: "React Native docs" };
+  }
+
   if (page.path === "/mobile-session-replay") {
     return { href: "/docs/reactnative/overview", label: "React Native docs" };
   }
@@ -1859,6 +2011,171 @@ const featureArticleContentByPath: Record<string, FeatureArticleContent> = {
       "Keep grouped issues tied to route, screen, release, platform, and affected user context.",
       "Use journey ribbons when the failure is a path or transition problem.",
       "Package expected behavior, observed behavior, replay links, and technical context before handing the leak to engineering or an AI coding workflow.",
+    ],
+  },
+  "/self-healing-software": {
+    sections: [
+      {
+        title: "Treat self-healing as a repair loop",
+        paragraphs: [
+          "Self-healing software starts with the same discipline as good debugging: observe the user-facing failure, group repeated signals, attach the session evidence, and make the next step small enough to repair.",
+          "Rejourney keeps stability issues, API endpoint failures, device pressure, journeys, and replay evidence close together so teams can move from product friction to a bounded fix packet.",
+        ],
+        bullets: [
+          "Group repeated crashes, errors, ANRs, API failures, and leak signals.",
+          "Keep replay and product-path context attached to the issue.",
+          "Hand off enough evidence for an engineer or AI coding workflow to reproduce the problem.",
+        ],
+        imageIndex: 0,
+        imageVariant: "wide",
+      },
+      {
+        title: "Connect backend and device context before automating",
+        paragraphs: [
+          "Automation is only useful when the evidence is specific. An endpoint that fails during checkout, a device model that carries ANRs, or a release that changed engagement needs to be visible before the fix can be trusted.",
+          "The workflow should preserve the route, screen, request, app version, device, replay link, and expected behavior. That context gives the next reviewer enough information to verify the repair instead of guessing from a summary.",
+        ],
+        imageIndex: 1,
+        imageVariant: "wide",
+      },
+      {
+        title: "Verify recovery with the same signals",
+        paragraphs: [
+          "A self-healing loop is incomplete until the team can confirm that the issue actually improved. Use the same session, stability, endpoint, device, and journey views to compare behavior after the fix ships.",
+          "If the issue disappears from one view but remains visible in another, the repair may have narrowed the symptom without removing the underlying product friction.",
+        ],
+        imageIndex: 2,
+        imageVariant: "wide",
+      },
+    ],
+    implementationNotes: [
+      "Define which signal types create a repair candidate: crash, ANR, API spike, device hotspot, journey loop, or funnel leak.",
+      "Require replay or a clear reason replay is unavailable before handing work to an AI coding workflow.",
+      "Attach route, screen, release, endpoint, device, and expected behavior to the fix packet.",
+      "Verify the same signal after release instead of closing the loop from a code change alone.",
+    ],
+  },
+  "/stability-monitoring": {
+    sections: [
+      {
+        title: "Group failures before assigning priority",
+        paragraphs: [
+          "Stability triage gets noisy when every crash, error, ANR, and API spike becomes a separate task. Grouping repeated failures lets the team see affected users, event count, last occurrence, and the context that makes the issue worth repairing.",
+          "Rejourney's stability page keeps those groups beside replay availability, device context, app versions, and API spikes so engineering and product can judge impact from the same evidence.",
+        ],
+        bullets: [
+          "Crashes, errors, ANRs, and API spikes in one workflow.",
+          "Affected users and event counts visible before drilldown.",
+          "Replay links and device context preserved for reproduction.",
+        ],
+        imageIndex: 0,
+        imageVariant: "wide",
+      },
+      {
+        title: "Use replay to understand what happened before the failure",
+        paragraphs: [
+          "A failure often depends on the path that led to it: a gesture, a loading state, a failed request, or a device-specific state that never appears in local testing.",
+          "Opening the replay before writing the ticket helps the team describe expected behavior, observed behavior, and the smallest reproduction path without asking the user to recreate the failure.",
+        ],
+        imageIndex: 1,
+      },
+      {
+        title: "Separate release, device, and API causes",
+        paragraphs: [
+          "The same symptom can come from different causes. A crash spike after a release, an ANR concentrated on one device family, and an API spike during checkout should not be handled as the same class of work.",
+          "Use stability monitoring with device insights and endpoint insights to split those causes before assigning ownership.",
+        ],
+        imageIndex: 2,
+        imageVariant: "wide",
+      },
+    ],
+    implementationNotes: [
+      "Capture app version, SDK version, device model, OS version, route, and screen context with stability events.",
+      "Link crash, error, and ANR groups back to representative sessions when available.",
+      "Track API spikes beside stability issues so backend regressions are not mistaken for frontend bugs.",
+      "Filter by issue type and affected cohort before assigning severity.",
+    ],
+  },
+  "/api-endpoint-insights": {
+    sections: [
+      {
+        title: "Track the endpoint behavior users actually felt",
+        paragraphs: [
+          "API endpoint analytics is most useful when it explains product impact. A high-volume endpoint, a slow endpoint, and an endpoint with a small but repeated 500 rate can each matter differently depending on where users encounter it.",
+          "Rejourney's endpoint database keeps calls, errors, fail rate, latency, status codes, filters, and risk together so teams can find the backend behavior most likely to explain user friction.",
+        ],
+        bullets: [
+          "Sort endpoints by volume, errors, fail rate, latency, and risk.",
+          "Filter by method, status family, failure code, latency, volume, and endpoint path.",
+          "Use endpoint insights beside replay, stability, journeys, and device context.",
+        ],
+        imageIndex: 0,
+        imageVariant: "wide",
+      },
+      {
+        title: "Do not stop at the status code",
+        paragraphs: [
+          "A 500 during checkout and a 500 on a background refresh do not carry the same product cost. Endpoint insights should show enough context to separate noisy failures from failures that block intent.",
+          "Use status codes, latency, request volume, and risk as the starting point, then inspect the affected sessions and journeys before turning the endpoint into engineering work.",
+        ],
+        imageIndex: 1,
+        imageVariant: "wide",
+      },
+      {
+        title: "Connect API failures to funnel and retention work",
+        paragraphs: [
+          "API issues often look like product confusion to users: a button that appears ignored, a stale feed, a form with no confirmation, or a checkout step that silently fails.",
+          "When endpoint insights sit beside session replay, teams can explain not just which endpoint failed, but how the failure changed the user's path.",
+        ],
+        imageIndex: 2,
+      },
+    ],
+    implementationNotes: [
+      "Capture endpoint path, method, status code, latency, route or screen, release, and sanitized request context.",
+      "Avoid capturing sensitive request bodies or tokens in endpoint context.",
+      "Filter out health checks and low-signal endpoints before ranking product risk.",
+      "Attach one or more affected sessions when turning an endpoint issue into a ticket.",
+    ],
+  },
+  "/device-insights": {
+    sections: [
+      {
+        title: "Find the device cohort hiding inside the average",
+        paragraphs: [
+          "Device issues rarely announce themselves in the top-line metric. One device model, OS version, or app version can carry worse engagement, longer sessions, crashes, ANRs, or rage taps while the global dashboard still looks acceptable.",
+          "Rejourney's device page shows the portfolio, platform mix, engagement leaders, issue pressure, and device-version hotspots so teams can decide whether a problem is broad UX friction or a cohort-specific production issue.",
+        ],
+        bullets: [
+          "Compare device models by sessions, engagement, duration, and issue pressure.",
+          "Review platform mix and device-version hotspots.",
+          "Connect device cohorts to stability and replay evidence.",
+        ],
+        imageIndex: 0,
+        imageVariant: "wide",
+      },
+      {
+        title: "Separate device pressure from product friction",
+        paragraphs: [
+          "A user path that fails only on one device family should not trigger the same response as a flow that fails everywhere. Device insights help the team avoid broad redesigns when the evidence points to hardware, OS, app version, or performance pressure.",
+          "That distinction matters for prioritization. Engineering can reproduce the device-specific issue while product keeps the broader funnel work focused.",
+        ],
+        imageIndex: 1,
+      },
+      {
+        title: "Open sessions from the affected cohort",
+        paragraphs: [
+          "A device ranking is a clue. The proof is in sessions from that cohort: what the user tried, how the UI responded, whether a crash or ANR occurred, and which app or OS version shaped the outcome.",
+          "Pair device insights with replay and stability monitoring before deciding whether the fix belongs to UI, performance, networking, or instrumentation.",
+        ],
+        imageIndex: 2,
+        imageVariant: "wide",
+      },
+    ],
+    implementationNotes: [
+      "Capture device model, OS version, app version, platform, route or screen, and stability signals.",
+      "Rank device cohorts by issue pressure as well as volume so small but severe cohorts are visible.",
+      "Compare device-specific failures against successful sessions from the same flow.",
+      "Link device hotspots to replay and stability evidence before filing engineering work.",
     ],
   },
   "/record-user-sessions": {

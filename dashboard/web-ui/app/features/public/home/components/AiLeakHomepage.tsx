@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
+    Activity,
     ArrowRight,
     Bot,
     Check,
@@ -8,21 +9,24 @@ import {
     Feather,
     Gauge,
     Globe2,
+    MousePointerClick,
     Play,
+    Route,
     TerminalSquare,
     TrendingUp,
-    Users
+    Users,
 } from 'lucide-react';
 import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
+import { useToast } from '~/shared/providers/ToastContext';
 import { EuFlag } from './EuFlag';
 import { LandingThreeField } from './LandingThreeField';
-import { MarkAngular, MarkReactNative, MarkSwift, MarkNextJs, MarkSolid, MarkSvelte, MarkVue } from './PlatformMarks';
-import { PerformanceMetrics } from './PerformanceMetrics';
+import { MarkAngular, MarkReactNative, MarkSwift, MarkNextJs, MarkRemix, MarkSvelte, MarkVue } from './PlatformMarks';
 import { FaqSection } from './FaqSection';
 import { CodeBlock } from '~/shared/ui/core/CodeBlock';
 import { NetworkConstellation, FloatingDataNodes, TechRingsScanner } from './SparseThreeAnimations';
 
 const LOGIN_PATH = '/login';
+const MARLIN_IMAGE = '/images/rejourney-marlin.png';
 
 const shellClass = 'mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10';
 
@@ -61,7 +65,16 @@ const aiCards = [
     },
 ];
 
-const customerWantTabs = [
+type CustomerWantTabId = 'analytics' | 'stability' | 'heatmaps' | 'journey' | 'revenue' | 'web';
+
+const customerWantTabs: Array<{
+    id: CustomerWantTabId;
+    title: string;
+    copy: string;
+    image: string;
+    icon: React.ComponentType<{ className?: string }>;
+    href: string;
+}> = [
     {
         id: 'analytics',
         title: 'Session Replay',
@@ -71,6 +84,38 @@ const customerWantTabs = [
         href: '/record-user-sessions',
     },
     {
+        id: 'stability',
+        title: 'Stability Monitoring',
+        copy: 'Group crashes, ANRs, errors, and API failures by affected sessions so engineering can see the replay evidence behind each incident.',
+        image: '/images/anr-issues.png',
+        icon: Activity,
+        href: '/stability-monitoring',
+    },
+    {
+        id: 'heatmaps',
+        title: 'Heat Maps',
+        copy: 'Reveal ignored CTAs, repeated taps, rage clicks, and scroll patterns so product teams can spot friction before it drains conversion.',
+        image: '/images/heatmaps.png',
+        icon: MousePointerClick,
+        href: '/heatmaps',
+    },
+    {
+        id: 'journey',
+        title: 'User Journey',
+        copy: 'Map real paths through your funnel, then open replay evidence behind every branch, loop, and drop-off.',
+        image: '/images/readme-user-journeys.png',
+        icon: Route,
+        href: '/funnel-replay-evidence',
+    },
+    {
+        id: 'revenue',
+        title: 'Revenue Growth Tracking',
+        copy: 'Track revenue movement beside sessions, releases, retention, and affected users so growth work stays tied to evidence.',
+        image: '/images/growth-engines.png',
+        icon: TrendingUp,
+        href: '/revenue-recovery-analytics',
+    },
+    {
         id: 'web',
         title: 'Geographic Analytics',
         copy: 'Spot regional friction, sentiment clusters, and infrastructure trouble by country so teams can prioritize the markets that need attention.',
@@ -78,34 +123,40 @@ const customerWantTabs = [
         icon: Globe2,
         href: '/geographic-analytics',
     },
-    {
-        id: 'replay',
-        title: 'AI Agent Handshake',
-        copy: 'Stream diagnostic context packages directly to Claude, Cursor, or autonomous coding agents to write test cases and merge fixes immediately.',
-        image: '/images/readme-general-demo.png',
-        icon: Bot,
-        href: '/ai-agent-handoff',
-    },
 ];
 
-const featureActiveStyles: Record<string, { border: string; badge: string; shadow: string }> = {
+const featureActiveStyles: Record<CustomerWantTabId, { border: string; badge: string; shadow: string }> = {
     analytics: {
         border: 'border-blue-200/70',
         badge: 'bg-blue-50 border-blue-100 text-blue-600 shadow-sm shadow-blue-100/50',
         shadow: 'shadow-[0_12px_30px_rgba(37,99,235,0.06)]'
+    },
+    stability: {
+        border: 'border-rose-200/70',
+        badge: 'bg-rose-50 border-rose-100 text-rose-600 shadow-sm shadow-rose-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(225,29,72,0.06)]'
+    },
+    heatmaps: {
+        border: 'border-orange-200/70',
+        badge: 'bg-orange-50 border-orange-100 text-orange-600 shadow-sm shadow-orange-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(234,88,12,0.06)]'
+    },
+    journey: {
+        border: 'border-violet-200/70',
+        badge: 'bg-violet-50 border-violet-100 text-violet-600 shadow-sm shadow-violet-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(124,58,237,0.06)]'
+    },
+    revenue: {
+        border: 'border-emerald-200/70',
+        badge: 'bg-emerald-50 border-emerald-100 text-emerald-600 shadow-sm shadow-emerald-100/50',
+        shadow: 'shadow-[0_12px_30px_rgba(5,150,105,0.06)]'
     },
     web: {
         border: 'border-cyan-200/70',
         badge: 'bg-cyan-50 border-cyan-100 text-cyan-600 shadow-sm shadow-cyan-100/50',
         shadow: 'shadow-[0_12px_30px_rgba(6,182,212,0.06)]'
     },
-    replay: {
-        border: 'border-sky-200/70',
-        badge: 'bg-sky-50 border-sky-100 text-sky-600 shadow-sm shadow-sky-100/50',
-        shadow: 'shadow-[0_12px_30px_rgba(14,165,233,0.06)]'
-    }
 };
-
 
 const winTogetherTabs = [
     {
@@ -231,9 +282,10 @@ export const AiLeakHomepage: React.FC = () => {
     const location = useLocation();
     const homeCopy = getMarketingHomeCopy(location.pathname);
     const trustCopy = homeCopy.trust;
+    const { showToast } = useToast();
 
     // Feature tabs state
-    const [activeFeatureTab, setActiveFeatureTab] = useState<'analytics' | 'web' | 'replay'>('analytics');
+    const [activeFeatureTab, setActiveFeatureTab] = useState<CustomerWantTabId>('analytics');
 
     // Win Together tabs state
     const [activeWinTab, setActiveWinTab] = useState<'product' | 'growth' | 'data' | 'engineering'>('product');
@@ -273,6 +325,7 @@ export const AiLeakHomepage: React.FC = () => {
         try {
             await writeToClipboard('contact@rejourney.co');
             setSalesCopied(true);
+            showToast(homeCopy.footer.copyEmailToast);
             setTimeout(() => setSalesCopied(false), 2000);
         } catch (error) {
             console.error('Failed to copy sales email:', error);
@@ -297,27 +350,31 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
                     <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
-                    <h1 className="mx-auto max-w-5xl text-balance bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text font-display text-[3.25rem] font-extrabold leading-[0.96] tracking-normal text-transparent drop-shadow-[0_18px_44px_rgba(37,99,235,0.08)] min-[380px]:text-[3.75rem] sm:text-6xl md:text-7xl lg:text-[5.65rem] xl:text-[6.25rem]">
-                        From Session Diagnostics To Revenue Recovery.
-                    </h1>
-                    <p className="mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
-                       Power self-healing products, AI funnel leak detection, and revenue recovery.</p>
-                    {/* Action buttons matching style */}
-                    <div className="mt-11 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
-                        <Link
-                            to={LOGIN_PATH}
-                            className="inline-flex min-h-[64px] w-full min-w-[220px] items-center justify-center rounded-full border border-blue-500/40 bg-sky-50/20 px-10 text-lg font-bold text-blue-700 shadow-md shadow-blue-100/10 ring-1 ring-blue-500/30 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500 hover:bg-sky-50/40 hover:shadow-lg active:translate-y-0 sm:w-auto"
-                        >
-                            Free Tier
-                        </Link>
-                        <button
-                            type="button"
-                            onClick={() => void copySalesEmail()}
-                            className="inline-flex min-h-[64px] w-full min-w-[220px] items-center justify-center rounded-full border border-slate-300/40 bg-slate-50/15 px-10 text-lg font-bold text-slate-700 ring-1 ring-slate-400/20 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50/30 hover:shadow-lg active:translate-y-0 sm:w-auto"
-                        >
-                            {salesCopied ? 'Email copied' : 'Talk To Sales'}
-                        </button>
-                    </div>
+                        <h1 className="mx-auto max-w-6xl bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text font-display text-[1.68rem] font-extrabold leading-[1.04] tracking-normal text-transparent drop-shadow-[0_18px_44px_rgba(37,99,235,0.08)] min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[3.05rem] md:text-[3.65rem] lg:text-[4.45rem] xl:text-[5.35rem]">
+                            <span className="block whitespace-nowrap">From Session</span>
+                            <span className="block whitespace-nowrap">Diagnostics To</span>
+                            <span className="block whitespace-nowrap">Revenue Acceleration.</span>
+                        </h1>
+                        <p className="mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
+                            Power self-healing products.
+                        </p>
+                        {/* Action buttons matching style */}
+                        <div className="mt-9 flex w-full max-w-[20.5rem] flex-col items-center justify-center gap-3 sm:mt-11 sm:w-auto sm:max-w-none sm:flex-row">
+                            <Link
+                                to={LOGIN_PATH}
+                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-full border border-blue-600 bg-blue-600 px-7 text-[0.95rem] font-bold text-white shadow-[0_16px_36px_rgba(37,99,235,0.24)] ring-1 ring-blue-500/20 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-700 hover:bg-blue-700 hover:shadow-[0_20px_44px_rgba(37,99,235,0.3)] active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                            >
+                                <span>Free Tier</span>
+                                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                            </Link>
+                            <button
+                                type="button"
+                                onClick={() => void copySalesEmail()}
+                                className="inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center rounded-full border border-slate-300/70 bg-white/50 px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/75 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                            >
+                                {salesCopied ? 'Email copied' : 'Talk To Sales'}
+                            </button>
+                        </div>
 
                     {/* Supported Platforms */}
                     <div className="mx-auto mt-24 max-w-5xl flex flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-8">
@@ -350,8 +407,8 @@ export const AiLeakHomepage: React.FC = () => {
                                 <span>SvelteKit</span>
                             </div>
                             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold shadow-sm transition hover:bg-slate-100">
-                                <MarkSolid className="h-4 w-4 text-[#2c4f7c]" />
-                                <span>SolidStart</span>
+                                <MarkRemix className="h-4 w-4 text-slate-900" />
+                                <span>Remix</span>
                             </div>
                         </div>
                     </div>
@@ -389,15 +446,21 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
+            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#f4fbff_14%,#eef8ff_36%,#f8fbff_58%,#eff7ff_80%,#f8fafc_100%)]">
+                <LandingThreeField variant="landing-sparse" seed={661} className="opacity-45" />
+                <FloatingDataNodes className="opacity-45" seed={662} />
+                <TechRingsScanner className="opacity-25" seed={526} />
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(45,212,191,0.12),transparent_38%),radial-gradient(circle_at_82%_28%,rgba(37,99,235,0.1),transparent_42%),radial-gradient(circle_at_22%_64%,rgba(125,211,252,0.16),transparent_44%),radial-gradient(circle_at_72%_94%,rgba(59,130,246,0.1),transparent_42%)]" aria-hidden="true" />
+
             {/* Your Unfair AI Advantage Cards Section */}
                 <section className="relative overflow-visible border-t border-transparent bg-transparent px-5 py-24 sm:px-8 lg:px-10">
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.1),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(59,130,246,0.08),transparent_42%)]" aria-hidden="true" />
                     <NetworkConstellation className="opacity-60" />
                 
-                <div className="relative mx-auto max-w-7xl z-10">
+                <div className="relative z-10 mx-auto max-w-7xl">
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
-                            AI-Powered Leak Diagnostics
+                            Self-Healing Leaks
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
                             Record user session drop-offs and compile exact, high-fidelity context packets ready for developer or AI agent resolution.
@@ -406,7 +469,6 @@ export const AiLeakHomepage: React.FC = () => {
 
                     <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                         {aiCards.map(({ title, copy, icon: Icon, image, imagePosition, href }, index) => {
-                            // Unique gradient background per card to match the visual theme
                             const cardGradients = [
                                 { bg: 'from-cyan-50/50 via-sky-50/30 to-white/10', iconColor: 'text-cyan-600', badgeBg: 'bg-cyan-50/60 border-cyan-200/40' },
                                 { bg: 'from-sky-50/50 via-blue-50/30 to-white/10', iconColor: 'text-sky-600', badgeBg: 'bg-sky-50/60 border-sky-200/40' },
@@ -421,10 +483,9 @@ export const AiLeakHomepage: React.FC = () => {
                                     key={title} 
                                     className="group flex flex-col justify-between rounded-2xl border border-slate-200 bg-white/45 backdrop-blur-lg text-slate-900 overflow-hidden shadow-sm ring-1 ring-slate-100/5 transition-all duration-300 hover:shadow-xl hover:border-slate-350 hover:bg-white/70 hover:-translate-y-2 text-left"
                                 >
-                                    {/* Glassy Card Image Header with browser mockup taking up all the space */}
                                     <div className={`h-48 bg-gradient-to-br ${style.bg} border-b border-slate-200/50 overflow-hidden relative flex flex-col justify-start`}>
-                                        <div className={`relative w-full h-full flex flex-col bg-white overflow-hidden transition-all duration-500 group-hover:scale-[1.04] ${tiltClass} origin-center`}>
-                                            <div className="flex h-5 items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-2 shrink-0 select-none">
+                                        <div className={`relative flex h-full w-full origin-center flex-col overflow-hidden bg-white transition-all duration-500 group-hover:scale-[1.04] ${tiltClass}`}>
+                                            <div className="flex h-5 shrink-0 select-none items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-2">
                                                 <span className="h-1 w-1 rounded-full bg-slate-300" />
                                                 <span className="h-1 w-1 rounded-full bg-slate-300" />
                                                 <span className="h-1 w-1 rounded-full bg-slate-300" />
@@ -432,26 +493,25 @@ export const AiLeakHomepage: React.FC = () => {
                                             <img 
                                                 src={image} 
                                                 alt={title} 
-                                                className="w-full h-full object-cover object-top opacity-90 group-hover:opacity-100 transition-opacity duration-300"
+                                                className="h-full w-full object-cover object-top opacity-90 transition-opacity duration-300 group-hover:opacity-100"
                                                 style={{ objectPosition: imagePosition }}
                                             />
                                         </div>
                                     </div>
                                     
-                                    {/* Card Body */}
-                                    <div className="p-6 flex-1 flex flex-col justify-between">
+                                    <div className="flex flex-1 flex-col justify-between p-6">
                                         <div>
-                                            <div className="flex items-center gap-2.5 mb-3">
-                                                <div className={`h-7 w-7 rounded-lg ${style.badgeBg} border flex items-center justify-center ${style.iconColor} shadow-sm shrink-0 backdrop-blur-sm`}>
+                                            <div className="mb-3 flex items-center gap-2.5">
+                                                <div className={`h-7 w-7 shrink-0 rounded-lg ${style.badgeBg} border flex items-center justify-center ${style.iconColor} shadow-sm backdrop-blur-sm`}>
                                                     <Icon className="h-4 w-4" />
                                                 </div>
                                                 <h3 className="text-base font-bold tracking-tight text-slate-950">{title}</h3>
                                             </div>
-                                            <p className="text-sm leading-relaxed text-slate-500 font-medium">{copy}</p>
+                                            <p className="text-sm font-medium leading-relaxed text-slate-500">{copy}</p>
                                         </div>
                                         <Link 
                                             to={href} 
-                                            className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 hover:text-sky-700 transition-all hover:translate-x-0.5"
+                                            className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 transition-all hover:translate-x-0.5 hover:text-sky-700"
                                         >
                                             Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
                                         </Link>
@@ -464,14 +524,11 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Understand What Your Customers Want Section */}
-                <section className="relative overflow-hidden border-t border-transparent bg-gradient-to-b from-slate-50/50 via-sky-50/20 to-transparent py-24 sm:py-28 lg:overflow-visible">
-                    <LandingThreeField variant="landing-sparse" seed={317} className="opacity-65" />
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_25%,rgba(56,189,248,0.18),transparent_50%),radial-gradient(circle_at_85%_75%,rgba(37,99,235,0.14),transparent_50%)]" aria-hidden="true" />
-                    <FloatingDataNodes className="opacity-65" />
+                <section className="relative overflow-hidden py-24 sm:py-28 lg:overflow-visible">
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
-                            From session drop-off to revenue recovery
+                           A Full Toolbox for Conversion Growth
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
                             Stop guessing why checkouts or sign-ups leak. Capture user behavior, compile technical context, and handshake directly with coding agents.
@@ -480,8 +537,8 @@ export const AiLeakHomepage: React.FC = () => {
 
                     <div className="mt-16 grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
                         {/* Interactive vertical selectors */}
-                        <div className="space-y-4">
-                            <h3 className="text-2xl font-extrabold tracking-tight text-slate-950 mb-6 text-left">Funnels & Replays</h3>
+                        <div className="space-y-2.5">
+                            <h3 className="mb-4 text-left text-2xl font-extrabold tracking-tight text-slate-950">Funnels & Replays</h3>
                             {customerWantTabs.map(({ id, title, copy, icon: Icon }) => {
                                 const isActive = activeFeatureTab === id;
                                 const activeStyle = featureActiveStyles[id] || featureActiveStyles.analytics;
@@ -489,26 +546,26 @@ export const AiLeakHomepage: React.FC = () => {
                                 return (
                                     <button
                                         key={id}
-                                        onClick={() => setActiveFeatureTab(id as 'analytics' | 'web' | 'replay')}
-                                        className={`w-full rounded-2xl p-5 text-left border transition-all duration-300 ${
+                                        onClick={() => setActiveFeatureTab(id)}
+                                        className={`w-full rounded-2xl border text-left transition-all duration-300 ${
                                             isActive 
-                                                ? `bg-white/85 ${activeStyle.border} ${activeStyle.shadow} backdrop-blur-lg ring-1 ring-slate-100/5 scale-[1.01]` 
-                                                : 'bg-transparent border-transparent hover:bg-white/35 hover:border-slate-200/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)]'
+                                                ? `bg-white/85 p-4 ${activeStyle.border} ${activeStyle.shadow} backdrop-blur-lg ring-1 ring-slate-100/5 scale-[1.01]` 
+                                                : 'border-transparent bg-transparent px-4 py-3 hover:border-slate-200/50 hover:bg-white/35 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)]'
                                         }`}
                                     >
-                                        <div className="flex gap-4">
+                                        <div className="flex gap-3.5">
                                             <div className={`mt-0.5 h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border transition-all duration-300 ${
                                                 isActive ? activeStyle.badge : 'bg-transparent border-transparent text-slate-400 hover:text-slate-700'
                                             }`}>
                                                 <Icon className="h-4 w-4" />
                                             </div>
                                             <div className="flex-1">
-                                                <h4 className="text-base font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
+                                                <h4 className="flex items-center gap-1.5 text-base font-bold tracking-tight text-slate-900">
                                                     {title}
                                                 </h4>
                                                 {isActive && (
-                                                    <div className="mt-3 space-y-3 transition-all duration-300">
-                                                        <p className="text-sm leading-relaxed text-slate-500 font-medium">{copy}</p>
+                                                    <div className="mt-2.5 space-y-2.5 transition-all duration-300">
+                                                        <p className="text-sm font-medium leading-6 text-slate-500">{copy}</p>
                                                         <Link 
                                                             to={activeFeature.href} 
                                                             className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 hover:text-sky-700 transition-colors hover:translate-x-0.5"
@@ -548,11 +605,7 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Win Together Section (Horizontal tabs + Testimonials + Images) */}
-                <section className="relative overflow-hidden border-t border-transparent bg-slate-50/10 py-24 sm:py-28 lg:overflow-visible">
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_25%,rgba(59,130,246,0.12),transparent_48%),radial-gradient(circle_at_20%_75%,rgba(125,211,252,0.19),transparent_45%),radial-gradient(circle_at_50%_50%,rgba(14,165,233,0.06),transparent_40%)]" aria-hidden="true" />
-                    <FloatingDataNodes variant="alternate" className="opacity-60" />
-                    <TechRingsScanner className="opacity-45" seed={526} />
-                
+                <section className="relative overflow-hidden py-24 sm:py-28 lg:overflow-visible">
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">Plug leaks as a team</h2>
@@ -638,18 +691,71 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            {/* Performance Benchmarks Gallery */}
-            <PerformanceMetrics copy={homeCopy.performance} />
+            {/* Rejourney Marlin GitHub App Section */}
+                <section className="relative overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:overflow-visible lg:px-10">
+                <div className="relative z-10 mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+                    <div className="max-w-3xl">
+                        <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">
+                            Rejourney Marlin for GitHub
+                        </p>
+                        <h2 className="mt-5 max-w-4xl font-display text-4xl font-extrabold leading-tight tracking-normal text-slate-950 sm:text-6xl lg:text-7xl">
+                            Fix the leaks your replays expose.
+                        </h2>
+                        <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-slate-600 sm:text-xl">
+                            Marlin is the Rejourney GitHub App that uses replay context to identify funnel and revenue issues, then suggests code fixes your team can review from the repository.
+                        </p>
+
+                        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                            <Link
+                                to="/rejourney-marlin"
+                                className="inline-flex min-h-[54px] items-center justify-center gap-2 rounded-full bg-blue-600 px-7 text-sm font-bold text-white shadow-xl shadow-blue-200/70 transition hover:-translate-y-0.5 hover:bg-blue-700"
+                            >
+                                Explore Marlin
+                                <ArrowRight className="h-4 w-4" />
+                            </Link>
+                            <Link
+                                to="/pricing"
+                                className="inline-flex min-h-[54px] items-center justify-center gap-2 rounded-full border border-slate-300 bg-white/70 px-7 text-sm font-bold text-slate-700 shadow-sm backdrop-blur-md transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white"
+                            >
+                                See pricing
+                                <ArrowRight className="h-4 w-4" />
+                            </Link>
+                        </div>
+                    </div>
+
+                    <div className="relative mx-auto w-full max-w-xl">
+                        <div className="absolute -inset-5 rounded-[2rem] bg-cyan-200/30 blur-3xl" aria-hidden="true" />
+                        <div className="relative overflow-hidden rounded-[1.75rem] border border-cyan-100 bg-white/70 p-3 shadow-2xl shadow-cyan-900/10 backdrop-blur-xl">
+                            <img
+                                src={MARLIN_IMAGE}
+                                alt="Rejourney Marlin artwork"
+                                className="aspect-square w-full rounded-[1.35rem] object-cover"
+                            />
+                        </div>
+                        <div className="relative -mt-12 ml-auto w-[88%] rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl backdrop-blur-md sm:w-[78%]">
+                            <div className="flex items-center justify-between gap-4">
+                                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    Marlin suggestion
+                                </span>
+                                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                                    450 Replays 
+                                </span>
+                            </div>
+                            <div className="mt-3 space-y-2 font-mono text-xs font-semibold text-slate-700">
+                                <p>checkout/PaymentSheet.tsx</p>
+                                <p className="text-emerald-700">+ retry failed intent before empty state</p>
+                                <p className="text-blue-700">+ guard CTA when plan quote is stale</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             {/* FAQ Section */}
             <FaqSection />
 
             {/* Bottom Call-To-Action (CTA) */}
-                <section className="relative overflow-hidden border-t border-transparent bg-gradient-to-b from-transparent via-sky-50/20 to-slate-50 px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
-                    <LandingThreeField variant="landing-sparse" seed={811} className="opacity-60" />
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(37,99,235,0.08),transparent_50%)]" aria-hidden="true" />
-                    <TechRingsScanner className="opacity-70" />
-                
+                <section className="relative overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mx-auto max-w-3xl text-center mb-16">
@@ -780,6 +886,7 @@ export const AiLeakHomepage: React.FC = () => {
                     </div>
                 </div>
                 </section>
+            </div>
             </div>
         </div>
     );

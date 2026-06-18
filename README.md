@@ -47,6 +47,8 @@
 ## Features
 
 ### Pixel Perfect Capture
+![Session Replay Theater](dashboard/web-ui/public/images/session-replay-preview.png)
+
 True FPS video playback capturing every rendered pixel. Unlike competitors, we capture everything—including Mapbox (Metal), custom shaders, and GPU-accelerated views.
 
 ### Issue Detection

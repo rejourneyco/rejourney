@@ -6,16 +6,17 @@
  *   GET    /automations/github/link            link status (gates the inbox)
  *   GET    /automations/github/install-url      signed-state install URL
  *   GET    /automations/github/setup/callback   GitHub Setup URL → verify → redirect
+ *   GET    /automations/github/installations    installed App candidates + repos
  *   GET    /automations/github/installation/repos  repo + folder picker source
  *   POST   /automations/github/link             bind installation+repo+globs
  *   PATCH  /automations/github/link             update sourceGlobs
  *   DELETE /automations/github/link             unlink
  *
  * Security: the setup callback never trusts the redirect — it verifies the
- * signed+TTL'd state, requires `state.userId === the session user`, and checks
- * project access before redirecting the browser to the folder picker. Any
- * failure redirects to the dashboard with `?error=github_link_failed` (never a
- * 500 mid-redirect).
+ * signed+TTL'd state from the query or short-lived cookie fallback, requires
+ * `state.userId === the session user`, and checks project access before
+ * redirecting the browser to the folder picker. Any failure redirects to the
+ * dashboard with `?error=github_link_failed` (never a 500 mid-redirect).
  */
 
 import { Router } from 'express';
@@ -28,10 +29,12 @@ import {
 } from '../services/issueDetectionClient.js';
 import { userCanAccessProject } from '../services/projectAccess.js';
 import { createSetupState, verifySetupState } from '../services/githubAppState.js';
+import { getOAuthStateCookieOptions } from '../utils/cookies.js';
 
 const router = Router();
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+const GITHUB_APP_SETUP_STATE_COOKIE = 'github_app_setup_state';
 
 function dashboardBaseUrl(): string {
     return config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
@@ -72,6 +75,7 @@ router.get(
             userId: req.user!.id,
             secret: config.GITHUB_APP_STATE_SECRET,
         });
+        res.cookie(GITHUB_APP_SETUP_STATE_COOKIE, state, getOAuthStateCookieOptions(req));
         const installUrl =
             `https://github.com/apps/${encodeURIComponent(config.GITHUB_APP_SLUG)}` +
             `/installations/new?state=${encodeURIComponent(state)}`;
@@ -89,9 +93,16 @@ router.get(
                 res.redirect(failureUrl);
                 return;
             }
-            const stateRaw = typeof req.query.state === 'string' ? req.query.state : '';
+            const queryState =
+                typeof req.query.state === 'string' && req.query.state.trim() ? req.query.state : '';
+            const cookieState =
+                typeof req.cookies?.[GITHUB_APP_SETUP_STATE_COOKIE] === 'string'
+                    ? req.cookies[GITHUB_APP_SETUP_STATE_COOKIE]
+                    : '';
+            const stateRaw = queryState || cookieState;
             const installationId =
                 typeof req.query.installation_id === 'string' ? req.query.installation_id : '';
+            res.clearCookie(GITHUB_APP_SETUP_STATE_COOKIE, getOAuthStateCookieOptions(req));
 
             const verified = verifySetupState(stateRaw, config.GITHUB_APP_STATE_SECRET, {
                 maxAgeMs: STATE_TTL_MS,
@@ -108,14 +119,30 @@ router.get(
                 return;
             }
 
-            const successUrl =
-                `${dashboardBaseUrl()}/dashboard/settings/` +
-                `${encodeURIComponent(verified.payload.projectId)}/github` +
-                `?installation_id=${encodeURIComponent(installationId)}`;
-            res.redirect(successUrl);
+            const successUrl = new URL(
+                `/dashboard/settings/${encodeURIComponent(verified.payload.projectId)}/github`,
+                dashboardBaseUrl(),
+            );
+            if (installationId) {
+                successUrl.searchParams.set('installation_id', installationId);
+            }
+            res.redirect(successUrl.toString());
         } catch {
             res.redirect(failureUrl);
         }
+    }),
+);
+
+router.get(
+    '/installations',
+    asyncHandler(async (req, res) => {
+        ensureIssueDetectionEnabled();
+        const projectId = requireProjectIdQuery(req.query.projectId);
+        await requireProjectAccess(req.user!.id, projectId);
+        const data = await callIssueDetection<unknown>({
+            pathWithQuery: `/v1/projects/${encodeURIComponent(projectId)}/github/installations`,
+        });
+        res.json(data);
     }),
 );
 

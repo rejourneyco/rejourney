@@ -13,7 +13,7 @@ import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { SessionDataProvider, useSessionData } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
-import { shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
+import { isSetupSupportRoute, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
 import type { Project } from "~/shared/types";
 import { readCookieValue } from "~/shared/utils/selectionCookies";
 import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
@@ -45,7 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     if (bootstrap) {
         const url = new URL(request.url);
-        const isSetupPage = url.pathname === "/dashboard/setup" || url.pathname.endsWith("/setup");
+        const isSetupPage = isSetupSupportRoute(url.pathname);
         if (!isSetupPage) {
             const selectedProject = bootstrap.projects.find((p) => p.id === bootstrap.selectedProjectId) ?? bootstrap.projects[0] ?? null;
             const cookieHeader = request.headers.get("cookie");
@@ -122,7 +122,7 @@ function DashboardLayoutContent() {
 
     useEffect(() => {
         if (!isLoading) {
-            const isSetupPage = location.pathname === "/dashboard/setup" || location.pathname.endsWith("/setup");
+            const isSetupPage = isSetupSupportRoute(location.pathname);
             const isBypassed = selectedProject && typeof document !== "undefined" && document.cookie.includes(`bypass_setup_${selectedProject.id}=true`);
             if (!isBypassed && shouldSurfaceSetup(projects, selectedProject) && !isSetupPage) {
                 navigate("/dashboard/setup", { replace: true });

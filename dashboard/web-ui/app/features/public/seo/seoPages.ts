@@ -590,6 +590,234 @@ export const SEO_PAGES: SeoPage[] = [
     ],
   }),
   categoryPage({
+    path: "/self-healing-software",
+    badge: "Self-healing",
+    eyebrow: "Self-healing software",
+    title: "Self-healing software starts with real session evidence",
+    subtitle:
+      "Use replay, stability, API, device, journey, and leak context to turn repeated production friction into fix-ready work.",
+    metaTitle: "Self-Healing Software | Rejourney",
+    metaDescription:
+      "Self-healing software workflows with AI debugging, session replay debugging, crashes, ANRs, API failures, device insights, and fix-ready context.",
+    keywords: [
+      "self healing software",
+      "AI debugging",
+      "session replay debugging",
+      "self healing software development",
+      "autonomous debugging",
+      "production debugging",
+      "AI session replay",
+    ],
+    image: "/images/engineering/product-tools-live-stability.png",
+    imageAlt: "Rejourney stability dashboard for self-healing software workflows",
+    proofPoints: ["Replay evidence", "Stability signals", "Fix-ready context"],
+    whyTitle: "Self-healing software needs evidence before automation",
+    whyParagraphs: [
+      "A product cannot heal itself from a vague chart. It needs the exact user path, the failed request, the crash or ANR, the affected device, and the release context that made the issue repeat.",
+      "Rejourney keeps those signals tied to real sessions so teams can identify friction, inspect the proof, and hand a bounded problem to an engineer or AI coding workflow.",
+      "That makes self-healing less like magic and more like a disciplined loop: observe the user experience, group the repeated issue, package the context, fix, and verify recovery.",
+    ],
+    chooseOtherTitle: "Use generic monitoring if...",
+    chooseOther: [
+      "Your team only needs uptime or server-side metrics.",
+      "Production issues are reproducible without user path, replay, device, or request context.",
+      "Your existing tools already package product and engineering evidence into fix-ready workflows.",
+    ],
+    comparisonTitle: "Self-healing software checklist",
+    comparisonIntro:
+      "Self-healing workflows should connect observed user friction to the technical context needed to repair it.",
+    otherColumnTitle: "Generic monitoring",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What does self-healing software mean for product teams?",
+        answer:
+          "It means repeated user-facing friction can be detected, grouped, explained, and handed off with enough context for a fix, instead of waiting for manual reports and incomplete bug tickets.",
+      },
+      {
+        question: "How does Rejourney support self-healing workflows?",
+        answer:
+          "Rejourney connects session replay, journeys, stability issues, API endpoint failures, device cohorts, and AI-ready handoff context around the same real user evidence.",
+      },
+      {
+        question: "Does Rejourney automatically deploy fixes?",
+        answer:
+          "No. Rejourney prepares the evidence and context developers or AI coding tools need. Teams still review, test, and ship fixes through their normal engineering process.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/stability-monitoring",
+    badge: "Stability",
+    eyebrow: "Stability monitoring",
+    title: "Stability monitoring with replay context for crashes, errors, and ANRs",
+    subtitle:
+      "Group crashes, errors, ANRs, and API spikes with affected users, devices, releases, and replay evidence.",
+    metaTitle: "Stability Monitoring | Rejourney",
+    metaDescription:
+      "Mobile app stability monitoring for crashes, errors, ANR monitoring, API spikes, replay context, affected devices, and release impact.",
+    keywords: [
+      "mobile app stability monitoring",
+      "crash analytics",
+      "ANR monitoring",
+      "error monitoring",
+      "mobile crash analytics",
+      "session replay debugging",
+      "production stability monitoring",
+    ],
+    image: "/images/engineering/product-tools-live-stability.png",
+    imageAlt: "Rejourney stability monitoring dashboard with crashes errors ANRs and API spikes",
+    proofPoints: ["Crashes", "Errors + ANRs", "Replay context"],
+    whyTitle: "Stability issues are easier to fix when the session is attached",
+    whyParagraphs: [
+      "A stack trace can explain where code failed, but it does not always explain what the user was doing, which device was involved, or which release introduced the pattern.",
+      "Rejourney's stability workflow groups crashes, errors, ANRs, and API spikes, then keeps session replay, affected devices, app versions, and user impact close to the issue.",
+      "That gives engineering a faster starting point and gives product teams a clearer view of which stability issues are actually shaping conversion, retention, and support volume.",
+    ],
+    chooseOtherTitle: "Use crash-only reporting if...",
+    chooseOther: [
+      "A stack trace is usually enough to reproduce your production bugs.",
+      "You do not need replay, device, release, or API context around stability issues.",
+      "Product and support teams do not participate in stability prioritization.",
+    ],
+    comparisonTitle: "Stability monitoring checklist",
+    comparisonIntro:
+      "Stability monitoring should connect the failure type, affected users, device context, and replay evidence.",
+    otherColumnTitle: "Crash-only tools",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What stability signals does Rejourney track?",
+        answer:
+          "Rejourney tracks crashes, errors, ANRs, and API error spikes, with replay and context that help teams understand the user experience around the failure.",
+      },
+      {
+        question: "Why pair replay with crash analytics?",
+        answer:
+          "Replay shows the path, screen, gesture, device, and state before the failure, which can make a crash or ANR much easier to reproduce.",
+      },
+      {
+        question: "Can product teams use stability monitoring?",
+        answer:
+          "Yes. Product teams can see which failures affect real user flows, while engineering gets the technical evidence needed to repair the issue.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/api-endpoint-insights",
+    badge: "API insights",
+    eyebrow: "API endpoint insights",
+    title: "API endpoint insights tied to product sessions",
+    subtitle:
+      "Track endpoint volume, latency, failure codes, and risk while keeping the affected session evidence close.",
+    metaTitle: "API Endpoint Insights | Rejourney",
+    metaDescription:
+      "API endpoint analytics and API endpoint monitoring with endpoint risk, latency, failure codes, user impact, and session replay context.",
+    keywords: [
+      "API endpoint analytics",
+      "API endpoint monitoring",
+      "API insights",
+      "endpoint analytics",
+      "API monitoring dashboard",
+      "API error analytics",
+      "session replay API errors",
+    ],
+    image: "/images/engineering/product-tools-live-api-endpoints.png",
+    imageAlt: "Rejourney API endpoint insights dashboard with endpoint risk latency and failure codes",
+    proofPoints: ["Endpoint risk", "Failure codes", "Session context"],
+    whyTitle: "API failures become product problems when users feel them",
+    whyParagraphs: [
+      "Endpoint health is not only an infrastructure metric. A slow checkout request, failed profile load, or repeated 500 during onboarding can become product friction even when the rest of the system looks healthy.",
+      "Rejourney's API endpoint insights show calls, latency, failure rates, status codes, and risk across captured sessions so product and engineering can identify which backend problems users actually experienced.",
+      "That keeps API monitoring close to replay, journeys, stability, device context, and release impact instead of making teams translate raw logs into product consequences by hand.",
+    ],
+    chooseOtherTitle: "Use infrastructure monitoring alone if...",
+    chooseOther: [
+      "Your API questions are only about uptime and server health.",
+      "You do not need to connect endpoint errors to users, sessions, funnels, or releases.",
+      "Your observability stack already shows which product experiences each endpoint affected.",
+    ],
+    comparisonTitle: "API endpoint insights checklist",
+    comparisonIntro:
+      "API endpoint analytics should explain volume, latency, failure, and product impact together.",
+    otherColumnTitle: "Server-only monitoring",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What are API endpoint insights?",
+        answer:
+          "They are per-endpoint views of request volume, latency, failure rate, status codes, and risk, tied back to product sessions where users experienced the API behavior.",
+      },
+      {
+        question: "How is this different from backend monitoring?",
+        answer:
+          "Backend monitoring shows system health. Rejourney focuses on the product impact by connecting endpoint behavior to sessions, journeys, devices, and replay evidence.",
+      },
+      {
+        question: "Can Rejourney help find API-driven funnel leaks?",
+        answer:
+          "Yes. When users drop after slow or failed requests, API endpoint insights can help teams connect the technical failure to the affected session and product path.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/device-insights",
+    badge: "Devices",
+    eyebrow: "Device insights",
+    title: "Device insights for mobile app friction, crashes, and engagement",
+    subtitle:
+      "Compare device models, platforms, app versions, issue rates, engagement, and session quality to find device-specific friction.",
+    metaTitle: "Device Insights | Rejourney",
+    metaDescription:
+      "Device analytics for mobile apps with device-specific crash analytics, engagement, ANR context, error rates, app versions, and replay evidence.",
+    keywords: [
+      "device analytics",
+      "mobile device analytics",
+      "device-specific crash analytics",
+      "mobile app device analytics",
+      "device insights",
+      "ANR device analytics",
+      "mobile app stability by device",
+    ],
+    image: "/images/engineering/product-tools-live-devices.png",
+    imageAlt: "Rejourney device insights dashboard with device engagement and issue pressure",
+    proofPoints: ["Device cohorts", "Issue pressure", "Engagement quality"],
+    whyTitle: "Device-specific friction hides inside average product metrics",
+    whyParagraphs: [
+      "A product can look healthy overall while a device model, platform, OS version, or app version quietly carries lower engagement, longer sessions, crashes, ANRs, or rage taps.",
+      "Rejourney's device insights show the device portfolio, platform mix, engagement leaders, issue pressure, and device-version hotspots so teams can find friction that averages hide.",
+      "When device data stays connected to replay and stability context, engineering can reproduce issues faster and product can avoid treating a device-specific problem like a broad UX failure.",
+    ],
+    chooseOtherTitle: "Use aggregate analytics if...",
+    chooseOther: [
+      "Your product experience does not vary by device, OS, app version, or platform.",
+      "You do not need to prioritize device-specific stability or engagement issues.",
+      "Your analytics already links device cohorts to replay and stability evidence.",
+    ],
+    comparisonTitle: "Device insights checklist",
+    comparisonIntro:
+      "Device analytics should connect engagement, stability, app version, platform, and replay context.",
+    otherColumnTitle: "Aggregate analytics",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What do device insights show?",
+        answer:
+          "They show which devices, platforms, app versions, and device-version combinations carry session volume, engagement, duration, crashes, ANRs, errors, and other issue pressure.",
+      },
+      {
+        question: "Why does device analytics matter for mobile apps?",
+        answer:
+          "Mobile issues often appear only on certain devices, operating systems, or app versions. Device analytics helps teams find those pockets before they distort retention or support volume.",
+      },
+      {
+        question: "Can device insights connect to replay?",
+        answer:
+          "Yes. Rejourney keeps device and stability context near replay evidence so teams can inspect the sessions behind device-specific friction.",
+      },
+    ],
+  }),
+  categoryPage({
     path: "/record-user-sessions",
     badge: "Strategy guide",
     eyebrow: "Record user sessions",

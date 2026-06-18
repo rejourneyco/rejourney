@@ -58,6 +58,23 @@ export async function loader() {
         alternates: getLocalizedAlternateLinksForPath("/pricing"),
     }];
 
+    const productRoutes: SitemapRoute[] = [
+        {
+            path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/rejourney-marlin"),
+            priority: "0.8",
+            changefreq: "weekly",
+            image: `${baseUrl}/images/rejourney-marlin.png`,
+            imageTitle: "Rejourney Marlin GitHub App",
+        },
+        {
+            path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/benchmarks"),
+            priority: "0.6",
+            changefreq: "monthly",
+            image: `${baseUrl}/images/growth-engines.png`,
+            imageTitle: "Rejourney benchmarks",
+        },
+    ];
+
     const companyRoutes: SitemapRoute[] = [
         {
             path: "/about",
@@ -105,7 +122,7 @@ export async function loader() {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...companyRoutes, ...seoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
+${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...companyRoutes, ...seoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
   <url>
     <loc>${escapeXml(`${baseUrl}${route.path}`)}</loc>
     <lastmod>${"lastmod" in route && route.lastmod ? route.lastmod : lastModified}</lastmod>

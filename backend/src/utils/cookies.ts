@@ -9,6 +9,26 @@ import { Request, CookieOptions } from 'express';
 import { config } from '../config.js';
 import { getBaseDomain } from './domain.js';
 
+function normalizeHost(host: string | undefined): string {
+    const value = (host ?? '').split(',')[0].trim();
+    if (value.startsWith('[')) {
+        const end = value.indexOf(']');
+        return end > 0 ? value.slice(1, end) : value.slice(1);
+    }
+    if (value === '::1') {
+        return value;
+    }
+    return value.split(':')[0];
+}
+
+function isLoopbackHost(host: string): boolean {
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function isPrivateNetworkHost(host: string): boolean {
+    return /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/.test(host);
+}
+
 /**
  * Detect if the request is coming from localhost/local development.
  * Checks multiple headers to handle proxy scenarios (Docker, nginx, etc.)
@@ -17,36 +37,27 @@ import { getBaseDomain } from './domain.js';
  * This only disables Secure for true localhost development over HTTP.
  */
 export function isLocalhostRequest(req: Request): boolean {
-    // Direct hostname check
-    const hostname = req.hostname || '';
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    const hostname = normalizeHost(req.hostname);
+    const forwardedHost = normalizeHost(req.headers['x-forwarded-host'] as string | undefined);
+    const hostHeader = normalizeHost(req.headers['host'] as string | undefined);
+    const candidateHosts = [hostname, forwardedHost, hostHeader].filter(Boolean);
+
+    if (candidateHosts.some(isLoopbackHost)) {
         return true;
     }
 
-    // Check X-Forwarded-Host (set by proxies)
-    const forwardedHost = req.headers['x-forwarded-host'] as string | undefined;
-    if (forwardedHost) {
-        const host = forwardedHost.split(':')[0]; // Remove port
-        if (host === 'localhost' || host === '127.0.0.1') {
-            return true;
-        }
-    }
-
-    // Check Host header directly
-    const hostHeader = req.headers['host'] as string | undefined;
-    if (hostHeader) {
-        const host = hostHeader.split(':')[0]; // Remove port
-        if (host === 'localhost' || host === '127.0.0.1') {
-            return true;
-        }
+    // Hybrid local development often proxies localhost dashboard requests to
+    // the backend's LAN IP. Treat those private hosts as local in development
+    // so Express emits host-only cookies instead of an invalid IP domain.
+    if (config.NODE_ENV !== 'production' && candidateHosts.some(isPrivateNetworkHost)) {
+        return true;
     }
 
     // Check X-Forwarded-Proto - if not HTTPS, likely local dev
     const proto = req.headers['x-forwarded-proto'] as string | undefined;
     if (proto === 'http' && hostname !== '') {
         // HTTP request - could be local. Check if it's a private IP
-        const isPrivateIP = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/.test(hostname);
-        if (isPrivateIP) {
+        if (isPrivateNetworkHost(hostname)) {
             return true;
         }
     }

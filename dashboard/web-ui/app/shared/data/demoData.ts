@@ -67,6 +67,7 @@ export const DEMO_TEAM = {
     name: 'ShopFlow Inc.',
     ownerUserId: 'demo-user',
     billingPlan: 'pro' as const,
+    workspaceConfirmedAt: new Date(DEMO_NOW - 180 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date(DEMO_NOW - 180 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date(DEMO_NOW).toISOString(),
 };

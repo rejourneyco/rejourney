@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router';
-import { NetworkConstellation, TechRingsScanner } from './SparseThreeAnimations';
 
 interface FaqItem {
     question: string;
@@ -52,8 +51,6 @@ export const FaqSection: React.FC = () => {
 
     return (
         <section className="relative overflow-hidden border-t border-transparent bg-transparent px-6 py-24 sm:px-8 sm:py-32 lg:px-12">
-            <NetworkConstellation className="opacity-50" seed={99} />
-            <TechRingsScanner className="opacity-35" seed={644} />
             <div className="relative z-10 mx-auto max-w-7xl">
                 <div className="grid gap-12 lg:grid-cols-[1.1fr_1.9fr] lg:items-start">
                     

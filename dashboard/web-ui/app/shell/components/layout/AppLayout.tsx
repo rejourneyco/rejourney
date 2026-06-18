@@ -9,6 +9,7 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { DashboardManualRefreshProvider } from '~/shared/providers/DashboardManualRefreshContext';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE } from '~/shared/constants/events';
 import { trackRejourneyDashboardContext } from '~/shared/compliance/rejourneyWebsiteTelemetry';
+import { isSetupSupportRoute } from '~/features/app/setup/setupUtils';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -58,7 +59,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   const isDemoLayout = pathPrefix === '/demo';
 
   const routeWithoutPrefix = useMemo(() => location.pathname.replace(/^\/(dashboard|demo)/, ''), [location.pathname]);
-  const isSetupRoute = routeWithoutPrefix.startsWith('/setup');
+  const isSetupRoute = isSetupSupportRoute(location.pathname);
 
   // Changing this forces a remount of routed pages, ensuring all screens reset
   // their local state/effects when switching team/project.

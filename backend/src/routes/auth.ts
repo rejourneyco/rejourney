@@ -432,6 +432,7 @@ router.get(
                 team: {
                     id: teams.id,
                     name: teams.name,
+                    workspaceConfirmedAt: teams.workspaceConfirmedAt,
                     stripePriceId: teams.stripePriceId,
                     stripeSubscriptionId: teams.stripeSubscriptionId,
                 },

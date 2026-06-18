@@ -10,6 +10,7 @@ import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
+import { PricingThreeField } from '~/features/public/home/components/PricingThreeField';
 import {
   CreditCard,
   Check,
@@ -86,6 +87,17 @@ const PLAN_ACCENT_COLORS: Record<string, string> = {
   pro: '#9334e6',
   scale: '#0f766e',
 };
+
+const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' }> = ({ children, tone = 'check' }) => (
+  <div className="flex gap-2.5 text-xs font-medium leading-5 text-slate-605">
+    <span className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+      {tone === 'minus'
+        ? <Minus className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />
+        : <Check className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />}
+    </span>
+    <span className="min-w-0 flex-1">{children}</span>
+  </div>
+);
 
 export const BillingSettings: React.FC = () => {
   const { isDemoMode } = useDemoMode();
@@ -694,7 +706,7 @@ export const BillingSettings: React.FC = () => {
 
   return (
     <SettingsLayout
-      className="rejourney-settings-page rejourney-billing-settings-page"
+      className="rejourney-settings-page rejourney-billing-settings-page relative overflow-hidden"
       title="Billing"
       description={`Plan & usage for ${currentTeam.name}`}
       icon={<CreditCard className="w-6 h-6" />}
@@ -707,8 +719,10 @@ export const BillingSettings: React.FC = () => {
         </div>
       }
     >
+      <PricingThreeField seed={21} className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60" />
+      <div className="relative z-10 space-y-6">
       {hasScheduledPlanChange && (
-        <div className="dashboard-surface flex items-start gap-3 border-rose-200 bg-rose-50 p-4">
+        <div className="rounded-xl border border-rose-200/60 bg-rose-50/75 backdrop-blur-md flex items-start gap-3 p-4">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-rose-900">Scheduled plan change</div>
@@ -722,7 +736,7 @@ export const BillingSettings: React.FC = () => {
       )}
 
       {billingError && (
-        <div className="dashboard-surface flex items-start gap-3 border-rose-200 bg-rose-50 p-4">
+        <div className="rounded-xl border border-rose-200/60 bg-rose-50/75 backdrop-blur-md flex items-start gap-3 p-4">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-rose-900">Billing error</div>
@@ -735,8 +749,8 @@ export const BillingSettings: React.FC = () => {
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="dashboard-surface p-5">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
+        <section className="billing-glass-card p-5">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/50 pb-4">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Usage This Period</h2>
               <p className="mt-1 text-xs font-medium text-slate-500">Replay quota, unlimited analytics sessions, and renewal timing.</p>
@@ -811,7 +825,7 @@ export const BillingSettings: React.FC = () => {
           </div>
 
           {(isAtLimit || isNearLimit) && (
-            <div className="dashboard-inner-surface mt-4 flex items-start gap-3 border-rose-200 bg-rose-50 p-3">
+            <div className="dashboard-inner-surface mt-4 flex items-start gap-3 border-rose-200 bg-rose-50/60 p-3">
               {isAtLimit ? <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-600" />}
               <span className="text-sm font-medium text-rose-800">
                 {isAtLimit
@@ -824,7 +838,7 @@ export const BillingSettings: React.FC = () => {
         </section>
 
         <div className="space-y-4">
-          <section className="dashboard-surface p-5">
+          <section className="billing-glass-card p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Current Plan</h2>
@@ -839,7 +853,7 @@ export const BillingSettings: React.FC = () => {
               <div className="mt-1 text-sm font-semibold text-slate-500">{currentPlanPriceLabel}</div>
             </div>
             {hasScheduledPlanChange && (
-              <div className="dashboard-inner-surface mt-4 border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800">
+              <div className="dashboard-inner-surface mt-4 border-rose-200 bg-rose-50/60 p-3 text-sm font-medium text-rose-800">
                 {teamPlan?.cancelAtPeriodEnd ? 'Canceling at period end' : 'Plan change scheduled'}
               </div>
             )}
@@ -857,7 +871,7 @@ export const BillingSettings: React.FC = () => {
           </section>
 
           {showPaymentSummary && (
-            <section className="dashboard-surface p-5">
+            <section className="billing-glass-card p-5">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Payment</h2>
                 <NeoBadge variant={stripeStatus?.paymentFailed ? 'warning' : hasPaymentMethod ? 'success' : 'neutral'} size="sm">
@@ -865,7 +879,7 @@ export const BillingSettings: React.FC = () => {
                 </NeoBadge>
               </div>
               {stripeStatus?.paymentFailed && (
-                <div className="dashboard-inner-surface mb-3 flex items-start gap-3 border-rose-200 bg-rose-50 p-3">
+                <div className="dashboard-inner-surface mb-3 flex items-start gap-3 border-rose-200 bg-rose-50/60 p-3">
                   <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" />
                   <div className="text-sm font-medium text-rose-800">Update your payment method in Stripe Billing to continue recording.</div>
                 </div>
@@ -875,7 +889,7 @@ export const BillingSettings: React.FC = () => {
                   {paymentMethods.map(pm => (
                     <div key={pm.id} className="dashboard-inner-surface p-3">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-md border border-slate-200 bg-white p-2">
+                        <div className="rounded-md border border-slate-200/60 bg-white/60 backdrop-blur-sm p-2">
                           <CreditCard className="h-4 w-4 text-slate-700" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -905,151 +919,125 @@ export const BillingSettings: React.FC = () => {
         </div>
       </div>
 
-      <section className="dashboard-surface p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Plans</h2>
-            <p className="mt-1 text-xs font-medium text-slate-500">Compare monthly session replays and replay retention without leaving this screen.</p>
-          </div>
-          <div className="text-xs font-medium text-slate-500">
-            Need more? <a href="mailto:contact@rejourney.co" className="font-semibold text-slate-900 hover:underline">Contact Sales</a>
-          </div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 relative z-10 mt-6">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Subscription Plans</h2>
+          <p className="mt-1 text-sm font-medium text-slate-500">Compare monthly session replays and replay retention without leaving this screen.</p>
         </div>
+        <div className="text-xs font-semibold text-slate-500 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
+          Need more? <a href="mailto:contact@rejourney.co" className="font-bold text-indigo-600 hover:underline">Contact Sales</a>
+        </div>
+      </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {plansForDisplay.map((plan) => {
-            const isCurrentPlan = currentPlanName === plan.name;
-            const currentPlanIndex = plansForDisplay.findIndex(p => p.name === currentPlanName);
-            const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
-            const isDowngrade = teamPlan && currentPlanIndex > planIndex;
-            const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
-            const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
-            const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
-            const price = plan.priceCents / 100;
-            const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale');
-            const actionLabel = isSavingPlan
-              ? '...'
-              : isDowngrade
-                ? 'Downgrade'
-                : isNewPaidSubscription
-                  ? 'Subscribe'
-                  : 'Upgrade';
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5 relative z-10 pb-12">
+        {plansForDisplay.map((plan) => {
+          const isCurrentPlan = currentPlanName === plan.name;
+          const currentPlanIndex = plansForDisplay.findIndex(p => p.name === currentPlanName);
+          const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
+          const isDowngrade = teamPlan && currentPlanIndex > planIndex;
+          const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
+          const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
+          const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
+          const price = plan.priceCents / 100;
+          const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale');
+          const actionLabel = isSavingPlan
+            ? '...'
+            : isDowngrade
+              ? 'Downgrade'
+              : isNewPaidSubscription
+                ? 'Subscribe'
+                : 'Upgrade';
 
-            return (
-              <div
-                key={plan.name}
-                className={`billing-plan-card dashboard-inner-surface p-0 transition-all ${isCurrentPlan
-                  ? 'billing-plan-card-current'
-                  : isFreePlanDisabled || isScheduledPlan
-                    ? 'bg-slate-50 opacity-70'
-                    : 'bg-white'
-                  }`}
-                style={{ '--plan-accent': PLAN_ACCENT_COLORS[plan.name] ?? '#1a73e8' } as React.CSSProperties}
-              >
-                <div className="billing-plan-accent" />
-                <div className="p-4">
-                  <div className="mb-4 flex min-h-[2.5rem] items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="truncate text-lg font-semibold text-slate-950">{plan.displayName}</h3>
-                      <p className="mt-1 text-xs font-medium text-slate-500">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
-                    </div>
-                    {isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
-                    {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
+          const planName = plan.name.toLowerCase().trim();
+          const isFeatured = planName === 'growth';
+          const isScale = planName === 'scale';
+
+          const cardClassName = isCurrentPlan
+            ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/15 backdrop-blur-md shadow-md hover:-translate-y-1.5 hover:shadow-lg'
+            : isFreePlanDisabled || isScheduledPlan
+              ? 'border-slate-100 bg-slate-50/40 opacity-70 shadow-none'
+              : isFeatured
+                ? 'border-indigo-500 ring-1 ring-indigo-500/40 bg-indigo-50/10 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5'
+                : 'border-slate-200/80 bg-white/75 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
+
+          const buttonVariant = isCurrentPlan || isFeatured || isScale ? 'primary' : 'secondary';
+
+          return (
+            <div
+              key={plan.name}
+              className={`relative flex flex-col justify-between overflow-hidden border rounded-2xl p-5 transition-all duration-300 ${cardClassName}`}
+              style={{ '--plan-accent': PLAN_ACCENT_COLORS[plan.name] ?? '#1a73e8' } as React.CSSProperties}
+            >
+              {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-650" aria-hidden />}
+              
+              <div>
+                <div className="flex min-h-[2.5rem] items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-lg font-bold tracking-tight text-slate-950">{plan.displayName}</h3>
+                    <p className="mt-1 text-[11px] font-medium leading-4 text-slate-500">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
+                  </div>
+                  {isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
+                  {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
+                </div>
+
+                <div className="my-4 flex items-end gap-x-1">
+                  <span className="text-2xl font-bold tracking-tight text-slate-950">{price === 0 ? 'Free' : `$${price}`}</span>
+                  {price > 0 && <span className="pb-0.5 text-xs font-semibold text-slate-500">/mo</span>}
+                </div>
+
+                <div className="mb-5 border-t border-slate-150/40 pt-4 space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Replays</p>
+                    <PlanCheck>{plan.sessionLimit.toLocaleString()} replays/mo</PlanCheck>
+                    <PlanCheck>{plan.videoRetentionLabel} retention</PlanCheck>
+                    <PlanCheck tone={hasSmartCapture ? 'check' : 'minus'}>
+                      {hasSmartCapture ? 'Smart Capture' : 'Standard capture controls'}
+                    </PlanCheck>
                   </div>
 
-                  <div className="mb-4">
-                    <span className="text-3xl font-semibold text-slate-950">{price === 0 ? 'Free' : `$${price}`}</span>
-                    {price > 0 && <span className="text-sm font-semibold text-slate-500">/mo</span>}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Analytics</p>
+                    <PlanCheck>Unlimited DAU & MAU</PlanCheck>
+                    <PlanCheck>Unlimited events</PlanCheck>
+                    <PlanCheck>Funnels, cohorts, retention</PlanCheck>
                   </div>
 
-                  <div className="mb-4 grid gap-4 text-sm">
-                    <div>
-                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Replays</div>
-                      <div className="grid gap-2">
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">
-                            <span className="font-mono font-semibold text-slate-950">{plan.sessionLimit.toLocaleString()}</span> replays/mo
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">
-                            <span className="font-mono font-semibold text-slate-950">{plan.videoRetentionLabel}</span> retention
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {hasSmartCapture ? (
-                            <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          ) : (
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-300 text-slate-950">
-                              <Minus className="h-3 w-3 stroke-[3px]" aria-hidden />
-                            </span>
-                          )}
-                          <span className="min-w-0 flex-1 text-slate-600">
-                            {hasSmartCapture ? 'Smart Capture' : 'Standard capture controls'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Analytics</div>
-                      <div className="grid gap-2">
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">Unlimited DAU, MAU, events</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">Funnels, cohorts, retention</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Features</div>
-                      <div className="grid gap-2">
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">Query builder and journeys</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1 text-slate-600">Crashes, heatmaps, geo</span>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Features</p>
+                    <PlanCheck>Query builder & journeys</PlanCheck>
+                    <PlanCheck>Crashes, heatmaps, geo</PlanCheck>
                   </div>
-
-                  {isCurrentPlan ? (
-                    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-sm font-semibold text-blue-700">
-                      Current plan
-                    </div>
-                  ) : isScheduledPlan ? (
-                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-center text-sm font-semibold text-rose-700">
-                      Already scheduled
-                    </div>
-                  ) : isBillingAdmin ? (
-                    <NeoButton
-                      variant="secondary"
-                      className="w-full"
-                      onClick={() => handlePlanClick(plan.name)}
-                      disabled={isSavingPlan || isFreePlanDisabled}
-                    >
-                      {actionLabel}
-                    </NeoButton>
-                  ) : (
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-semibold text-slate-500">
-                      Billing admin required
-                    </div>
-                  )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </section>
+
+              <div className="mt-auto pt-4 border-t border-slate-150/30">
+                {isCurrentPlan ? (
+                  <div className="rounded-md border border-blue-200 bg-blue-50/80 backdrop-blur-sm px-3 py-2 text-center text-sm font-semibold text-blue-700">
+                    Current plan
+                  </div>
+                ) : isScheduledPlan ? (
+                  <div className="rounded-md border border-rose-200 bg-rose-50/80 backdrop-blur-sm px-3 py-2 text-center text-sm font-semibold text-rose-700">
+                    Already scheduled
+                  </div>
+                ) : isBillingAdmin ? (
+                  <NeoButton
+                    variant={buttonVariant}
+                    className="w-full shadow-sm"
+                    onClick={() => handlePlanClick(plan.name)}
+                    disabled={isSavingPlan || isFreePlanDisabled}
+                  >
+                    {actionLabel}
+                  </NeoButton>
+                ) : (
+                  <div className="rounded-md border border-slate-200 bg-slate-50/80 backdrop-blur-sm px-3 py-2 text-center text-xs font-semibold text-slate-500">
+                    Billing admin required
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Plan Change Confirmation Modal */}
       {planChangeModal.isOpen && (
@@ -1257,7 +1245,7 @@ export const BillingSettings: React.FC = () => {
           </div>
         </div>
       )}
-
+      </div>
     </SettingsLayout>
   );
 };

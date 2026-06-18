@@ -59,6 +59,15 @@ export function shouldSurfaceSetup(projects: readonly Project[], selectedProject
   return projects.length === 0 || !projectHasRecentData(selectedProject);
 }
 
+export function isSetupSupportRoute(pathname: string): boolean {
+  const routeWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
+  return (
+    routeWithoutPrefix === '/setup' ||
+    routeWithoutPrefix.endsWith('/setup') ||
+    /^\/settings\/[^/]+\/github\/?$/.test(routeWithoutPrefix)
+  );
+}
+
 export function buildDeveloperSetupInstructions({
   project,
   teamName,
