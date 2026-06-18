@@ -32,14 +32,7 @@ const shellClass = 'mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10';
 
 const aiCards = [
     {
-        title: 'Autonomous Session Observer',
-        copy: 'Monitors user behavior and interaction streams in the background, automatically capturing transaction-blocking bugs, rage-clicks, and console exceptions.',
-        icon: Bot,
-        image: '/images/issues-feed.png',
-        imagePosition: 'left top',
-        href: '/ai-funnel-leak-detection',
-    },
-    {
+        step: 'Replay',
         title: 'Replay to Leak Fix',
         copy: 'Converts raw session events, network request logs, and layout state snapshots into structured, markdown-formatted debugging payloads optimized for LLMs.',
         icon: TerminalSquare,
@@ -48,6 +41,16 @@ const aiCards = [
         href: '/ai-agent-handoff',
     },
     {
+        step: 'Observe',
+        title: 'Autonomous Session Observer',
+        copy: 'Monitors user behavior and interaction streams in the background, automatically capturing transaction-blocking bugs, rage-clicks, and console exceptions.',
+        icon: Bot,
+        image: '/images/issues-feed.png',
+        imagePosition: 'left top',
+        href: '/ai-funnel-leak-detection',
+    },
+    {
+        step: 'Handoff',
         title: 'Copy-Paste Fix to Agent',
         copy: 'Exposes session-replay context packets directly to your IDE and developer agent workflows via standard .md context files.',
         icon: Users,
@@ -56,6 +59,7 @@ const aiCards = [
         href: '/ai-agent-handoff',
     },
     {
+        step: 'Verify',
         title: 'Watch the Growth Impact',
         copy: 'Map positive, neutral, and frustrated sessions by country so teams can spot regional UX friction before it spreads.',
         icon: Gauge,
@@ -452,73 +456,105 @@ export const AiLeakHomepage: React.FC = () => {
                 <TechRingsScanner className="opacity-[0.55]" seed={526} />
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(45,212,191,0.18),transparent_36%),radial-gradient(circle_at_82%_25%,rgba(79,70,229,0.14),transparent_40%),radial-gradient(circle_at_20%_61%,rgba(16,185,129,0.16),transparent_42%),radial-gradient(circle_at_73%_92%,rgba(249,115,22,0.12),transparent_40%)]" aria-hidden="true" />
 
-            {/* Your Unfair AI Advantage Cards Section */}
-                <section className="relative overflow-visible border-t border-transparent bg-[linear-gradient(180deg,rgba(248,253,255,0.94)_0%,rgba(228,248,255,0.9)_100%)] px-5 py-24 sm:px-8 lg:px-10">
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(125,211,252,0.16),transparent_38%),radial-gradient(circle_at_80%_60%,rgba(59,130,246,0.12),transparent_40%)]" aria-hidden="true" />
-                    <NetworkConstellation className="opacity-[0.85]" />
+            {/* Self-Healing Loop Section */}
+                <section className="relative overflow-hidden border-t border-transparent bg-[linear-gradient(180deg,rgba(248,253,255,0.96)_0%,rgba(228,248,255,0.88)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_24%,rgba(125,211,252,0.13),transparent_34%),radial-gradient(circle_at_80%_62%,rgba(16,185,129,0.11),transparent_38%)]" aria-hidden="true" />
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-56 bg-gradient-to-b from-white/85 via-white/45 to-transparent" aria-hidden="true" />
+                    <NetworkConstellation className="opacity-[0.38]" />
                 
                 <div className="relative z-10 mx-auto max-w-7xl">
                     <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
+          
+                        <h2 className="mt-5 font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
                             Self-Healing Funnels
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
-                            Record user session drop-offs and compile exact, high-fidelity context packets ready for developer or AI agent resolution.
+                            Replay user drop-offs into high-fidelity context, observe the repeated pattern, hand it to a developer or AI agent, then verify the recovery signal.
                         </p>
                     </div>
 
-                    <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                        {aiCards.map(({ title, copy, icon: Icon, image, imagePosition, href }, index) => {
-                            const cardGradients = [
-                                { bg: 'from-cyan-50/50 via-sky-50/30 to-white/10', iconColor: 'text-cyan-600', badgeBg: 'bg-cyan-50/60 border-cyan-200/40' },
-                                { bg: 'from-sky-50/50 via-blue-50/30 to-white/10', iconColor: 'text-sky-600', badgeBg: 'bg-sky-50/60 border-sky-200/40' },
-                                { bg: 'from-blue-50/50 via-cyan-50/30 to-white/10', iconColor: 'text-blue-600', badgeBg: 'bg-blue-50/60 border-blue-200/40' },
-                                { bg: 'from-emerald-50/50 via-teal-50/30 to-white/10', iconColor: 'text-emerald-600', badgeBg: 'bg-emerald-50/60 border-emerald-200/40' },
-                            ];
-                            const style = cardGradients[index % cardGradients.length];
-                            const tiltClass = index % 2 === 0 ? 'group-hover:rotate-1.5' : 'group-hover:-rotate-1.5';
-                            
-                            return (
-                                <article 
-                                    key={title} 
-                                    className="group flex flex-col justify-between rounded-2xl border border-slate-200 bg-white/45 backdrop-blur-lg text-slate-900 overflow-hidden shadow-sm ring-1 ring-slate-100/5 transition-all duration-300 hover:shadow-xl hover:border-slate-350 hover:bg-white/70 hover:-translate-y-2 text-left"
-                                >
-                                    <div className={`h-48 bg-gradient-to-br ${style.bg} border-b border-slate-200/50 overflow-hidden relative flex flex-col justify-start`}>
-                                        <div className={`relative flex h-full w-full origin-center flex-col overflow-hidden bg-white transition-all duration-500 group-hover:scale-[1.04] ${tiltClass}`}>
-                                            <div className="flex h-5 shrink-0 select-none items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-2">
-                                                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                    <div className="relative mt-14 sm:mt-16">
+                        <div className="pointer-events-none absolute bottom-8 left-5 top-8 w-px bg-gradient-to-b from-cyan-300/0 via-cyan-300/70 to-emerald-300/0 md:hidden" aria-hidden="true" />
+                        <svg className="pointer-events-none absolute left-[5%] top-[5.15rem] hidden h-24 w-[90%] overflow-visible lg:block" viewBox="0 0 1000 120" fill="none" aria-hidden="true">
+                            <path d="M12 64 C160 14 320 14 470 64 S790 114 988 64" stroke="rgb(14 165 233 / 0.2)" strokeWidth="4" strokeLinecap="round" />
+                            <path d="M12 64 C160 14 320 14 470 64 S790 114 988 64" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+
+                        <div className="grid gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-4">
+                            {aiCards.map(({ step, title, copy, icon: Icon, image, imagePosition, href }, index) => {
+                                const cardGradients = [
+                                    { bg: 'from-cyan-50/70 via-sky-50/45 to-white/20', iconColor: 'text-cyan-600', badgeBg: 'bg-cyan-50/80 border-cyan-200/60', stepBg: 'from-cyan-400 to-sky-500', stepText: 'text-cyan-700', ring: 'ring-cyan-200/70', shadow: 'shadow-cyan-900/5' },
+                                    { bg: 'from-sky-50/70 via-blue-50/45 to-white/20', iconColor: 'text-sky-600', badgeBg: 'bg-sky-50/80 border-sky-200/60', stepBg: 'from-sky-400 to-blue-600', stepText: 'text-sky-700', ring: 'ring-sky-200/70', shadow: 'shadow-sky-900/5' },
+                                    { bg: 'from-blue-50/70 via-cyan-50/45 to-white/20', iconColor: 'text-blue-600', badgeBg: 'bg-blue-50/80 border-blue-200/60', stepBg: 'from-blue-500 to-indigo-600', stepText: 'text-blue-700', ring: 'ring-blue-200/70', shadow: 'shadow-blue-900/5' },
+                                    { bg: 'from-emerald-50/70 via-teal-50/45 to-white/20', iconColor: 'text-emerald-600', badgeBg: 'bg-emerald-50/80 border-emerald-200/60', stepBg: 'from-emerald-400 to-teal-600', stepText: 'text-emerald-700', ring: 'ring-emerald-200/70', shadow: 'shadow-emerald-900/5' },
+                                ];
+                                const style = cardGradients[index % cardGradients.length];
+                                const tiltClass = index % 2 === 0 ? 'group-hover:rotate-1' : 'group-hover:-rotate-1';
+                                const staggerClass = index % 2 === 0 ? 'lg:mt-0' : 'lg:mt-8';
+                                const stepNumber = String(index + 1).padStart(2, '0');
+                                
+                                return (
+                                    <article 
+                                        key={title} 
+                                        className={`group relative ml-9 flex min-h-full flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white/[0.62] text-left text-slate-900 shadow-lg ${style.shadow} ring-1 ring-white/60 backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-cyan-200/80 hover:bg-white/[0.82] hover:shadow-2xl md:ml-0 ${staggerClass}`}
+                                    >
+                                        <div className="absolute -left-[3.25rem] top-5 z-20 md:hidden">
+                                            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${style.stepBg} text-xs font-extrabold text-white shadow-xl shadow-cyan-900/[0.12] ring-4 ring-white/80`}>
+                                                {stepNumber}
                                             </div>
-                                            <img 
-                                                src={image} 
-                                                alt={title} 
-                                                className="h-full w-full object-cover object-top opacity-90 transition-opacity duration-300 group-hover:opacity-100"
-                                                style={{ objectPosition: imagePosition }}
-                                            />
                                         </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-1 flex-col justify-between p-6">
-                                        <div>
-                                            <div className="mb-3 flex items-center gap-2.5">
-                                                <div className={`h-7 w-7 shrink-0 rounded-lg ${style.badgeBg} border flex items-center justify-center ${style.iconColor} shadow-sm backdrop-blur-sm`}>
-                                                    <Icon className="h-4 w-4" />
+                                        <div className="overflow-hidden rounded-t-2xl">
+                                            <div className="flex items-center justify-between gap-3 border-b border-slate-200/60 bg-white/70 px-5 py-4 backdrop-blur-md">
+                                                <div className="flex items-center gap-2.5">
+                                                    <span className={`hidden shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white/80 py-1 pl-1 pr-3 shadow-sm ring-1 ${style.ring} md:inline-flex`}>
+                                                        <span className={`flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br ${style.stepBg} text-[11px] font-extrabold text-white shadow-md shadow-slate-900/10`}>
+                                                            {stepNumber}
+                                                        </span>
+                                                        <span className={`text-[10px] font-extrabold uppercase tracking-[0.18em] ${style.stepText}`}>Step</span>
+                                                    </span>
+                                                    <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-slate-600">{step}</span>
                                                 </div>
-                                                <h3 className="text-base font-bold tracking-tight text-slate-950">{title}</h3>
+                                                <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent" />
                                             </div>
-                                            <p className="text-sm font-medium leading-relaxed text-slate-500">{copy}</p>
+
+                                            <div className={`h-48 bg-gradient-to-br ${style.bg} border-b border-slate-200/50 overflow-hidden relative flex flex-col justify-start`}>
+                                                <div className={`relative flex h-full w-full origin-center flex-col overflow-hidden bg-white transition-all duration-500 group-hover:scale-[1.035] ${tiltClass}`}>
+                                                    <div className="flex h-5 shrink-0 select-none items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-2">
+                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                                    </div>
+                                                    <img 
+                                                        src={image} 
+                                                        alt={title} 
+                                                        className="h-full w-full object-cover object-top opacity-90 transition-opacity duration-300 group-hover:opacity-100"
+                                                        style={{ objectPosition: imagePosition }}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <Link 
-                                            to={href} 
-                                            className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 transition-all hover:translate-x-0.5 hover:text-sky-700"
-                                        >
-                                            Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
-                                        </Link>
-                                    </div>
-                                </article>
-                            );
-                        })}
+                                        
+                                        <div className="flex flex-1 flex-col justify-between p-6">
+                                            <div>
+                                                <div className="mb-3 flex items-center gap-2.5">
+                                                    <div className={`h-7 w-7 shrink-0 rounded-lg ${style.badgeBg} border flex items-center justify-center ${style.iconColor} shadow-sm backdrop-blur-sm`}>
+                                                        <Icon className="h-4 w-4" />
+                                                    </div>
+                                                    <h3 className="text-base font-bold tracking-tight text-slate-950">{title}</h3>
+                                                </div>
+                                                <p className="text-sm font-medium leading-relaxed text-slate-500">{copy}</p>
+                                            </div>
+                                            <Link 
+                                                to={href} 
+                                                className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 transition-all hover:translate-x-0.5 hover:text-sky-700"
+                                            >
+                                                Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
+                                            </Link>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
             </section>
@@ -699,7 +735,7 @@ export const AiLeakHomepage: React.FC = () => {
                             Rejourney Marlin for GitHub
                         </p>
                         <h2 className="mt-5 max-w-4xl font-display text-4xl font-extrabold leading-tight tracking-normal text-slate-950 sm:text-6xl lg:text-7xl">
-                            Fix the leaks your replays expose.
+                            Meet Marlin. 
                         </h2>
                         <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-slate-600 sm:text-xl">
                             Marlin is the Rejourney GitHub App that uses replay context to identify funnel and revenue issues, then suggests code fixes your team can review from the repository.
