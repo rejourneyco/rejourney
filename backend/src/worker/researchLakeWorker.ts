@@ -23,6 +23,12 @@ type ResearchLakeCycleSummary = {
         rejected: number;
         failed: number;
     }>;
+    revenueOutcomes: {
+        attempted: number;
+        exported: number;
+        failed: number;
+        mode: 'disabled' | 'backfill' | 'incremental' | 'idle';
+    };
 };
 
 type ResearchLakeRuntime = {
@@ -90,6 +96,21 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
             help: 'Total stale processing jobs recovered in the current research lake run',
             value: summary.recoveredStaleProcessing,
         },
+        {
+            name: 'rejourney_research_lake_revenue_outcomes_attempted_total',
+            help: 'Total project-day revenue outcome rows attempted in the current research lake run',
+            value: summary.revenueOutcomes.attempted,
+        },
+        {
+            name: 'rejourney_research_lake_revenue_outcomes_exported_total',
+            help: 'Total project-day revenue outcome rows exported in the current research lake run',
+            value: summary.revenueOutcomes.exported,
+        },
+        {
+            name: 'rejourney_research_lake_revenue_outcomes_failed_total',
+            help: 'Total project-day revenue outcome rows that failed in the current research lake run',
+            value: summary.revenueOutcomes.failed,
+        },
     ];
     for (const [lakeType, lane] of Object.entries(summary.byLake)) {
         const metricLakeType = lakeType.replace(/[^a-z0-9_]/g, '_');
@@ -125,7 +146,7 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
     await pingWorker(
         'researchLakeWorker',
         'up',
-        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing}`,
+        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing},revenueMode=${summary.revenueOutcomes.mode},revenueExported=${summary.revenueOutcomes.exported},revenueFailed=${summary.revenueOutcomes.failed}`,
         undefined,
         extraMetrics,
     );

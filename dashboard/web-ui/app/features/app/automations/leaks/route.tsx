@@ -3,13 +3,16 @@ import {
 	AlertCircle,
     Bell,
 	BookOpen,
+	CalendarClock,
 	CheckCircle2,
 	ClipboardPaste,
 	FileText,
 	Github,
+	History,
 	Inbox,
 	Loader2,
     Play,
+	RefreshCw,
     Search,
     Settings,
     SlidersHorizontal,
@@ -27,10 +30,13 @@ import {
     getGithubLinkStatus,
     getLeak,
     getLeakContextRaw,
+    getLeakRunHistory,
     getLeaks,
     updateLeak,
     type GithubLinkStatus,
     type LeakDetail,
+    type LeakRunHistoryItem,
+    type LeakRunHistoryResponse,
     type LeakSessionReference,
     type LeakStatus,
     type LeakSummary,
@@ -163,6 +169,123 @@ function getLeakScanTiming() {
         timeZone,
         localScanLabel: formatLocalTime(nextScanReference, timeZone),
     };
+}
+
+function formatCompactNumber(value: number | null | undefined): string {
+    const safe = Number.isFinite(value) ? Number(value) : 0;
+    return new Intl.NumberFormat(undefined, { notation: safe >= 10000 ? 'compact' : 'standard' }).format(safe);
+}
+
+function formatBadgeCount(value: number | null | undefined): string | null {
+    if (!Number.isFinite(value)) return null;
+    const count = Number(value);
+    if (count <= 0) return null;
+    return count > 99 ? '99+' : String(count);
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+    if (!Number.isFinite(value) || Number(value) <= 0) return 'Still running';
+    const totalSeconds = Math.max(1, Math.round(Number(value) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes <= 0) return `${seconds}s`;
+    if (seconds === 0) return `${minutes}m`;
+    return `${minutes}m ${seconds}s`;
+}
+
+function parseDateValue(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateTimeValue(value: string | null | undefined, timeZone: string): string {
+    const date = parseDateValue(value);
+    return date ? formatLocalDateTime(date, timeZone) : 'Not finished';
+}
+
+function humanizeToken(value: string): string {
+    return value
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatRunTrigger(trigger: string): string {
+    if (trigger === 'admin_scan' || trigger === 'scheduled_scan') return 'Nightly scan';
+    if (trigger === 'manual_scan') return 'Manual scan';
+    return humanizeToken(trigger || 'scan');
+}
+
+function runStatusMeta(status: string): { className: string; label: string } {
+    const normalized = status.toLowerCase();
+    if (normalized === 'success' || normalized === 'succeeded') {
+        return { label: 'Completed', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+    }
+    if (normalized === 'running') {
+        return { label: 'Running', className: 'border-blue-200 bg-blue-50 text-blue-700' };
+    }
+    if (normalized === 'failed') {
+        return { label: 'Failed', className: 'border-rose-200 bg-rose-50 text-rose-700' };
+    }
+    return { label: humanizeToken(status || 'unknown'), className: 'border-slate-200 bg-slate-50 text-slate-600' };
+}
+
+function formatEmailStatus(run: LeakRunHistoryItem): { className: string; label: string; detail: string } {
+    const status = run.email?.status;
+    if (status === 'sent') {
+        const recipients = run.email.recipientCount ?? 0;
+        return {
+            label: 'Email sent',
+            detail: recipients > 0 ? `${recipients} recipient${recipients === 1 ? '' : 's'}` : 'Digest recorded as sent',
+            className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        };
+    }
+    if (status === 'skipped') {
+        const reason = run.email?.reason === 'no_admitted_sessions'
+            ? 'No sessions were admitted for analysis.'
+            : run.email?.reason === 'no_issues'
+                ? 'No inbox issues were created, so no email was sent.'
+                : 'Digest was skipped for this run.';
+        return { label: 'No email', detail: reason, className: 'border-slate-200 bg-slate-50 text-slate-600' };
+    }
+    if (status === 'unknown') {
+        return {
+            label: 'Email unknown',
+            detail: 'Issue-detection found inbox issues, but delivery is verified in Rejourney alert history.',
+            className: 'border-amber-200 bg-amber-50 text-amber-700',
+        };
+    }
+    return {
+        label: 'Not recorded',
+        detail: 'This run did not include a delivery audit.',
+        className: 'border-slate-200 bg-slate-50 text-slate-600',
+    };
+}
+
+function getRunPrimaryExplanation(run: LeakRunHistoryItem): string {
+    if (run.visibleIssues > 0) {
+        return `${formatCompactNumber(run.visibleIssues)} inbox issue${run.visibleIssues === 1 ? '' : 's'} visible after this run.`;
+    }
+    if (run.problemsFound > 0) {
+        return 'Problems were found, but they did not repeat enough to become inbox issues.';
+    }
+    if (run.admittedSessions > 0) {
+        return 'Sessions were analyzed, but no leak problems were detected.';
+    }
+    if (run.sessionsScanned > 0) {
+        return 'Sessions were considered, but none passed the admission gate.';
+    }
+    return 'No replay-ready sessions matched this run.';
+}
+
+function formatSettingValue(value: string | number | boolean | null | undefined, suffix = ''): string {
+    if (value === null || value === undefined || value === '') return 'Auto';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    return `${value}${suffix}`;
+}
+
+function objectEntriesSorted(record: Record<string, number> | null | undefined): Array<[string, number]> {
+    return Object.entries(record ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
 function formatReadableScope(sourceGlobs: string[] | null | undefined): { label: string; extraCount: number } {
@@ -404,8 +527,31 @@ function filterLeaks(leaks: LeakSummary[], search: string): LeakSummary[] {
     });
 }
 
-function getSessionUuidLabel(sessionId: string): string {
-    const trimmed = sessionId.trim();
+type LeakEvidenceItem = {
+    label?: string | null;
+    summary?: string | null;
+};
+
+type CompatibleLeakEvidenceGroup = LeakDetail['evidenceGroups'][number] & {
+    items?: Array<LeakEvidenceItem | null | undefined> | null;
+};
+
+function getEvidenceSummaries(group: LeakDetail['evidenceGroups'][number]): string[] {
+    const compatibleGroup = group as CompatibleLeakEvidenceGroup;
+    const signals = Array.isArray(compatibleGroup.signals) ? compatibleGroup.signals : [];
+    const items = Array.isArray(compatibleGroup.items) ? compatibleGroup.items : [];
+
+    return [...signals, ...items]
+        .map((item) => item?.summary || item?.label || '')
+        .filter(Boolean);
+}
+
+function getLeakSessionId(session: LeakSessionReference): string {
+    return session.id || session.sessionId || '';
+}
+
+function getSessionUuidLabel(sessionId: string | null | undefined): string {
+    const trimmed = (sessionId || '').trim();
     if (!trimmed) return 'Unknown replay';
     const parts = trimmed.split('_').filter(Boolean);
     return parts[parts.length - 1] || trimmed;
@@ -448,14 +594,15 @@ function LeakReplayLink({
     pathPrefix: string;
     session: LeakSessionReference;
 }) {
-    const avatarIdentity = { id: session.id };
+    const sessionId = getLeakSessionId(session);
+    const avatarIdentity = { id: sessionId || session.replayUrl || 'unknown-replay' };
     const replayAnimalSeed = getAnimalAvatarSeed(avatarIdentity);
     const replayAnimal = getAnimalForIdentity(avatarIdentity);
-    const sessionUuid = getSessionUuidLabel(session.id);
+    const sessionUuid = getSessionUuidLabel(sessionId);
 
     return (
         <Link
-            to={session.replayUrl || `${pathPrefix}/sessions/${session.id}`}
+            to={session.replayUrl || (sessionId ? `${pathPrefix}/sessions/${sessionId}` : `${pathPrefix}/sessions`)}
             className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#dadce0] bg-white px-3 py-2 text-sm font-semibold text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
             title={`Open replay ${sessionUuid}`}
         >
@@ -689,6 +836,324 @@ function GithubRepositorySettings({
     );
 }
 
+function RunMetric({
+    label,
+    value,
+    tone = 'default',
+}: {
+    label: string;
+    value: string | number;
+    tone?: 'default' | 'good' | 'warn' | 'bad';
+}) {
+    const toneClass = tone === 'good'
+        ? 'text-emerald-700'
+        : tone === 'warn'
+            ? 'text-amber-700'
+            : tone === 'bad'
+                ? 'text-rose-700'
+                : 'text-[#202124]';
+
+    return (
+        <div className="min-w-0 border-b border-[#edf0f3] py-3">
+            <p className={`text-lg font-semibold tabular-nums ${toneClass}`}>{value}</p>
+            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">{label}</p>
+        </div>
+    );
+}
+
+function RunHistoryModal({
+    error,
+    history,
+    isOpen,
+    loading,
+    onClose,
+    onRefresh,
+    timeZone,
+    localScanLabel,
+}: {
+    error: string | null;
+    history: LeakRunHistoryResponse | null;
+    isOpen: boolean;
+    loading: boolean;
+    onClose: () => void;
+    onRefresh: () => void;
+    timeZone: string;
+    localScanLabel: string;
+}) {
+    const runs = history?.runs ?? [];
+    const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+    const selectedRun = runs.find((run) => run.id === selectedRunId) || runs[0] || null;
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (!selectedRunId || !runs.some((run) => run.id === selectedRunId)) {
+            setSelectedRunId(runs[0]?.id || null);
+        }
+    }, [isOpen, runs, selectedRunId]);
+
+    const totalRuns = history?.stats.total ?? runs.length;
+    const selectedStatus = selectedRun ? runStatusMeta(selectedRun.status) : null;
+    const selectedEmail = selectedRun ? formatEmailStatus(selectedRun) : null;
+    const latestRunLabel = history?.stats.lastRunAt ? formatDateTimeValue(history.stats.lastRunAt, timeZone) : 'No runs yet';
+    const lastSuccessLabel = history?.stats.lastSuccessAt ? formatDateTimeValue(history.stats.lastSuccessAt, timeZone) : 'No completed scans yet';
+    const unavailableMessage = history?.unavailableReason === 'run_history_endpoint_not_deployed'
+        ? 'Run history needs the latest issue-detection edge deploy before it can read scan audit rows.'
+        : history?.unavailableReason === 'issue_detection_service_unavailable'
+            ? 'Issue detection is currently unavailable, so run history cannot be loaded.'
+            : null;
+
+    return (
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Run history"
+            size="xl"
+            variant="modern"
+            bodyClassName="p-0"
+            panelClassName="max-w-[1120px]"
+        >
+            <div className="bg-white">
+                <div className="border-b border-[#edf0f3] px-5 py-4 sm:px-6">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-[#202124]">
+                                <CalendarClock className="h-4 w-4 text-[#1a73e8]" />
+                                Daily leak scans run around {localScanLabel}
+                            </div>
+                            <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[#5f6368]">
+                                Rejourney scans replay-ready sessions, admits the highest-value sessions for deeper analysis, then promotes repeated problems into inbox issues. New issues usually appear a few minutes after the run starts.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onRefresh}
+                            disabled={loading}
+                            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            Refresh
+                        </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="border-y border-[#edf0f3] py-3">
+                            <p className="text-lg font-semibold tabular-nums text-[#202124]">{formatCompactNumber(totalRuns)}</p>
+                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Runs recorded</p>
+                        </div>
+                        <div className="border-y border-[#edf0f3] py-3">
+                            <p className="truncate text-sm font-semibold text-[#202124]">{latestRunLabel}</p>
+                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Latest run</p>
+                        </div>
+                        <div className="border-y border-[#edf0f3] py-3">
+                            <p className="truncate text-sm font-semibold text-[#202124]">{lastSuccessLabel}</p>
+                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Last completed</p>
+                        </div>
+                    </div>
+                </div>
+
+                {unavailableMessage && (
+                    <div className="mx-5 mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 sm:mx-6">
+                        {unavailableMessage}
+                    </div>
+                )}
+
+                {error && (
+                    <div className="mx-5 mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 sm:mx-6">
+                        {error}
+                    </div>
+                )}
+
+                {loading && runs.length === 0 ? (
+                    <div className="flex h-72 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading run history
+                    </div>
+                ) : runs.length === 0 ? (
+                    <div className="flex h-72 flex-col items-center justify-center px-6 text-center">
+                        <History className="h-9 w-9 text-[#9aa0a6]" />
+                        <p className="mt-3 text-sm font-semibold text-[#202124]">
+                            {unavailableMessage ? 'Run history is not connected yet' : 'No scans recorded yet'}
+                        </p>
+                        <p className="mt-1 max-w-sm text-sm font-medium leading-6 text-[#5f6368]">
+                            {unavailableMessage || 'The next scheduled scan should appear here after it starts.'}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid min-h-[520px] lg:grid-cols-[360px_minmax(0,1fr)]">
+                        <div className="border-b border-[#edf0f3] lg:border-b-0 lg:border-r">
+                            <div className="max-h-[520px] overflow-y-auto">
+                                {runs.map((run) => {
+                                    const status = runStatusMeta(run.status);
+                                    const active = selectedRun?.id === run.id;
+                                    return (
+                                        <button
+                                            key={run.id}
+                                            type="button"
+                                            onClick={() => setSelectedRunId(run.id)}
+                                            className={`block w-full border-b border-[#edf0f3] px-5 py-4 text-left transition-colors ${
+                                                active ? 'bg-[#f8fafd]' : 'bg-white hover:bg-[#f8fafd]'
+                                            }`}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-semibold text-[#202124]">
+                                                        {formatDateTimeValue(run.startedAt, timeZone)}
+                                                    </p>
+                                                    <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
+                                                        {getRunPrimaryExplanation(run)}
+                                                    </p>
+                                                </div>
+                                                <span className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold ${status.className}`}>
+                                                    {status.label}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-[#6f7785]">
+                                                <span>{formatCompactNumber(run.sessionsScanned)} scanned</span>
+                                                <span>{formatCompactNumber(run.admittedSessions)} admitted</span>
+                                                <span>{formatCompactNumber(run.visibleIssues)} issues</span>
+                                                <span>{formatDurationMs(run.durationMs)}</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {selectedRun && selectedStatus && selectedEmail && (
+                            <div className="max-h-[520px] overflow-y-auto px-5 py-4 sm:px-6">
+                                <div className="flex flex-col gap-3 border-b border-[#edf0f3] pb-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${selectedStatus.className}`}>
+                                                {selectedStatus.label}
+                                            </span>
+                                            <span className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${selectedEmail.className}`}>
+                                                {selectedEmail.label}
+                                            </span>
+                                        </div>
+                                        <h3 className="mt-3 text-lg font-semibold text-[#202124]">
+                                            {formatRunTrigger(selectedRun.trigger)}
+                                        </h3>
+                                        <p className="mt-1 font-mono text-xs font-semibold text-[#6f7785]">
+                                            {selectedRun.id}
+                                        </p>
+                                    </div>
+                                    <div className="text-left sm:text-right">
+                                        <p className="text-sm font-semibold text-[#202124]">{formatDateTimeValue(selectedRun.startedAt, timeZone)}</p>
+                                        <p className="mt-1 text-xs font-semibold text-[#6f7785]">Duration {formatDurationMs(selectedRun.durationMs)}</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-x-5 sm:grid-cols-3">
+                                    <RunMetric label="Scanned" value={formatCompactNumber(selectedRun.sessionsScanned)} />
+                                    <RunMetric label="Admitted" value={formatCompactNumber(selectedRun.admittedSessions)} tone={selectedRun.admittedSessions > 0 ? 'good' : 'default'} />
+                                    <RunMetric label="Skipped" value={formatCompactNumber(selectedRun.skippedSessions)} />
+                                    <RunMetric label="Problems" value={formatCompactNumber(selectedRun.problemsFound)} tone={selectedRun.problemsFound > 0 ? 'warn' : 'default'} />
+                                    <RunMetric label="Inbox issues" value={formatCompactNumber(selectedRun.visibleIssues)} tone={selectedRun.visibleIssues > 0 ? 'good' : 'default'} />
+                                    <RunMetric label="Warnings" value={formatCompactNumber(selectedRun.warningCount)} tone={selectedRun.warningCount > 0 ? 'warn' : 'default'} />
+                                </div>
+
+                                <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                                    <section>
+                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">What happened</h4>
+                                        <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                            {(selectedRun.notes.length ? selectedRun.notes : [getRunPrimaryExplanation(selectedRun)]).map((note) => (
+                                                <p key={note} className="py-2.5 text-sm font-medium leading-6 text-[#3c4043]">
+                                                    {note}
+                                                </p>
+                                            ))}
+                                        </div>
+                                    </section>
+
+                                    <section>
+                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Digest email</h4>
+                                        <div className="mt-2 border-y border-[#edf0f3] py-3">
+                                            <p className="text-sm font-semibold text-[#202124]">{selectedEmail.label}</p>
+                                            <p className="mt-1 text-sm font-medium leading-6 text-[#5f6368]">{selectedEmail.detail}</p>
+                                            {selectedRun.email?.sentAt && (
+                                                <p className="mt-1 text-xs font-semibold text-[#6f7785]">
+                                                    Sent {formatDateTimeValue(selectedRun.email.sentAt, timeZone)}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </section>
+                                </div>
+
+                                <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                                    <section>
+                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Scan settings</h4>
+                                        <dl className="mt-2 grid grid-cols-2 gap-x-4 border-y border-[#edf0f3] py-2 text-sm">
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Dry run</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.dryRun)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Window</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.lookbackHours, 'h')}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Daily cap</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.dailyCap)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Admission</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.topPercent, '%')}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">SPA gate</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.spaGate)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Promotion threshold</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionThreshold)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#6f7785]">Analyzed for promotion</dt>
+                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionAnalyzedSessions)}</dd>
+                                        </dl>
+                                    </section>
+
+                                    <section>
+                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Decision breakdown</h4>
+                                        <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                            {objectEntriesSorted(selectedRun.decisionBreakdown).length === 0 ? (
+                                                <p className="py-3 text-sm font-medium text-[#5f6368]">No decision rows were recorded.</p>
+                                            ) : objectEntriesSorted(selectedRun.decisionBreakdown).map(([key, value]) => (
+                                                <div key={key} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                                    <span className="font-medium text-[#5f6368]">{humanizeToken(key)}</span>
+                                                    <span className="font-semibold tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
+                                </div>
+
+                                <section className="mt-5">
+                                    <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Analysis breakdown</h4>
+                                    <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                        {objectEntriesSorted(selectedRun.analysisBreakdown).length === 0 ? (
+                                            <p className="py-3 text-sm font-medium text-[#5f6368]">No per-session analysis rows were attached to this run.</p>
+                                        ) : objectEntriesSorted(selectedRun.analysisBreakdown).map(([key, value]) => (
+                                            <div key={key} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                                <span className="font-medium text-[#5f6368]">{humanizeToken(key)}</span>
+                                                <span className="font-semibold tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+
+                                {selectedRun.errors.length > 0 && (
+                                    <section className="mt-5">
+                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Warnings and errors</h4>
+                                        <div className="mt-2 divide-y divide-rose-100 border-y border-rose-100">
+                                            {selectedRun.errors.map((item, index) => (
+                                                <div key={`${item.message}-${index}`} className="py-2.5">
+                                                    <p className="text-sm font-semibold text-rose-700">
+                                                        {item.stage ? humanizeToken(item.stage) : 'Warning'}
+                                                        {item.sessionId ? ` · ${item.sessionId}` : ''}
+                                                    </p>
+                                                    <p className="mt-0.5 text-sm font-medium leading-6 text-[#5f6368]">{item.message}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
 export const Leaks: React.FC = () => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
@@ -711,6 +1176,10 @@ export const Leaks: React.FC = () => {
     const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
     const [showIdeSetup, setShowIdeSetup] = useState(false);
     const [showLeakAlertSettings, setShowLeakAlertSettings] = useState(false);
+    const [showRunHistory, setShowRunHistory] = useState(false);
+    const [runHistory, setRunHistory] = useState<LeakRunHistoryResponse | null>(null);
+    const [runHistoryLoading, setRunHistoryLoading] = useState(false);
+    const [runHistoryError, setRunHistoryError] = useState<string | null>(null);
     const [leakAlertSettings, setLeakAlertSettings] = useState<LeakAlertSettings>({ leakScanAlertsEnabled: true });
     const [leakAlertRecipients, setLeakAlertRecipients] = useState<LeakAlertRecipient[]>([]);
     const [leakAlertMembers, setLeakAlertMembers] = useState<LeakAlertTeamMember[]>([]);
@@ -776,10 +1245,38 @@ export const Leaks: React.FC = () => {
         }
     }, [isDemoMode, projectId]);
 
+    const loadRunHistory = useCallback(async () => {
+        if (!projectId || (!isDemoMode && !githubLinked)) return;
+        setRunHistoryLoading(true);
+        setRunHistoryError(null);
+        try {
+            const next = await getLeakRunHistory(projectId, 12);
+            setRunHistory(next);
+        } catch (err) {
+            setRunHistoryError(err instanceof Error ? err.message : 'Failed to load run history');
+        } finally {
+            setRunHistoryLoading(false);
+        }
+    }, [githubLinked, isDemoMode, projectId]);
+
     useEffect(() => {
         if (!showLeakAlertSettings) return;
         void loadLeakAlertSettings();
     }, [loadLeakAlertSettings, showLeakAlertSettings]);
+
+    useEffect(() => {
+        if (!showRunHistory) return;
+        void loadRunHistory();
+    }, [loadRunHistory, showRunHistory]);
+
+    useEffect(() => {
+        if (!projectId || (!isDemoMode && !githubLinked)) {
+            setRunHistory(null);
+            setRunHistoryError(null);
+            return;
+        }
+        void loadRunHistory();
+    }, [githubLinked, isDemoMode, loadRunHistory, projectId]);
 
     const toggleLeakScanAlerts = async (enabled: boolean) => {
         if (!projectId || isDemoMode) return;
@@ -976,9 +1473,7 @@ export const Leaks: React.FC = () => {
     );
     const activeLeak = selectedLeakId ? selectedLeak || leaks.find((leak) => leak.id === selectedLeakId) || null : null;
     const topEvidenceSummary = selectedLeak?.evidenceGroups
-        ?.flatMap((group) => group.signals)
-        .map((signal) => signal.summary)
-        .filter(Boolean)
+        ?.flatMap((group) => getEvidenceSummaries(group))
         .slice(0, 2)
         .join(' ');
 
@@ -1128,6 +1623,7 @@ export const Leaks: React.FC = () => {
         [leakAlertMembers],
     );
     const leakScanTiming = useMemo(() => getLeakScanTiming(), []);
+    const runHistoryBadge = formatBadgeCount(runHistory?.stats.total ?? runHistory?.runs.length ?? 0);
 
     return (
         <div className="rejourney-general-page flex h-full min-h-0 flex-col overflow-hidden bg-[#f8fafd] font-sans text-[#202124]">
@@ -1137,16 +1633,34 @@ export const Leaks: React.FC = () => {
                         <Inbox className="h-4 w-4 shrink-0 text-[#6f7785]" />
                         <h1 className="truncate text-[15px] font-semibold leading-none text-[#202124]">Inbox</h1>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setShowLeakAlertSettings(true);
-                        }}
-                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    >
-                        <Settings className="h-4 w-4" />
-                        Settings
-                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowRunHistory(true);
+                                void loadRunHistory();
+                            }}
+                            className="relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                        >
+                            <History className="h-4 w-4" />
+                            Run history
+                            {runHistoryBadge && (
+                                <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-[#1a73e8] px-1.5 text-[10px] font-bold leading-5 text-white">
+                                    {runHistoryBadge}
+                                </span>
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowLeakAlertSettings(true);
+                            }}
+                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                        >
+                            <Settings className="h-4 w-4" />
+                            Settings
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1402,7 +1916,7 @@ export const Leaks: React.FC = () => {
                                                 <div className="mt-3 grid gap-2 xl:grid-cols-2">
                                                     {selectedLeak.sessions.map((session) => (
                                                         <LeakReplayLink
-                                                            key={session.id}
+                                                            key={getLeakSessionId(session) || session.replayUrl || 'unknown-replay'}
                                                             pathPrefix={pathPrefix}
                                                             session={session}
                                                         />
@@ -1467,6 +1981,17 @@ export const Leaks: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <RunHistoryModal
+                error={runHistoryError}
+                history={runHistory}
+                isOpen={showRunHistory}
+                loading={runHistoryLoading}
+                onClose={() => setShowRunHistory(false)}
+                onRefresh={() => void loadRunHistory()}
+                timeZone={leakScanTiming.timeZone}
+                localScanLabel={leakScanTiming.localScanLabel}
+            />
 
             <Modal
                 isOpen={showLeakAlertSettings}

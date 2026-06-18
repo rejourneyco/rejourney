@@ -3727,7 +3727,8 @@ export interface LeakEvidenceGroup {
 }
 
 export interface LeakSessionReference {
-    id: string;
+    id?: string;
+    sessionId?: string;
     startedAt?: string;
     replayUrl?: string;
     signalScore?: number;
@@ -3754,6 +3755,132 @@ export interface LeaksResponse {
     nextCursor?: string | null;
 }
 
+export interface LeakRunEmail {
+    status: 'sent' | 'skipped' | 'unknown' | 'not_recorded' | string;
+    reason?: string | null;
+    issueCount?: number | null;
+    recipientCount?: number | null;
+    sentAt?: string | null;
+}
+
+export interface LeakRunSettings {
+    dryRun?: boolean | null;
+    lookbackHours?: number | null;
+    dailyCap?: number | null;
+    dailyFloor?: number | null;
+    maxCandidates?: number | null;
+    topPercent?: number | null;
+    spaGate?: string | null;
+    adaptivePromotionThreshold?: number | null;
+    adaptivePromotionAnalyzedSessions?: number | null;
+}
+
+export interface LeakRunHistoryItem {
+    id: string;
+    projectId: string;
+    trigger: string;
+    status: string;
+    startedAt: string;
+    finishedAt?: string | null;
+    durationMs?: number | null;
+    sessionsScanned: number;
+    admittedSessions: number;
+    skippedSessions: number;
+    candidatesEmitted: number;
+    problemsFound: number;
+    issuesUpserted: number;
+    visibleIssues: number;
+    renderFailures: number;
+    analysisFailures: number;
+    warningCount: number;
+    settings: LeakRunSettings;
+    decisionBreakdown: Record<string, number>;
+    analysisBreakdown: Record<string, number>;
+    email: LeakRunEmail;
+    notes: string[];
+    errors: Array<{
+        stage?: string | null;
+        sessionId?: string | null;
+        message: string;
+    }>;
+}
+
+export interface LeakRunHistoryResponse {
+    runs: LeakRunHistoryItem[];
+    stats: {
+        total: number;
+        lastRunAt?: string | null;
+        lastSuccessAt?: string | null;
+        recentFailures: number;
+    };
+    unavailableReason?: string | null;
+}
+
+function demoLeakRunHistory(projectId: string): LeakRunHistoryResponse {
+    const now = Date.now();
+    const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
+    return {
+        runs: [
+            {
+                id: 'demo-scan-run-003',
+                projectId,
+                trigger: 'scheduled_scan',
+                status: 'succeeded',
+                startedAt: iso(-3 * 60 * 60 * 1000),
+                finishedAt: iso(-3 * 60 * 60 * 1000 + 5 * 60 * 1000),
+                durationMs: 5 * 60 * 1000,
+                sessionsScanned: 150,
+                admittedSessions: 7,
+                skippedSessions: 143,
+                candidatesEmitted: 7,
+                problemsFound: 7,
+                issuesUpserted: 3,
+                visibleIssues: 3,
+                renderFailures: 0,
+                analysisFailures: 0,
+                warningCount: 0,
+                settings: { dryRun: false, lookbackHours: 24, dailyCap: 150, dailyFloor: 0, maxCandidates: 2000, topPercent: 100, spaGate: 'scored' },
+                decisionBreakdown: { admitted: 7, skipped: 143 },
+                analysisBreakdown: { succeeded: 7 },
+                email: { status: 'sent', issueCount: 3, recipientCount: 2, sentAt: iso(-3 * 60 * 60 * 1000 + 6 * 60 * 1000) },
+                notes: ['3 inbox issues were visible after this run.', 'A digest email was sent after the scan completed.'],
+                errors: [],
+            },
+            {
+                id: 'demo-scan-run-002',
+                projectId,
+                trigger: 'scheduled_scan',
+                status: 'succeeded',
+                startedAt: iso(-27 * 60 * 60 * 1000),
+                finishedAt: iso(-27 * 60 * 60 * 1000 + 4 * 60 * 1000),
+                durationMs: 4 * 60 * 1000,
+                sessionsScanned: 94,
+                admittedSessions: 4,
+                skippedSessions: 90,
+                candidatesEmitted: 4,
+                problemsFound: 2,
+                issuesUpserted: 0,
+                visibleIssues: 0,
+                renderFailures: 0,
+                analysisFailures: 0,
+                warningCount: 0,
+                settings: { dryRun: false, lookbackHours: 24, dailyCap: 150, dailyFloor: 0, maxCandidates: 2000, topPercent: 100, spaGate: 'scored' },
+                decisionBreakdown: { admitted: 4, skipped: 90 },
+                analysisBreakdown: { succeeded: 4 },
+                email: { status: 'skipped', reason: 'no_issues', issueCount: 0, recipientCount: null, sentAt: null },
+                notes: ['Problems were observed, but none were promoted into a repeated issue for the inbox.'],
+                errors: [],
+            },
+        ],
+        stats: {
+            total: 2,
+            lastRunAt: iso(-3 * 60 * 60 * 1000),
+            lastSuccessAt: iso(-3 * 60 * 60 * 1000),
+            recentFailures: 0,
+        },
+    };
+}
+
 export async function getLeaks(params: {
     cursor?: string;
     projectId: string;
@@ -3774,6 +3901,17 @@ export async function getLeaks(params: {
     if (params.severity) query.set('severity', params.severity);
     if (params.type) query.set('type', params.type);
     return fetchJson<LeaksResponse>(`/api/automations/leaks?${query.toString()}`);
+}
+
+export async function getLeakRunHistory(projectId: string, limit = 12): Promise<LeakRunHistoryResponse> {
+    if (isDemoMode()) {
+        return demoLeakRunHistory(projectId);
+    }
+
+    const query = new URLSearchParams();
+    query.set('projectId', projectId);
+    query.set('limit', String(limit));
+    return fetchJson<LeakRunHistoryResponse>(`/api/automations/leaks/runs?${query.toString()}`);
 }
 
 export async function getLeak(leakId: string): Promise<LeakDetail> {
@@ -5225,6 +5363,7 @@ export const api = {
     syncIssues,
     updateIssue,
     getLeaks,
+    getLeakRunHistory,
     getLeak,
     requestLeakContext,
     getLeakContextRaw,

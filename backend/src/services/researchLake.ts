@@ -192,9 +192,17 @@ export type ResearchLakeLaneSummary = {
     failed: number;
 };
 
+export type RevenueOutcomeExportSummary = {
+    attempted: number;
+    exported: number;
+    failed: number;
+    mode: 'disabled' | 'backfill' | 'incremental' | 'idle';
+};
+
 export interface ResearchLakeCycleSummary extends ResearchLakeLaneSummary {
     recoveredStaleProcessing: number;
     byLake: Record<ResearchLakeType, ResearchLakeLaneSummary>;
+    revenueOutcomes: RevenueOutcomeExportSummary;
 }
 
 let researchLakeClient: S3Client | null = null;
@@ -2452,6 +2460,12 @@ function createCycleSummary(): ResearchLakeCycleSummary {
             interaction: createLaneSummary(),
             behavioral_outcomes: createLaneSummary(),
         },
+        revenueOutcomes: {
+            attempted: 0,
+            exported: 0,
+            failed: 0,
+            mode: 'idle',
+        },
     };
 }
 
@@ -2881,6 +2895,577 @@ async function failJob(job: ResearchJobRow, err: unknown): Promise<void> {
         `,
         [job.id, retryMinutes, message.slice(0, 2000)],
     );
+}
+
+type RevenueOutcomeRow = {
+    id: string;
+    project_id: string;
+    source_provider: string;
+    date: string | Date;
+    currency: string;
+    gross_amount_cents: number | string;
+    refund_amount_cents: number | string;
+    fee_amount_cents: number | string;
+    net_amount_cents: number | string;
+    transaction_count: number | string;
+    refund_count: number | string;
+    subscriber_count: number | string;
+    trial_count: number | string;
+    subscription_start_count: number | string;
+    cancellation_count: number | string;
+    conversion_count: number | string;
+    updated_at: string | Date;
+};
+
+type RevenueExportCheckpoint = {
+    full_backfill_started_at: Date | null;
+    full_backfill_completed_at: Date | null;
+    full_backfill_cursor_date: string | Date | null;
+    full_backfill_cursor_project_id: string | null;
+    full_backfill_cursor_provider: string | null;
+    full_backfill_cursor_currency: string | null;
+    incremental_cursor_updated_at: Date | null;
+    incremental_cursor_id: string | null;
+};
+
+type RevenueTrend = {
+    previousDayNetCents: number;
+    netDeltaCents: number;
+    trailing7dNetCents: number;
+    previous7dNetCents: number;
+    trailing7dDeltaCents: number;
+};
+
+const REVENUE_OUTCOMES_CHECKPOINT_ID = 'default';
+const REVENUE_ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+
+function dbNumber(value: unknown): number {
+    return numberValue(value) ?? 0;
+}
+
+function dateKeyFromDb(value: string | Date | null | undefined): string {
+    if (value instanceof Date) return datePart(value);
+    return String(value || '').slice(0, 10);
+}
+
+function updatedAtFromDb(value: string | Date): Date {
+    return value instanceof Date ? value : new Date(value);
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+    const date = new Date(`${dateKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
+function safePartitionSegment(value: unknown, fallback = 'unknown'): string {
+    const raw = String(value || fallback).trim().toLowerCase();
+    const safe = raw.replace(/[^a-z0-9_.=-]+/g, '_').slice(0, 80);
+    return safe || fallback;
+}
+
+function moneyBucketFromCents(value: unknown): number {
+    return bucketMoneyAmount(Math.max(0, dbNumber(value)) / 100) ?? 0;
+}
+
+function absoluteMoneyBucketFromCents(value: unknown): number {
+    return bucketMoneyAmount(Math.abs(dbNumber(value)) / 100) ?? 0;
+}
+
+function countBucket(value: unknown): number {
+    return bucketItemCount(dbNumber(value)) ?? 0;
+}
+
+function amountDirection(cents: number): 'positive' | 'negative' | 'zero' {
+    if (cents > 0) return 'positive';
+    if (cents < 0) return 'negative';
+    return 'zero';
+}
+
+function deltaDirection(cents: number): 'increase' | 'decrease' | 'flat' {
+    if (cents > 0) return 'increase';
+    if (cents < 0) return 'decrease';
+    return 'flat';
+}
+
+function revenueOutcomeBasePath(row: RevenueOutcomeRow): string {
+    const projectKey = hmac(`project:${row.project_id}`, 20);
+    const date = dateKeyFromDb(row.date);
+    const provider = safePartitionSegment(row.source_provider);
+    const currency = safePartitionSegment(row.currency);
+    return `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=revenue_outcomes/project_key=${projectKey}/date=${date}/provider=${provider}/currency=${currency}`;
+}
+
+function buildRevenueOutcomeDocuments(row: RevenueOutcomeRow, trend: RevenueTrend) {
+    const projectKey = hmac(`project:${row.project_id}`, 20);
+    const date = dateKeyFromDb(row.date);
+    const provider = safePartitionSegment(row.source_provider);
+    const currency = safePartitionSegment(row.currency);
+    const basePath = revenueOutcomeBasePath(row);
+    const netCents = dbNumber(row.net_amount_cents);
+
+    const dailyRevenue = {
+        schema_version: RESEARCH_SCHEMA_VERSION,
+        anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'revenue_outcomes',
+        project_key: projectKey,
+        sample_date: date,
+        provider,
+        currency,
+        attribution_scope: 'project_day',
+        revenue_observation_grain: 'project_provider_currency_day',
+        session_attribution_available: false,
+        gross_revenue_bucket: moneyBucketFromCents(row.gross_amount_cents),
+        refund_revenue_bucket: moneyBucketFromCents(row.refund_amount_cents),
+        fee_revenue_bucket: moneyBucketFromCents(row.fee_amount_cents),
+        net_revenue_abs_bucket: absoluteMoneyBucketFromCents(netCents),
+        net_revenue_direction: amountDirection(netCents),
+        transaction_count_bucket: countBucket(row.transaction_count),
+        refund_count_bucket: countBucket(row.refund_count),
+        subscriber_count_bucket: countBucket(row.subscriber_count),
+        trial_count_bucket: countBucket(row.trial_count),
+        subscription_start_count_bucket: countBucket(row.subscription_start_count),
+        cancellation_count_bucket: countBucket(row.cancellation_count),
+        conversion_count_bucket: countBucket(row.conversion_count),
+        previous_day_net_revenue_abs_bucket: absoluteMoneyBucketFromCents(trend.previousDayNetCents),
+        previous_day_net_revenue_direction: amountDirection(trend.previousDayNetCents),
+        net_revenue_delta_abs_bucket: absoluteMoneyBucketFromCents(trend.netDeltaCents),
+        net_revenue_delta_direction: deltaDirection(trend.netDeltaCents),
+        trailing_7d_net_revenue_abs_bucket: absoluteMoneyBucketFromCents(trend.trailing7dNetCents),
+        trailing_7d_net_revenue_direction: amountDirection(trend.trailing7dNetCents),
+        previous_7d_net_revenue_abs_bucket: absoluteMoneyBucketFromCents(trend.previous7dNetCents),
+        previous_7d_net_revenue_direction: amountDirection(trend.previous7dNetCents),
+        trailing_7d_net_revenue_delta_abs_bucket: absoluteMoneyBucketFromCents(trend.trailing7dDeltaCents),
+        trailing_7d_net_revenue_delta_direction: deltaDirection(trend.trailing7dDeltaCents),
+    };
+
+    const quality = {
+        schema_version: RESEARCH_SCHEMA_VERSION,
+        quality_tier: 'aggregate_only',
+        pii_scan: 'passed',
+        source_row_count: 1,
+        attribution_scope: 'project_day',
+        session_attribution_available: false,
+        warnings: ['not_session_attributed'],
+    };
+
+    const manifest = {
+        schema_version: RESEARCH_SCHEMA_VERSION,
+        anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'revenue_outcomes',
+        project_key: projectKey,
+        sample_date: date,
+        provider,
+        currency,
+        source: {
+            table: 'project_revenue_daily',
+            attribution_scope: 'project_day',
+            session_attribution_available: false,
+        },
+        quality_tier: quality.quality_tier,
+        files: {
+            daily_revenue: `${basePath}/daily_revenue.json`,
+            quality: `${basePath}/quality.json`,
+            zip: `${basePath}.zip`,
+        },
+    };
+
+    return { basePath, manifest, quality, dailyRevenue };
+}
+
+function revenueGroupKey(row: Pick<RevenueOutcomeRow, 'project_id' | 'source_provider' | 'currency'>): string {
+    return `${row.project_id}:${row.source_provider}:${row.currency}`;
+}
+
+async function loadRevenueTrendRows(rows: RevenueOutcomeRow[]): Promise<Map<string, Map<string, RevenueOutcomeRow>>> {
+    const groups = new Map<string, {
+        projectId: string;
+        provider: string;
+        currency: string;
+        minDate: string;
+        maxDate: string;
+    }>();
+
+    for (const row of rows) {
+        const date = dateKeyFromDb(row.date);
+        const key = revenueGroupKey(row);
+        const existing = groups.get(key);
+        if (!existing) {
+            groups.set(key, {
+                projectId: row.project_id,
+                provider: row.source_provider,
+                currency: row.currency,
+                minDate: date,
+                maxDate: date,
+            });
+        } else {
+            if (date < existing.minDate) existing.minDate = date;
+            if (date > existing.maxDate) existing.maxDate = date;
+        }
+    }
+
+    const trends = new Map<string, Map<string, RevenueOutcomeRow>>();
+    for (const group of groups.values()) {
+        const result = await pool.query<RevenueOutcomeRow>(
+            `
+            SELECT
+                id::text,
+                project_id::text,
+                source_provider,
+                date::text,
+                currency,
+                gross_amount_cents,
+                refund_amount_cents,
+                fee_amount_cents,
+                net_amount_cents,
+                transaction_count,
+                refund_count,
+                subscriber_count,
+                trial_count,
+                subscription_start_count,
+                cancellation_count,
+                conversion_count,
+                updated_at
+            FROM project_revenue_daily
+            WHERE project_id = $1
+              AND source_provider = $2
+              AND currency = $3
+              AND date >= ($4::date - INTERVAL '13 days')
+              AND date <= $5::date
+            ORDER BY date
+            `,
+            [group.projectId, group.provider, group.currency, group.minDate, group.maxDate],
+        );
+
+        const byDate = new Map<string, RevenueOutcomeRow>();
+        for (const trendRow of result.rows) {
+            byDate.set(dateKeyFromDb(trendRow.date), trendRow);
+        }
+        trends.set(`${group.projectId}:${group.provider}:${group.currency}`, byDate);
+    }
+
+    return trends;
+}
+
+function sumNetCentsByDate(
+    byDate: Map<string, RevenueOutcomeRow> | undefined,
+    startDate: string,
+    endDate: string,
+): number {
+    let total = 0;
+    for (let date = startDate; date <= endDate; date = addDaysToDateKey(date, 1)) {
+        total += dbNumber(byDate?.get(date)?.net_amount_cents);
+    }
+    return total;
+}
+
+function buildRevenueTrend(row: RevenueOutcomeRow, trendRows: Map<string, Map<string, RevenueOutcomeRow>>): RevenueTrend {
+    const date = dateKeyFromDb(row.date);
+    const byDate = trendRows.get(revenueGroupKey(row));
+    const previousDayDate = addDaysToDateKey(date, -1);
+    const previousDayNetCents = dbNumber(byDate?.get(previousDayDate)?.net_amount_cents);
+    const netDeltaCents = dbNumber(row.net_amount_cents) - previousDayNetCents;
+    const trailing7dNetCents = sumNetCentsByDate(byDate, addDaysToDateKey(date, -6), date);
+    const previous7dNetCents = sumNetCentsByDate(byDate, addDaysToDateKey(date, -13), addDaysToDateKey(date, -7));
+    return {
+        previousDayNetCents,
+        netDeltaCents,
+        trailing7dNetCents,
+        previous7dNetCents,
+        trailing7dDeltaCents: trailing7dNetCents - previous7dNetCents,
+    };
+}
+
+async function putRevenueOutcomeRow(row: RevenueOutcomeRow, trend: RevenueTrend): Promise<void> {
+    const { basePath, manifest, quality, dailyRevenue } = buildRevenueOutcomeDocuments(row, trend);
+    if (containsIdentifierRisk({ manifest, quality, dailyRevenue })) {
+        throw new Error('identifier_risk_detected_in_revenue_outcome');
+    }
+
+    const manifestBuf = jsonBuffer(manifest);
+    const qualityBuf = jsonBuffer(quality);
+    const dailyRevenueBuf = jsonBuffer(dailyRevenue);
+    await putResearchObject(`${basePath}/manifest.json`, manifestBuf, 'application/json');
+    await putResearchObject(`${basePath}/quality.json`, qualityBuf, 'application/json');
+    await putResearchObject(`${basePath}/daily_revenue.json`, dailyRevenueBuf, 'application/json');
+    const zipBuffer = await createZipArchiveBuffer([
+        { name: 'manifest.json', buffer: manifestBuf },
+        { name: 'quality.json', buffer: qualityBuf },
+        { name: 'daily_revenue.json', buffer: dailyRevenueBuf },
+    ]);
+    await putResearchObject(`${basePath}.zip`, zipBuffer, 'application/zip');
+}
+
+async function loadRevenueExportCheckpoint(): Promise<RevenueExportCheckpoint> {
+    await pool.query(
+        `
+        INSERT INTO research_lake_revenue_export_checkpoints (id)
+        VALUES ($1)
+        ON CONFLICT (id) DO NOTHING
+        `,
+        [REVENUE_OUTCOMES_CHECKPOINT_ID],
+    );
+    const result = await pool.query<RevenueExportCheckpoint>(
+        `
+        SELECT
+            full_backfill_started_at,
+            full_backfill_completed_at,
+            full_backfill_cursor_date,
+            full_backfill_cursor_project_id::text,
+            full_backfill_cursor_provider,
+            full_backfill_cursor_currency,
+            incremental_cursor_updated_at,
+            incremental_cursor_id::text
+        FROM research_lake_revenue_export_checkpoints
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [REVENUE_OUTCOMES_CHECKPOINT_ID],
+    );
+    return result.rows[0];
+}
+
+async function markRevenueBackfillStarted(startedAt: Date): Promise<void> {
+    await pool.query(
+        `
+        UPDATE research_lake_revenue_export_checkpoints
+        SET
+            full_backfill_started_at = COALESCE(full_backfill_started_at, $2),
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [REVENUE_OUTCOMES_CHECKPOINT_ID, startedAt],
+    );
+}
+
+async function loadRevenueBackfillRows(
+    checkpoint: RevenueExportCheckpoint,
+    limit: number,
+): Promise<RevenueOutcomeRow[]> {
+    const result = await pool.query<RevenueOutcomeRow>(
+        `
+        SELECT
+            id::text,
+            project_id::text,
+            source_provider,
+            date::text,
+            currency,
+            gross_amount_cents,
+            refund_amount_cents,
+            fee_amount_cents,
+            net_amount_cents,
+            transaction_count,
+            refund_count,
+            subscriber_count,
+            trial_count,
+            subscription_start_count,
+            cancellation_count,
+            conversion_count,
+            updated_at
+        FROM project_revenue_daily
+        WHERE (
+            $1::date IS NULL
+            OR (date, project_id, source_provider, currency)
+              > ($1::date, $2::uuid, $3::varchar, $4::varchar)
+        )
+        ORDER BY date, project_id, source_provider, currency
+        LIMIT $5
+        `,
+        [
+            dateKeyFromDb(checkpoint.full_backfill_cursor_date) || null,
+            checkpoint.full_backfill_cursor_project_id,
+            checkpoint.full_backfill_cursor_provider,
+            checkpoint.full_backfill_cursor_currency,
+            limit,
+        ],
+    );
+    return result.rows;
+}
+
+async function loadRevenueIncrementalRows(
+    checkpoint: RevenueExportCheckpoint,
+    limit: number,
+): Promise<RevenueOutcomeRow[]> {
+    const cursorUpdatedAt = checkpoint.incremental_cursor_updated_at
+        ?? checkpoint.full_backfill_started_at
+        ?? new Date(0);
+    const cursorId = checkpoint.incremental_cursor_id ?? REVENUE_ZERO_UUID;
+    const result = await pool.query<RevenueOutcomeRow>(
+        `
+        SELECT
+            id::text,
+            project_id::text,
+            source_provider,
+            date::text,
+            currency,
+            gross_amount_cents,
+            refund_amount_cents,
+            fee_amount_cents,
+            net_amount_cents,
+            transaction_count,
+            refund_count,
+            subscriber_count,
+            trial_count,
+            subscription_start_count,
+            cancellation_count,
+            conversion_count,
+            updated_at
+        FROM project_revenue_daily
+        WHERE (updated_at, id) > ($1::timestamp, $2::uuid)
+        ORDER BY updated_at, id
+        LIMIT $3
+        `,
+        [cursorUpdatedAt, cursorId, limit],
+    );
+    return result.rows;
+}
+
+async function advanceRevenueBackfillCheckpoint(
+    rows: RevenueOutcomeRow[],
+    complete: boolean,
+    backfillStartedAt: Date,
+): Promise<void> {
+    const last = rows.at(-1);
+    await pool.query(
+        `
+        UPDATE research_lake_revenue_export_checkpoints
+        SET
+            full_backfill_cursor_date = COALESCE($2::date, full_backfill_cursor_date),
+            full_backfill_cursor_project_id = COALESCE($3::uuid, full_backfill_cursor_project_id),
+            full_backfill_cursor_provider = COALESCE($4::varchar, full_backfill_cursor_provider),
+            full_backfill_cursor_currency = COALESCE($5::varchar, full_backfill_cursor_currency),
+            full_backfill_completed_at = CASE WHEN $6::boolean THEN NOW() ELSE full_backfill_completed_at END,
+            incremental_cursor_updated_at = CASE
+                WHEN $6::boolean THEN COALESCE(incremental_cursor_updated_at, $7::timestamp)
+                ELSE incremental_cursor_updated_at
+            END,
+            incremental_cursor_id = CASE
+                WHEN $6::boolean THEN COALESCE(incremental_cursor_id, $8::uuid)
+                ELSE incremental_cursor_id
+            END,
+            last_exported_at = NOW(),
+            last_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [
+            REVENUE_OUTCOMES_CHECKPOINT_ID,
+            last ? dateKeyFromDb(last.date) : null,
+            last?.project_id ?? null,
+            last?.source_provider ?? null,
+            last?.currency ?? null,
+            complete,
+            backfillStartedAt,
+            REVENUE_ZERO_UUID,
+        ],
+    );
+}
+
+async function advanceRevenueIncrementalCheckpoint(rows: RevenueOutcomeRow[]): Promise<void> {
+    const last = rows.at(-1);
+    if (!last) return;
+    await pool.query(
+        `
+        UPDATE research_lake_revenue_export_checkpoints
+        SET
+            incremental_cursor_updated_at = $2,
+            incremental_cursor_id = $3,
+            last_exported_at = NOW(),
+            last_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [REVENUE_OUTCOMES_CHECKPOINT_ID, updatedAtFromDb(last.updated_at), last.id],
+    );
+}
+
+async function recordRevenueExportError(error: unknown): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error);
+    await pool.query(
+        `
+        UPDATE research_lake_revenue_export_checkpoints
+        SET last_error = $2, updated_at = NOW()
+        WHERE id = $1
+        `,
+        [REVENUE_OUTCOMES_CHECKPOINT_ID, message.slice(0, 2000)],
+    );
+}
+
+async function exportRevenueOutcomeRows(rows: RevenueOutcomeRow[]): Promise<{ exported: number; failed: number }> {
+    const trendRows = await loadRevenueTrendRows(rows);
+    let exported = 0;
+    let failed = 0;
+    for (const row of rows) {
+        try {
+            await putRevenueOutcomeRow(row, buildRevenueTrend(row, trendRows));
+            exported++;
+        } catch (err) {
+            failed++;
+            logger.error({
+                err,
+                provider: safePartitionSegment(row.source_provider),
+                date: dateKeyFromDb(row.date),
+                currency: safePartitionSegment(row.currency),
+            }, 'Research lake revenue outcome export failed');
+        }
+    }
+    return { exported, failed };
+}
+
+async function runResearchLakeRevenueOutcomesExportCycle(): Promise<RevenueOutcomeExportSummary> {
+    const summary: RevenueOutcomeExportSummary = {
+        attempted: 0,
+        exported: 0,
+        failed: 0,
+        mode: config.RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED ? 'idle' : 'disabled',
+    };
+    if (!config.RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED) return summary;
+
+    const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_REVENUE_OUTCOMES_BATCH_SIZE));
+    const checkpoint = await loadRevenueExportCheckpoint();
+
+    if (!checkpoint.full_backfill_completed_at) {
+        summary.mode = 'backfill';
+        const backfillStartedAt = checkpoint.full_backfill_started_at ?? new Date();
+        if (!checkpoint.full_backfill_started_at) {
+            await markRevenueBackfillStarted(backfillStartedAt);
+        }
+
+        const rows = await loadRevenueBackfillRows(checkpoint, batchSize);
+        summary.attempted = rows.length;
+        if (rows.length === 0) {
+            await advanceRevenueBackfillCheckpoint([], true, backfillStartedAt);
+            summary.mode = 'idle';
+            return summary;
+        }
+
+        const result = await exportRevenueOutcomeRows(rows);
+        summary.exported = result.exported;
+        summary.failed = result.failed;
+        if (summary.failed > 0) {
+            await recordRevenueExportError(`${summary.failed} revenue outcome rows failed`);
+            return summary;
+        }
+
+        await advanceRevenueBackfillCheckpoint(rows, rows.length < batchSize, backfillStartedAt);
+        return summary;
+    }
+
+    const rows = await loadRevenueIncrementalRows(checkpoint, batchSize);
+    summary.mode = rows.length > 0 ? 'incremental' : 'idle';
+    summary.attempted = rows.length;
+    if (rows.length === 0) return summary;
+
+    const result = await exportRevenueOutcomeRows(rows);
+    summary.exported = result.exported;
+    summary.failed = result.failed;
+    if (summary.failed > 0) {
+        await recordRevenueExportError(`${summary.failed} revenue outcome rows failed`);
+        return summary;
+    }
+
+    await advanceRevenueIncrementalCheckpoint(rows);
+    return summary;
 }
 
 function buildBusinessContext(
@@ -3573,6 +4158,14 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
         if (claimedThisRound === 0) break;
     }
 
+    try {
+        summary.revenueOutcomes = await runResearchLakeRevenueOutcomesExportCycle();
+    } catch (err) {
+        summary.revenueOutcomes.failed++;
+        await recordRevenueExportError(err).catch(() => {});
+        logger.error({ err }, 'Research lake revenue outcomes export cycle failed');
+    }
+
     addLaneSummaryTotals(summary);
     logger.info(summary, 'Research lake extraction cycle completed');
     return summary;
@@ -3598,6 +4191,7 @@ export const __researchLakeTestInternals = {
     annotateHierarchyCaptureProfile,
     buildInteractionSkeleton,
     buildBusinessContext,
+    buildRevenueOutcomeDocuments,
     buildSeedResearchJobsSql,
     buildClaimResearchJobsSql,
     interactionSeedCandidatePredicateSql,

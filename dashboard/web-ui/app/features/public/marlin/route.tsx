@@ -179,13 +179,6 @@ export default function RejourneyMarlinPage() {
                 <p className="mt-4 text-base font-medium leading-8 text-slate-600">
                   Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
                 </p>
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  {["Affected users", "Replay cluster", "Copy .md context"].map((label) => (
-                    <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
-                      {label}
-                    </div>
-                  ))}
-                </div>
               </div>
               <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70">
                 <img src={ISSUE_FEED_IMAGE} alt="Rejourney issue detection feed with ranked funnel leaks" className="w-full object-cover" />

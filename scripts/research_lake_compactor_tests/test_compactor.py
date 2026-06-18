@@ -176,6 +176,78 @@ def test_behavioral_sample_builds_behavioral_tables_without_ui_rows():
     assert "product_key" not in rows[("combined", "event_fact")][0]
 
 
+def test_revenue_outcome_sample_builds_aggregate_fact_only():
+    sample = {
+        "manifest": {
+            "lake": "revenue_outcomes",
+            "project_key": "project_hash",
+            "sample_date": "2026-06-11",
+            "provider": "revenuecat",
+            "currency": "usd",
+        },
+        "quality": {
+            "quality_tier": "aggregate_only",
+            "pii_scan": "passed",
+        },
+        "daily_revenue": {
+            "project_key": "project_hash",
+            "sample_date": "2026-06-11",
+            "provider": "revenuecat",
+            "currency": "usd",
+            "attribution_scope": "project_day",
+            "revenue_observation_grain": "project_provider_currency_day",
+            "session_attribution_available": False,
+            "gross_revenue_bucket": 150,
+            "refund_revenue_bucket": 10,
+            "fee_revenue_bucket": 0,
+            "net_revenue_abs_bucket": 140,
+            "net_revenue_direction": "positive",
+            "transaction_count_bucket": 10,
+            "refund_count_bucket": 1,
+            "subscriber_count_bucket": 5,
+            "trial_count_bucket": 5,
+            "subscription_start_count_bucket": 5,
+            "cancellation_count_bucket": 0,
+            "conversion_count_bucket": 0,
+            "previous_day_net_revenue_abs_bucket": 100,
+            "previous_day_net_revenue_direction": "positive",
+            "net_revenue_delta_abs_bucket": 40,
+            "net_revenue_delta_direction": "increase",
+            "trailing_7d_net_revenue_abs_bucket": 700,
+            "trailing_7d_net_revenue_direction": "positive",
+            "previous_7d_net_revenue_abs_bucket": 500,
+            "previous_7d_net_revenue_direction": "positive",
+            "trailing_7d_net_revenue_delta_abs_bucket": 200,
+            "trailing_7d_net_revenue_delta_direction": "increase",
+            "external_transaction_id": "must_not_export",
+            "session_id": "must_not_export",
+            "customer_id": "must_not_export",
+        },
+    }
+
+    rows = compactor.rows_from_sample("revenue_outcomes", sample)
+
+    assert rows[("revenue_outcomes", "daily_revenue_fact")]
+    assert ("revenue_outcomes", "session_fact") not in rows
+    assert ("revenue_outcomes", "training_labels") not in rows
+    fact = rows[("revenue_outcomes", "daily_revenue_fact")][0]
+    assert fact["project_key"] == "project_hash"
+    assert fact["provider"] == "revenuecat"
+    assert fact["currency"] == "usd"
+    assert fact["gross_revenue_bucket"] == 150
+    assert fact["net_revenue_delta_direction"] == "increase"
+    assert fact["session_attribution_available"] is False
+    assert "sample_key" not in fact
+    assert "external_transaction_id" not in fact
+    assert "session_id" not in fact
+    assert "customer_id" not in fact
+    assert compactor.partition_parts("daily_revenue_fact", fact) == [
+        "date=2026-06-11",
+        "provider=revenuecat",
+        "currency=usd",
+    ]
+
+
 def test_eligible_manifest_keys_are_grouped_by_complete_date_partition():
     keys = [
         "v1/lake=interaction/project_key=a/date=2026-06-10/sample_key=one/manifest.json",

@@ -796,4 +796,63 @@ describe('research lake anonymized payload shape', () => {
         expect(bizContext.conversion_revenue_bucket).toBe(200);
         expect(bizContext.currency).toBe('EUR');
     });
+
+    it('builds revenue outcome documents without session, transaction, or provider identity keys', () => {
+        const rawProjectId = '3f4f7d8a-7660-4a78-b944-442051c62eca';
+        const documents = __researchLakeTestInternals.buildRevenueOutcomeDocuments({
+            id: '7bc5c775-c68d-43a7-9b82-f7cd81633823',
+            project_id: rawProjectId,
+            source_provider: 'revenuecat',
+            date: '2026-06-11',
+            currency: 'usd',
+            gross_amount_cents: 14997,
+            refund_amount_cents: 999,
+            fee_amount_cents: 0,
+            net_amount_cents: 13998,
+            transaction_count: 7,
+            refund_count: 1,
+            subscriber_count: 4,
+            trial_count: 2,
+            subscription_start_count: 3,
+            cancellation_count: 0,
+            conversion_count: 0,
+            updated_at: new Date('2026-06-11T12:00:00Z'),
+        } as any, {
+            previousDayNetCents: 10000,
+            netDeltaCents: 3998,
+            trailing7dNetCents: 70000,
+            previous7dNetCents: 50000,
+            trailing7dDeltaCents: 20000,
+        });
+
+        expect(documents.basePath).toContain('/lake=revenue_outcomes/');
+        expect(documents.basePath).not.toContain('/sample_key=');
+        expect(documents.manifest).not.toHaveProperty('sample_key');
+        expect(documents.dailyRevenue).not.toHaveProperty('sample_key');
+        expect(documents.dailyRevenue).toMatchObject({
+            provider: 'revenuecat',
+            currency: 'usd',
+            attribution_scope: 'project_day',
+            revenue_observation_grain: 'project_provider_currency_day',
+            session_attribution_available: false,
+            gross_revenue_bucket: 150,
+            refund_revenue_bucket: 10,
+            net_revenue_abs_bucket: 140,
+            transaction_count_bucket: 10,
+            net_revenue_delta_direction: 'increase',
+            trailing_7d_net_revenue_delta_abs_bucket: 200,
+        });
+
+        const serialized = JSON.stringify(documents);
+        expect(serialized).not.toContain(rawProjectId);
+        expect(serialized).not.toContain('7bc5c775-c68d-43a7-9b82-f7cd81633823');
+        expect(serialized).not.toContain('transaction_id');
+        expect(serialized).not.toContain('session_id');
+        expect(serialized).not.toContain('customer_id');
+        expect(__researchLakeTestInternals.containsIdentifierRisk({
+            manifest: documents.manifest,
+            quality: documents.quality,
+            dailyRevenue: documents.dailyRevenue,
+        })).toBe(false);
+    });
 });

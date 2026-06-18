@@ -106,7 +106,7 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
             const particleTexture = createCircleTexture();
 
             // Set up sparse node structures
-            const nodeCount = 42;
+            const nodeCount = 64;
             const nodePositions = new Float32Array(nodeCount * 3);
             const nodeStates: Array<{
                 x: number;
@@ -120,9 +120,9 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
             }> = [];
 
             for (let i = 0; i < nodeCount; i++) {
-                const x = (random() - 0.5) * 8.0;
-                const y = (random() - 0.5) * 4.5;
-                const z = (random() - 0.5) * 1.5;
+                const x = (random() - 0.5) * 9.4;
+                const y = (random() - 0.5) * 5.3;
+                const z = (random() - 0.5) * 1.8;
 
                 nodePositions[i * 3] = x;
                 nodePositions[i * 3 + 1] = y;
@@ -147,12 +147,12 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
             pointsGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
 
             const pointsMaterial = register(new THREE.PointsMaterial({
-                color: 0x38bdf8,
-                size: 0.2,
+                color: 0x0284c7,
+                size: 0.27,
                 transparent: true,
-                opacity: 0.92,
+                opacity: 0.96,
                 map: particleTexture,
-                blending: THREE.AdditiveBlending,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
@@ -160,7 +160,7 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
             scene.add(points);
 
             // Set up dynamic lines
-            const maxLines = 80;
+            const maxLines = 150;
             const linePositions = new Float32Array(maxLines * 2 * 3);
             const lineColors = new Float32Array(maxLines * 2 * 3);
             const lineGeometry = register(new THREE.BufferGeometry());
@@ -170,8 +170,8 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
             const lineMaterial = register(new THREE.LineBasicMaterial({
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.48,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.74,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
@@ -230,8 +230,8 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
                     state.z += state.vz;
 
                     // Bounce/wrap borders
-                    const xLimit = camera.aspect * 3.6;
-                    const yLimit = 2.2;
+                    const xLimit = camera.aspect * 4.2;
+                    const yLimit = 2.65;
                     if (Math.abs(state.x) > xLimit) {
                         state.vx *= -1;
                         state.x = Math.sign(state.x) * xLimit;
@@ -292,18 +292,18 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
                         const dz = pi.z - pj.z;
                         const distSq = dx*dx + dy*dy + dz*dz;
 
-                        // Connect if distance < 1.95
-                        if (distSq < 3.8) {
+                        // Connect if distance < 2.35
+                        if (distSq < 5.52) {
                             const dist = Math.sqrt(distSq);
-                            const opacity = Math.max(0, 1 - dist / 1.95) * 0.54;
+                            const opacity = Math.max(0, 1 - dist / 2.35) * 0.82;
 
                             // Point A
                             linePosAttr.setXYZ(lineIdx * 2, pi.x, pi.y, pi.z);
-                            lineColAttr.setXYZ(lineIdx * 2, 0.22 * opacity, 0.74 * opacity, 0.97 * opacity); // Blue-cyan
+                            lineColAttr.setXYZ(lineIdx * 2, 0.02 * opacity, 0.42 * opacity, 0.78 * opacity); // Deep cyan
 
                             // Point B
                             linePosAttr.setXYZ(lineIdx * 2 + 1, pj.x, pj.y, pj.z);
-                            lineColAttr.setXYZ(lineIdx * 2 + 1, 0.15 * opacity, 0.38 * opacity, 0.92 * opacity); // Indigo-blue
+                            lineColAttr.setXYZ(lineIdx * 2 + 1, 0.04 * opacity, 0.25 * opacity, 0.68 * opacity); // Deep blue
 
                             lineIdx++;
                         }
@@ -346,7 +346,7 @@ export const NetworkConstellation: React.FC<SparseAnimationProps> = ({
 
     return (
         <div ref={containerRef} className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${className}`}>
-            <canvas ref={canvasRef} className="w-full h-full block opacity-50" />
+            <canvas ref={canvasRef} className="w-full h-full block opacity-[0.85]" />
         </div>
     );
 };
@@ -407,7 +407,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
 
             // Lighting for physical highlights if any
             scene.add(new THREE.AmbientLight(0xdbeafe, 1.2));
-            const pointLight = new THREE.PointLight(0x38bdf8, 6.5, 18);
+            const pointLight = new THREE.PointLight(0x0284c7, 8.5, 18);
             pointLight.position.set(2, 3, 4);
             scene.add(pointLight);
 
@@ -431,7 +431,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                       // Torus wireframe
                       {
                           geo: register(new THREE.TorusGeometry(0.72, 0.18, 8, 48)),
-                          color: 0x60a5fa,
+                          color: 0x2563eb,
                           x: -2.3,
                           y: 0.6,
                           z: -1.0,
@@ -443,7 +443,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                       // Octahedron wireframe
                       {
                           geo: register(new THREE.OctahedronGeometry(0.75, 1)),
-                          color: 0xa78bfa, // Lavender
+                          color: 0x7c3aed, // Violet
                           x: 2.1,
                           y: -0.6,
                           z: -1.2,
@@ -457,7 +457,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                       // Double cube wireframe
                       {
                           geo: register(new THREE.BoxGeometry(0.85, 0.85, 0.85)),
-                          color: 0x38bdf8, // Cyan
+                          color: 0x0284c7, // Cyan
                           x: -2.0,
                           y: -0.5,
                           z: -1.0,
@@ -466,12 +466,12 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                           floatSp: 0.5,
                           floatAm: 0.25,
                           innerGeo: register(new THREE.BoxGeometry(0.48, 0.48, 0.48)),
-                          innerColor: 0x3b82f6, // Blue
+                          innerColor: 0x1d4ed8, // Blue
                       },
                       // Icosahedron wireframe
                       {
                           geo: register(new THREE.IcosahedronGeometry(0.8, 1)),
-                          color: 0x60a5fa,
+                          color: 0x0f766e,
                           x: 2.2,
                           y: 0.7,
                           z: -1.4,
@@ -491,8 +491,8 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                 const mat = register(new THREE.LineBasicMaterial({
                     color: data.color,
                     transparent: true,
-                    opacity: 0.82,
-                    blending: THREE.AdditiveBlending,
+                    opacity: 0.95,
+                    blending: THREE.NormalBlending,
                     depthWrite: false,
                 }));
                 const line = new THREE.LineSegments(edges, mat);
@@ -504,8 +504,8 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                     const innerMat = register(new THREE.LineBasicMaterial({
                         color: data.innerColor,
                         transparent: true,
-                        opacity: 0.9,
-                        blending: THREE.AdditiveBlending,
+                        opacity: 0.96,
+                        blending: THREE.NormalBlending,
                         depthWrite: false,
                     }));
                     const innerLine = new THREE.LineSegments(innerEdges, innerMat);
@@ -529,11 +529,11 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
             });
 
             // Add background drifting micro-particles
-            const starCount = 52;
+            const starCount = 84;
             const starPositions = new Float32Array(starCount * 3);
             const starColors = new Float32Array(starCount * 3);
             const starStates: Array<{ x: number; y: number; z: number; speed: number; phase: number }> = [];
-            const starPalette = [0x60a5fa, 0x38bdf8, 0x93c5fd, 0xffffff];
+            const starPalette = [0x2563eb, 0x0284c7, 0x0f766e, 0xf59e0b, 0xffffff];
 
             for (let i = 0; i < starCount; i++) {
                 const x = (random() - 0.5) * 8.5;
@@ -545,7 +545,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
                 starPositions[i * 3 + 2] = z;
 
                 const color = new THREE.Color(starPalette[Math.floor(random() * starPalette.length)]);
-                const brightness = 0.35 + random() * 0.55;
+                const brightness = 0.52 + random() * 0.58;
                 starColors[i * 3] = color.r * brightness;
                 starColors[i * 3 + 1] = color.g * brightness;
                 starColors[i * 3 + 2] = color.b * brightness;
@@ -580,12 +580,12 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
 
             const starMaterial = register(new THREE.PointsMaterial({
                 color: 0xffffff,
-                size: 0.105,
+                size: 0.135,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.62,
+                opacity: 0.76,
                 map: starTexture,
-                blending: THREE.AdditiveBlending,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
@@ -694,7 +694,7 @@ export const FloatingDataNodes: React.FC<SparseAnimationProps & { variant?: 'def
 
     return (
         <div ref={containerRef} className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${className}`}>
-            <canvas ref={canvasRef} className="w-full h-full block opacity-60" />
+            <canvas ref={canvasRef} className="w-full h-full block opacity-90" />
         </div>
     );
 };
@@ -752,46 +752,46 @@ export const TechRingsScanner: React.FC<SparseAnimationProps> = ({
 
             // Ring Materials
             const ringMat1 = register(new THREE.MeshBasicMaterial({
-                color: 0x38bdf8,
+                color: 0x0284c7,
                 wireframe: true,
                 transparent: true,
-                opacity: 0.5,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.72,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
             const ringMat2 = register(new THREE.MeshBasicMaterial({
-                color: 0x3b82f6,
+                color: 0x2563eb,
                 wireframe: true,
                 transparent: true,
-                opacity: 0.38,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.62,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
             const ringMat3 = register(new THREE.MeshBasicMaterial({
-                color: 0x60a5fa,
+                color: 0x0f766e,
                 wireframe: true,
                 transparent: true,
-                opacity: 0.25,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.48,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
 
             // Create 3 Concentric Torus Rings (very thin)
-            const ring1 = new THREE.Mesh(register(new THREE.TorusGeometry(1.4, 0.008, 6, 80)), ringMat1);
-            const ring2 = new THREE.Mesh(register(new THREE.TorusGeometry(2.0, 0.006, 6, 100)), ringMat2);
-            const ring3 = new THREE.Mesh(register(new THREE.TorusGeometry(2.6, 0.004, 6, 120)), ringMat3);
+            const ring1 = new THREE.Mesh(register(new THREE.TorusGeometry(1.4, 0.012, 6, 80)), ringMat1);
+            const ring2 = new THREE.Mesh(register(new THREE.TorusGeometry(2.0, 0.01, 6, 100)), ringMat2);
+            const ring3 = new THREE.Mesh(register(new THREE.TorusGeometry(2.6, 0.008, 6, 120)), ringMat3);
 
             rootGroup.add(ring1, ring2, ring3);
 
             // Central pulsing core mesh
             const coreGeo = register(new THREE.SphereGeometry(0.24, 16, 16));
             const coreMat = register(new THREE.MeshBasicMaterial({
-                color: 0x3b82f6,
+                color: 0x1d4ed8,
                 transparent: true,
-                opacity: 0.84,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.9,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
             const core = new THREE.Mesh(coreGeo, coreMat);
@@ -800,10 +800,10 @@ export const TechRingsScanner: React.FC<SparseAnimationProps> = ({
             // Outer soft glow mesh
             const glowGeo = register(new THREE.SphereGeometry(0.48, 16, 16));
             const glowMat = register(new THREE.MeshBasicMaterial({
-                color: 0x38bdf8,
+                color: 0x0284c7,
                 transparent: true,
-                opacity: 0.34,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.46,
+                blending: THREE.NormalBlending,
                 depthWrite: false,
             }));
             const glow = new THREE.Mesh(glowGeo, glowMat);
@@ -818,13 +818,13 @@ export const TechRingsScanner: React.FC<SparseAnimationProps> = ({
                 // Responsive positioning (center for tablet/desktop, shift slightly on mobile)
                 if (width < 640) {
                     rootGroup.position.set(0, 0.2, -0.5);
-                    rootGroup.scale.setScalar(0.72);
+                    rootGroup.scale.setScalar(0.82);
                 } else if (width < 1024) {
                     rootGroup.position.set(1.4, -0.1, -0.6);
-                    rootGroup.scale.setScalar(0.9);
+                    rootGroup.scale.setScalar(1.02);
                 } else {
                     rootGroup.position.set(2.2, -0.2, -0.8);
-                    rootGroup.scale.setScalar(1.15);
+                    rootGroup.scale.setScalar(1.28);
                 }
 
                 camera.updateProjectionMatrix();
@@ -900,7 +900,7 @@ export const TechRingsScanner: React.FC<SparseAnimationProps> = ({
 
     return (
         <div ref={containerRef} className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${className}`}>
-            <canvas ref={canvasRef} className="w-full h-full block opacity-65" />
+            <canvas ref={canvasRef} className="w-full h-full block opacity-90" />
         </div>
     );
 };

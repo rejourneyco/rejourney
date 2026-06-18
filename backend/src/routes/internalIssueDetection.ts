@@ -147,6 +147,17 @@ function toIso(value: Date | string | null | undefined): string | null {
     return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+function toJsonSafe(value: unknown): unknown {
+    if (typeof value === 'bigint') return Number(value);
+    if (value instanceof Date) return toIso(value);
+    if (Array.isArray(value)) return value.map(toJsonSafe);
+    if (!value || typeof value !== 'object') return value;
+
+    return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, toJsonSafe(nested)]),
+    );
+}
+
 function serializeCrash(row: typeof crashes.$inferSelect) {
     return {
         ...row,
@@ -654,7 +665,7 @@ router.get('/sessions/:sessionId/feature-record', asyncHandler(async (req, res) 
             .limit(200),
     ]);
 
-    res.json({
+    res.json(toJsonSafe({
         session: {
             ...row.session,
             startedAt: toIso(row.session.startedAt),
@@ -681,7 +692,7 @@ router.get('/sessions/:sessionId/feature-record', asyncHandler(async (req, res) 
             createdAt: toIso(artifact.createdAt),
             bytesUrl: `/api/internal/issue-detection/artifacts/${artifact.id}/bytes`,
         })),
-    });
+    }));
 }));
 
 router.get('/sessions/:sessionId/artifacts', asyncHandler(async (req, res) => {
@@ -711,7 +722,7 @@ router.get('/sessions/:sessionId/artifacts', asyncHandler(async (req, res) => {
         .where(and(...conditions))
         .orderBy(recordingArtifacts.createdAt);
 
-    res.json({
+    res.json(toJsonSafe({
         sessionId,
         artifacts: rows.map((artifact) => ({
             ...artifact,
@@ -720,7 +731,7 @@ router.get('/sessions/:sessionId/artifacts', asyncHandler(async (req, res) => {
             createdAt: toIso(artifact.createdAt),
             bytesUrl: `/api/internal/issue-detection/artifacts/${artifact.id}/bytes`,
         })),
-    });
+    }));
 }));
 
 router.get('/artifacts/:artifactId/bytes', asyncHandler(async (req, res) => {

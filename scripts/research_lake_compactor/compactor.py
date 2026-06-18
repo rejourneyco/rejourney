@@ -14,7 +14,7 @@ from collections import defaultdict
 from typing import Any, Iterable
 
 
-RAW_LAKES = ("interaction", "behavioral_outcomes")
+RAW_LAKES = ("interaction", "behavioral_outcomes", "revenue_outcomes")
 COMMON_SESSION_FIELDS = (
     "source_lake",
     "project_key",
@@ -68,6 +68,38 @@ COMMON_LABEL_FIELDS = (
     "has_rage_or_dead_tap",
     "abandoned_after_paywall",
     "abandoned_after_checkout",
+)
+REVENUE_OUTCOME_FIELDS = (
+    "source_lake",
+    "project_key",
+    "sample_date",
+    "provider",
+    "currency",
+    "attribution_scope",
+    "revenue_observation_grain",
+    "session_attribution_available",
+    "gross_revenue_bucket",
+    "refund_revenue_bucket",
+    "fee_revenue_bucket",
+    "net_revenue_abs_bucket",
+    "net_revenue_direction",
+    "transaction_count_bucket",
+    "refund_count_bucket",
+    "subscriber_count_bucket",
+    "trial_count_bucket",
+    "subscription_start_count_bucket",
+    "cancellation_count_bucket",
+    "conversion_count_bucket",
+    "previous_day_net_revenue_abs_bucket",
+    "previous_day_net_revenue_direction",
+    "net_revenue_delta_abs_bucket",
+    "net_revenue_delta_direction",
+    "trailing_7d_net_revenue_abs_bucket",
+    "trailing_7d_net_revenue_direction",
+    "previous_7d_net_revenue_abs_bucket",
+    "previous_7d_net_revenue_direction",
+    "trailing_7d_net_revenue_delta_abs_bucket",
+    "trailing_7d_net_revenue_delta_direction",
 )
 
 
@@ -257,6 +289,21 @@ def label_rows(source_lake: str, manifest: dict[str, Any], labels: dict[str, Any
     }]
 
 
+def revenue_outcome_row(source_lake: str, manifest: dict[str, Any], daily_revenue: dict[str, Any]) -> dict[str, Any]:
+    row = {key: daily_revenue.get(key) for key in REVENUE_OUTCOME_FIELDS}
+    row.update({
+        "source_lake": source_lake,
+        "project_key": manifest.get("project_key") or daily_revenue.get("project_key"),
+        "sample_date": manifest.get("sample_date") or daily_revenue.get("sample_date"),
+        "provider": manifest.get("provider") or daily_revenue.get("provider") or "unknown",
+        "currency": manifest.get("currency") or daily_revenue.get("currency") or "unknown",
+        "attribution_scope": daily_revenue.get("attribution_scope") or "project_day",
+        "revenue_observation_grain": daily_revenue.get("revenue_observation_grain") or "project_provider_currency_day",
+        "session_attribution_available": bool(daily_revenue.get("session_attribution_available")),
+    })
+    return row
+
+
 def common_rows(rows: Iterable[dict[str, Any]], fields: tuple[str, ...]) -> list[dict[str, Any]]:
     return [{key: row.get(key) for key in fields} for row in rows]
 
@@ -268,6 +315,12 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
     rows: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
 
     if not manifest:
+        return rows
+
+    if source_lake == "revenue_outcomes":
+        daily_revenue = sample.get("daily_revenue") or {}
+        if daily_revenue:
+            rows[(source_lake, "daily_revenue_fact")].append(revenue_outcome_row(source_lake, manifest, daily_revenue))
         return rows
 
     session_row = flatten_session_fact(source_lake, manifest, quality)
@@ -351,6 +404,10 @@ def partition_parts(table: str, row: dict[str, Any]) -> list[str]:
     platform = safe_partition_value(row.get("platform"), "unknown")
     if table == "event_fact":
         return [f"date={date}", f"event_family={safe_partition_value(row.get('event_family'), 'event')}"]
+    if table == "daily_revenue_fact":
+        provider = safe_partition_value(row.get("provider"), "unknown")
+        currency = safe_partition_value(row.get("currency"), "unknown")
+        return [f"date={date}", f"provider={provider}", f"currency={currency}"]
     if table == "training_labels":
         return [f"date={date}", f"label_family={safe_partition_value(row.get('label_family'), 'all')}"]
     if table in {"session_fact", "ui_frame_fact", "ui_skeleton_fact", "stability_fact", "network_fact"}:
@@ -434,10 +491,12 @@ def load_sample_from_s3(client, bucket: str, manifest_key: str, source_lake: str
         optional_jsonl_gz("interactions", "interactions.jsonl.gz")
         optional_jsonl_gz("ui_frames", "ui_frames.jsonl.gz")
         optional_jsonl_gz("ui_skeleton", "ui_skeleton.jsonl.gz")
-    else:
+    elif source_lake == "behavioral_outcomes":
         optional_jsonl_gz("events", "events.jsonl.gz")
         optional_json("session_metrics", "session_metrics.json")
         optional_json("labels", "labels.json")
+    else:
+        optional_json("daily_revenue", "daily_revenue.json")
 
     return sample
 
@@ -536,7 +595,7 @@ def write_manifest_keys_chunked_to_s3(
         buffers[group_key] = []
 
     for source_lake in RAW_LAKES:
-        for key in keys_by_lake[source_lake]:
+        for key in keys_by_lake.get(source_lake, []):
             sample = load_sample_from_s3(client, bucket, key, source_lake)
             grouped = group_rows_by_output(rows_from_sample(source_lake, sample))
             for group_key, rows in grouped.items():

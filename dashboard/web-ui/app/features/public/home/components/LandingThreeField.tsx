@@ -135,7 +135,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             scene.add(root);
 
             // Create background stars/particles
-            const starCount = isHero ? 110 : (isLandingPage ? 128 : 90);
+            const starCount = isHero ? 110 : (isLandingPage ? 180 : 90);
             const starPositions = new Float32Array(starCount * 3);
             const starColors = new Float32Array(starCount * 3);
             const starSizes = new Float32Array(starCount);
@@ -148,7 +148,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 const z = -2.0 - random() * 4.0;
 
                 const color = new THREE.Color(starPalette[Math.floor(random() * starPalette.length)]);
-                const brightness = 0.52 + random() * 0.62;
+                const brightness = isLandingPage ? 0.66 + random() * 0.7 : 0.52 + random() * 0.62;
 
                 starPositions[i * 3] = x;
                 starPositions[i * 3 + 1] = y;
@@ -156,7 +156,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 starColors[i * 3] = color.r * brightness;
                 starColors[i * 3 + 1] = color.g * brightness;
                 starColors[i * 3 + 2] = color.b * brightness;
-                starSizes[i] = random() * (isHero ? 0.09 : 0.12) + (isHero ? 0.035 : 0.045);
+                starSizes[i] = random() * (isHero ? 0.09 : (isLandingPage ? 0.16 : 0.12)) + (isHero ? 0.035 : (isLandingPage ? 0.06 : 0.045));
 
                 starStates.push({
                     x,
@@ -176,7 +176,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const starMaterial = register(new THREE.ShaderMaterial({
                 uniforms: {
                     map: { value: particleTexture },
-                    opacity: { value: isHero ? 0.42 : 0.56 },
+                    opacity: { value: isHero ? 0.42 : (isLandingPage ? 0.76 : 0.56) },
                 },
                 vertexShader: `
                     attribute float size;
@@ -199,7 +199,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     }
                 `,
                 transparent: true,
-                blending: THREE.AdditiveBlending,
+                blending: isLandingPage ? THREE.NormalBlending : THREE.AdditiveBlending,
                 depthWrite: false,
             }));
 
@@ -311,28 +311,28 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     flowGroup.position.set(0, -0.15, -0.4);
                     root.add(flowGroup);
 
-                    const flowPalette = [0x38bdf8, 0x3b82f6, 0x60a5fa, 0x0ea5e9];
-                    for (let i = 0; i < 7; i++) {
+                    const flowPalette = [0x0284c7, 0x2563eb, 0x0f766e, 0xf59e0b, 0x1d4ed8];
+                    for (let i = 0; i < 11; i++) {
                         const points = [];
                         const phase = random() * Math.PI * 2;
-                        const y = -4.1 + i * 1.35 + (random() - 0.5) * 0.45;
-                        const z = -3.8 - random() * 1.8;
+                        const y = -4.45 + i * 0.92 + (random() - 0.5) * 0.5;
+                        const z = -3.45 - random() * 2.1;
 
                         for (let j = 0; j < 10; j++) {
                             const t = j / 9;
                             const x = -8.8 + t * 17.6;
-                            const wave = Math.sin(t * Math.PI * 2.1 + phase) * (0.25 + random() * 0.22);
-                            const lift = Math.sin(t * Math.PI + i * 0.45) * 0.55;
+                            const wave = Math.sin(t * Math.PI * 2.1 + phase) * (0.32 + random() * 0.28);
+                            const lift = Math.sin(t * Math.PI + i * 0.45) * 0.68;
                             points.push(new THREE.Vector3(x, y + wave + lift, z + Math.sin(t * Math.PI * 2 + phase) * 0.35));
                         }
 
                         const curve = new THREE.CatmullRomCurve3(points);
-                        const geometry = register(new THREE.BufferGeometry().setFromPoints(curve.getPoints(150)));
+                        const geometry = register(new THREE.BufferGeometry().setFromPoints(curve.getPoints(180)));
                         const material = register(new THREE.LineBasicMaterial({
                             color: flowPalette[i % flowPalette.length],
                             transparent: true,
-                            opacity: 0.052 + random() * 0.048,
-                            blending: THREE.AdditiveBlending,
+                            opacity: 0.11 + random() * 0.08,
+                            blending: THREE.NormalBlending,
                             depthWrite: false,
                         }));
                         const line = new THREE.Line(geometry, material);
@@ -358,9 +358,9 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 camera.aspect = width / height;
 
                 if (isLandingPage) {
-                    camera.position.z = width < 640 ? 8.7 : 7.7;
+                    camera.position.z = width < 640 ? 8.4 : 7.35;
                     root.position.set(0, 0, 0);
-                    root.scale.setScalar(width < 640 ? 0.95 : 1.08);
+                    root.scale.setScalar(width < 640 ? 1.04 : 1.18);
                 } else if (isLandingSparse) {
                     camera.position.z = 7.5;
                     root.position.set(0, 0, 0);
@@ -519,9 +519,12 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             transform: 'translate3d(-50%, -50%, 0)',
             width: isHero ? 'max(145vw, 1580px)' : '100%',
         };
+    const variantClassName = isLandingPage
+        ? 'landing-three-field--page'
+        : (isHero ? 'landing-three-field--hero' : 'landing-three-field--sparse');
     const wrapperClassName = isLandingPage
-        ? `pointer-events-none fixed inset-0 z-0 overflow-hidden ${className}`
-        : `pointer-events-none absolute inset-0 z-0 overflow-hidden lg:overflow-visible ${className}`;
+        ? `pointer-events-none fixed inset-0 z-0 overflow-hidden ${variantClassName} ${className}`
+        : `pointer-events-none absolute inset-0 z-0 overflow-hidden lg:overflow-visible ${variantClassName} ${className}`;
 
     return (
         <div
@@ -552,12 +555,25 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                             filter: blur(45px);
                             animation: landingHazeDrift 28s ease-in-out infinite alternate;
                         }
-                        .landing-three-canvas {
-                            opacity: ${isHero ? '0.58' : (isLandingPage ? '0.78' : '0.64')};
+                        .landing-three-field--hero .landing-three-canvas {
+                            opacity: 0.58;
+                        }
+                        .landing-three-field--page .landing-three-canvas {
+                            filter: saturate(1.18) contrast(1.06);
+                            opacity: 0.94;
+                        }
+                        .landing-three-field--sparse .landing-three-canvas {
+                            opacity: 0.64;
                         }
                         @media (max-width: 640px) {
-                            .landing-three-canvas {
-                                opacity: ${isHero ? '0.46' : (isLandingPage ? '0.42' : '0.36')};
+                            .landing-three-field--hero .landing-three-canvas {
+                                opacity: 0.46;
+                            }
+                            .landing-three-field--page .landing-three-canvas {
+                                opacity: 0.68;
+                            }
+                            .landing-three-field--sparse .landing-three-canvas {
+                                opacity: 0.36;
                             }
                         }
                         @media (prefers-reduced-motion: reduce) {

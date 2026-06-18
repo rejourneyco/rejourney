@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, MessageSquare } from 'lucide-react';
-import { Link } from 'react-router';
+import { FloatingDataNodes, NetworkConstellation } from './SparseThreeAnimations';
 
 interface FaqItem {
     question: string;
@@ -51,6 +51,13 @@ export const FaqSection: React.FC = () => {
 
     return (
         <section className="relative overflow-hidden border-t border-transparent bg-transparent px-6 py-24 sm:px-8 sm:py-32 lg:px-12">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-full min-h-[34rem] overflow-hidden" aria-hidden="true">
+                <NetworkConstellation className="opacity-[0.34]" seed={946} />
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 top-4 z-0 h-[34rem] overflow-hidden sm:top-8 lg:h-[38rem]" aria-hidden="true">
+                <FloatingDataNodes variant="alternate" className="opacity-[0.42]" seed={947} />
+            </div>
+            <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_17%_21%,rgba(37,99,235,0.08),transparent_31%),radial-gradient(circle_at_82%_18%,rgba(16,185,129,0.08),transparent_32%),radial-gradient(circle_at_52%_86%,rgba(245,158,11,0.07),transparent_34%)]" aria-hidden="true" />
             <div className="relative z-10 mx-auto max-w-7xl">
                 <div className="grid gap-12 lg:grid-cols-[1.1fr_1.9fr] lg:items-start">
                     

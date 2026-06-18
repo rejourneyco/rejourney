@@ -3,18 +3,14 @@ import { Link, useLocation } from 'react-router';
 import {
     Activity,
     ArrowRight,
-    Bot,
     Check,
     Copy,
     Feather,
-    Gauge,
     Globe2,
     MousePointerClick,
     Play,
     Route,
-    TerminalSquare,
     TrendingUp,
-    Users,
 } from 'lucide-react';
 import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 import { useToast } from '~/shared/providers/ToastContext';
@@ -33,41 +29,139 @@ const shellClass = 'mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10';
 const aiCards = [
     {
         step: 'Replay',
-        title: 'Replay to Leak Fix',
-        copy: 'Converts raw session events, network request logs, and layout state snapshots into structured, markdown-formatted debugging payloads optimized for LLMs.',
-        icon: TerminalSquare,
+        title: 'Rejourney Records Sessions',
+        copy: 'Rejourney records the exact session, events, console logs, network calls, and layout state behind the leak.',
         image: '/images/session-replay-preview.png',
         imagePosition: 'center top',
         href: '/ai-agent-handoff',
     },
     {
         step: 'Observe',
-        title: 'Autonomous Session Observer',
-        copy: 'Monitors user behavior and interaction streams in the background, automatically capturing transaction-blocking bugs, rage-clicks, and console exceptions.',
-        icon: Bot,
+        title: 'AI Watches and Finds Leaks',
+        copy: 'Similar failures are grouped by affected users and severity so the highest-impact leak rises first.',
         image: '/images/issues-feed.png',
         imagePosition: 'left top',
         href: '/ai-funnel-leak-detection',
     },
     {
         step: 'Handoff',
-        title: 'Copy-Paste Fix to Agent',
-        copy: 'Exposes session-replay context packets directly to your IDE and developer agent workflows via standard .md context files.',
-        icon: Users,
+        title: 'Funnel Fix Is Implemented',
+        copy: 'A markdown brief is packaged for Cursor, Claude, Codex, or your IDE with links back to the evidence.',
         image: '/images/readme-general-demo.png',
         imagePosition: 'right top',
         href: '/ai-agent-handoff',
     },
     {
         step: 'Verify',
-        title: 'Watch the Growth Impact',
-        copy: 'Map positive, neutral, and frustrated sessions by country so teams can spot regional UX friction before it spreads.',
-        icon: Gauge,
+        title: 'Watch the growth impact',
+        copy: 'Cohorts, regions, and revenue movement show whether the fix actually recovered users.',
         image: '/images/geo-intelligence.png',
         imagePosition: 'center top',
         href: '/geographic-analytics',
     },
 ];
+
+const aiCardStyles = [
+    {
+        imageBg: 'from-blue-50/80 via-white to-sky-50/70',
+        border: 'border-blue-500/80',
+        link: 'text-blue-700 hover:text-blue-800',
+    },
+    {
+        imageBg: 'from-yellow-50/80 via-white to-amber-50/70',
+        border: 'border-yellow-500/80',
+        link: 'text-yellow-700 hover:text-yellow-800',
+    },
+    {
+        imageBg: 'from-pink-50/80 via-white to-rose-50/70',
+        border: 'border-pink-500/80',
+        link: 'text-pink-700 hover:text-pink-800',
+    },
+    {
+        imageBg: 'from-green-50/80 via-white to-emerald-50/70',
+        border: 'border-green-500/80',
+        link: 'text-green-700 hover:text-green-800',
+    },
+];
+
+const puzzleOuterPaths = [
+    {
+        color: '#3b82f6',
+        d: 'M500 0 H36 Q0 0 0 36 V320',
+    },
+    {
+        color: '#f59e0b',
+        d: 'M500 0 H964 Q1000 0 1000 36 V320',
+    },
+    {
+        color: '#ec4899',
+        d: 'M0 320 V604 Q0 640 36 640 H500',
+    },
+    {
+        color: '#22c55e',
+        d: 'M500 640 H964 Q1000 640 1000 604 V320',
+    },
+];
+
+const puzzleSeamPaths = [
+    {
+        color: '#3b82f6',
+        d: 'M500 0 V116 C500 130 518 130 532 130 C568 130 596 158 596 192 C596 226 568 254 532 254 C518 254 500 254 500 268 V320',
+    },
+    {
+        color: '#ec4899',
+        d: 'M0 320 H130 C144 320 144 338 144 352 C144 388 172 416 208 416 C244 416 272 388 272 352 C272 338 272 320 286 320 H500',
+    },
+    {
+        color: '#22c55e',
+        d: 'M500 320 V372 C500 386 518 386 532 386 C568 386 596 414 596 448 C596 482 568 510 532 510 C518 510 500 510 500 524 V640',
+    },
+    {
+        color: '#f59e0b',
+        d: 'M500 320 H670 C684 320 684 338 684 352 C684 388 712 416 748 416 C784 416 812 388 812 352 C812 338 812 320 826 320 H1000',
+    },
+];
+
+const PuzzlePieceFrame: React.FC = () => (
+    <svg
+        className="pointer-events-none absolute inset-0 z-30 hidden h-full w-full overflow-visible lg:block"
+        viewBox="0 0 1000 640"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+    >
+        <defs>
+            <filter id="puzzle-piece-frame-shadow" x="-8%" y="-8%" width="116%" height="116%">
+                <feDropShadow dx="0" dy="9" stdDeviation="10" floodColor="#0f172a" floodOpacity="0.10" />
+            </filter>
+        </defs>
+        <g filter="url(#puzzle-piece-frame-shadow)">
+            {[...puzzleOuterPaths, ...puzzleSeamPaths].map(({ color, d }, index) => (
+                <path
+                    key={`${color}-${index}-underlay`}
+                    d={d}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.92)"
+                    strokeWidth="10"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                />
+            ))}
+            {[...puzzleOuterPaths, ...puzzleSeamPaths].map(({ color, d }, index) => (
+                <path
+                    key={`${color}-${index}-stroke`}
+                    d={d}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth="3.25"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                />
+            ))}
+        </g>
+    </svg>
+);
 
 type CustomerWantTabId = 'analytics' | 'stability' | 'heatmaps' | 'journey' | 'revenue' | 'web';
 
@@ -162,49 +256,6 @@ const featureActiveStyles: Record<CustomerWantTabId, { border: string; badge: st
     },
 };
 
-const winTogetherTabs = [
-    {
-        id: 'product',
-        title: 'Product teams',
-        category: 'Prioritize & Route',
-        headline: 'Identify leaks and route fixable context directly to developers or AI agents.',
-        summary: 'Use journey ribbons to see where users branch, loop, or drop, then open the replay evidence behind the path.',
-        points: ['Weighted paths expose the highest-volume leaks', 'Drop-off labels show where the flow loses intent', 'Replay evidence keeps product and engineering aligned'],
-        image: '/images/readme-user-journeys.png',
-        href: '/funnel-replay-evidence',
-    },
-    {
-        id: 'growth',
-        title: 'Growth teams',
-        category: 'Accelerate Resolution',
-        headline: 'Connect revenue movement to sessions, releases, and recovery work.',
-        summary: 'Use the General revenue dashboard to track gross revenue, transactions, active users, and retention next to the sessions that explain movement.',
-        points: ['Revenue trend and transaction counts stay visible', 'Release markers connect changes to outcomes', 'Top users and active-session cards show who is affected'],
-        image: '/images/geo-analytics.png',
-        href: '/revenue-recovery-analytics',
-    },
-    {
-        id: 'data',
-        title: 'Data teams',
-        category: 'Standardized Context',
-        headline: 'Format behavioral exceptions into clean context schemas.',
-        summary: 'Turn sessions, regions, events, and technical signals into consistent context that can be queried, shared, and compared.',
-        points: ['Session metadata and events use shared identifiers', 'Regional and behavioral views stay tied to replay evidence', 'Exportable context reduces one-off debugging notes'],
-        image: '/images/growth-engines.png',
-        href: '/standardized-context',
-    },
-    {
-        id: 'engineering',
-        title: 'Engineering teams',
-        category: 'Autonomous Debugging',
-        headline: 'Let AI agents fix production bugs using exact session context.',
-        summary: 'Open fix-ready packets with replay links, signals, stack context, and handoff text for Cursor, Claude, Codex, or your IDE.',
-        points: ['Issue context is grouped by repeated signals', 'Replay links keep the bug reproducible', 'Markdown handoff text is ready for an agent workflow'],
-        image: '/images/anr-issues.png',
-        href: '/autonomous-debugging',
-    },
-];
-
 const sdkPlatforms = [
     {
         id: 'reactnative',
@@ -291,9 +342,6 @@ export const AiLeakHomepage: React.FC = () => {
     // Feature tabs state
     const [activeFeatureTab, setActiveFeatureTab] = useState<CustomerWantTabId>('analytics');
 
-    // Win Together tabs state
-    const [activeWinTab, setActiveWinTab] = useState<'product' | 'growth' | 'data' | 'engineering'>('product');
-
     // Bottom CTA Playground state
     const [activeSdkPlatform, setActiveSdkPlatform] = useState<'nextjs' | 'reactnative' | 'swift' | 'vue'>('reactnative');
     const [copied, setCopied] = useState(false);
@@ -337,7 +385,6 @@ export const AiLeakHomepage: React.FC = () => {
     };
 
     const activeFeature = customerWantTabs.find(t => t.id === activeFeatureTab) || customerWantTabs[0];
-    const activeWin = winTogetherTabs.find(t => t.id === activeWinTab) || winTogetherTabs[0];
     const activeSdk = sdkPlatforms.find(p => p.id === activeSdkPlatform) || sdkPlatforms[0];
     const activeSdkLanguage = activeSdk.id === 'swift' ? 'swift' : 'typescript';
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
@@ -382,9 +429,7 @@ export const AiLeakHomepage: React.FC = () => {
 
                     {/* Supported Platforms */}
                     <div className="mx-auto mt-24 max-w-5xl flex flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-8">
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            Supported Platforms
-                        </p>
+
                         <div className="flex flex-wrap items-center justify-center gap-y-3 gap-x-4 text-slate-500">
                             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold shadow-sm transition hover:bg-slate-100">
                                 <MarkReactNative className="h-4 w-4 text-[#2563eb]" />
@@ -450,117 +495,88 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#e8fbff_18%,#eef2ff_39%,#ecfdf5_62%,#fff7ed_82%,#f8fafc_100%)]">
-                <LandingThreeField variant="landing-sparse" seed={661} className="opacity-75" />
-                <FloatingDataNodes className="opacity-70" seed={662} />
-                <TechRingsScanner className="opacity-[0.55]" seed={526} />
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(45,212,191,0.18),transparent_36%),radial-gradient(circle_at_82%_25%,rgba(79,70,229,0.14),transparent_40%),radial-gradient(circle_at_20%_61%,rgba(16,185,129,0.16),transparent_42%),radial-gradient(circle_at_73%_92%,rgba(249,115,22,0.12),transparent_40%)]" aria-hidden="true" />
+            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f1f8ff_0%,#f7f3ff_24%,#fff6ea_48%,#effbf4_73%,#eef7ff_100%)]">
+                <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_15%_9%,rgba(37,99,235,0.10),transparent_31%),radial-gradient(circle_at_86%_22%,rgba(139,92,246,0.09),transparent_34%),radial-gradient(circle_at_18%_52%,rgba(245,158,11,0.10),transparent_34%),radial-gradient(circle_at_82%_78%,rgba(16,185,129,0.10),transparent_34%)]" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-0 z-[1] bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,rgba(255,255,255,0.18)_28%,rgba(255,255,255,0.12)_56%,rgba(255,255,255,0.40)_100%)]" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-sky-200/45 to-transparent" aria-hidden="true" />
 
             {/* Self-Healing Loop Section */}
-                <section className="relative overflow-hidden border-t border-transparent bg-[linear-gradient(180deg,rgba(248,253,255,0.96)_0%,rgba(228,248,255,0.88)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_24%,rgba(125,211,252,0.13),transparent_34%),radial-gradient(circle_at_80%_62%,rgba(16,185,129,0.11),transparent_38%)]" aria-hidden="true" />
-                    <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-56 bg-gradient-to-b from-white/85 via-white/45 to-transparent" aria-hidden="true" />
-                    <NetworkConstellation className="opacity-[0.38]" />
+                <section className="relative overflow-hidden border-t border-transparent bg-[linear-gradient(180deg,rgba(241,248,255,0.76)_0%,rgba(247,243,255,0.70)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                    <div className="pointer-events-none absolute inset-x-0 top-8 z-0 h-[44rem] overflow-hidden" aria-hidden="true">
+                        <NetworkConstellation className="opacity-[0.52]" seed={661} />
+                    </div>
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_24%_16%,rgba(37,99,235,0.08),transparent_31%),radial-gradient(circle_at_78%_22%,rgba(234,179,8,0.08),transparent_31%),radial-gradient(circle_at_27%_86%,rgba(236,72,153,0.06),transparent_32%),radial-gradient(circle_at_80%_84%,rgba(16,185,129,0.07),transparent_32%)]" aria-hidden="true" />
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-36 bg-gradient-to-b from-white/80 via-white/38 to-transparent" aria-hidden="true" />
                 
                 <div className="relative z-10 mx-auto max-w-7xl">
-                    <div className="mx-auto max-w-3xl text-center">
-          
-                        <h2 className="mt-5 font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
-                            Self-Healing Funnels
+                    <div className="mx-auto max-w-4xl text-center">
+
+                        <h2 className="mt-4 font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
+                            Self-Healing Funnel Leaks
                         </h2>
-                        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
-                            Replay user drop-offs into high-fidelity context, observe the repeated pattern, hand it to a developer or AI agent, then verify the recovery signal.
-                        </p>
+
                     </div>
 
-                    <div className="relative mt-14 sm:mt-16">
-                        <div className="pointer-events-none absolute bottom-8 left-5 top-8 w-px bg-gradient-to-b from-cyan-300/0 via-cyan-300/70 to-emerald-300/0 md:hidden" aria-hidden="true" />
-                        <svg className="pointer-events-none absolute left-[5%] top-[5.15rem] hidden h-24 w-[90%] overflow-visible lg:block" viewBox="0 0 1000 120" fill="none" aria-hidden="true">
-                            <path d="M12 64 C160 14 320 14 470 64 S790 114 988 64" stroke="rgb(14 165 233 / 0.2)" strokeWidth="4" strokeLinecap="round" />
-                            <path d="M12 64 C160 14 320 14 470 64 S790 114 988 64" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
+                    <div className="relative mx-auto mt-14 max-w-[78rem]">
+                        <div className="relative lg:rounded-[2.35rem] lg:shadow-[0_28px_70px_rgba(15,23,42,0.10)]">
+                            <div className="relative z-10 grid gap-6 lg:grid-cols-2 lg:gap-0 lg:overflow-hidden lg:rounded-[2.35rem] lg:bg-white/[0.76] lg:ring-1 lg:ring-white/80">
+                        {aiCards.map(({ title, copy, image, imagePosition, href }, index) => {
+                            const style = aiCardStyles[index % aiCardStyles.length];
 
-                        <div className="grid gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-4">
-                            {aiCards.map(({ step, title, copy, icon: Icon, image, imagePosition, href }, index) => {
-                                const cardGradients = [
-                                    { bg: 'from-cyan-50/70 via-sky-50/45 to-white/20', iconColor: 'text-cyan-600', badgeBg: 'bg-cyan-50/80 border-cyan-200/60', stepBg: 'from-cyan-400 to-sky-500', stepText: 'text-cyan-700', ring: 'ring-cyan-200/70', shadow: 'shadow-cyan-900/5' },
-                                    { bg: 'from-sky-50/70 via-blue-50/45 to-white/20', iconColor: 'text-sky-600', badgeBg: 'bg-sky-50/80 border-sky-200/60', stepBg: 'from-sky-400 to-blue-600', stepText: 'text-sky-700', ring: 'ring-sky-200/70', shadow: 'shadow-sky-900/5' },
-                                    { bg: 'from-blue-50/70 via-cyan-50/45 to-white/20', iconColor: 'text-blue-600', badgeBg: 'bg-blue-50/80 border-blue-200/60', stepBg: 'from-blue-500 to-indigo-600', stepText: 'text-blue-700', ring: 'ring-blue-200/70', shadow: 'shadow-blue-900/5' },
-                                    { bg: 'from-emerald-50/70 via-teal-50/45 to-white/20', iconColor: 'text-emerald-600', badgeBg: 'bg-emerald-50/80 border-emerald-200/60', stepBg: 'from-emerald-400 to-teal-600', stepText: 'text-emerald-700', ring: 'ring-emerald-200/70', shadow: 'shadow-emerald-900/5' },
-                                ];
-                                const style = cardGradients[index % cardGradients.length];
-                                const tiltClass = index % 2 === 0 ? 'group-hover:rotate-1' : 'group-hover:-rotate-1';
-                                const staggerClass = index % 2 === 0 ? 'lg:mt-0' : 'lg:mt-8';
-                                const stepNumber = String(index + 1).padStart(2, '0');
-                                
-                                return (
-                                    <article 
-                                        key={title} 
-                                        className={`group relative ml-9 flex min-h-full flex-col overflow-visible rounded-2xl border border-slate-200/80 bg-white/[0.62] text-left text-slate-900 shadow-lg ${style.shadow} ring-1 ring-white/60 backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-cyan-200/80 hover:bg-white/[0.82] hover:shadow-2xl md:ml-0 ${staggerClass}`}
-                                    >
-                                        <div className="absolute -left-[3.25rem] top-5 z-20 md:hidden">
-                                            <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${style.stepBg} text-xs font-extrabold text-white shadow-xl shadow-cyan-900/[0.12] ring-4 ring-white/80`}>
-                                                {stepNumber}
+                            return (
+                                <article
+                                    key={title}
+                                    className={`group relative overflow-hidden rounded-[2rem] border-2 ${style.border} bg-white/[0.9] text-left shadow-xl shadow-slate-900/[0.055] backdrop-blur-xl transition-colors duration-300 hover:bg-white lg:rounded-none lg:border-0 lg:bg-white/[0.88] lg:shadow-none`}
+                                >
+                                    <div className="relative z-20 grid min-h-[18.5rem] overflow-hidden rounded-[1.85rem] md:grid-cols-[0.95fr_1.05fr] lg:min-h-[20rem] lg:rounded-none">
+                                        <div className={`relative min-h-[14rem] overflow-hidden border-b border-slate-200/70 bg-gradient-to-br ${style.imageBg} md:border-b-0 md:border-r md:border-slate-200/70`}>
+                                            <div className="absolute inset-4 overflow-hidden rounded-[1.25rem] border border-white/80 bg-white shadow-lg shadow-slate-900/[0.05] transition-transform duration-500 group-hover:scale-[1.018]">
+                                                <div className="flex h-6 shrink-0 select-none items-center gap-1.5 border-b border-slate-100 bg-slate-50/90 px-3">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+                                                </div>
+                                                <img
+                                                    src={image}
+                                                    alt={title}
+                                                    className="h-[calc(100%-1.5rem)] w-full object-cover object-top opacity-95 transition-opacity duration-300 group-hover:opacity-100"
+                                                    style={{ objectPosition: imagePosition }}
+                                                />
                                             </div>
                                         </div>
-                                        <div className="overflow-hidden rounded-t-2xl">
-                                            <div className="flex items-center justify-between gap-3 border-b border-slate-200/60 bg-white/70 px-5 py-4 backdrop-blur-md">
-                                                <div className="flex items-center gap-2.5">
-                                                    <span className={`hidden shrink-0 items-center gap-2 rounded-full border border-white/80 bg-white/80 py-1 pl-1 pr-3 shadow-sm ring-1 ${style.ring} md:inline-flex`}>
-                                                        <span className={`flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br ${style.stepBg} text-[11px] font-extrabold text-white shadow-md shadow-slate-900/10`}>
-                                                            {stepNumber}
-                                                        </span>
-                                                        <span className={`text-[10px] font-extrabold uppercase tracking-[0.18em] ${style.stepText}`}>Step</span>
-                                                    </span>
-                                                    <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-slate-600">{step}</span>
-                                                </div>
-                                                <span className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent" />
-                                            </div>
 
-                                            <div className={`h-48 bg-gradient-to-br ${style.bg} border-b border-slate-200/50 overflow-hidden relative flex flex-col justify-start`}>
-                                                <div className={`relative flex h-full w-full origin-center flex-col overflow-hidden bg-white transition-all duration-500 group-hover:scale-[1.035] ${tiltClass}`}>
-                                                    <div className="flex h-5 shrink-0 select-none items-center gap-1 border-b border-slate-100 bg-slate-50/80 px-2">
-                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                        <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                    </div>
-                                                    <img 
-                                                        src={image} 
-                                                        alt={title} 
-                                                        className="h-full w-full object-cover object-top opacity-90 transition-opacity duration-300 group-hover:opacity-100"
-                                                        style={{ objectPosition: imagePosition }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="flex flex-1 flex-col justify-between p-6">
-                                            <div>
-                                                <div className="mb-3 flex items-center gap-2.5">
-                                                    <div className={`h-7 w-7 shrink-0 rounded-lg ${style.badgeBg} border flex items-center justify-center ${style.iconColor} shadow-sm backdrop-blur-sm`}>
-                                                        <Icon className="h-4 w-4" />
-                                                    </div>
-                                                    <h3 className="text-base font-bold tracking-tight text-slate-950">{title}</h3>
-                                                </div>
-                                                <p className="text-sm font-medium leading-relaxed text-slate-500">{copy}</p>
-                                            </div>
-                                            <Link 
-                                                to={href} 
-                                                className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 transition-all hover:translate-x-0.5 hover:text-sky-700"
+                                        <div className="flex flex-col justify-center p-6 sm:p-8">
+                                            <h3 className="max-w-md text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-[1.7rem]">
+                                                {title}
+                                            </h3>
+                                            <p className="mt-4 max-w-md text-[0.98rem] font-medium leading-7 text-slate-600">
+                                                {copy}
+                                            </p>
+                                            <Link
+                                                to={href}
+                                                className={`mt-7 inline-flex w-fit items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider transition-all hover:translate-x-0.5 ${style.link}`}
                                             >
                                                 Learn more <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
                                             </Link>
                                         </div>
-                                    </article>
-                                );
-                            })}
+                                    </div>
+                                </article>
+                            );
+                        })}
+                            </div>
+                            <PuzzlePieceFrame />
                         </div>
                     </div>
                 </div>
             </section>
 
             {/* Understand What Your Customers Want Section */}
-                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(228,248,255,0.9)_0%,rgba(239,244,255,0.9)_56%,rgba(246,240,255,0.88)_100%)] py-24 sm:py-28 lg:overflow-visible">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(247,243,255,0.70)_0%,rgba(255,246,234,0.68)_58%,rgba(250,251,244,0.70)_100%)] py-24 sm:py-28 lg:overflow-visible">
+                <div className="pointer-events-none absolute inset-x-0 top-6 z-0 h-[40rem] overflow-hidden" aria-hidden="true">
+                    <FloatingDataNodes className="opacity-[0.38]" seed={662} />
+                </div>
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(245,158,11,0.08),transparent_30%),radial-gradient(circle_at_88%_18%,rgba(59,130,246,0.07),transparent_32%),radial-gradient(circle_at_18%_82%,rgba(236,72,153,0.06),transparent_32%),radial-gradient(circle_at_84%_78%,rgba(16,185,129,0.08),transparent_31%)]" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-200/45 to-transparent" aria-hidden="true" />
                 <div className={`${shellClass} relative z-10`}>
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
@@ -640,95 +656,12 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            {/* Win Together Section (Horizontal tabs + Testimonials + Images) */}
-                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(246,240,255,0.88)_0%,rgba(236,253,245,0.92)_100%)] py-20 sm:py-28 lg:overflow-visible">
-                <div className={`${shellClass} relative z-10`}>
-                    <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="text-balance pb-1 font-display text-4xl font-extrabold tracking-normal bg-gradient-to-br from-slate-950 via-blue-950 to-emerald-900 bg-clip-text text-transparent sm:text-5xl">Plug leaks as a team</h2>
-                        <p className="mx-auto mt-4 max-w-2xl text-balance text-lg font-medium text-slate-500">
-                            Unite your product, growth, and engineering teams to isolate conversion friction and stream code-fix context packages directly to developer AI workflows.
-                        </p>
-                    </div>
-
-                    {/* Horizontal Tabs selector */}
-                    <div className="mt-10 flex justify-center sm:mt-12">
-                        <div className="grid w-full max-w-xl grid-cols-2 gap-2 rounded-2xl border border-slate-200/80 bg-white/60 p-2 shadow-sm backdrop-blur-md sm:inline-flex sm:w-auto sm:max-w-none sm:rounded-full sm:p-1.5">
-                            {winTogetherTabs.map(tab => {
-                                const isActive = activeWinTab === tab.id;
-                                return (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setActiveWinTab(tab.id as 'product' | 'growth' | 'data' | 'engineering')}
-                                        className={`flex min-w-0 flex-col items-center rounded-xl border px-2.5 py-2.5 text-center font-sans text-xs font-bold transition sm:shrink-0 sm:rounded-full sm:px-5 ${
-                                            isActive 
-                                                ? 'border-blue-600/30 bg-gradient-to-r from-blue-600 to-sky-700 text-white shadow-md ring-1 ring-blue-500/20'
-                                                : 'border-transparent text-slate-500 hover:text-slate-950 hover:bg-white/45'
-                                        }`}
-                                    >
-                                        <span className="max-w-full break-words text-[9px] font-medium uppercase leading-tight tracking-[0.06em] opacity-[0.65] sm:text-[10px] sm:tracking-wider">{tab.category}</span>
-                                        <span className="mt-0.5 max-w-full break-words leading-tight">{tab.title}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Dynamic Tabs Content */}
-                    <div className="relative z-10 mt-10 grid min-w-0 gap-8 rounded-[1.5rem] border border-slate-200/80 bg-white/[0.52] p-5 text-left shadow-xl ring-1 ring-slate-100/5 backdrop-blur-md sm:mt-12 sm:rounded-3xl sm:p-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center lg:gap-12">
-                        {/* Workflow details */}
-                        <div className="space-y-6">
-                            <h3 className="text-balance text-2xl font-extrabold leading-tight tracking-normal text-slate-900 [overflow-wrap:anywhere] sm:text-3xl">
-                                {activeWin.headline}
-                            </h3>
-                            
-                            <p className="border-l-4 border-blue-600 pl-4 text-sm leading-relaxed text-slate-600 sm:text-base">
-                                {activeWin.summary}
-                            </p>
-
-                            <div className="mt-6 space-y-4">
-                                {activeWin.points.map((point) => (
-                                    <div key={point} className="flex items-start gap-3 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 group/point">
-                                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 transition-transform group-hover/point:scale-110" />
-                                        <span className="leading-relaxed">{point}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div>
-                                <Link 
-                                    to={activeWin.href} 
-                                    className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-600 hover:text-sky-700 transition hover:translate-x-0.5"
-                                >
-                                    Learn more <ArrowRight className="h-4 w-4 transition-transform hover:translate-x-0.5" />
-                                </Link>
-                            </div>
-                        </div>
-
-                        {/* Image Panel */}
-                        <div className="rounded-2xl border border-slate-200/80 bg-white/35 backdrop-blur-md p-2 shadow-xl overflow-hidden relative group">
-                            <div className="rounded-xl border border-slate-200/70 bg-white shadow-md overflow-hidden transition-all duration-500 group-hover:scale-[1.015]">
-                                <div className="flex h-6 items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 font-mono text-[9px] text-slate-500 shrink-0 select-none">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
-                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
-                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-350" />
-                                    </div>
-                                    <span className="opacity-80">rejourney.co/dashboard</span>
-                                    <div className="w-10" />
-                                </div>
-                                <img 
-                                    src={activeWin.image} 
-                                    alt={activeWin.title} 
-                                    className="w-full h-auto object-cover opacity-95 group-hover:opacity-100 transition-opacity"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
             {/* Rejourney Marlin GitHub App Section */}
-                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(236,253,245,0.92)_0%,rgba(240,249,255,0.9)_44%,rgba(255,247,237,0.9)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:overflow-visible lg:px-10">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(250,251,244,0.70)_0%,rgba(240,251,244,0.68)_52%,rgba(239,247,255,0.70)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:overflow-visible lg:px-10">
+                <div className="pointer-events-none absolute inset-x-0 top-8 z-0 h-[38rem] overflow-hidden" aria-hidden="true">
+                    <NetworkConstellation className="opacity-[0.42]" seed={873} />
+                </div>
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_18%,rgba(16,185,129,0.08),transparent_32%),radial-gradient(circle_at_86%_22%,rgba(37,99,235,0.07),transparent_33%),radial-gradient(circle_at_58%_92%,rgba(245,158,11,0.07),transparent_35%)]" aria-hidden="true" />
                 <div className="relative z-10 mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
                     <div className="max-w-3xl">
                         <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">
@@ -791,7 +724,11 @@ export const AiLeakHomepage: React.FC = () => {
             <FaqSection />
 
             {/* Bottom Call-To-Action (CTA) */}
-                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(255,247,237,0.9)_0%,rgba(248,251,255,0.95)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                <section className="relative overflow-hidden bg-[linear-gradient(180deg,rgba(239,247,255,0.70)_0%,rgba(246,243,255,0.70)_44%,rgba(255,248,239,0.78)_100%)] px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[36rem] overflow-hidden" aria-hidden="true">
+                    <TechRingsScanner className="opacity-[0.36]" seed={526} />
+                </div>
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(245,158,11,0.07),transparent_31%),radial-gradient(circle_at_82%_20%,rgba(37,99,235,0.08),transparent_33%),radial-gradient(circle_at_50%_88%,rgba(16,185,129,0.07),transparent_35%)]" aria-hidden="true" />
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mx-auto max-w-3xl text-center mb-16">

@@ -407,6 +407,78 @@ Rejourney does not display or require code pointers. The generated
 session, replay, signal, and hypothesis context for the user's selected IDE agent
 to inspect the local repository itself.
 
+### Scan Run History
+
+```http
+GET /v1/projects/:projectId/scan-runs?limit=12
+```
+
+Response:
+
+```json
+{
+  "runs": [
+    {
+      "id": "scan_run_123",
+      "projectId": "demo-project-001",
+      "trigger": "admin_scan",
+      "status": "succeeded",
+      "startedAt": "2026-06-18T03:00:00.000Z",
+      "finishedAt": "2026-06-18T03:04:00.000Z",
+      "durationMs": 240000,
+      "sessionsScanned": 150,
+      "admittedSessions": 7,
+      "skippedSessions": 143,
+      "candidatesEmitted": 7,
+      "problemsFound": 7,
+      "issuesUpserted": 3,
+      "visibleIssues": 3,
+      "renderFailures": 0,
+      "analysisFailures": 0,
+      "warningCount": 0,
+      "settings": {
+        "dryRun": false,
+        "lookbackHours": 24,
+        "dailyCap": 150,
+        "dailyFloor": 0,
+        "maxCandidates": 2000,
+        "topPercent": 100,
+        "spaGate": "scored"
+      },
+      "decisionBreakdown": {
+        "admitted": 7,
+        "skip_over_k": 143
+      },
+      "analysisBreakdown": {
+        "succeeded": 7
+      },
+      "email": {
+        "status": "unknown",
+        "reason": "delivery_recorded_in_rejourney",
+        "issueCount": 3,
+        "recipientCount": null,
+        "sentAt": null
+      },
+      "notes": [
+        "3 inbox issues were visible after this run."
+      ],
+      "errors": []
+    }
+  ],
+  "stats": {
+    "total": 1,
+    "lastRunAt": "2026-06-18T03:00:00.000Z",
+    "lastSuccessAt": "2026-06-18T03:00:00.000Z",
+    "recentFailures": 0
+  }
+}
+```
+
+This endpoint powers the Leaks page run-history modal. Return customer-safe
+audit summaries only: counts, status, scan settings, digest status, and concise
+warnings. Do not return raw private service logs, secret values, DB URLs, model
+prompts, or full internal stack traces.
+
 ### Generate Context
 
 ```http
