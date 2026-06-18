@@ -460,7 +460,7 @@ export const AiLeakHomepage: React.FC = () => {
                 <div className="relative z-10 mx-auto max-w-7xl">
                     <div className="mx-auto max-w-3xl text-center">
                         <h2 className="font-display text-4xl font-extrabold tracking-tight bg-gradient-to-br from-slate-950 via-blue-950 to-sky-900 bg-clip-text text-transparent sm:text-5xl pb-1">
-                            Self-Healing Leaks
+                            Self-Healing Funnels
                         </h2>
                         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-500 font-medium">
                             Record user session drop-offs and compile exact, high-fidelity context packets ready for developer or AI agent resolution.
