@@ -1,0 +1,278 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leak scan for Mobile App: 2 issues, 27 estimated affected users</title>
+  <style>
+    @media only screen and (max-width: 680px) {
+      .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
+      .rj-container { width: 100% !important; max-width: 100% !important; }
+      .rj-shell-pad { padding-left: 20px !important; padding-right: 20px !important; }
+      .rj-leak-index { width: 30px !important; padding-right: 10px !important; }
+      .rj-leak-body { margin-left: 0 !important; }
+      .rj-leak-impact-cell { display: block !important; width: 100% !important; border-right: 0 !important; padding-right: 0 !important; padding-left: 0 !important; }
+    }
+  </style>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafd; margin: 0; padding: 0; color: #202124; line-height: 1.5; -webkit-font-smoothing: antialiased;">
+  <!-- Preheader -->
+  <div style="display:none;font-size:1px;color:#f8fafd;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+    Mobile App: 2 issues, 27 estimated affected users
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+    <tr>
+      <td align="center" class="rj-outer" style="padding: 24px 18px 34px;">
+        <div class="rj-container" style="max-width: 760px; margin: 0 auto; background-color: #ffffff; border: 1px solid #dadce0; width: 100%;">
+          <div style="height: 4px; line-height: 4px; background: #185abc;">&nbsp;</div>
+          
+          <!-- Header -->
+          <div class="rj-shell-pad" style="background-color: #ffffff; padding: 30px 38px 26px; border-bottom: 1px solid #dadce0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width: 100%; border-collapse: collapse; margin-bottom: 26px;">
+              <tr>
+                <td style="vertical-align: middle;">
+                  <a href="http://localhost:8080/dashboard" style="font-size: 20px; font-weight: 800; color: #202124; text-decoration: none; letter-spacing: 0;"><span style="display: inline-block; width: 8px; height: 8px; background: #1a73e8; margin-right: 8px; vertical-align: 1px;"></span>Rejourney</a>
+                </td>
+                <td align="right" style="vertical-align: middle; text-align: right;">
+                  
+                    <a href="http://localhost:8080/dashboard/settings/p_123" style="color: #5f6368; font-size: 12px; font-weight: 700; text-decoration: none; display: inline-block;">Mobile App</a>
+                  
+                </td>
+              </tr>
+            </table>
+
+            
+              <div style="display: inline-block; color: #185abc; font-size: 12px; line-height: 1.2; font-weight: 800; margin-bottom: 14px;">
+                Leak scan
+              </div>
+            
+            
+            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Leak scan for Mobile App: 2 issues, 27 estimated affected users</h1>
+            
+            
+              <div style="font-size: 13px; font-weight: 600; color: #5f6368; margin: 0 0 18px;">
+                Jun 19, 2026, 11:29 AM UTC
+              </div>
+            
+
+            
+              <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #edf0f3;">
+                
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #1a73e8;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Issues:</span>
+        <span>2</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b06000;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Est. users:</span>
+        <span>27</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #7b1fa2;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Sessions:</span>
+        <span>38</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">High severity:</span>
+        <span>1</span>
+      </span>
+    
+              </div>
+            
+          </div>
+
+          <!-- Content -->
+          <div class="rj-shell-pad" style="padding: 6px 38px 36px;">
+            
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Scan Summary</h2>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
+        
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+      
+      <tr>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #1a73e8; letter-spacing: 0;">2</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Inbox issues</div>
+            
+          </td>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">27</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Est. affected users</div>
+            
+          </td>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">38</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Affected sessions</div>
+            
+          </td>
+        
+        
+      </tr>
+    
+      <tr>
+        
+          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">32</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Admitted sessions</div>
+            
+          </td>
+        
+          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">1</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">High severity</div>
+            
+          </td>
+        
+        <td></td>
+      </tr>
+    
+    </table>
+  
+      </div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        
+        <div style="border-left: 3px solid #185abc; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
+        Rejourney grouped repeated replay signals into product leaks that are ready for triage. Start with the first item; it has the largest estimated user impact in this scan.
+      </div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Highest-Risk Leaks</h2>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-top: 1px solid #edf0f3;">
+      
+      <tr>
+        <td style="border-bottom: 1px solid #edf0f3; padding: 18px 0 20px; vertical-align: top;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+            <tr>
+              <td class="rj-leak-index" width="42" style="padding: 2px 16px 0 0; vertical-align: top; color: #6f7785; font-size: 12px; line-height: 1.4; font-weight: 800;">01</td>
+              <td style="vertical-align: top;">
+                <div style="font-weight: 750; font-size: 17px; line-height: 1.35; color: #202124; word-break: normal;">Checkout button never enables after coupon failure</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #5f6368; margin-top: 5px; font-weight: 700;">
+                  LEAK-101 · Abandon After Api Error · High severity · Ready
+                </div>
+              </td>
+            </tr>
+          </table>
+          
+            <div class="rj-leak-body" style="font-size: 14px; line-height: 1.58; color: #3c4043; margin-top: 12px; margin-left: 58px; word-break: normal;">
+              <span style="font-size: 12px; color: #6f7785; font-weight: 800;">Why it matters:</span>
+              Users complete checkout details, hit a coupon validation failure, then cannot continue to payment.
+            </div>
+          
+          <div class="rj-leak-body" style="font-size: 12px; line-height: 1.55; color: #5f6368; margin-top: 11px; margin-left: 58px;">First seen Jun 18, 2026, 06:00 AM UTC · Last seen Jun 19, 2026, 11:29 AM UTC · Context Ready</div>
+          <div class="rj-leak-body" style="margin-left: 58px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; margin-top: 14px;">
+        <tr>
+          
+            <td class="rj-leak-impact-cell" width="50%" style="border-right: 1px solid #edf0f3; padding: 11px 14px 10px 0; vertical-align: top;">
+              <div style="font-size: 18px; line-height: 1.2; font-weight: 750; color: #b06000;">19</div>
+              <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 4px;">Est. users</div>
+            </td>
+          
+            <td class="rj-leak-impact-cell" width="50%" style=" padding: 11px 14px 10px 14px; vertical-align: top;">
+              <div style="font-size: 18px; line-height: 1.2; font-weight: 750; color: #202124;">27</div>
+              <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 4px;">Sessions</div>
+            </td>
+          
+        </tr>
+      </table>
+    </div>
+          <div class="rj-leak-body" style="font-size: 12px; margin-top: 9px; margin-left: 58px;"><span style="display: inline-block; color: #5f6368; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Session Replay</span><span style="display: inline-block; color: #5f6368; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Api Error Cluster</span><span style="display: inline-block; color: #5f6368; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Rage Tap</span></div>
+        </td>
+      </tr>
+    
+      <tr>
+        <td style="border-bottom: 1px solid #edf0f3; padding: 18px 0 20px; vertical-align: top;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+            <tr>
+              <td class="rj-leak-index" width="42" style="padding: 2px 16px 0 0; vertical-align: top; color: #6f7785; font-size: 12px; line-height: 1.4; font-weight: 800;">02</td>
+              <td style="vertical-align: top;">
+                <div style="font-weight: 750; font-size: 17px; line-height: 1.35; color: #202124; word-break: normal;">Onboarding tour waits for missing element</div>
+                <div style="font-size: 12px; line-height: 1.5; color: #5f6368; margin-top: 5px; font-weight: 700;">
+                  LEAK-102 · Dead Tap · Medium severity · Ready
+                </div>
+              </td>
+            </tr>
+          </table>
+          
+            <div class="rj-leak-body" style="font-size: 14px; line-height: 1.58; color: #3c4043; margin-top: 12px; margin-left: 58px; word-break: normal;">
+              <span style="font-size: 12px; color: #6f7785; font-weight: 800;">Why it matters:</span>
+              New users repeatedly tap the disabled next step and leave before activation.
+            </div>
+          
+          <div class="rj-leak-body" style="font-size: 12px; line-height: 1.55; color: #5f6368; margin-top: 11px; margin-left: 58px;">Last seen Jun 19, 2026, 11:29 AM UTC</div>
+          <div class="rj-leak-body" style="margin-left: 58px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; margin-top: 14px;">
+        <tr>
+          
+            <td class="rj-leak-impact-cell" width="50%" style="border-right: 1px solid #edf0f3; padding: 11px 14px 10px 0; vertical-align: top;">
+              <div style="font-size: 18px; line-height: 1.2; font-weight: 750; color: #b06000;">8</div>
+              <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 4px;">Est. users</div>
+            </td>
+          
+            <td class="rj-leak-impact-cell" width="50%" style=" padding: 11px 14px 10px 14px; vertical-align: top;">
+              <div style="font-size: 18px; line-height: 1.2; font-weight: 750; color: #202124;">11</div>
+              <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 4px;">Sessions</div>
+            </td>
+          
+        </tr>
+      </table>
+    </div>
+          <div class="rj-leak-body" style="font-size: 12px; margin-top: 9px; margin-left: 58px;"><span style="display: inline-block; color: #5f6368; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Dead Tap</span><span style="display: inline-block; color: #5f6368; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Abandonment</span></div>
+        </td>
+      </tr>
+    
+    </table>
+  </div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Recommended Next Steps</h2>
+        <div style="border-left: 3px solid #185abc; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
+        Open the Leaks dashboard, review the replay evidence for the top issue, then generate the IDE handoff once the context status is ready.
+      </div>
+      </div>
+    
+            
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 28px; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:5173/dashboard/leaks" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">Open Dashboard</a></td>
+          
+        </tr>
+      </table>
+    
+          </div>
+
+          <!-- Footer -->
+          <div class="rj-shell-pad" style="background-color: #f8fafd; padding: 24px 38px 28px; border-top: 1px solid #dadce0;">
+            <p style="font-size: 12px; color: #5f6368; margin: 0; line-height: 1.65;">
+              Scan completed Jun 19, 2026, 11:29 AM UTC. Sent to alert recipients for Mobile App. Times shown in UTC.
+            </p>
+            <div style="margin-top: 16px; font-size: 12px;">
+              <a href="http://localhost:8080/dashboard" style="color: #185abc; text-decoration: none; font-weight: 800;">Dashboard</a> &bull;
+              <a href="https://rejourney.co/docs" style="color: #185abc; text-decoration: none; font-weight: 800;">Docs</a> &bull;
+              <a href="mailto:contact@rejourney.co" style="color: #185abc; text-decoration: none; font-weight: 800;">Support</a>
+            </div>
+            <p style="font-size: 12px; color: #5f6368; margin: 0; line-height: 1.65;; margin-top: 16px; font-weight: 700; color: #202124;">
+              Rejourney
+            </p>
+          </div>
+
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  

@@ -89,27 +89,64 @@ export interface AlertEmailRecipient {
 
 type AlertEmailRecipientInput = string | AlertEmailRecipient;
 
-// Rejourney Neo-Brutalist Style
+// Rejourney email design tokens. Kept inline-friendly because most clients strip
+// stylesheets and many still render layout most reliably with presentation tables.
 const BRAND = {
-  black: '#000000',
+  text: '#202124',
+  textSecondary: '#3c4043',
+  muted: '#5f6368',
+  subtle: '#6f7785',
+  border: '#dadce0',
+  borderSoft: '#edf0f3',
+  row: '#f8fafd',
   white: '#ffffff',
-  accent: '#2563eb', // bold blue
-  success: '#059669', // bold green
-  warning: '#d97706', // bold orange
-  error: '#dc2626', // bold red
-  surface: '#ffffff', // pure white
-  canvas: '#f1f5f9', // light gray background
-  border: '#000000', // pure black borders
+  accent: '#1a73e8',
+  accentDark: '#185abc',
+  accentSoft: '#eef4ff',
+  success: '#188038',
+  successSoft: '#f1f8f4',
+  warning: '#b06000',
+  warningSoft: '#fff8e1',
+  error: '#b3261e',
+  errorSoft: '#fce8e6',
+  info: '#1a73e8',
+  infoSoft: '#eef4ff',
+  purple: '#7b1fa2',
+  purpleSoft: '#f7f2fa',
+  surface: '#ffffff',
+  canvas: '#f8fafd',
+  code: '#0f172a',
+  codeSoft: '#f8fafd',
 };
 
 const ALERT_LABELS: Record<string, string> = {
-  crash: 'CRASH ALERT',
-  anr: 'ANR ALERT',
-  error_spike: 'ERROR SPIKE',
-  api_degradation: 'PERFORMANCE',
-  billing: 'BILLING NOTICE',
-  leak_scan: 'LEAK SCAN',
-  general: 'NOTIFICATION',
+  crash: 'Crash alert',
+  anr: 'ANR alert',
+  error_spike: 'API error spike',
+  api_degradation: 'API degradation',
+  billing: 'Billing notice',
+  leak_scan: 'Leak scan',
+  general: 'Notification',
+};
+
+const ALERT_TONES: Record<string, { color: string; soft: string; border: string }> = {
+  crash: { color: BRAND.error, soft: BRAND.errorSoft, border: '#fecdd3' },
+  anr: { color: BRAND.warning, soft: BRAND.warningSoft, border: '#fed7aa' },
+  error_spike: { color: BRAND.warning, soft: BRAND.warningSoft, border: '#fed7aa' },
+  api_degradation: { color: BRAND.info, soft: BRAND.infoSoft, border: '#bfdbfe' },
+  billing: { color: BRAND.purple, soft: BRAND.purpleSoft, border: '#ddd6fe' },
+  leak_scan: { color: BRAND.accentDark, soft: BRAND.accentSoft, border: '#bfdbfe' },
+  general: { color: BRAND.text, soft: BRAND.row, border: BRAND.border },
+};
+
+const BADGE_COLORS: Record<NonNullable<EmailMetaBadge['color']>, { color: string; soft: string; border: string }> = {
+  red: { color: BRAND.error, soft: BRAND.errorSoft, border: '#fecdd3' },
+  orange: { color: BRAND.warning, soft: BRAND.warningSoft, border: '#fed7aa' },
+  yellow: { color: '#a16207', soft: '#fefce8', border: '#fef08a' },
+  green: { color: BRAND.success, soft: BRAND.successSoft, border: '#bbf7d0' },
+  blue: { color: BRAND.info, soft: BRAND.infoSoft, border: '#bfdbfe' },
+  purple: { color: BRAND.purple, soft: BRAND.purpleSoft, border: '#ddd6fe' },
+  gray: { color: BRAND.muted, soft: BRAND.row, border: BRAND.border },
 };
 
 /** Production dashboard SPA base — not read from PUBLIC_DASHBOARD_URL (that env is for API/CORS only). */
@@ -204,13 +241,49 @@ function renderKeyValueTable(rows: Array<[string, string | number | null | undef
   if (visibleRows.length === 0) return '';
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 13px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 14px;">
       ${visibleRows.map(([label, value]) => `
         <tr>
-          <td style="border-bottom: 1px solid #e5e7eb; padding: 8px 0; color: #525252; font-weight: 700; width: 38%;">${escapeHtml(label)}</td>
-          <td style="border-bottom: 1px solid #e5e7eb; padding: 8px 0; color: #000; font-family: monospace; font-weight: 800; text-align: right;">${escapeHtml(value)}</td>
+          <td style="border-bottom: 1px solid ${BRAND.borderSoft}; padding: 10px 0; color: ${BRAND.muted}; font-weight: 600; width: 38%; vertical-align: top;">${escapeHtml(label)}</td>
+          <td style="border-bottom: 1px solid ${BRAND.borderSoft}; padding: 10px 0 10px 16px; color: ${BRAND.text}; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">${escapeHtml(value)}</td>
         </tr>
       `).join('')}
+    </table>
+  `;
+}
+
+function renderMetricGrid(metrics: Array<{ label: string; value: string | number | null | undefined; detail?: string | null; tone?: 'default' | 'success' | 'warning' | 'error' | 'info' }>): string {
+  const visible = metrics.filter((metric) => metric.value !== null && metric.value !== undefined && String(metric.value).trim().length > 0);
+  if (visible.length === 0) return '';
+
+  const toneColor = (tone: NonNullable<typeof visible[number]['tone']> | undefined) => {
+    if (tone === 'success') return BRAND.success;
+    if (tone === 'warning') return BRAND.warning;
+    if (tone === 'error') return BRAND.error;
+    if (tone === 'info') return BRAND.info;
+    return BRAND.text;
+  };
+
+  const rows: string[] = [];
+  for (let i = 0; i < visible.length; i += 3) {
+    const rowMetrics = visible.slice(i, i + 3);
+    rows.push(`
+      <tr>
+        ${rowMetrics.map((metric) => `
+          <td width="${Math.floor(100 / rowMetrics.length)}%" style="border-top: 1px solid ${BRAND.borderSoft}; border-bottom: 1px solid ${BRAND.borderSoft}; ${metric === rowMetrics[rowMetrics.length - 1] ? '' : `border-right: 1px solid ${BRAND.borderSoft};`} padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: ${toneColor(metric.tone)}; letter-spacing: 0;">${escapeHtml(metric.value)}</div>
+            <div style="font-size: 11px; line-height: 1.35; color: ${BRAND.subtle}; font-weight: 700; margin-top: 5px;">${escapeHtml(metric.label)}</div>
+            ${metric.detail ? `<div style="font-size: 12px; line-height: 1.45; color: ${BRAND.muted}; margin-top: 6px;">${escapeHtml(metric.detail)}</div>` : ''}
+          </td>
+        `).join('')}
+        ${rowMetrics.length < 3 ? '<td></td>'.repeat(3 - rowMetrics.length) : ''}
+      </tr>
+    `);
+  }
+
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+      ${rows.join('')}
     </table>
   `;
 }
@@ -224,8 +297,22 @@ function renderTopCountBadges(
   return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([label, count]) => `<span style="border: 1px solid #000; background: #fff; padding: 3px 7px; margin: 0 5px 5px 0; display: inline-block; font-size: 11px; font-family: monospace; font-weight: 800;">${escapeHtml(options.prefix || '')}${escapeHtml(label)}: ${formatCount(count)}</span>`)
+    .map(([label, count]) => `<span style="display: inline-block; color: ${BRAND.text}; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">${escapeHtml(options.prefix || '')}${escapeHtml(label)} <span style="color: ${BRAND.muted}; font-weight: 700;">${formatCount(count)}</span></span>`)
     .join('');
+}
+
+function renderPills(values: Array<string | null | undefined>): string {
+  const visible = values.map((value) => value?.trim()).filter((value): value is string => Boolean(value));
+  if (visible.length === 0) return '';
+
+  return visible
+    .slice(0, 8)
+    .map((value) => `<span style="display: inline-block; color: ${BRAND.muted}; margin: 0 10px 6px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">${escapeHtml(formatIssueType(value))}</span>`)
+    .join('');
+}
+
+function renderNumberDelta(current: number, previous: number, unit = ''): string {
+  return `${formatCount(previous)}${unit} -> ${formatCount(current)}${unit}`;
 }
 
 function emailBillingUrl(query?: string): string {
@@ -259,8 +346,7 @@ function formatEmailDate(date: Date, timeZone?: string | null): string {
 }
 
 /**
- * Shared Email Template - Rejourney Neo-Brutalist Style
- * High contrast, sharp borders, bold typography.
+ * Shared Email Template - clean, dense, and readable in common email clients.
  */
 function generateEmailHtml({
   title,
@@ -282,97 +368,82 @@ function generateEmailHtml({
   const safeProjectName = projectName ? escapeHtml(projectName) : null;
   const safeProjectUrl = projectUrl ? escapeHtml(projectUrl) : null;
   const safeBaseUrl = escapeHtml(baseUrl);
+  const tone = ALERT_TONES[alertType] || ALERT_TONES.general;
 
-  // Base styles
   const styles = {
-    // Body reset
-    body: `font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: ${BRAND.canvas}; margin: 0; padding: 40px 0; color: ${BRAND.black}; line-height: 1.5; -webkit-font-smoothing: antialiased;`,
-
-    // Main container - brutalist border/shadow
-    container: `max-width: 600px; margin: 0 auto; background-color: ${BRAND.surface}; border: 3px solid ${BRAND.black}; box-shadow: 8px 8px 0 0 ${BRAND.black}; width: 100%;`,
-
-    // Header
-    header: `background-color: ${BRAND.white}; padding: 32px 32px 24px; border-bottom: 3px solid ${BRAND.black};`,
-    navTable: `width: 100%; border-collapse: collapse; margin-bottom: 32px;`,
+    body: `font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: ${BRAND.canvas}; margin: 0; padding: 0; color: ${BRAND.text}; line-height: 1.5; -webkit-font-smoothing: antialiased;`,
+    outerCell: `padding: 24px 18px 34px;`,
+    container: `max-width: 760px; margin: 0 auto; background-color: ${BRAND.surface}; border: 1px solid ${BRAND.border}; width: 100%;`,
+    topStrip: `height: 4px; line-height: 4px; background: ${tone.color};`,
+    header: `background-color: ${BRAND.white}; padding: 30px 38px 26px; border-bottom: 1px solid ${BRAND.border};`,
+    navTable: `width: 100%; border-collapse: collapse; margin-bottom: 26px;`,
     navCell: `vertical-align: middle;`,
     navProjectCell: `vertical-align: middle; text-align: right;`,
-    logo: `font-size: 24px; font-weight: 900; color: ${BRAND.black}; text-decoration: none; text-transform: uppercase; letter-spacing: -0.5px;`,
-    projectBadge: `background: ${BRAND.black}; color: ${BRAND.white}; font-size: 12px; font-weight: 700; padding: 6px 12px; text-decoration: none; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block;`,
-
-    // Content area
-    content: `padding: 32px;`,
-
-    // Typography
-    h1: `font-size: 32px; font-weight: 900; line-height: 1.1; margin: 0 0 16px; letter-spacing: -1px; text-transform: uppercase; color: ${BRAND.black};`,
-    subtitle: `font-size: 16px; font-weight: 500; color: #525252; margin: 0 0 24px; font-family: monospace;`,
-
-    // Alert banner
-    alertLabel: `display: inline-block; background: ${BRAND.black}; color: ${BRAND.white}; font-size: 11px; font-weight: 800; padding: 4px 8px; text-transform: uppercase; margin-bottom: 16px; letter-spacing: 1px;`,
-
-    // Sections
-    section: `margin-bottom: 32px;`,
-    sectionTitle: `font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: ${BRAND.black}; border-bottom: 2px solid ${BRAND.black}; padding-bottom: 8px; margin-bottom: 16px;`,
-    text: `font-size: 16px; line-height: 1.6; padding: 0; margin: 0;`,
-
-    // Styled boxes
-    box: `border: 2px solid ${BRAND.black}; padding: 20px; background: #fff; position: relative;`,
-    highlightBox: `border: 2px solid ${BRAND.black}; padding: 20px; background: #f8fafc; font-family: monospace; font-size: 13px; overflow-x: auto;`,
-    warningBox: `border: 2px solid ${BRAND.black}; padding: 20px; background: #fffbeb; box-shadow: 4px 4px 0 0 #fcd34d;`,
-    errorBox: `border: 2px solid ${BRAND.black}; padding: 20px; background: #fef2f2; box-shadow: 4px 4px 0 0 #fca5a5;`,
-    successBox: `border: 2px solid ${BRAND.black}; padding: 20px; background: #f0fdf4; box-shadow: 4px 4px 0 0 #86efac;`,
-    infoBox: `border: 2px solid ${BRAND.black}; padding: 20px; background: #eff6ff; box-shadow: 4px 4px 0 0 #93c5fd;`,
-
-    // Buttons
-    buttonContainer: `margin-top: 40px; display: flex; flex-wrap: wrap; gap: 16px;`,
-    button: `background-color: ${BRAND.black}; color: ${BRAND.white}; display: inline-block; padding: 16px 32px; font-weight: 800; text-decoration: none; border: 2px solid ${BRAND.black}; text-transform: uppercase; font-size: 14px; letter-spacing: 0.5px; transition: all 0.2s;`,
-    buttonSecondary: `background-color: ${BRAND.white}; color: ${BRAND.black}; display: inline-block; padding: 16px 32px; font-weight: 800; text-decoration: none; border: 2px solid ${BRAND.black}; text-transform: uppercase; font-size: 14px; letter-spacing: 0.5px; box-shadow: 4px 4px 0 0 ${BRAND.black};`,
-
-    // Meta badges
-    badgesContainer: `display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; padding-top: 24px; border-top: 2px solid ${BRAND.black};`,
-    badge: `display: inline-flex; border: 1px solid ${BRAND.black}; padding: 4px 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: #fff;`,
-    badgeLabel: `opacity: 0.6; margin-right: 4px;`,
-
-    // Footer
-    footer: `background-color: #f1f5f9; padding: 32px; border-top: 3px solid ${BRAND.black};`,
-    footerText: `font-family: monospace; font-size: 11px; color: ${BRAND.black}; margin: 0; line-height: 1.6; opacity: 0.7;`,
-    footerLink: `color: ${BRAND.black}; text-decoration: underline; font-weight: 700;`,
+    logo: `font-size: 20px; font-weight: 800; color: ${BRAND.text}; text-decoration: none; letter-spacing: 0;`,
+    logoMark: `display: inline-block; width: 8px; height: 8px; background: ${BRAND.accent}; margin-right: 8px; vertical-align: 1px;`,
+    projectBadge: `color: ${BRAND.muted}; font-size: 12px; font-weight: 700; text-decoration: none; display: inline-block;`,
+    content: `padding: 6px 38px 36px;`,
+    h1: `font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: ${BRAND.text};`,
+    subtitle: `font-size: 13px; font-weight: 600; color: ${BRAND.muted}; margin: 0 0 18px;`,
+    alertLabel: `display: inline-block; color: ${tone.color}; font-size: 12px; line-height: 1.2; font-weight: 800; margin-bottom: 14px;`,
+    section: `border-bottom: 1px solid ${BRAND.borderSoft}; padding: 24px 0;`,
+    sectionTitle: `font-size: 12px; font-weight: 800; color: ${BRAND.subtle}; margin: 0 0 12px; letter-spacing: 0.02em;`,
+    text: `font-size: 15px; line-height: 1.65; color: ${BRAND.text}; padding: 0; margin: 0;`,
+    highlightBox: `border-top: 1px solid ${BRAND.border}; border-bottom: 1px solid ${BRAND.border}; padding: 14px 0; background: ${BRAND.white}; color: ${BRAND.code}; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto;`,
+    toneBox: `border-left: 3px solid ${tone.color}; padding: 0 0 0 16px; background: ${BRAND.white};`,
+    buttonTable: `margin-top: 28px; border-collapse: collapse;`,
+    button: `background-color: ${BRAND.accent}; color: ${BRAND.white}; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;`,
+    buttonSecondary: `background-color: ${BRAND.white}; color: ${BRAND.text}; display: inline-block; padding: 11px 15px; font-weight: 800; text-decoration: none; border: 1px solid ${BRAND.border}; border-radius: 6px; font-size: 14px; line-height: 1.25;`,
+    badgesContainer: `margin-top: 20px; padding-top: 16px; border-top: 1px solid ${BRAND.borderSoft};`,
+    badge: `display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0;`,
+    badgeLabel: `font-weight: 700; opacity: 0.78; margin-right: 4px;`,
+    footer: `background-color: ${BRAND.row}; padding: 24px 38px 28px; border-top: 1px solid ${BRAND.border};`,
+    footerText: `font-size: 12px; color: ${BRAND.muted}; margin: 0; line-height: 1.65;`,
+    footerLink: `color: ${BRAND.accentDark}; text-decoration: none; font-weight: 800;`,
   };
 
   const renderSection = (section: EmailSection) => {
-    let contentStyle = styles.text;
-    let containerStyle = '';
+    const sectionTone =
+      section.style === 'error' ? { color: BRAND.error, soft: BRAND.errorSoft, border: '#fecdd3' } :
+        section.style === 'warning' ? { color: BRAND.warning, soft: BRAND.warningSoft, border: '#fed7aa' } :
+          section.style === 'success' ? { color: BRAND.success, soft: BRAND.successSoft, border: '#bbf7d0' } :
+            section.style === 'info' ? { color: BRAND.info, soft: BRAND.infoSoft, border: '#bfdbfe' } :
+              null;
 
-    if (section.style === 'highlight') {
-      contentStyle = styles.highlightBox;
-    } else if (section.style === 'warning') {
-      containerStyle = styles.warningBox;
-    } else if (section.style === 'error') {
-      containerStyle = styles.errorBox;
-    } else if (section.style === 'success') {
-      containerStyle = styles.successBox;
-    } else if (section.style === 'info') {
-      containerStyle = styles.infoBox;
-    }
-
-    // Standard text wrapper if not a special box
-    const contentHtml = section.style && section.style !== 'default' && section.style !== 'highlight'
-      ? `<div style="${containerStyle}">${section.content}</div>`
-      : `<div style="${contentStyle}">${section.content}</div>`;
+    const contentHtml = section.style === 'highlight'
+      ? `<div style="${styles.highlightBox}">${section.content}</div>`
+      : sectionTone
+        ? `<div style="${styles.toneBox} border-left-color: ${sectionTone.color};">${section.content}</div>`
+        : `<div style="${styles.text}">${section.content}</div>`;
 
     return `
       <div style="${styles.section}">
-        ${section.title ? `<div style="${styles.sectionTitle}">${escapeHtml(section.title)}</div>` : ''}
+        ${section.title ? `<h2 style="${styles.sectionTitle}">${escapeHtml(section.title)}</h2>` : ''}
         ${contentHtml}
       </div>
     `;
   };
 
   const renderMetaBadge = (badge: EmailMetaBadge) => {
+    const badgeTone = badge.color ? BADGE_COLORS[badge.color] : { color: BRAND.text, soft: '#ffffff', border: BRAND.border };
     return `
-      <div style="${styles.badge}">
+      <span style="${styles.badge} color: ${badgeTone.color};">
         <span style="${styles.badgeLabel}">${escapeHtml(badge.label)}:</span>
         <span>${escapeHtml(badge.value)}</span>
-      </div>
+      </span>
+    `;
+  };
+
+  const renderActions = () => {
+    if (!action && !secondaryAction) return '';
+
+    return `
+      <table role="presentation" cellpadding="0" cellspacing="0" style="${styles.buttonTable}">
+        <tr>
+          ${action ? `<td style="padding: 0 10px 10px 0;"><a href="${escapeHtml(action.url)}" style="${styles.button}">${escapeHtml(action.label)}</a></td>` : ''}
+          ${secondaryAction ? `<td style="padding: 0 0 10px 0;"><a href="${escapeHtml(secondaryAction.url)}" style="${styles.buttonSecondary}">${escapeHtml(secondaryAction.label)}</a></td>` : ''}
+        </tr>
+      </table>
     `;
   };
 
@@ -383,30 +454,41 @@ function generateEmailHtml({
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${safeTitle}</title>
+  <style>
+    @media only screen and (max-width: 680px) {
+      .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
+      .rj-container { width: 100% !important; max-width: 100% !important; }
+      .rj-shell-pad { padding-left: 20px !important; padding-right: 20px !important; }
+      .rj-leak-index { width: 30px !important; padding-right: 10px !important; }
+      .rj-leak-body { margin-left: 0 !important; }
+      .rj-leak-impact-cell { display: block !important; width: 100% !important; border-right: 0 !important; padding-right: 0 !important; padding-left: 0 !important; }
+    }
+  </style>
 </head>
 <body style="${styles.body}">
   <!-- Preheader -->
-  <div style="display:none;font-size:1px;color:#f1f5f9;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+  <div style="display:none;font-size:1px;color:${BRAND.canvas};line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
     ${safePreviewText}
     ${'&nbsp;'.repeat(100)}
   </div>
 
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
     <tr>
-      <td align="center" style="padding: 20px;">
-        <div style="${styles.container}">
+      <td align="center" class="rj-outer" style="${styles.outerCell}">
+        <div class="rj-container" style="${styles.container}">
+          <div style="${styles.topStrip}">&nbsp;</div>
           
           <!-- Header -->
-          <div style="${styles.header}">
+          <div class="rj-shell-pad" style="${styles.header}">
             <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="${styles.navTable}">
               <tr>
                 <td style="${styles.navCell}">
-                  <a href="${safeBaseUrl}" style="${styles.logo}">Rejourney</a>
+                  <a href="${safeBaseUrl}" style="${styles.logo}"><span style="${styles.logoMark}"></span>Rejourney</a>
                 </td>
                 <td align="right" style="${styles.navProjectCell}">
                   ${safeProjectName && safeProjectUrl ? `
                     <a href="${safeProjectUrl}" style="${styles.projectBadge}">${safeProjectName}</a>
-                  ` : ''}
+                  ` : safeProjectName ? `<span style="${styles.projectBadge}">${safeProjectName}</span>` : ''}
                 </td>
               </tr>
             </table>
@@ -433,29 +515,23 @@ function generateEmailHtml({
           </div>
 
           <!-- Content -->
-          <div style="${styles.content}">
+          <div class="rj-shell-pad" style="${styles.content}">
             ${sections.map(renderSection).join('')}
-
-            ${action || secondaryAction ? `
-              <div style="${styles.buttonContainer}">
-                ${action ? `<a href="${escapeHtml(action.url)}" style="${styles.button}">${escapeHtml(action.label)}</a>` : ''}
-                ${secondaryAction ? `<a href="${escapeHtml(secondaryAction.url)}" style="${styles.buttonSecondary}">${escapeHtml(secondaryAction.label)}</a>` : ''}
-              </div>
-            ` : ''}
+            ${renderActions()}
           </div>
 
           <!-- Footer -->
-          <div style="${styles.footer}">
+          <div class="rj-shell-pad" style="${styles.footer}">
             <p style="${styles.footerText}">
               ${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}
             </p>
-            <div style="margin-top: 16px; font-family: monospace; font-size: 11px;">
-              <a href="${safeBaseUrl}" style="${styles.footerLink}">Dashboard</a> &bull; 
-              <a href="https://rejourney.co/docs" style="${styles.footerLink}">Docs</a> &bull; 
+            <div style="margin-top: 16px; font-size: 12px;">
+              <a href="${safeBaseUrl}" style="${styles.footerLink}">Dashboard</a> &bull;
+              <a href="https://rejourney.co/docs" style="${styles.footerLink}">Docs</a> &bull;
               <a href="mailto:contact@rejourney.co" style="${styles.footerLink}">Support</a>
             </div>
-            <p style="${styles.footerText}; margin-top: 16px; font-weight: bold;">
-              REJOURNEY
+            <p style="${styles.footerText}; margin-top: 16px; font-weight: 700; color: ${BRAND.text};">
+              Rejourney
             </p>
           </div>
 
@@ -485,16 +561,16 @@ export async function sendOtpEmail(email: string, code: string): Promise<void> {
     sections: [
       {
         content: `
-          <div style="border: 2px solid #000; padding: 32px; text-align: center; background: #fff;">
-            <div style="font-family: monospace; color: #555; margin-bottom: 12px; font-size: 14px;">VERIFICATION CODE</div>
-            <div style="font-size: 48px; font-weight: 900; letter-spacing: 4px; color: #000; font-family: monospace;">${code}</div>
+          <div style="border-top: 1px solid ${BRAND.borderSoft}; border-bottom: 1px solid ${BRAND.borderSoft}; padding: 26px 0; text-align: center; background: ${BRAND.white};">
+            <div style="color: ${BRAND.muted}; margin-bottom: 12px; font-size: 13px; font-weight: 800;">Verification code</div>
+            <div style="font-size: 42px; font-weight: 800; letter-spacing: 3px; color: ${BRAND.text}; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">${escapeHtml(code)}</div>
           </div>
         `
       },
       {
         style: 'info',
         content: `
-          <strong>Security Check:</strong> Never share this code. Rejourney support will never ask for it.
+          <strong>Security check:</strong> Never share this code. Rejourney support will never ask for it.
         `
       }
     ],
@@ -535,12 +611,12 @@ export async function sendBillingWarningEmail(
     urgencyLabel = 'CRITICAL';
   }
 
-  const remaining = cap - currentUsage;
+  const remaining = Math.max(0, cap - currentUsage);
 
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'USAGE', value: `${usagePercent}%` },
-    { label: 'STATUS', value: urgencyLabel },
-    { label: 'REMAINING', value: `${remaining.toLocaleString()} REPLAYS` },
+    { label: 'Usage', value: `${usagePercent}%`, color: usagePercent >= 95 ? 'red' : 'orange' },
+    { label: 'Status', value: urgencyLabel, color: usagePercent >= 95 ? 'red' : 'orange' },
+    { label: 'Remaining', value: `${remaining.toLocaleString()} replays`, color: 'gray' },
   ];
 
   const html = generateEmailHtml({
@@ -550,20 +626,22 @@ export async function sendBillingWarningEmail(
       {
         style: 'warning',
         content: `
-          <div style="text-align: center;">
-            <div style="font-size: 64px; font-weight: 900; line-height: 1;">${usagePercent}%</div>
-            <div style="font-weight: bold; text-transform: uppercase; margin-top: 8px;">of monthly session replay limit used</div>
+          <div style="font-size: 16px; line-height: 1.65; color: ${BRAND.text};">
+            <strong>${escapeHtml(teamName)}</strong> has used <strong>${usagePercent}%</strong> of its monthly session replay limit.
           </div>
-          <div style="margin-top: 24px; border-top: 2px solid #000; padding-top: 16px; display: flex; justify-content: space-between; font-family: monospace; font-weight: bold;">
-            <span>USED: ${currentUsage.toLocaleString()}</span>
-            <span>TOTAL: ${cap.toLocaleString()}</span>
+          <div style="margin-top: 16px;">
+            ${renderMetricGrid([
+              { label: 'Used replays', value: currentUsage.toLocaleString(), tone: usagePercent >= 95 ? 'error' : 'warning' },
+              { label: 'Monthly cap', value: cap.toLocaleString() },
+              { label: 'Remaining', value: remaining.toLocaleString(), tone: remaining === 0 ? 'error' : 'info' },
+            ])}
           </div>
         `
       },
       {
         title: 'What Happens Next?',
         content: `
-          Session replay capture will <strong>PAUSE</strong> when you hit 100%. 
+          Session replay capture will pause when you hit 100%.
           Analytics sessions will continue, and you can upgrade to record more replays.
         `
       }
@@ -619,10 +697,10 @@ export async function sendPlanChangeEmail(
       style: 'default',
       content: `
         <p style="margin-bottom: 16px;">
-          Your billing plan for <strong>${teamName}</strong> has been changed from <strong>${oldPlanName}</strong> to <strong>${newPlanName}</strong>.
+          Your billing plan for <strong>${escapeHtml(teamName)}</strong> has been changed from <strong>${escapeHtml(oldPlanName)}</strong> to <strong>${escapeHtml(newPlanName)}</strong>.
         </p>
         <p style="margin-bottom: 0;">
-          ${statusMessage}
+          ${escapeHtml(statusMessage)}
         </p>
       `
     }
@@ -672,21 +750,21 @@ export async function sendSubscriptionExpiredEmail(
     {
       style: 'error',
       content: `
-        <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">PAYMENT NOT COMPLETED</div>
-        <div style="font-weight: 800; font-size: 18px;">Your subscription to ${planName} was not activated</div>
+        <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.error}; font-weight: 800;">Payment not completed</div>
+        <div style="font-weight: 800; font-size: 18px; color: ${BRAND.text};">Your subscription to ${escapeHtml(planName)} was not activated</div>
       `
     },
     {
       style: 'default',
       content: `
         <p style="margin-bottom: 16px;">
-          Your recent subscription attempt for <strong>${teamName}</strong> required additional payment verification (such as 3D Secure authentication), which was not completed in time.
+          Your recent subscription attempt for <strong>${escapeHtml(teamName)}</strong> required additional payment verification, which was not completed in time.
         </p>
         <p style="margin-bottom: 16px;">
           <strong>You have not been charged.</strong> Your team has been moved back to the Free plan.
         </p>
         <p style="margin-bottom: 0;">
-          To subscribe to the <strong>${planName}</strong> plan, please try again from the billing page and make sure to complete all payment verification steps.
+          To subscribe to the <strong>${escapeHtml(planName)}</strong> plan, please try again from the billing page and complete all payment verification steps.
         </p>
       `
     },
@@ -864,17 +942,17 @@ export async function sendTeamInviteEmail(
     sections: [
       {
         content: `
-          <div style="font-size: 18px; font-weight: 500;">
-            <strong>${inviterName}</strong> has invited you to join the team <strong>${teamName}</strong>.
+          <div style="font-size: 16px; line-height: 1.65;">
+            <strong>${escapeHtml(inviterName)}</strong> invited you to join <strong>${escapeHtml(teamName)}</strong> on Rejourney.
           </div>
         `
       },
       {
         style: 'success',
         content: `
-          <div style="font-family: monospace; font-size: 14px;">
-            <div style="margin-bottom: 4px; opacity: 0.7;">ASSIGNED ROLE</div>
-            <div style="font-size: 24px; font-weight: 900; text-transform: uppercase;">${role}</div>
+          <div style="font-size: 14px;">
+            <div style="margin-bottom: 5px; color: ${BRAND.muted}; font-weight: 700;">Assigned role</div>
+            <div style="font-size: 22px; font-weight: 800; color: ${BRAND.text};">${escapeHtml(role)}</div>
           </div>
         `
       },
@@ -914,16 +992,22 @@ export interface CrashAlertData {
   issueId?: string;
   affectedUsers: number;
   eventCount?: number;
+  events24h?: number;
+  events90d?: number;
   issueUrl: string;
   stackTrace?: string;
   affectedVersions?: Record<string, number>;
   affectedDevices?: Record<string, number>;
   screenName?: string;
   componentName?: string;
+  culprit?: string;
   environment?: string;
+  status?: string;
+  priority?: string;
   firstSeen?: Date;
   lastSeen?: Date;
   isHandled?: boolean;
+  sampleSessionId?: string;
   sampleAppVersion?: string;
   sampleOsVersion?: string;
   sampleDeviceModel?: string;
@@ -935,9 +1019,14 @@ export interface LeakScanEmailIssue {
   title: string;
   issueType?: string | null;
   severity?: string | null;
+  status?: string | null;
+  whyItMatters?: string | null;
   estimatedAffectedUsers: number;
   affectedSessions?: number | null;
+  firstSeen?: Date | null;
   lastSeen?: Date | null;
+  contextStatus?: string | null;
+  topSignals?: string[] | null;
 }
 
 export interface LeakScanEmailData {
@@ -962,30 +1051,76 @@ function renderLeakScanIssueTable(issues: LeakScanEmailIssue[], timeZone: string
   const rows = issues.map((issue, index) => {
     const affectedUsers = Math.max(0, Number(issue.estimatedAffectedUsers || 0));
     const affectedSessions = Math.max(0, Number(issue.affectedSessions || 0));
+    const firstSeen = issue.firstSeen ? formatEmailDate(issue.firstSeen, timeZone) : null;
     const lastSeen = issue.lastSeen ? formatEmailDate(issue.lastSeen, timeZone) : null;
+    const dateLine = [
+      firstSeen ? `First seen ${firstSeen}` : null,
+      lastSeen ? `Last seen ${lastSeen}` : null,
+      issue.contextStatus ? `Context ${formatIssueType(issue.contextStatus)}` : null,
+    ].filter(Boolean).map((value) => escapeHtml(value)).join(' · ');
+    const meta = [
+      issue.shortId || `#${index + 1}`,
+      formatIssueType(issue.issueType),
+      issue.severity ? `${formatIssueType(issue.severity)} severity` : null,
+      issue.status ? formatIssueType(issue.status) : null,
+    ].filter((item): item is string => Boolean(item));
+    const signals = renderPills(issue.topSignals ?? []);
+    const impactItems = [
+      {
+        label: 'Est. users',
+        value: affectedUsers.toLocaleString(),
+        color: affectedUsers > 0 ? BRAND.warning : BRAND.text,
+      },
+      affectedSessions > 0 ? {
+        label: 'Sessions',
+        value: affectedSessions.toLocaleString(),
+        color: BRAND.text,
+      } : null,
+    ].filter((item): item is { label: string; value: string; color: string } => Boolean(item));
+    const impactWidth = Math.floor(100 / impactItems.length);
+    const impactStrip = `
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-top: 1px solid ${BRAND.borderSoft}; border-bottom: 1px solid ${BRAND.borderSoft}; margin-top: 14px;">
+        <tr>
+          ${impactItems.map((item, itemIndex) => `
+            <td class="rj-leak-impact-cell" width="${impactWidth}%" style="${itemIndex === impactItems.length - 1 ? '' : `border-right: 1px solid ${BRAND.borderSoft};`} padding: 11px 14px 10px ${itemIndex === 0 ? '0' : '14px'}; vertical-align: top;">
+              <div style="font-size: 18px; line-height: 1.2; font-weight: 750; color: ${item.color};">${escapeHtml(item.value)}</div>
+              <div style="font-size: 11px; line-height: 1.35; color: ${BRAND.subtle}; font-weight: 700; margin-top: 4px;">${escapeHtml(item.label)}</div>
+            </td>
+          `).join('')}
+        </tr>
+      </table>
+    `;
 
     return `
       <tr>
-        <td style="border-bottom: 2px solid #000; padding: 14px 0; vertical-align: top; width: 36px; font-family: monospace; font-weight: 900;">${index + 1}</td>
-        <td style="border-bottom: 2px solid #000; padding: 14px 12px 14px 0; vertical-align: top;">
-          <div style="font-weight: 900; font-size: 16px; margin-bottom: 4px;">${escapeHtml(issue.title)}</div>
-          <div style="font-family: monospace; font-size: 12px; color: #525252;">
-            ${issue.shortId ? `${escapeHtml(issue.shortId)} · ` : ''}${escapeHtml(formatIssueType(issue.issueType))}
-            ${issue.severity ? ` · ${escapeHtml(issue.severity.toUpperCase())}` : ''}
-            ${lastSeen ? ` · last seen ${escapeHtml(lastSeen)}` : ''}
-          </div>
-        </td>
-        <td style="border-bottom: 2px solid #000; padding: 14px 0; vertical-align: top; text-align: right; white-space: nowrap;">
-          <div style="font-size: 20px; font-weight: 900;">${affectedUsers.toLocaleString()}</div>
-          <div style="font-family: monospace; font-size: 11px; color: #525252;">EST. USERS</div>
-          ${affectedSessions > 0 ? `<div style="font-family: monospace; font-size: 11px; color: #525252; margin-top: 4px;">${affectedSessions.toLocaleString()} sessions</div>` : ''}
+        <td style="border-bottom: 1px solid ${BRAND.borderSoft}; padding: 18px 0 20px; vertical-align: top;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+            <tr>
+              <td class="rj-leak-index" width="42" style="padding: 2px 16px 0 0; vertical-align: top; color: ${BRAND.subtle}; font-size: 12px; line-height: 1.4; font-weight: 800;">${String(index + 1).padStart(2, '0')}</td>
+              <td style="vertical-align: top;">
+                <div style="font-weight: 750; font-size: 17px; line-height: 1.35; color: ${BRAND.text}; word-break: normal;">${escapeHtml(issue.title)}</div>
+                <div style="font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; margin-top: 5px; font-weight: 700;">
+                  ${escapeHtml(meta.join(' · '))}
+                </div>
+              </td>
+            </tr>
+          </table>
+          ${issue.whyItMatters ? `
+            <div class="rj-leak-body" style="font-size: 14px; line-height: 1.58; color: ${BRAND.textSecondary}; margin-top: 12px; margin-left: 58px; word-break: normal;">
+              <span style="font-size: 12px; color: ${BRAND.subtle}; font-weight: 800;">Why it matters:</span>
+              ${escapeHtml(issue.whyItMatters)}
+            </div>
+          ` : ''}
+          ${dateLine ? `<div class="rj-leak-body" style="font-size: 12px; line-height: 1.55; color: ${BRAND.muted}; margin-top: 11px; margin-left: 58px;">${dateLine}</div>` : ''}
+          <div class="rj-leak-body" style="margin-left: 58px;">${impactStrip}</div>
+          ${signals ? `<div class="rj-leak-body" style="font-size: 12px; margin-top: 9px; margin-left: 58px;">${signals}</div>` : ''}
         </td>
       </tr>
     `;
   }).join('');
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-top: 1px solid ${BRAND.borderSoft};">
       ${rows}
     </table>
   `;
@@ -1010,35 +1145,47 @@ export async function sendLeakScanEmail(
     );
   const totalUsers = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.estimatedAffectedUsers || 0)), 0);
   const totalSessions = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.affectedSessions || 0)), 0);
+  const highSeverityCount = sortedIssues.filter((issue) => ['high', 'critical'].includes(String(issue.severity || '').toLowerCase())).length;
   const issueLabel = formatCountWithLabel(sortedIssues.length, 'issue', 'issues');
   const userLabel = formatCountWithLabel(totalUsers, 'estimated affected user', 'estimated affected users');
-  const subject = 'Leak Scan Today';
+  const subject = truncateForSubject(`Leak scan for ${data.projectName}: ${issueLabel}, ${userLabel}`);
   const projectSettingsLink = emailDashboardAppPath(`/settings/${data.projectId}`);
 
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'ISSUES', value: sortedIssues.length.toLocaleString() },
-    { label: 'EST. USERS', value: totalUsers.toLocaleString() },
+    { label: 'Issues', value: sortedIssues.length.toLocaleString(), color: sortedIssues.length > 0 ? 'blue' : 'gray' },
+    { label: 'Est. users', value: totalUsers.toLocaleString(), color: totalUsers > 0 ? 'orange' : 'gray' },
   ];
-  if (totalSessions > 0) metaBadges.push({ label: 'SESSIONS', value: totalSessions.toLocaleString() });
+  if (totalSessions > 0) metaBadges.push({ label: 'Sessions', value: totalSessions.toLocaleString(), color: 'purple' });
+  if (highSeverityCount > 0) metaBadges.push({ label: 'High severity', value: highSeverityCount.toLocaleString(), color: 'red' });
 
   const buildSections = (timeZone: string): EmailSection[] => [
     {
-      style: 'warning',
+      title: 'Scan Summary',
       content: `
-        <div style="font-size: 16px; line-height: 1.65;">
-          Rejourney Marlin has watched your session replays and found these leaks that blocked the funnel:
-        </div>
+        ${renderMetricGrid([
+          { label: 'Inbox issues', value: sortedIssues.length.toLocaleString(), tone: 'info' },
+          { label: 'Est. affected users', value: totalUsers.toLocaleString(), tone: totalUsers > 0 ? 'warning' : 'default' },
+          { label: 'Affected sessions', value: totalSessions > 0 ? totalSessions.toLocaleString() : null },
+          { label: 'Admitted sessions', value: data.admittedSessions !== null && data.admittedSessions !== undefined ? data.admittedSessions.toLocaleString() : null },
+          { label: 'High severity', value: highSeverityCount > 0 ? highSeverityCount.toLocaleString() : null, tone: 'error' },
+        ])}
       `,
     },
     {
-      title: 'Leaks Found',
+      style: 'info',
+      content: `
+        Rejourney grouped repeated replay signals into product leaks that are ready for triage. Start with the first item; it has the largest estimated user impact in this scan.
+      `,
+    },
+    {
+      title: 'Highest-Risk Leaks',
       content: renderLeakScanIssueTable(sortedIssues, timeZone),
     },
     {
-      title: 'What This Means',
+      title: 'Recommended Next Steps',
       style: 'info',
       content: `
-        A problem is one affected session. An issue is Rejourney Marlin grouping similar problems together so your coding agent has one actionable item to fix.
+        Open the Leaks dashboard, review the replay evidence for the top issue, then generate the IDE handoff once the context status is ready.
       `,
     },
   ];
@@ -1046,10 +1193,10 @@ export async function sendLeakScanEmail(
   for (const group of recipientGroups) {
     const completedAtText = formatEmailDate(data.completedAt, group.timeZone);
     const textLines = [
-      'Rejourney Marlin has watched your session replays and found these leaks that blocked the funnel:',
+      `${data.projectName} leak scan summary: ${issueLabel}, ${userLabel}`,
       '',
       ...sortedIssues.map((issue, index) =>
-        `${index + 1}. ${issue.title} — ${Math.max(0, Number(issue.estimatedAffectedUsers || 0)).toLocaleString()} estimated affected users`
+        `${index + 1}. ${issue.title} — ${Math.max(0, Number(issue.estimatedAffectedUsers || 0)).toLocaleString()} estimated affected users${issue.affectedSessions ? `, ${issue.affectedSessions.toLocaleString()} affected sessions` : ''}${issue.severity ? `, ${issue.severity} severity` : ''}${issue.whyItMatters ? `\n   Why it matters: ${issue.whyItMatters}` : ''}`
       ),
       '',
       `Open dashboard: ${data.dashboardUrl}`,
@@ -1100,18 +1247,24 @@ export async function sendCrashAlertEmail(
   const subject = truncateForSubject(`${alertTitle} in ${data.projectName}: ${data.crashTitle} (${userLabel})`);
 
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'USERS', value: data.affectedUsers.toLocaleString() },
-    { label: 'STATUS', value: data.isHandled === false ? 'UNHANDLED' : 'REPORTED' },
+    { label: 'Users', value: data.affectedUsers.toLocaleString(), color: data.affectedUsers > 0 ? 'red' : 'gray' },
+    { label: 'Status', value: data.isHandled === false ? 'Unhandled' : formatIssueType(data.status || 'reported'), color: data.isHandled === false ? 'red' : 'gray' },
   ];
 
   if (data.shortId) {
-    metaBadges.unshift({ label: 'ID', value: data.shortId });
+    metaBadges.unshift({ label: 'ID', value: data.shortId, color: 'gray' });
+  }
+  if (data.priority) {
+    metaBadges.push({ label: 'Priority', value: formatIssueType(data.priority), color: ['high', 'critical'].includes(data.priority.toLowerCase()) ? 'red' : 'orange' });
   }
   if (data.environment) {
-    metaBadges.push({ label: 'ENV', value: data.environment.toUpperCase() });
+    metaBadges.push({ label: 'Env', value: formatIssueType(data.environment), color: 'gray' });
   }
   if (data.eventCount !== undefined) {
-    metaBadges.push({ label: 'EVENTS', value: formatCount(data.eventCount) });
+    metaBadges.push({ label: 'Events', value: formatCount(data.eventCount), color: 'purple' });
+  }
+  if (data.events24h !== undefined) {
+    metaBadges.push({ label: '24h', value: formatCount(data.events24h), color: data.events24h > 0 ? 'orange' : 'gray' });
   }
 
   const buildSections = (timeZone: string): EmailSection[] => {
@@ -1122,11 +1275,21 @@ export async function sendCrashAlertEmail(
     sections.push({
       style: 'error',
       content: `
-        <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">${escapeHtml(data.isHandled === false ? 'UNHANDLED EXCEPTION' : 'EXCEPTION')}</div>
-        <div style="font-weight: 800; font-size: 19px; margin-bottom: 8px;">${escapeHtml(data.crashTitle)}</div>
-        ${data.subtitle ? `<div style="font-family: monospace; font-size: 13px; line-height: 1.45;">${escapeHtml(data.subtitle)}</div>` : ''}
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #000; font-size: 13px; line-height: 1.55;">
+        <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.error}; font-weight: 800;">${escapeHtml(data.isHandled === false ? 'Unhandled exception' : 'Exception')}</div>
+        <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: ${BRAND.text};">${escapeHtml(data.crashTitle)}</div>
+        ${data.subtitle ? `<div style="border-top: 1px solid ${BRAND.borderSoft}; border-bottom: 1px solid ${BRAND.borderSoft}; padding: 9px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; color: ${BRAND.code};">${escapeHtml(data.subtitle)}</div>` : ''}
+        <div style="margin-top: 15px; font-size: 14px; line-height: 1.65; color: ${BRAND.text};">
           Rejourney grouped this crash in <strong>${escapeHtml(data.projectName)}</strong>. It has affected <strong>${escapeHtml(userLabel)}</strong>${data.eventCount !== undefined ? ` across <strong>${escapeHtml(eventLabel)}</strong>` : ''}. Last seen <strong>${escapeHtml(lastSeenLabel)}</strong>.
+        </div>
+        <div style="margin-top: 16px;">
+          ${renderMetricGrid([
+            { label: 'Affected users', value: data.affectedUsers.toLocaleString(), tone: 'error' },
+            { label: 'Total events', value: data.eventCount !== undefined ? formatCount(data.eventCount) : null, tone: 'warning' },
+            { label: 'Events in last 24h', value: data.events24h !== undefined ? formatCount(data.events24h) : null, tone: data.events24h ? 'warning' : 'default' },
+            { label: 'Events in 90d', value: data.events90d !== undefined ? formatCount(data.events90d) : null },
+            { label: 'Priority', value: data.priority ? formatIssueType(data.priority) : null, tone: data.priority && ['high', 'critical'].includes(data.priority.toLowerCase()) ? 'error' : 'default' },
+            { label: 'Status', value: data.status ? formatIssueType(data.status) : null },
+          ])}
         </div>
       `
     });
@@ -1135,11 +1298,16 @@ export async function sendCrashAlertEmail(
       title: 'Triage Context',
       content: renderKeyValueTable([
         ['Issue ID', data.shortId || data.issueId],
+        ['Status', data.status ? formatIssueType(data.status) : null],
+        ['Priority', data.priority ? formatIssueType(data.priority) : null],
+        ['Handled', data.isHandled === undefined ? null : data.isHandled ? 'Handled' : 'Unhandled'],
         ['First seen', firstSeenLabel],
         ['Last seen', lastSeenLabel],
         ['Screen', data.screenName],
         ['Component', data.componentName],
+        ['Culprit', data.culprit],
         ['Environment', data.environment],
+        ['Sample session', data.sampleSessionId],
         ['Sample app version', data.sampleAppVersion ? `v${data.sampleAppVersion}` : null],
         ['Sample OS', data.sampleOsVersion],
         ['Sample device', data.sampleDeviceModel],
@@ -1170,6 +1338,17 @@ export async function sendCrashAlertEmail(
         content: `<pre style="margin: 0; white-space: pre-wrap;">${escapeHtml(stackLines.join('\n'))}</pre>`
       });
     }
+
+    sections.push({
+      title: 'Suggested Investigation',
+      content: `
+        <ol style="margin: 0; padding-left: 20px; color: ${BRAND.text}; font-size: 15px; line-height: 1.7;">
+          <li>Open the issue and start with the sample session${data.sampleSessionId ? ` <strong>${escapeHtml(data.sampleSessionId)}</strong>` : ''}.</li>
+          <li>Check the top affected version and device concentration before rolling back or patching.</li>
+          <li>Use the first app frame in the stack trace${data.culprit ? `, especially <strong>${escapeHtml(data.culprit)}</strong>` : ''}, as the initial owner hint.</li>
+        </ol>
+      `,
+    });
 
     sections.push({
       title: 'Why You Got This',
@@ -1223,6 +1402,8 @@ export interface AnrAlertData {
   durationMs: number;
   affectedUsers: number;
   eventCount?: number;
+  events24h?: number;
+  events90d?: number;
   shortId?: string;
   issueId?: string;
   issueUrl: string;
@@ -1230,9 +1411,14 @@ export interface AnrAlertData {
   affectedVersions?: Record<string, number>;
   affectedDevices?: Record<string, number>;
   screenName?: string;
+  componentName?: string;
+  culprit?: string;
   environment?: string;
+  status?: string;
+  priority?: string;
   firstSeen?: Date;
   lastSeen?: Date;
+  sampleSessionId?: string;
   sampleAppVersion?: string;
   sampleOsVersion?: string;
   sampleDeviceModel?: string;
@@ -1258,15 +1444,21 @@ export async function sendAnrAlertEmail(
   const eventLabel = formatCountWithLabel(data.eventCount, 'event', 'events');
   const subject = truncateForSubject(`ANR in ${data.projectName}: app frozen for ${durationSecs}s (${userLabel})`);
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'DURATION', value: `${durationSecs}s` },
-    { label: 'USERS', value: data.affectedUsers.toLocaleString() },
+    { label: 'Duration', value: `${durationSecs}s`, color: durationSecs >= 10 ? 'red' : 'orange' },
+    { label: 'Users', value: data.affectedUsers.toLocaleString(), color: data.affectedUsers > 0 ? 'orange' : 'gray' },
   ];
 
   if (data.shortId) {
-    metaBadges.unshift({ label: 'ID', value: data.shortId });
+    metaBadges.unshift({ label: 'ID', value: data.shortId, color: 'gray' });
+  }
+  if (data.priority) {
+    metaBadges.push({ label: 'Priority', value: formatIssueType(data.priority), color: ['high', 'critical'].includes(data.priority.toLowerCase()) ? 'red' : 'orange' });
   }
   if (data.eventCount !== undefined) {
-    metaBadges.push({ label: 'EVENTS', value: formatCount(data.eventCount) });
+    metaBadges.push({ label: 'Events', value: formatCount(data.eventCount), color: 'purple' });
+  }
+  if (data.events24h !== undefined) {
+    metaBadges.push({ label: '24h', value: formatCount(data.events24h), color: data.events24h > 0 ? 'orange' : 'gray' });
   }
 
   const buildSections = (timeZone: string): EmailSection[] => {
@@ -1277,10 +1469,20 @@ export async function sendAnrAlertEmail(
     sections.push({
       style: 'warning',
       content: `
-        <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">APP NOT RESPONDING</div>
-        <div style="font-weight: 800; font-size: 19px; margin-bottom: 8px;">Main thread frozen for ${durationSecs} seconds</div>
-        <div style="margin-top: 12px; font-size: 13px; line-height: 1.55;">
+        <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.warning}; font-weight: 800;">App not responding</div>
+        <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: ${BRAND.text};">Main thread frozen for ${durationSecs} seconds</div>
+        <div style="margin-top: 12px; font-size: 14px; line-height: 1.65; color: ${BRAND.text};">
           Rejourney detected an ANR in <strong>${escapeHtml(data.projectName)}</strong> affecting <strong>${escapeHtml(userLabel)}</strong>${data.eventCount !== undefined ? ` across <strong>${escapeHtml(eventLabel)}</strong>` : ''}. Last seen <strong>${escapeHtml(lastSeenLabel)}</strong>.
+        </div>
+        <div style="margin-top: 16px;">
+          ${renderMetricGrid([
+            { label: 'Freeze duration', value: `${durationSecs}s`, tone: durationSecs >= 10 ? 'error' : 'warning' },
+            { label: 'Affected users', value: data.affectedUsers.toLocaleString(), tone: 'warning' },
+            { label: 'Total events', value: data.eventCount !== undefined ? formatCount(data.eventCount) : null, tone: 'warning' },
+            { label: 'Events in last 24h', value: data.events24h !== undefined ? formatCount(data.events24h) : null, tone: data.events24h ? 'warning' : 'default' },
+            { label: 'Priority', value: data.priority ? formatIssueType(data.priority) : null, tone: data.priority && ['high', 'critical'].includes(data.priority.toLowerCase()) ? 'error' : 'default' },
+            { label: 'Status', value: data.status ? formatIssueType(data.status) : null },
+          ])}
         </div>
       `
     });
@@ -1289,10 +1491,15 @@ export async function sendAnrAlertEmail(
       title: 'Triage Context',
       content: renderKeyValueTable([
         ['Issue ID', data.shortId || data.issueId],
+        ['Status', data.status ? formatIssueType(data.status) : null],
+        ['Priority', data.priority ? formatIssueType(data.priority) : null],
         ['First seen', firstSeenLabel],
         ['Last seen', lastSeenLabel],
         ['Screen', data.screenName],
+        ['Component', data.componentName],
+        ['Culprit', data.culprit],
         ['Environment', data.environment],
+        ['Sample session', data.sampleSessionId],
         ['Sample app version', data.sampleAppVersion ? `v${data.sampleAppVersion}` : null],
         ['Sample OS', data.sampleOsVersion],
         ['Sample device', data.sampleDeviceModel],
@@ -1317,6 +1524,17 @@ export async function sendAnrAlertEmail(
         content: `<pre style="margin: 0; white-space: pre-wrap;">${escapeHtml(stackLines.join('\n'))}</pre>`
       });
     }
+
+    sections.push({
+      title: 'Suggested Investigation',
+      content: `
+        <ol style="margin: 0; padding-left: 20px; color: ${BRAND.text}; font-size: 15px; line-height: 1.7;">
+          <li>Open the issue and inspect the replay around the frozen interval.</li>
+          <li>Compare the top affected app versions and devices to see if this is release-specific.</li>
+          <li>Use the thread state${data.culprit ? ` and <strong>${escapeHtml(data.culprit)}</strong>` : ''} to find the blocking operation.</li>
+        </ol>
+      `,
+    });
 
     sections.push({
       title: 'Why You Got This',
@@ -1386,9 +1604,9 @@ export async function sendErrorSpikeAlertEmail(
   const subject = truncateForSubject(`API error spike in ${data.projectName}: +${data.percentIncrease.toFixed(0)}% (${data.previousRate.toFixed(1)}% -> ${data.currentRate.toFixed(1)}%)`);
 
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'SPIKE', value: `+${data.percentIncrease.toFixed(0)}%` },
-    { label: 'CURRENT', value: `${data.currentRate.toFixed(1)}%` },
-    { label: 'PREVIOUS', value: `${data.previousRate.toFixed(1)}%` },
+    { label: 'Spike', value: `+${data.percentIncrease.toFixed(0)}%`, color: data.percentIncrease >= 100 ? 'red' : 'orange' },
+    { label: 'Current', value: `${data.currentRate.toFixed(1)}%`, color: 'orange' },
+    { label: 'Previous', value: `${data.previousRate.toFixed(1)}%`, color: 'gray' },
   ];
 
   const buildSections = (timeZone: string): EmailSection[] => {
@@ -1397,12 +1615,17 @@ export async function sendErrorSpikeAlertEmail(
       {
         style: 'warning',
         content: `
-          <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">API ERROR RATE SPIKE DETECTED</div>
-          <div style="font-weight: 800; font-size: 19px; margin-bottom: 8px;">API error rate increased ${data.percentIncrease.toFixed(0)}%</div>
-          <div style="margin-top: 8px; font-size: 13px; line-height: 1.55;">This measures HTTP 4xx/5xx responses from your app's API calls. It is separate from crash and ANR alerts.</div>
-          <div style="margin-top: 16px; font-size: 13px; line-height: 1.55;">
-            <strong>Baseline:</strong> ${data.previousRate.toFixed(1)}% &rarr; <strong>Current:</strong> ${data.currentRate.toFixed(1)}%<br>
-            <strong>Detected:</strong> ${escapeHtml(detectedAtLabel)}
+          <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.warning}; font-weight: 800;">API error rate spike</div>
+          <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: ${BRAND.text};">Error rate increased ${data.percentIncrease.toFixed(0)}%</div>
+          <div style="font-size: 14px; line-height: 1.65; color: ${BRAND.text};">This measures HTTP 4xx/5xx responses from your app's API calls. It is separate from crash and ANR alerts.</div>
+          <div style="margin-top: 16px;">
+            ${renderMetricGrid([
+              { label: 'Previous error rate', value: `${data.previousRate.toFixed(1)}%` },
+              { label: 'Current error rate', value: `${data.currentRate.toFixed(1)}%`, tone: 'warning' },
+              { label: 'Increase', value: `+${data.percentIncrease.toFixed(0)}%`, tone: data.percentIncrease >= 100 ? 'error' : 'warning' },
+              { label: 'Detected', value: detectedAtLabel },
+              { label: 'Direction', value: `${data.previousRate.toFixed(1)}% -> ${data.currentRate.toFixed(1)}%`, tone: 'warning' },
+            ])}
           </div>
         `
       },
@@ -1420,7 +1643,7 @@ export async function sendErrorSpikeAlertEmail(
 
     if (data.topErrors && data.topErrors.length > 0) {
       const errorsList = data.topErrors.map(e =>
-        `<div style="margin: 6px 0; font-size: 12px; font-family: monospace;"><strong>${formatCount(e.count)}x</strong> ${escapeHtml(e.name)}</div>`
+        `<div style="border-bottom: 1px solid ${BRAND.border}; padding: 10px 0; font-size: 14px; line-height: 1.5; color: ${BRAND.text};"><strong style="color: ${BRAND.warning};">${formatCount(e.count)}x</strong> ${escapeHtml(e.name)}</div>`
       ).join('');
       sections.push({
         title: 'Top Related Issues',
@@ -1495,8 +1718,9 @@ export async function sendApiDegradationAlertEmail(
   const subject = truncateForSubject(`API latency degradation in ${data.projectName}: +${data.percentIncrease.toFixed(0)}% (${data.previousLatencyMs}ms -> ${data.currentLatencyMs}ms)`);
 
   const metaBadges: EmailMetaBadge[] = [
-    { label: 'LATENCY', value: `${data.currentLatencyMs}ms` },
-    { label: 'INCREASE', value: `+${data.percentIncrease.toFixed(0)}%` },
+    { label: 'Latency', value: `${data.currentLatencyMs}ms`, color: data.currentLatencyMs >= 1000 ? 'red' : 'orange' },
+    { label: 'Increase', value: `+${data.percentIncrease.toFixed(0)}%`, color: data.percentIncrease >= 100 ? 'red' : 'orange' },
+    { label: 'Baseline', value: `${data.previousLatencyMs}ms`, color: 'gray' },
   ];
 
   const buildSections = (timeZone: string): EmailSection[] => {
@@ -1505,11 +1729,17 @@ export async function sendApiDegradationAlertEmail(
       {
         style: 'warning',
         content: `
-          <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">API DEGRADATION DETECTED</div>
-          <div style="font-weight: 800; font-size: 19px; margin-bottom: 8px;">Average API latency increased ${data.percentIncrease.toFixed(0)}%</div>
-          <div style="margin-top: 16px; font-size: 13px; line-height: 1.55;">
-            <strong>Baseline:</strong> ${data.previousLatencyMs}ms &rarr; <strong>Current:</strong> ${data.currentLatencyMs}ms<br>
-            <strong>Detected:</strong> ${escapeHtml(detectedAtLabel)}
+          <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.warning}; font-weight: 800;">API degradation detected</div>
+          <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: ${BRAND.text};">Average API latency increased ${data.percentIncrease.toFixed(0)}%</div>
+          <div style="font-size: 14px; line-height: 1.65; color: ${BRAND.text};">Recent average latency is materially above the baseline for this project.</div>
+          <div style="margin-top: 16px;">
+            ${renderMetricGrid([
+              { label: 'Baseline latency', value: `${data.previousLatencyMs}ms` },
+              { label: 'Current latency', value: `${data.currentLatencyMs}ms`, tone: data.currentLatencyMs >= 1000 ? 'error' : 'warning' },
+              { label: 'Increase', value: `+${data.percentIncrease.toFixed(0)}%`, tone: data.percentIncrease >= 100 ? 'error' : 'warning' },
+              { label: 'Detected', value: detectedAtLabel },
+              { label: 'Direction', value: renderNumberDelta(data.currentLatencyMs, data.previousLatencyMs, 'ms'), tone: 'warning' },
+            ])}
           </div>
         `
       },
@@ -1527,7 +1757,7 @@ export async function sendApiDegradationAlertEmail(
 
     if (data.slowestEndpoints && data.slowestEndpoints.length > 0) {
       const endpointsList = data.slowestEndpoints.map(e =>
-        `<div style="margin: 6px 0; font-size: 12px; font-family: monospace;"><strong>${formatCount(e.latency)}ms</strong> ${escapeHtml(e.method)} ${escapeHtml(e.path)}</div>`
+        `<div style="border-bottom: 1px solid ${BRAND.border}; padding: 10px 0; font-size: 14px; line-height: 1.5; color: ${BRAND.text};"><strong style="color: ${BRAND.warning};">${formatCount(e.latency)}ms</strong> <span style="font-weight: 800;">${escapeHtml(e.method)}</span> ${escapeHtml(e.path)}</div>`
       ).join('');
       sections.push({
         title: 'Slowest Endpoints',

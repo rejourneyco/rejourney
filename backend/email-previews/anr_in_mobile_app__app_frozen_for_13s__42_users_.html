@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Unhandled Crash</title>
+  <title>ANR Alert</title>
   <style>
     @media only screen and (max-width: 680px) {
       .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
@@ -19,7 +19,7 @@
 <body style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafd; margin: 0; padding: 0; color: #202124; line-height: 1.5; -webkit-font-smoothing: antialiased;">
   <!-- Preheader -->
   <div style="display:none;font-size:1px;color:#f8fafd;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
-    NullPointerException: Attempt to invoke virtual method in Mobile App affected 150 users; last seen Jun 19, 2026, 11:29 AM UTC
+    ANR in Mobile App affected 42 users; last seen Jun 19, 2026, 11:29 AM UTC
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   </div>
 
@@ -27,7 +27,7 @@
     <tr>
       <td align="center" class="rj-outer" style="padding: 24px 18px 34px;">
         <div class="rj-container" style="max-width: 760px; margin: 0 auto; background-color: #ffffff; border: 1px solid #dadce0; width: 100%;">
-          <div style="height: 4px; line-height: 4px; background: #b3261e;">&nbsp;</div>
+          <div style="height: 4px; line-height: 4px; background: #b06000;">&nbsp;</div>
           
           <!-- Header -->
           <div class="rj-shell-pad" style="background-color: #ffffff; padding: 30px 38px 26px; border-bottom: 1px solid #dadce0;">
@@ -45,12 +45,12 @@
             </table>
 
             
-              <div style="display: inline-block; color: #b3261e; font-size: 12px; line-height: 1.2; font-weight: 800; margin-bottom: 14px;">
-                Crash alert
+              <div style="display: inline-block; color: #b06000; font-size: 12px; line-height: 1.2; font-weight: 800; margin-bottom: 14px;">
+                ANR alert
               </div>
             
             
-            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Unhandled Crash</h1>
+            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">ANR Alert</h1>
             
             
               <div style="font-size: 13px; font-weight: 600; color: #5f6368; margin: 0 0 18px;">
@@ -63,17 +63,17 @@
                 
       <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #5f6368;">
         <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">ID:</span>
-        <span>ERR-123</span>
+        <span>ANR-42</span>
       </span>
     
       <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Duration:</span>
+        <span>13s</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b06000;">
         <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Users:</span>
-        <span>150</span>
-      </span>
-    
-      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
-        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Status:</span>
-        <span>Unhandled</span>
+        <span>42</span>
       </span>
     
       <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
@@ -81,14 +81,14 @@
         <span>High</span>
       </span>
     
-      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #5f6368;">
-        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Env:</span>
-        <span>Production</span>
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #7b1fa2;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Events:</span>
+        <span>60</span>
       </span>
     
       <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b06000;">
         <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">24h:</span>
-        <span>35</span>
+        <span>18</span>
       </span>
     
               </div>
@@ -100,12 +100,11 @@
             
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         
-        <div style="border-left: 3px solid #b3261e; padding: 0 0 0 16px; background: #ffffff; border-left-color: #b3261e;">
-        <div style="font-size: 13px; margin-bottom: 8px; color: #b3261e; font-weight: 800;">Unhandled exception</div>
-        <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: #202124;">NullPointerException: Attempt to invoke virtual method</div>
-        <div style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; padding: 9px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; color: #0f172a;">com.example.app.MainActivity.onCreate(MainActivity.java:42)</div>
-        <div style="margin-top: 15px; font-size: 14px; line-height: 1.65; color: #202124;">
-          Rejourney grouped this crash in <strong>Mobile App</strong>. It has affected <strong>150 users</strong>. Last seen <strong>Jun 19, 2026, 11:29 AM UTC</strong>.
+        <div style="border-left: 3px solid #b06000; padding: 0 0 0 16px; background: #ffffff; border-left-color: #b06000;">
+        <div style="font-size: 13px; margin-bottom: 8px; color: #b06000; font-weight: 800;">App not responding</div>
+        <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: #202124;">Main thread frozen for 13 seconds</div>
+        <div style="margin-top: 12px; font-size: 14px; line-height: 1.65; color: #202124;">
+          Rejourney detected an ANR in <strong>Mobile App</strong> affecting <strong>42 users</strong> across <strong>60 events</strong>. Last seen <strong>Jun 19, 2026, 11:29 AM UTC</strong>.
         </div>
         <div style="margin-top: 16px;">
           
@@ -114,20 +113,20 @@
       <tr>
         
           <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
-            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">150</div>
-            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Affected users</div>
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">13s</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Freeze duration</div>
             
           </td>
         
           <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
-            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">35</div>
-            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Events in last 24h</div>
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">42</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Affected users</div>
             
           </td>
         
           <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
-            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">150</div>
-            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Events in 90d</div>
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">60</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Total events</div>
             
           </td>
         
@@ -136,19 +135,25 @@
     
       <tr>
         
-          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">18</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Events in last 24h</div>
+            
+          </td>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
             <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">High</div>
             <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Priority</div>
             
           </td>
         
-          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
             <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">Ongoing</div>
             <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Status</div>
             
           </td>
         
-        <td></td>
+        
       </tr>
     
     </table>
@@ -164,7 +169,7 @@
       
         <tr>
           <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Issue ID</td>
-          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">ERR-123</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">ANR-42</td>
         </tr>
       
         <tr>
@@ -175,11 +180,6 @@
         <tr>
           <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Priority</td>
           <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">High</td>
-        </tr>
-      
-        <tr>
-          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Handled</td>
-          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">Unhandled</td>
         </tr>
       
         <tr>
@@ -194,7 +194,7 @@
       
         <tr>
           <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Culprit</td>
-          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">MainActivity.onCreate</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">CheckoutRepository.waitForPayment</td>
         </tr>
       
         <tr>
@@ -204,7 +204,7 @@
       
         <tr>
           <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Sample session</td>
-          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">session_preview_123</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">session_anr_preview_123</td>
         </tr>
       
     </table>
@@ -213,39 +213,43 @@
     
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Affected Versions</h2>
-        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;"><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">v1.0.0 <span style="color: #5f6368; font-weight: 700;">100</span></span><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">v1.1.0 <span style="color: #5f6368; font-weight: 700;">50</span></span></div>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;"><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">v1.2.0 <span style="color: #5f6368; font-weight: 700;">40</span></span><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">v1.1.0 <span style="color: #5f6368; font-weight: 700;">20</span></span></div>
       </div>
     
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
-        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Stack Trace</h2>
-        <div style="border-top: 1px solid #dadce0; border-bottom: 1px solid #dadce0; padding: 14px 0; background: #ffffff; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto;"><pre style="margin: 0; white-space: pre-wrap;">java.lang.NullPointerException: Attempt to invoke virtual method &#39;java.lang.String java.lang.Object.toString()&#39; on a null object reference
-    at com.example.app.MainActivity.onCreate(MainActivity.java:42)
-    at android.app.Activity.performCreate(Activity.java:8000)
-    at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1300)</pre></div>
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Affected Devices</h2>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;"><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Pixel 9 <span style="color: #5f6368; font-weight: 700;">22</span></span><span style="display: inline-block; color: #202124; margin: 0 12px 8px 0; font-size: 12px; line-height: 1.4; font-weight: 700;">Galaxy S25 <span style="color: #5f6368; font-weight: 700;">18</span></span></div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Thread State</h2>
+        <div style="border-top: 1px solid #dadce0; border-bottom: 1px solid #dadce0; padding: 14px 0; background: #ffffff; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto;"><pre style="margin: 0; white-space: pre-wrap;">main thread blocked
+    at com.example.app.CheckoutRepository.waitForPayment(CheckoutRepository.kt:88)
+    at com.example.app.CheckoutViewModel.submit(CheckoutViewModel.kt:51)</pre></div>
       </div>
     
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Suggested Investigation</h2>
         <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
         <ol style="margin: 0; padding-left: 20px; color: #202124; font-size: 15px; line-height: 1.7;">
-          <li>Open the issue and start with the sample session <strong>session_preview_123</strong>.</li>
-          <li>Check the top affected version and device concentration before rolling back or patching.</li>
-          <li>Use the first app frame in the stack trace, especially <strong>MainActivity.onCreate</strong>, as the initial owner hint.</li>
+          <li>Open the issue and inspect the replay around the frozen interval.</li>
+          <li>Compare the top affected app versions and devices to see if this is release-specific.</li>
+          <li>Use the thread state and <strong>CheckoutRepository.waitForPayment</strong> to find the blocking operation.</li>
         </ol>
       </div>
       </div>
     
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Why You Got This</h2>
-        <div style="border-left: 3px solid #b3261e; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
-        This matched your crash email alert rules for Mobile App. Rejourney suppresses duplicate emails for the same issue for one hour and caps project alert emails per day.
+        <div style="border-left: 3px solid #b06000; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
+        This matched your ANR email alert rules for Mobile App. Rejourney suppresses duplicate emails for the same issue for one hour and caps project alert emails per day.
       </div>
       </div>
     
             
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 28px; border-collapse: collapse;">
         <tr>
-          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:8080/dashboard/general/issue_789" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">View Issue</a></td>
+          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:8080/dashboard/general/issue_anr_123" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">View Issue</a></td>
           <td style="padding: 0 0 10px 0;"><a href="http://localhost:8080/dashboard/general" style="background-color: #ffffff; color: #202124; display: inline-block; padding: 11px 15px; font-weight: 800; text-decoration: none; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; line-height: 1.25;">All Issues</a></td>
         </tr>
       </table>

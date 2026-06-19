@@ -1,0 +1,219 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Degradation</title>
+  <style>
+    @media only screen and (max-width: 680px) {
+      .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
+      .rj-container { width: 100% !important; max-width: 100% !important; }
+      .rj-shell-pad { padding-left: 20px !important; padding-right: 20px !important; }
+      .rj-leak-index { width: 30px !important; padding-right: 10px !important; }
+      .rj-leak-body { margin-left: 0 !important; }
+      .rj-leak-impact-cell { display: block !important; width: 100% !important; border-right: 0 !important; padding-right: 0 !important; padding-left: 0 !important; }
+    }
+  </style>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafd; margin: 0; padding: 0; color: #202124; line-height: 1.5; -webkit-font-smoothing: antialiased;">
+  <!-- Preheader -->
+  <div style="display:none;font-size:1px;color:#f8fafd;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+    API latency increased 240% in Mobile App
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+    <tr>
+      <td align="center" class="rj-outer" style="padding: 24px 18px 34px;">
+        <div class="rj-container" style="max-width: 760px; margin: 0 auto; background-color: #ffffff; border: 1px solid #dadce0; width: 100%;">
+          <div style="height: 4px; line-height: 4px; background: #1a73e8;">&nbsp;</div>
+          
+          <!-- Header -->
+          <div class="rj-shell-pad" style="background-color: #ffffff; padding: 30px 38px 26px; border-bottom: 1px solid #dadce0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width: 100%; border-collapse: collapse; margin-bottom: 26px;">
+              <tr>
+                <td style="vertical-align: middle;">
+                  <a href="http://localhost:8080/dashboard" style="font-size: 20px; font-weight: 800; color: #202124; text-decoration: none; letter-spacing: 0;"><span style="display: inline-block; width: 8px; height: 8px; background: #1a73e8; margin-right: 8px; vertical-align: 1px;"></span>Rejourney</a>
+                </td>
+                <td align="right" style="vertical-align: middle; text-align: right;">
+                  
+                    <a href="http://localhost:8080/dashboard/settings/p_123" style="color: #5f6368; font-size: 12px; font-weight: 700; text-decoration: none; display: inline-block;">Mobile App</a>
+                  
+                </td>
+              </tr>
+            </table>
+
+            
+              <div style="display: inline-block; color: #1a73e8; font-size: 12px; line-height: 1.2; font-weight: 800; margin-bottom: 14px;">
+                API degradation
+              </div>
+            
+            
+            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">API Degradation</h1>
+            
+            
+              <div style="font-size: 13px; font-weight: 600; color: #5f6368; margin: 0 0 18px;">
+                Jun 19, 2026, 11:29 AM UTC
+              </div>
+            
+
+            
+              <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #edf0f3;">
+                
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Latency:</span>
+        <span>1430ms</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b3261e;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Increase:</span>
+        <span>+240%</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #5f6368;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Baseline:</span>
+        <span>420ms</span>
+      </span>
+    
+              </div>
+            
+          </div>
+
+          <!-- Content -->
+          <div class="rj-shell-pad" style="padding: 6px 38px 36px;">
+            
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        
+        <div style="border-left: 3px solid #1a73e8; padding: 0 0 0 16px; background: #ffffff; border-left-color: #b06000;">
+          <div style="font-size: 13px; margin-bottom: 8px; color: #b06000; font-weight: 800;">API degradation detected</div>
+          <div style="font-weight: 800; font-size: 20px; line-height: 1.35; margin-bottom: 8px; color: #202124;">Average API latency increased 240%</div>
+          <div style="font-size: 14px; line-height: 1.65; color: #202124;">Recent average latency is materially above the baseline for this project.</div>
+          <div style="margin-top: 16px;">
+            
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+      
+      <tr>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">420ms</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Baseline latency</div>
+            
+          </td>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">1430ms</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Current latency</div>
+            
+          </td>
+        
+          <td width="33%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b3261e; letter-spacing: 0;">+240%</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Increase</div>
+            
+          </td>
+        
+        
+      </tr>
+    
+      <tr>
+        
+          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3; border-right: 1px solid #edf0f3; padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #202124; letter-spacing: 0;">Jun 19, 2026, 11:29 AM UTC</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Detected</div>
+            
+          </td>
+        
+          <td width="50%" style="border-top: 1px solid #edf0f3; border-bottom: 1px solid #edf0f3;  padding: 12px 14px; vertical-align: top;">
+            <div style="font-size: 20px; line-height: 1.2; font-weight: 750; color: #b06000; letter-spacing: 0;">420ms -&gt; 1,430ms</div>
+            <div style="font-size: 11px; line-height: 1.35; color: #6f7785; font-weight: 700; margin-top: 5px;">Direction</div>
+            
+          </td>
+        
+        <td></td>
+      </tr>
+    
+    </table>
+  
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Triage Context</h2>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 14px;">
+      
+        <tr>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Project</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">Mobile App</td>
+        </tr>
+      
+        <tr>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Detected at</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">Jun 19, 2026, 11:29 AM UTC</td>
+        </tr>
+      
+        <tr>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Previous average latency</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">420ms</td>
+        </tr>
+      
+        <tr>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Current average latency</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">1430ms</td>
+        </tr>
+      
+        <tr>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0; color: #5f6368; font-weight: 600; width: 38%; vertical-align: top;">Increase</td>
+          <td style="border-bottom: 1px solid #edf0f3; padding: 10px 0 10px 16px; color: #202124; font-weight: 650; text-align: right; word-break: break-word; vertical-align: top;">+240%</td>
+        </tr>
+      
+    </table>
+  </div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Slowest Endpoints</h2>
+        <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;"><div style="border-bottom: 1px solid #dadce0; padding: 10px 0; font-size: 14px; line-height: 1.5; color: #202124;"><strong style="color: #b06000;">1,430ms</strong> <span style="font-weight: 800;">POST</span> /api/checkout</div><div style="border-bottom: 1px solid #dadce0; padding: 10px 0; font-size: 14px; line-height: 1.5; color: #202124;"><strong style="color: #b06000;">980ms</strong> <span style="font-weight: 800;">GET</span> /api/products/:id</div></div>
+      </div>
+    
+      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Why You Got This</h2>
+        <div style="border-left: 3px solid #1a73e8; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
+        This matched your API latency alert rules for Mobile App. The alert worker compares the recent window against a baseline and rate-limits repeat emails.
+      </div>
+      </div>
+    
+            
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 28px; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:5173/dashboard/api" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">View API Insights</a></td>
+          
+        </tr>
+      </table>
+    
+          </div>
+
+          <!-- Footer -->
+          <div class="rj-shell-pad" style="background-color: #f8fafd; padding: 24px 38px 28px; border-top: 1px solid #dadce0;">
+            <p style="font-size: 12px; color: #5f6368; margin: 0; line-height: 1.65;">
+              Sent to alert recipients for Mobile App. Times shown in UTC.
+            </p>
+            <div style="margin-top: 16px; font-size: 12px;">
+              <a href="http://localhost:8080/dashboard" style="color: #185abc; text-decoration: none; font-weight: 800;">Dashboard</a> &bull;
+              <a href="https://rejourney.co/docs" style="color: #185abc; text-decoration: none; font-weight: 800;">Docs</a> &bull;
+              <a href="mailto:contact@rejourney.co" style="color: #185abc; text-decoration: none; font-weight: 800;">Support</a>
+            </div>
+            <p style="font-size: 12px; color: #5f6368; margin: 0; line-height: 1.65;; margin-top: 16px; font-weight: 700; color: #202124;">
+              Rejourney
+            </p>
+          </div>
+
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  

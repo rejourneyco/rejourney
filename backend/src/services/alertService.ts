@@ -35,9 +35,14 @@ export interface LeakScanDigestIssue {
     title: string;
     issueType?: string | null;
     severity?: string | null;
+    status?: string | null;
+    whyItMatters?: string | null;
     estimatedAffectedUsers: number;
     affectedSessions?: number | null;
+    firstSeen?: Date | null;
     lastSeen?: Date | null;
+    contextStatus?: string | null;
+    topSignals?: string[] | null;
 }
 
 export interface TriggerLeakScanDigestEmailInput {
@@ -351,7 +356,7 @@ export async function triggerLeakScanDigestEmail(
             input.projectId,
             recipientDetails,
             'leak_scan',
-            'Leak Scan Today',
+            `Leak scan for ${projectName}: ${sortedIssues.length} ${sortedIssues.length === 1 ? 'issue' : 'issues'}`,
             `${sortedIssues.length} leak ${sortedIssues.length === 1 ? 'issue' : 'issues'}`,
         );
 
@@ -423,14 +428,21 @@ export async function triggerCrashAlert(
         let subtitle: string | undefined;
         let screenName: string | undefined;
         let componentName: string | undefined;
+        let culprit: string | undefined;
         let environment: string | undefined;
+        let status: string | undefined;
+        let priority: string | undefined;
         let firstSeen: Date | undefined;
         let lastSeen: Date | undefined;
         let isHandled: boolean | undefined;
         let eventCount: number | undefined;
+        let events24h: number | undefined;
+        let events90d: number | undefined;
+        let sampleSessionId: string | undefined;
         let sampleAppVersion: string | undefined;
         let sampleOsVersion: string | undefined;
         let sampleDeviceModel: string | undefined;
+        let affectedUsersForEmail = affectedUsers;
 
         if (issueId) {
             const [issue] = await db
@@ -447,14 +459,21 @@ export async function triggerCrashAlert(
                 subtitle = issue.subtitle || undefined;
                 screenName = issue.screenName || undefined;
                 componentName = issue.componentName || undefined;
+                culprit = issue.culprit || undefined;
                 environment = issue.environment || undefined;
+                status = issue.status || undefined;
+                priority = issue.priority || undefined;
                 firstSeen = issue.firstSeen || undefined;
                 lastSeen = issue.lastSeen || undefined;
                 isHandled = issue.isHandled === null ? undefined : issue.isHandled;
                 eventCount = issue.eventCount ? Number(issue.eventCount) : undefined;
+                events24h = issue.events24h ?? undefined;
+                events90d = issue.events90d ?? undefined;
+                sampleSessionId = issue.sampleSessionId || undefined;
                 sampleAppVersion = issue.sampleAppVersion || undefined;
                 sampleOsVersion = issue.sampleOsVersion || undefined;
                 sampleDeviceModel = issue.sampleDeviceModel || undefined;
+                affectedUsersForEmail = Number(issue.userCount || affectedUsers);
             }
         }
 
@@ -468,18 +487,24 @@ export async function triggerCrashAlert(
             subtitle,
             shortId,
             issueId,
-            affectedUsers,
+            affectedUsers: affectedUsersForEmail,
             eventCount,
+            events24h,
+            events90d,
             issueUrl,
             stackTrace,
             affectedVersions,
             affectedDevices,
             screenName,
             componentName,
+            culprit,
             environment,
+            status,
+            priority,
             firstSeen,
             lastSeen,
             isHandled,
+            sampleSessionId,
             sampleAppVersion,
             sampleOsVersion,
             sampleDeviceModel,
@@ -536,13 +561,21 @@ export async function triggerAnrAlert(
         let affectedDevices: Record<string, number> | undefined;
         let shortId: string | undefined;
         let screenName: string | undefined;
+        let componentName: string | undefined;
+        let culprit: string | undefined;
         let environment: string | undefined;
+        let status: string | undefined;
+        let priority: string | undefined;
         let firstSeen: Date | undefined;
         let lastSeen: Date | undefined;
         let eventCount: number | undefined;
+        let events24h: number | undefined;
+        let events90d: number | undefined;
+        let sampleSessionId: string | undefined;
         let sampleAppVersion: string | undefined;
         let sampleOsVersion: string | undefined;
         let sampleDeviceModel: string | undefined;
+        let affectedUsersForEmail = affectedUsers;
 
         if (issueId) {
             const [issue] = await db
@@ -557,13 +590,21 @@ export async function triggerAnrAlert(
                 affectedDevices = (issue.affectedDevices as Record<string, number>) || undefined;
                 shortId = issue.shortId || undefined;
                 screenName = issue.screenName || undefined;
+                componentName = issue.componentName || undefined;
+                culprit = issue.culprit || undefined;
                 environment = issue.environment || undefined;
+                status = issue.status || undefined;
+                priority = issue.priority || undefined;
                 firstSeen = issue.firstSeen || undefined;
                 lastSeen = issue.lastSeen || undefined;
                 eventCount = issue.eventCount ? Number(issue.eventCount) : undefined;
+                events24h = issue.events24h ?? undefined;
+                events90d = issue.events90d ?? undefined;
+                sampleSessionId = issue.sampleSessionId || undefined;
                 sampleAppVersion = issue.sampleAppVersion || undefined;
                 sampleOsVersion = issue.sampleOsVersion || undefined;
                 sampleDeviceModel = issue.sampleDeviceModel || undefined;
+                affectedUsersForEmail = Number(issue.userCount || affectedUsers);
             }
         }
 
@@ -574,8 +615,10 @@ export async function triggerAnrAlert(
             projectId,
             projectName,
             durationMs,
-            affectedUsers,
+            affectedUsers: affectedUsersForEmail,
             eventCount,
+            events24h,
+            events90d,
             shortId,
             issueId,
             issueUrl,
@@ -583,9 +626,14 @@ export async function triggerAnrAlert(
             affectedVersions,
             affectedDevices,
             screenName,
+            componentName,
+            culprit,
             environment,
+            status,
+            priority,
             firstSeen,
             lastSeen,
+            sampleSessionId,
             sampleAppVersion,
             sampleOsVersion,
             sampleDeviceModel,

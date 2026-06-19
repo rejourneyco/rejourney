@@ -32,6 +32,7 @@ import {
     getLeakContextRaw,
     getLeakRunHistory,
     getLeaks,
+    requestLeakContext,
     updateLeak,
     type GithubLinkStatus,
     type LeakDetail,
@@ -94,9 +95,74 @@ function formatIssueType(issueType: string): string {
     return issueType.replace(/_/g, ' ');
 }
 
-function estimateAffectedPercent(leak: LeakSummary): number {
+function estimateAffectedPercent(leak: LeakSummary): number | null {
+    if (
+        typeof leak.estimatedAffectedUsersPercent === 'number' &&
+        Number.isFinite(leak.estimatedAffectedUsersPercent) &&
+        leak.estimatedAffectedUsersPercent > 0
+    ) {
+        return Math.min(100, Math.max(0.1, leak.estimatedAffectedUsersPercent));
+    }
+    if (leak.affectedUsersCount <= 0) return null;
     const denominator = Math.max(leak.affectedSessionsCount, leak.affectedUsersCount, 1);
-    return Math.min(99, Math.max(1, Math.round((leak.affectedUsersCount / denominator) * 100)));
+    return Math.min(100, Math.max(0.1, Number(((leak.affectedUsersCount / denominator) * 100).toFixed(1))));
+}
+
+function formatCountLabel(value: number, singular: string, plural = `${singular}s`): string {
+    const safe = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    return `${safe} ${safe === 1 ? singular : plural}`;
+}
+
+function formatPercentLabel(percent: number): string {
+    return percent < 10 && !Number.isInteger(percent) ? `${percent.toFixed(1)}%` : `${Math.round(percent)}%`;
+}
+
+function estimatedAffectedUsers(leak: LeakSummary): number | null {
+    const estimate = leak.estimatedAffectedUsersCount;
+    if (typeof estimate === 'number' && Number.isFinite(estimate) && estimate > 0) return Math.round(estimate);
+    return leak.affectedUsersCount > 0 ? leak.affectedUsersCount : null;
+}
+
+function hasSampleAffectedEstimate(leak: LeakSummary): boolean {
+    return Boolean(
+        leak.affectedEstimateBasis &&
+        leak.affectedEstimateBasis !== 'observed_only' &&
+        typeof leak.estimatedAffectedUsersCount === 'number' &&
+        leak.estimatedAffectedUsersCount > 0
+    );
+}
+
+function affectedUsersLabel(leak: LeakSummary): string {
+    const users = estimatedAffectedUsers(leak);
+    if (users === null) return 'Users unknown';
+    return `${hasSampleAffectedEstimate(leak) ? '~' : ''}${formatCountLabel(users, 'user')}`;
+}
+
+function affectedUsersDetailLabel(leak: LeakSummary): string {
+    const users = estimatedAffectedUsers(leak);
+    if (users === null) return 'Affected users unknown';
+    const prefix = hasSampleAffectedEstimate(leak) ? 'Estimated ~' : '';
+    return `${prefix}${formatCountLabel(users, 'affected user')}`;
+}
+
+function affectedEstimateSampleLabel(leak: LeakSummary): string | null {
+    const sampleSize = leak.affectedEstimateSampleSize;
+    const totalSessions = leak.affectedEstimateTotalSessions;
+    if (
+        !sampleSize ||
+        !totalSessions ||
+        leak.affectedEstimateBasis === 'observed_only' ||
+        sampleSize >= totalSessions
+    ) {
+        return null;
+    }
+    return `Sample ${formatCompactNumber(sampleSize)} / ${formatCompactNumber(totalSessions)} sessions`;
+}
+
+function affectedBadgeLabel(leak: LeakSummary, percent: number | null): string {
+    if (percent !== null) return `Est affected ${formatPercentLabel(percent)}`;
+    const users = estimatedAffectedUsers(leak);
+    return users === null ? 'Users unknown' : `Est ${formatCountLabel(users, 'user')}`;
 }
 
 function generalAccentClass(leak: LeakSummary): string {
@@ -106,7 +172,8 @@ function generalAccentClass(leak: LeakSummary): string {
     return accents[index];
 }
 
-function affectedPercentClass(percent: number): string {
+function affectedPercentClass(percent: number | null): string {
+    if (percent === null) return 'border-slate-200 bg-slate-50 text-slate-600';
     if (percent >= 75) return 'border-rose-200 bg-rose-50 text-rose-700';
     if (percent >= 50) return 'border-amber-200 bg-amber-50 text-amber-700';
     return 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -115,6 +182,7 @@ function affectedPercentClass(percent: number): string {
 function affectedFilterMatches(leak: LeakSummary, filter: AffectedFilter): boolean {
     if (filter === 'all') return true;
     const percent = estimateAffectedPercent(leak);
+    if (percent === null) return false;
     if (filter === 'high') return percent >= 75;
     if (filter === 'medium') return percent >= 50 && percent < 75;
     return percent < 50;
@@ -656,15 +724,15 @@ function LeakRow({
                         {leak.whyItMatters}
                     </p>
                     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-[#6f7785]">
-                        <span>{leak.affectedSessionsCount} sessions</span>
+                        <span>{formatCountLabel(leak.affectedSessionsCount, 'session')}</span>
                         <span className="truncate">{formatIssueType(leak.issueType)}</span>
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
 	                    <span className={`inline-flex h-6 items-center rounded-sm border px-2 text-[10px] font-bold uppercase leading-none tabular-nums ${affectedPercentClass(affectedPercent)}`}>
-	                        Est affected {affectedPercent}%
+	                        {affectedBadgeLabel(leak, affectedPercent)}
 	                    </span>
-                    <span className="text-[11px] font-semibold tabular-nums text-[#6f7785]">{leak.affectedUsersCount} users</span>
+                    <span className="text-[11px] font-semibold tabular-nums text-[#6f7785]">{affectedUsersLabel(leak)}</span>
                 </div>
             </div>
         </button>
@@ -1171,6 +1239,7 @@ export const Leaks: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [handoffStatus, setHandoffStatus] = useState<string | null>(null);
+    const [isGeneratingContext, setIsGeneratingContext] = useState(false);
     const [isOpeningIde, setIsOpeningIde] = useState(false);
     const [openAfterSetup, setOpenAfterSetup] = useState(false);
     const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
@@ -1407,14 +1476,6 @@ export const Leaks: React.FC = () => {
             return;
         }
 
-        if (!isDemoMode && !selectedProjectHasRecentData) {
-            setLeaks([]);
-            setSelectedLeakId(null);
-            setError(null);
-            setIsLoading(false);
-            return;
-        }
-
         let cancelled = false;
         setIsLoading(true);
         setError(null);
@@ -1438,7 +1499,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [githubLinked, githubStatusKnown, isDemoMode, linkLoading, projectId, selectedProjectHasRecentData]);
+    }, [githubLinked, githubStatusKnown, linkLoading, projectId]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1524,6 +1585,31 @@ export const Leaks: React.FC = () => {
         return copiedToClipboard;
     };
 
+    const generateContext = async () => {
+        if (!activeLeak) return;
+        setIsGeneratingContext(true);
+        setHandoffStatus(null);
+        try {
+            const updated = await requestLeakContext(activeLeak.id);
+            const {
+                evidenceGroups: _evidenceGroups,
+                sessions: _sessions,
+                contextMarkdown: _contextMarkdown,
+                contextMarkdownUrl: _contextMarkdownUrl,
+                ...updatedSummary
+            } = updated;
+            setSelectedLeak(updated);
+            setLeaks((items) => items.map((item) => item.id === updated.id ? { ...item, ...updatedSummary } : item));
+            setHandoffStatus(updated.contextStatus === 'ready'
+                ? 'Markdown context is ready.'
+                : 'Context generation started. Refresh this issue in a moment.');
+        } catch (err) {
+            setHandoffStatus(err instanceof Error ? err.message : 'Could not generate markdown context.');
+        } finally {
+            setIsGeneratingContext(false);
+        }
+    };
+
     const sendContextToIde = async (config = ideConfig) => {
         if (!activeLeak) return;
         const ideMeta = LEAK_IDE_OPTIONS[config.ide];
@@ -1605,7 +1691,32 @@ export const Leaks: React.FC = () => {
 
     const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
     const activeIdeMeta = LEAK_IDE_OPTIONS[ideConfig.ide];
-    const showSetupEmptyState = Boolean(selectedProject?.id) && !isDemoMode && !isLoading && !selectedProjectHasRecentData && leaks.length === 0;
+    const canGenerateContext = Boolean(
+        activeLeak &&
+            activeLeak.status !== 'budget_exhausted' &&
+            activeLeak.contextStatus !== 'ready' &&
+            activeLeak.contextStatus !== 'researching' &&
+            activeLeak.contextStatus !== 'running',
+    );
+    const handoffMessage = !activeLeak
+        ? ''
+        : activeLeak.status === 'budget_exhausted'
+            ? 'Budget guard paused analysis. The signal stays in this inbox until the next analysis window.'
+            : activeLeak.contextStatus === 'ready'
+                ? ideConfig.handoffMode === 'copy'
+                    ? `Markdown context is ready. Copy it for the existing ${activeIdeMeta.label} window.`
+                    : activeIdeMeta.supportsPromptPrefill
+                    ? `Markdown context is ready. ${activeIdeMeta.label} opens with the handoff prefilled.`
+                    : `Markdown context is ready. ${activeIdeMeta.label} opens the repo after copying the handoff.`
+                : activeLeak.contextStatus === 'researching' || activeLeak.contextStatus === 'running'
+                    ? 'Research is running. You can review the evidence now, then use the markdown handoff when it is ready.'
+                    : activeLeak.contextStatus === 'failed'
+                        ? 'Markdown context generation failed. Generate it again when you want the IDE handoff.'
+                        : 'Markdown context has not been generated yet. Generate it to use the IDE handoff.';
+    const runHistoryCount = runHistory?.stats.total ?? runHistory?.runs.length ?? 0;
+    const hasRunHistory = runHistoryCount > 0;
+    const runHistoryKnown = Boolean(runHistory || runHistoryError);
+    const showSetupEmptyState = Boolean(selectedProject?.id) && !isDemoMode && !isLoading && !selectedProjectHasRecentData && !hasRunHistory && runHistoryKnown && leaks.length === 0;
     const githubSetupHref = `${pathPrefix}/settings/${encodeURIComponent(projectId)}/github`;
     const hasSignalViewFilter = search.trim().length > 0 || affectedFilter !== 'all';
     const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && githubLinked && leaks.length === 0 && !hasSignalViewFilter;
@@ -1762,7 +1873,7 @@ export const Leaks: React.FC = () => {
                                     <div className="flex flex-wrap justify-center gap-2">
                                         <Link
                                             to={`${pathPrefix}/setup`}
-                                            className="inline-flex h-9 items-center gap-2 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold text-white transition-colors hover:bg-[#2563eb]"
+                                            className="inline-flex h-9 items-center gap-2 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold !text-white transition-colors hover:bg-[#2563eb] hover:!text-white focus-visible:!text-white"
                                         >
                                             <Wrench className="h-4 w-4" />
                                             Open setup
@@ -1819,14 +1930,25 @@ export const Leaks: React.FC = () => {
                                 </div>
 
                                 <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-                                    <PaneButton
-                                        icon={copyButtonIcon}
-                                        onClick={copyContext}
-                                        disabled={!handoffReady}
-                                        className={copyButtonClassName}
-                                    >
-                                        {copied ? 'Copied to clipboard' : 'Copy .md context'}
-                                    </PaneButton>
+                                    {handoffReady ? (
+                                        <PaneButton
+                                            icon={copyButtonIcon}
+                                            onClick={copyContext}
+                                            disabled={isGeneratingContext}
+                                            className={copyButtonClassName}
+                                        >
+                                            {copied ? 'Copied to clipboard' : 'Copy .md Fix'}
+                                        </PaneButton>
+                                    ) : (
+                                        <PaneButton
+                                            icon={isGeneratingContext ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                                            onClick={() => void generateContext()}
+                                            disabled={!canGenerateContext || isGeneratingContext}
+                                            className="w-full sm:w-auto"
+                                        >
+                                            {isGeneratingContext ? 'Generating...' : 'Generate .md Fix'}
+                                        </PaneButton>
+                                    )}
                                     <PaneButton
                                         icon={<SquareArrowOutUpRight className="h-4 w-4" />}
                                         onClick={() => void sendContextToIde()}
@@ -1838,15 +1960,7 @@ export const Leaks: React.FC = () => {
                                 </div>
 
                                 <p className="mt-4 max-w-3xl text-sm font-medium leading-6 text-[#5f6368]">
-                                    {activeLeak.status === 'budget_exhausted'
-                                        ? 'Budget guard paused analysis. The signal stays in this inbox until the next analysis window.'
-                                        : activeLeak.contextStatus === 'ready'
-                                            ? ideConfig.handoffMode === 'copy'
-                                                ? `Markdown context is ready. Copy it for the existing ${activeIdeMeta.label} window.`
-                                                : activeIdeMeta.supportsPromptPrefill
-                                                ? `Markdown context is ready. ${activeIdeMeta.label} opens with the handoff prefilled.`
-                                                : `Markdown context is ready. ${activeIdeMeta.label} opens the repo after copying the handoff.`
-                                            : 'Research is still running. You can review the evidence now, then use the markdown handoff when it is ready.'}
+                                    {handoffMessage}
                                 </p>
                                 {handoffStatus && (
                                     <div
@@ -1877,11 +1991,16 @@ export const Leaks: React.FC = () => {
                                             </p>
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 <span className="inline-flex h-8 items-center rounded-sm bg-[#e6e7e1] px-3 text-sm font-semibold text-[#3c4043]">
-                                                    {activeLeak.affectedSessionsCount} occurrences
+                                                    {formatCountLabel(activeLeak.affectedSessionsCount, 'occurrence')}
                                                 </span>
                                                 <span className="inline-flex h-8 items-center rounded-sm bg-[#e6e7e1] px-3 text-sm font-semibold text-[#3c4043]">
-                                                    {activeLeak.affectedUsersCount} affected users
+                                                    {affectedUsersDetailLabel(activeLeak)}
                                                 </span>
+                                                {affectedEstimateSampleLabel(activeLeak) && (
+                                                    <span className="inline-flex h-8 items-center rounded-sm bg-[#eef4ff] px-3 text-sm font-semibold text-[#34517a]">
+                                                        {affectedEstimateSampleLabel(activeLeak)}
+                                                    </span>
+                                                )}
                                             </div>
                                         </section>
 
@@ -1929,14 +2048,24 @@ export const Leaks: React.FC = () => {
                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                 <SectionTitle>Markdown context</SectionTitle>
                                                 <div className="flex flex-wrap gap-2">
-                                                    <PaneButton
-                                                        icon={copyButtonIcon}
-                                                        onClick={copyContext}
-                                                        disabled={!handoffReady}
-                                                        className={copyButtonClassName}
-                                                    >
-                                                        {copied ? 'Copied to clipboard' : 'Copy .md'}
-                                                    </PaneButton>
+                                                    {handoffReady ? (
+                                                        <PaneButton
+                                                            icon={copyButtonIcon}
+                                                            onClick={copyContext}
+                                                            disabled={isGeneratingContext}
+                                                            className={copyButtonClassName}
+                                                        >
+                                                            {copied ? 'Copied to clipboard' : 'Copy .md'}
+                                                        </PaneButton>
+                                                    ) : (
+                                                        <PaneButton
+                                                            icon={isGeneratingContext ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                                                            onClick={() => void generateContext()}
+                                                            disabled={!canGenerateContext || isGeneratingContext}
+                                                        >
+                                                            {isGeneratingContext ? 'Generating...' : 'Generate .md'}
+                                                        </PaneButton>
+                                                    )}
                                                     <PaneButton
                                                         icon={<SquareArrowOutUpRight className="h-4 w-4" />}
                                                         onClick={() => void sendContextToIde()}

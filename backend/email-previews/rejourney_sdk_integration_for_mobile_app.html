@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Team Invitation</title>
+  <title>Rejourney Setup Instructions</title>
   <style>
     @media only screen and (max-width: 680px) {
       .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
@@ -19,7 +19,7 @@
 <body style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafd; margin: 0; padding: 0; color: #202124; line-height: 1.5; -webkit-font-smoothing: antialiased;">
   <!-- Preheader -->
   <div style="display:none;font-size:1px;color:#f8fafd;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
-    Sam invited you to join Rocket Ship
+    Sam sent Rejourney SDK setup instructions for Mobile App
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   </div>
 
@@ -38,6 +38,8 @@
                 </td>
                 <td align="right" style="vertical-align: middle; text-align: right;">
                   
+                    <a href="http://localhost:8080/dashboard/setup" style="color: #5f6368; font-size: 12px; font-weight: 700; text-decoration: none; display: inline-block;">Mobile App</a>
+                  
                 </td>
               </tr>
             </table>
@@ -48,7 +50,7 @@
               </div>
             
             
-            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Team Invitation</h1>
+            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Rejourney Setup Instructions</h1>
             
             
 
@@ -61,31 +63,48 @@
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         
         <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
-          <div style="font-size: 16px; line-height: 1.65;">
-            <strong>Sam</strong> invited you to join <strong>Rocket Ship</strong> on Rejourney.
+          <div style="font-size: 16px; font-weight: 600;">
+            <strong>Sam</strong> sent setup instructions for <strong>Mobile App</strong>.
           </div>
         </div>
       </div>
     
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
-        
-        <div style="border-left: 3px solid #202124; padding: 0 0 0 16px; background: #ffffff; border-left-color: #188038;">
-          <div style="font-size: 14px;">
-            <div style="margin-bottom: 5px; color: #5f6368; font-weight: 700;">Assigned role</div>
-            <div style="font-size: 22px; font-weight: 800; color: #202124;">admin</div>
-          </div>
-        </div>
-      </div>
-    
-      <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
-        
-        <div style="border-left: 3px solid #202124; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">Link expires in <strong>7 days</strong>.</div>
+        <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Setup Email</h2>
+        <div style="border-top: 1px solid #dadce0; border-bottom: 1px solid #dadce0; padding: 14px 0; background: #ffffff; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto;"><pre style="white-space: pre-wrap; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55;">Hi,
+
+Could you please integrate Rejourney into Mobile App? It will allow us to record sessions and track user diagnostics.
+
+Project details:
+- Team: Rocket Ship
+- Project: Mobile App
+- API Key: rj_public_demo
+- Platforms: iOS, Android, React Native
+- iOS bundle ID: co.rejourney.mobile
+- Android package name: co.rejourney.mobile
+
+Here are the quick options to get it set up:
+
+Option 1: Using an AI Coding Agent (Cursor, Copilot, v0, etc.) - Recommended
+Just copy and paste the prompt below into your AI editor. It has all the files and configurations needed:
+--------------------------------------------------
+Install @rejourney/react-native and initialize it with rj_public_demo in the app bootstrap.
+--------------------------------------------------
+
+Option 2: Manual Setup
+- Package install: Install the Rejourney package.
+- Initialize: Start the SDK with our project API key.
+  API Key: rj_public_demo
+
+Once complete, please trigger a local test session so we can verify the data on our end.
+
+Thank you!</pre></div>
       </div>
     
             
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 28px; border-collapse: collapse;">
         <tr>
-          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:8080/invite/accept/mock-token-123" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">Accept Invitation</a></td>
+          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:8080/dashboard/setup" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">Open Rejourney Setup</a></td>
           
         </tr>
       </table>

@@ -3686,7 +3686,7 @@ export async function updateIssue(
 
 export type LeakStatus = 'queued' | 'researching' | 'ready' | 'resolved' | 'ignored' | 'budget_exhausted' | 'failed';
 export type LeakSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type LeakContextStatus = 'queued' | 'running' | 'ready' | 'budget_exhausted' | 'failed';
+export type LeakContextStatus = 'none' | 'queued' | 'running' | 'researching' | 'ready' | 'budget_exhausted' | 'failed';
 
 export interface LeakCodePointer {
     file: string;
@@ -3706,6 +3706,14 @@ export interface LeakSummary {
     whyItMatters: string;
     affectedSessionsCount: number;
     affectedUsersCount: number;
+    estimatedAffectedUsersCount?: number;
+    estimatedAffectedSessionsCount?: number;
+    estimatedAffectedUsersPercent?: number | null;
+    affectedEstimateSampleSize?: number;
+    affectedEstimateTotalSessions?: number;
+    affectedEstimateObservedSessions?: number;
+    affectedEstimateBasis?: 'known_users' | 'session_proxy' | 'observed_only';
+    affectedEstimateConfidence?: 'high' | 'medium' | 'low';
     firstSeenAt: string;
     lastSeenAt: string;
     estimatedCostUsd?: number;

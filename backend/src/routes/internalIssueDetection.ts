@@ -42,9 +42,14 @@ const leakScanEmailBodySchema = z.object({
         title: z.string().min(1).max(500),
         issueType: z.string().max(80).nullable().optional(),
         severity: z.string().max(40).nullable().optional(),
+        status: z.string().max(40).nullable().optional(),
+        whyItMatters: z.string().max(1500).nullable().optional(),
         estimatedAffectedUsers: z.number().int().nonnegative(),
         affectedSessions: z.number().int().nonnegative().nullable().optional(),
+        firstSeen: z.string().datetime().nullable().optional(),
         lastSeen: z.string().datetime().nullable().optional(),
+        contextStatus: z.string().max(40).nullable().optional(),
+        topSignals: z.array(z.string().max(80)).max(12).nullable().optional(),
     })).min(1).max(50),
 });
 
@@ -228,6 +233,7 @@ router.post('/leak-scan-email', asyncHandler(async (req, res) => {
         admittedSessions: parsed.data.admittedSessions,
         issues: parsed.data.issues.map((issue) => ({
             ...issue,
+            firstSeen: issue.firstSeen ? new Date(issue.firstSeen) : null,
             lastSeen: issue.lastSeen ? new Date(issue.lastSeen) : null,
         })),
     });
