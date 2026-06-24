@@ -18,7 +18,7 @@ const LOGIN_PATH = '/login';
 const LANDING_IMAGE_VERSION = '20260619';
 const landingImage = (path: string) => `${path}?v=${LANDING_IMAGE_VERSION}`;
 
-const SESSION_REPLAY_IMAGE = landingImage('/images/session-replay-preview.png');
+const SESSION_REPLAY_IMAGE = landingImage('/images/landing-replay-workbench.png');
 const ISSUE_FEED_IMAGE = landingImage('/images/issues-feed.png');
 const REVENUE_IMAGE = landingImage('/images/growth-engines.png');
 const STABILITY_IMAGE = landingImage('/images/anr-issues.png');
@@ -256,7 +256,7 @@ export const AiLeakHomepage: React.FC = () => {
                         <div className="mx-auto max-w-4xl text-center">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Replay context</p>
                             <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                                First, Rejourney keeps the exact user session attached.
+                                First, Rejourney records the user sessions.
                             </h3>
                             <p className="mt-4 text-base font-medium leading-8 text-slate-600">
                                 The repair note is grounded in the replay timeline: user actions, console events, network failures, DOM state, and the specific sessions that prove the leak is real.
@@ -272,7 +272,7 @@ export const AiLeakHomepage: React.FC = () => {
                         <div className="space-y-4">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Issue detection</p>
                             <h3 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                                Then, Marlin watches the ranked leak feed.
+                                Then, Marlin creates the ranked leak feed.
                             </h3>
                             <p className="text-base font-medium leading-8 text-slate-600">
                                 Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
