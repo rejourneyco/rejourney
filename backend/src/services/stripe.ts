@@ -939,7 +939,7 @@ async function resolveBillingRecipientEmails(
             inArray(teamMembers.role, ['owner', 'admin', 'billing_admin'])
         ));
 
-    let recipientEmails = [
+    const recipientEmails = [
         ...members.map((member) => member.email),
         team.billingEmail,
         ...extraEmails,
