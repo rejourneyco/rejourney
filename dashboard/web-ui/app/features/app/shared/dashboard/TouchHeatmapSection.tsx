@@ -1,13 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Activity,
+    Check,
+    ChevronLeft,
+    ChevronRight,
     Eye,
+    Image as ImageIcon,
     Layers3,
     ListFilter,
     Loader2,
     Monitor,
     MousePointer2,
+    RotateCcw,
     Smartphone,
+    X,
 } from 'lucide-react';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
@@ -15,10 +21,15 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getHeatmapsOverview,
     getHeatmapScreenOverview,
+    getHeatmapBaseFrameCandidates,
     getWebAttentionHeatmap,
+    saveHeatmapBaseTemplate,
+    deleteHeatmapBaseTemplate,
     getSessionReplayManifest,
     type AlltimeHeatmapScreen,
     type ApiSessionReplayManifest,
+    type HeatmapBaseFrameCandidate,
+    type HeatmapBaseTemplate,
     type HeatmapHotspot as ApiHeatmapHotspot,
     type HeatmapMode,
     type HeatmapIterationScreen,
@@ -35,6 +46,8 @@ import { getAvailableHeatmapModes, getDefaultHeatmapMode } from './heatmapMode';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 const HEATMAP_DETAIL_FETCH_CONCURRENCY = 4;
+const BASE_FRAME_PAGE_SIZE = 36;
+const BASE_FRAME_ALL_SESSIONS = 'all';
 
 function heatmapDebug(message: string, details?: unknown): void {
     let enabled = false;
@@ -385,6 +398,7 @@ interface PreviewHeatmapScreen {
     pageHeight?: number | null;
     viewportWidth?: number | null;
     viewportHeight?: number | null;
+    baseTemplate?: HeatmapBaseTemplate | null;
 }
 
 interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
@@ -403,10 +417,12 @@ interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
     priority: PriorityType;
     evidenceSessionId: string | null;
     platform?: string | null;
+    baseTemplate?: HeatmapBaseTemplate | null;
 }
 
 type VersionHeatmapScreen = HeatmapIterationScreen & {
     touchHotspots?: HeatmapHotspot[];
+    baseTemplate?: HeatmapBaseTemplate | null;
 };
 
 type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
@@ -503,6 +519,42 @@ const formatDwellDuration = (ms: number): string => {
     const seconds = totalSeconds % 60;
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
+
+const formatFrameOffset = (seconds: number | null): string => {
+    if (seconds === null || !Number.isFinite(seconds)) return '--:--';
+    const rounded = Math.max(0, Math.round(seconds));
+    const minutes = Math.floor(rounded / 60);
+    const remaining = rounded % 60;
+    return `${minutes}:${String(remaining).padStart(2, '0')}`;
+};
+
+const formatBaseFrameSessionStartedAt = (value: string): string => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown time';
+    return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const formatBaseFramePlatform = (value: string | null): string => {
+    if (!value) return 'Unknown';
+    if (value === 'ios') return 'iOS';
+    if (value === 'android') return 'Android';
+    if (value === 'web') return 'Web';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
+const shortSessionId = (sessionId: string): string => {
+    if (sessionId.length <= 18) return sessionId;
+    return `${sessionId.slice(0, 10)}...${sessionId.slice(-6)}`;
+};
+
+const isWebBaseFrameCandidate = (candidate: HeatmapBaseFrameCandidate | null, fallbackPlatform: string): boolean => (
+    candidate?.platform === 'web' || fallbackPlatform === 'web'
+);
 
 const formatAttentionHoverDuration = (ms: number, mode: ResolvedHeatmapViewer): string => {
     if (mode === 'web') return formatDwellDuration(ms);
@@ -1346,6 +1398,77 @@ const HeatmapPreview: React.FC<{
     );
 };
 
+const FrameCandidateImage: React.FC<{
+    url: string;
+    alt: string;
+    selected?: boolean;
+    fit?: 'cover' | 'contain';
+}> = ({ url, alt, selected = false, fit = 'contain' }) => {
+    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        let objectUrl: string | null = null;
+        setBlobUrl(null);
+        setFailed(false);
+
+        const fetchUrl = toAbsoluteHeatmapImageUrl(url);
+        const csrfToken = getCsrfToken() || '';
+        const sameOrigin = (() => {
+            try {
+                return new URL(fetchUrl, window.location.href).origin === window.location.origin;
+            } catch {
+                return true;
+            }
+        })();
+
+        fetch(fetchUrl, {
+            credentials: sameOrigin ? 'include' : 'omit',
+            headers: sameOrigin
+                ? { Accept: 'image/*', 'X-CSRF-Token': csrfToken }
+                : { Accept: 'image/*' },
+        })
+            .then((response) => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.blob();
+            })
+            .then((blob) => {
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(blob);
+                setBlobUrl(objectUrl);
+            })
+            .catch(() => {
+                if (!cancelled) setFailed(true);
+            });
+
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [url]);
+
+    if (failed) {
+        return (
+            <div className={`flex h-full w-full items-center justify-center bg-slate-100 text-[11px] font-bold text-slate-500 ${selected ? 'ring-2 ring-cyan-500' : ''}`}>
+                Unavailable
+            </div>
+        );
+    }
+
+    if (!blobUrl) {
+        return <div className="h-full w-full animate-pulse bg-slate-200" />;
+    }
+
+    return (
+        <img
+            src={blobUrl}
+            alt={alt}
+            className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${selected ? 'ring-2 ring-cyan-500' : ''}`}
+        />
+    );
+};
+
 interface TouchHeatmapSectionProps {
     timeRange?: TimeRange;
     platform?: string;
@@ -1372,6 +1495,15 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const [attentionByScreen, setAttentionByScreen] = useState<Record<string, WebAttentionHeatmapResponse>>({});
     const [attentionLoadingFor, setAttentionLoadingFor] = useState<string | null>(null);
     const [attentionErrors, setAttentionErrors] = useState<Record<string, string>>({});
+    const [dataRefreshVersion, setDataRefreshVersion] = useState(0);
+    const [baseFramePickerOpen, setBaseFramePickerOpen] = useState(false);
+    const [baseFrameCandidates, setBaseFrameCandidates] = useState<HeatmapBaseFrameCandidate[]>([]);
+    const [baseFrameLoading, setBaseFrameLoading] = useState(false);
+    const [baseFrameError, setBaseFrameError] = useState<string | null>(null);
+    const [selectedBaseFrameId, setSelectedBaseFrameId] = useState<string | null>(null);
+    const [baseFrameSessionFilter, setBaseFrameSessionFilter] = useState(BASE_FRAME_ALL_SESSIONS);
+    const [baseFramePage, setBaseFramePage] = useState(0);
+    const [baseFrameSaving, setBaseFrameSaving] = useState(false);
     const attentionByScreenRef = useRef(attentionByScreen);
     attentionByScreenRef.current = attentionByScreen;
     const attentionInFlightRef = useRef<Set<string>>(new Set());
@@ -1449,6 +1581,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 touchHotspots: detail.touchHotspots?.length ? detail.touchHotspots : screen.touchHotspots,
                                 screenshotUrl: detail.screenshotUrl ?? screen.screenshotUrl,
                                 evidenceSessionId: detail.evidenceSessionId ?? screen.evidenceSessionId,
+                                baseTemplate: detail.baseTemplate ?? screen.baseTemplate ?? null,
                             };
                         });
                     }
@@ -1482,7 +1615,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [selectedProject?.id, timeRange, platform, isDemoMode, manualRefreshVersion]);
+    }, [selectedProject?.id, timeRange, platform, isDemoMode, manualRefreshVersion, dataRefreshVersion]);
 
     const sortedScreens = useMemo(() => (
         [...screens].sort((a, b) => {
@@ -1516,6 +1649,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 screenshotUrl: screen.screenshotUrl ?? iterationFallback?.screenshotUrl ?? fallback?.screenshotUrl ?? null,
                 screenFirstSeenMs: screen.screenFirstSeenMs ?? iterationFallback?.screenFirstSeenMs ?? fallback?.screenFirstSeenMs ?? null,
                 evidenceSessionId: screen.evidenceSessionId ?? iterationFallback?.evidenceSessionId ?? fallback?.evidenceSessionId ?? null,
+                baseTemplate: screen.baseTemplate ?? iterationFallback?.baseTemplate ?? fallback?.baseTemplate ?? null,
                 pageWidth: screen.pageWidth ?? iterationFallback?.pageWidth ?? fallback?.pageWidth ?? null,
                 pageHeight: screen.pageHeight ?? iterationFallback?.pageHeight ?? fallback?.pageHeight ?? null,
                 viewportWidth: screen.viewportWidth ?? iterationFallback?.viewportWidth ?? fallback?.viewportWidth ?? null,
@@ -1553,6 +1687,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 incidentRatePer100: screen.rangeIncidentRatePer100,
                 lastSeenAt: lastUpdated || null,
                 evidenceSessionId: screen.evidenceSessionId,
+                baseTemplate: screen.baseTemplate ?? null,
                 touchHotspots: screen.touchHotspots || [],
                 pageWidth: screen.pageWidth ?? null,
                 pageHeight: screen.pageHeight ?? null,
@@ -1613,6 +1748,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             screenshotUrl: selectedVersionEntry.screen.screenshotUrl ?? selectedScreen.screenshotUrl,
             screenFirstSeenMs: selectedVersionEntry.screen.screenFirstSeenMs ?? selectedScreen.screenFirstSeenMs,
             evidenceSessionId: selectedVersionEntry.screen.evidenceSessionId ?? selectedScreen.evidenceSessionId,
+            baseTemplate: selectedVersionEntry.screen.baseTemplate ?? selectedScreen.baseTemplate ?? null,
             touchHotspots: selectedVersionEntry.screen.touchHotspots?.length
                 ? selectedVersionEntry.screen.touchHotspots
                 : selectedScreen.touchHotspots,
@@ -1629,6 +1765,12 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         const raw = selectedVersionEntry?.version.appVersion ?? null;
         return raw && raw !== 'All versions' ? raw : null;
     })();
+    const baseFramePlatform = selectedViewer === 'web'
+        ? 'web'
+        : platform === 'ios' || platform === 'android'
+            ? platform
+            : 'mobile';
+    const activeBaseTemplate = activeScreen?.baseTemplate ?? null;
     const attentionKey = selectedScreen ? `${selectedViewer}:${selectedScreen.name}::${attentionAppVersion ?? 'all'}` : null;
     const selectedAttention = attentionKey ? attentionByScreen[attentionKey] ?? null : null;
     const selectedAttentionError = attentionKey ? attentionErrors[attentionKey] ?? null : null;
@@ -1648,6 +1790,166 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     : null
         : null;
     const availableHeatmapModes = getAvailableHeatmapModes(selectedViewer);
+    const selectedBaseFrame = useMemo(
+        () => baseFrameCandidates.find((candidate) => candidate.id === selectedBaseFrameId) || baseFrameCandidates[0] || null,
+        [baseFrameCandidates, selectedBaseFrameId],
+    );
+    const baseFrameSessionOptions = useMemo(() => {
+        const sessions = new Map<string, {
+            sessionId: string;
+            startedAt: string;
+            platform: string | null;
+            appVersion: string | null;
+            count: number;
+        }>();
+
+        baseFrameCandidates.forEach((candidate) => {
+            const existing = sessions.get(candidate.sessionId);
+            if (existing) {
+                existing.count += 1;
+                return;
+            }
+            sessions.set(candidate.sessionId, {
+                sessionId: candidate.sessionId,
+                startedAt: candidate.sessionStartedAt,
+                platform: candidate.platform,
+                appVersion: candidate.appVersion,
+                count: 1,
+            });
+        });
+
+        return Array.from(sessions.values());
+    }, [baseFrameCandidates]);
+    const filteredBaseFrameCandidates = useMemo(() => (
+        baseFrameSessionFilter === BASE_FRAME_ALL_SESSIONS
+            ? baseFrameCandidates
+            : baseFrameCandidates.filter((candidate) => candidate.sessionId === baseFrameSessionFilter)
+    ), [baseFrameCandidates, baseFrameSessionFilter]);
+    const baseFramePageCount = Math.max(1, Math.ceil(filteredBaseFrameCandidates.length / BASE_FRAME_PAGE_SIZE));
+    const safeBaseFramePage = Math.min(baseFramePage, baseFramePageCount - 1);
+    const visibleBaseFrameCandidates = filteredBaseFrameCandidates.slice(
+        safeBaseFramePage * BASE_FRAME_PAGE_SIZE,
+        safeBaseFramePage * BASE_FRAME_PAGE_SIZE + BASE_FRAME_PAGE_SIZE,
+    );
+    const baseFrameRangeStart = filteredBaseFrameCandidates.length === 0
+        ? 0
+        : safeBaseFramePage * BASE_FRAME_PAGE_SIZE + 1;
+    const baseFrameRangeEnd = Math.min(
+        filteredBaseFrameCandidates.length,
+        safeBaseFramePage * BASE_FRAME_PAGE_SIZE + visibleBaseFrameCandidates.length,
+    );
+    const selectedBaseFrameIsWeb = isWebBaseFrameCandidate(selectedBaseFrame, baseFramePlatform);
+
+    useEffect(() => {
+        setBaseFramePage(0);
+    }, [baseFrameSessionFilter]);
+
+    useEffect(() => {
+        if (!baseFramePickerOpen || !selectedBaseFrameId || filteredBaseFrameCandidates.length === 0) return;
+        const selectedIndex = filteredBaseFrameCandidates.findIndex((candidate) => candidate.id === selectedBaseFrameId);
+        if (selectedIndex < 0) return;
+        const selectedPage = Math.floor(selectedIndex / BASE_FRAME_PAGE_SIZE);
+        if (selectedPage !== baseFramePage) {
+            setBaseFramePage(selectedPage);
+        }
+    }, [baseFramePage, baseFramePickerOpen, filteredBaseFrameCandidates, selectedBaseFrameId]);
+
+    useEffect(() => {
+        if (!baseFramePickerOpen || !activeScreen || !selectedProject?.id || isDemoMode) return;
+
+        let cancelled = false;
+        setBaseFrameLoading(true);
+        setBaseFrameError(null);
+        setBaseFrameCandidates([]);
+        setSelectedBaseFrameId(null);
+        setBaseFrameSessionFilter(BASE_FRAME_ALL_SESSIONS);
+        setBaseFramePage(0);
+
+        const range = getInsightsRangeFromTimeFilter(timeRange);
+        getHeatmapBaseFrameCandidates(
+            selectedProject.id,
+            activeScreen.name,
+            range,
+            baseFramePlatform,
+            attentionAppVersion,
+        )
+            .then((result) => {
+                if (cancelled) return;
+                setBaseFrameCandidates(result.candidates);
+                const currentTemplate = result.baseTemplate ?? activeBaseTemplate;
+                const currentCandidate = currentTemplate
+                    ? result.candidates.find((candidate) => (
+                        candidate.sessionId === currentTemplate.sourceSessionId
+                        && Math.abs(candidate.timestamp - currentTemplate.sourceTimestampMs) < 1000
+                    ))
+                    : null;
+                setSelectedBaseFrameId(currentCandidate?.id ?? result.candidates[0]?.id ?? null);
+            })
+            .catch((error: unknown) => {
+                if (cancelled) return;
+                heatmapDebug('Failed to load heatmap base frame candidates', { screenName: activeScreen.name, error });
+                setBaseFrameError('No replay frames available for this route');
+            })
+            .finally(() => {
+                if (!cancelled) setBaseFrameLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        activeBaseTemplate,
+        activeScreen,
+        attentionAppVersion,
+        baseFramePickerOpen,
+        baseFramePlatform,
+        isDemoMode,
+        selectedProject?.id,
+        timeRange,
+    ]);
+
+    const handleSaveBaseFrame = async () => {
+        if (!selectedProject?.id || !activeScreen || !selectedBaseFrame) return;
+        setBaseFrameSaving(true);
+        setBaseFrameError(null);
+        try {
+            await saveHeatmapBaseTemplate({
+                projectId: selectedProject.id,
+                screenName: activeScreen.name,
+                sourceSessionId: selectedBaseFrame.sessionId,
+                sourceTimestampMs: selectedBaseFrame.timestamp,
+                platform: baseFramePlatform,
+                appVersion: attentionAppVersion,
+                pageWidth: activeScreen.pageWidth ?? null,
+                pageHeight: activeScreen.pageHeight ?? null,
+                viewportWidth: activeScreen.viewportWidth ?? null,
+                viewportHeight: activeScreen.viewportHeight ?? null,
+            });
+            setBaseFramePickerOpen(false);
+            setDataRefreshVersion((value) => value + 1);
+        } catch (error) {
+            heatmapDebug('Failed to save heatmap base frame', { screenName: activeScreen.name, error });
+            setBaseFrameError('Could not save that frame');
+        } finally {
+            setBaseFrameSaving(false);
+        }
+    };
+
+    const handleResetBaseFrame = async () => {
+        if (!selectedProject?.id || !activeBaseTemplate) return;
+        setBaseFrameSaving(true);
+        setBaseFrameError(null);
+        try {
+            await deleteHeatmapBaseTemplate(selectedProject.id, activeBaseTemplate.id);
+            setBaseFramePickerOpen(false);
+            setDataRefreshVersion((value) => value + 1);
+        } catch (error) {
+            heatmapDebug('Failed to reset heatmap base frame', { templateId: activeBaseTemplate.id, error });
+            setBaseFrameError('Could not reset the base frame');
+        } finally {
+            setBaseFrameSaving(false);
+        }
+    };
 
     useEffect(() => {
         if (!selectedScreenName) return;
@@ -1759,11 +2061,23 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 </span>
                                 <h3 title={activeScreen.name}>{activeScreen.name}</h3>
                             </div>
-                            {attentionStatus && attentionStatus.state !== 'loading' && (
-                                <div className={`heatmap-canvas-status heatmap-canvas-status-${attentionStatus.state}`} role={attentionStatus.state === 'error' ? 'status' : undefined}>
-                                    <span>{attentionStatus.label}</span>
-                                </div>
-                            )}
+                            <div className="flex min-w-0 items-center gap-2">
+                                {!isDemoMode && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setBaseFramePickerOpen(true)}
+                                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 shadow-sm transition hover:border-cyan-400 hover:text-cyan-700"
+                                    >
+                                        {activeBaseTemplate ? <Check className="h-4 w-4 text-emerald-600" /> : <ImageIcon className="h-4 w-4" />}
+                                        <span>Base frame</span>
+                                    </button>
+                                )}
+                                {attentionStatus && attentionStatus.state !== 'loading' && (
+                                    <div className={`heatmap-canvas-status heatmap-canvas-status-${attentionStatus.state}`} role={attentionStatus.state === 'error' ? 'status' : undefined}>
+                                        <span>{attentionStatus.label}</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         <div className={`heatmap-preview-stage heatmap-primary-stage ${selectedViewer === 'web' ? 'heatmap-web-scroll-stage' : ''}`}>
                             <HeatmapPreview
@@ -1896,6 +2210,247 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             </div>
                         </section>
                     </aside>
+                </div>
+            )}
+
+            {baseFramePickerOpen && activeScreen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Choose heatmap base frame">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-slate-950/50"
+                        aria-label="Close"
+                        onClick={() => {
+                            if (!baseFrameSaving) setBaseFramePickerOpen(false);
+                        }}
+                    />
+                    <div className="relative flex h-[92vh] max-h-[920px] w-[min(1480px,calc(100vw-1.25rem))] flex-col overflow-hidden rounded-lg border-2 border-black bg-white shadow-neo">
+                        <div className="flex items-center justify-between gap-3 border-b-2 border-black px-4 py-3">
+                            <div className="min-w-0">
+                                <span className="heatmap-eyebrow">
+                                    <ImageIcon className="h-3.5 w-3.5" />
+                                    Base frame
+                                </span>
+                                <h3 className="truncate text-base font-black text-slate-950" title={activeScreen.name}>{activeScreen.name}</h3>
+                            </div>
+                            <button
+                                type="button"
+                                aria-label="Close"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
+                                disabled={baseFrameSaving}
+                                onClick={() => setBaseFramePickerOpen(false)}
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+
+                        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)]">
+                            <aside className="min-h-0 overflow-y-auto border-b-2 border-black bg-slate-50 p-4 xl:border-b-0 xl:border-r-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-black uppercase text-slate-700">Selected frame</span>
+                                    {selectedBaseFrame && (
+                                        <span className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
+                                            Frame {selectedBaseFrame.frameIndex + 1}
+                                        </span>
+                                    )}
+                                </div>
+                                <div
+                                    className={`mx-auto mt-3 overflow-hidden rounded-md border-2 border-black bg-white shadow-neo-sm ${selectedBaseFrameIsWeb ? 'aspect-video w-full' : 'aspect-[9/16] max-h-[52vh] w-full max-w-[280px]'}`}
+                                >
+                                    {selectedBaseFrame ? (
+                                        <FrameCandidateImage
+                                            url={selectedBaseFrame.url}
+                                            alt={`Selected frame ${selectedBaseFrame.frameIndex + 1}`}
+                                            fit="contain"
+                                        />
+                                    ) : (
+                                        <div className="flex h-full w-full items-center justify-center text-xs font-bold text-slate-500">
+                                            Select a frame
+                                        </div>
+                                    )}
+                                </div>
+
+                                {selectedBaseFrame && (
+                                    <dl className="mt-4 space-y-3 text-xs">
+                                        <div>
+                                            <dt className="font-black uppercase text-slate-500">Time</dt>
+                                            <dd className="mt-1 font-black text-slate-900">{formatFrameOffset(selectedBaseFrame.relativeSeconds)}</dd>
+                                        </div>
+                                        <div>
+                                            <dt className="font-black uppercase text-slate-500">Session</dt>
+                                            <dd className="mt-1 break-all font-bold text-slate-800">{selectedBaseFrame.sessionId}</dd>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <dt className="font-black uppercase text-slate-500">Platform</dt>
+                                                <dd className="mt-1 font-bold text-slate-800">{formatBaseFramePlatform(selectedBaseFrame.platform)}</dd>
+                                            </div>
+                                            <div>
+                                                <dt className="font-black uppercase text-slate-500">Version</dt>
+                                                <dd className="mt-1 font-bold text-slate-800">{selectedBaseFrame.appVersion || 'All'}</dd>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <dt className="font-black uppercase text-slate-500">Started</dt>
+                                            <dd className="mt-1 font-bold text-slate-800">{formatBaseFrameSessionStartedAt(selectedBaseFrame.sessionStartedAt)}</dd>
+                                        </div>
+                                    </dl>
+                                )}
+
+                                {baseFrameError && baseFrameCandidates.length > 0 && (
+                                    <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{baseFrameError}</p>
+                                )}
+                            </aside>
+
+                            <section className="flex min-h-0 flex-col">
+                                <div className="border-b border-slate-200 bg-white px-4 py-3">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-slate-950">
+                                                {baseFrameCandidates.length.toLocaleString()} frame{baseFrameCandidates.length === 1 ? '' : 's'}
+                                            </p>
+                                            <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                                                {filteredBaseFrameCandidates.length > 0
+                                                    ? `Showing ${baseFrameRangeStart}-${baseFrameRangeEnd} of ${filteredBaseFrameCandidates.length.toLocaleString()}`
+                                                    : 'No frames in this session'}
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <label className="sr-only" htmlFor="base-frame-session-filter">Session</label>
+                                            <select
+                                                id="base-frame-session-filter"
+                                                value={baseFrameSessionFilter}
+                                                onChange={(event) => {
+                                                    const nextSessionId = event.target.value;
+                                                    setBaseFrameSessionFilter(nextSessionId);
+                                                    const nextCandidate = nextSessionId === BASE_FRAME_ALL_SESSIONS
+                                                        ? baseFrameCandidates[0]
+                                                        : baseFrameCandidates.find((candidate) => candidate.sessionId === nextSessionId);
+                                                    if (nextCandidate) setSelectedBaseFrameId(nextCandidate.id);
+                                                }}
+                                                disabled={baseFrameLoading || baseFrameCandidates.length === 0}
+                                                className="h-9 max-w-[260px] rounded-md border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none transition hover:border-slate-950 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                                            >
+                                                <option value={BASE_FRAME_ALL_SESSIONS}>All sessions ({baseFrameCandidates.length})</option>
+                                                {baseFrameSessionOptions.map((session) => (
+                                                    <option key={session.sessionId} value={session.sessionId}>
+                                                        {shortSessionId(session.sessionId)} · {session.count} · {formatBaseFrameSessionStartedAt(session.startedAt)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
+                                                <button
+                                                    type="button"
+                                                    aria-label="Previous frame page"
+                                                    onClick={() => setBaseFramePage((page) => Math.max(0, page - 1))}
+                                                    disabled={safeBaseFramePage === 0 || filteredBaseFrameCandidates.length === 0}
+                                                    className="inline-flex w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </button>
+                                                <span className="inline-flex min-w-[76px] items-center justify-center border-x border-slate-300 px-2 text-[11px] font-black text-slate-700">
+                                                    {safeBaseFramePage + 1} / {baseFramePageCount}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    aria-label="Next frame page"
+                                                    onClick={() => setBaseFramePage((page) => Math.min(baseFramePageCount - 1, page + 1))}
+                                                    disabled={safeBaseFramePage >= baseFramePageCount - 1 || filteredBaseFrameCandidates.length === 0}
+                                                    className="inline-flex w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                                    {baseFrameLoading ? (
+                                        <div className="flex min-h-[360px] items-center justify-center gap-3 text-sm font-black text-slate-800">
+                                            <Loader2 className="h-5 w-5 animate-spin text-cyan-600" />
+                                            Loading replay frames
+                                        </div>
+                                    ) : baseFrameCandidates.length === 0 ? (
+                                        <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
+                                            <ImageIcon className="mb-3 h-9 w-9 text-slate-400" />
+                                            <p className="text-sm font-black text-slate-900">No replay frames found</p>
+                                            <p className="mt-1 text-xs font-semibold text-slate-500">{baseFrameError || 'Try another version or time range.'}</p>
+                                        </div>
+                                    ) : visibleBaseFrameCandidates.length === 0 ? (
+                                        <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
+                                            <ImageIcon className="mb-3 h-9 w-9 text-slate-400" />
+                                            <p className="text-sm font-black text-slate-900">No frames in this session</p>
+                                            <p className="mt-1 text-xs font-semibold text-slate-500">Choose another session from the menu.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+                                            {visibleBaseFrameCandidates.map((candidate) => {
+                                                const selected = selectedBaseFrame?.id === candidate.id;
+                                                const candidateIsWeb = isWebBaseFrameCandidate(candidate, baseFramePlatform);
+                                                return (
+                                                    <button
+                                                        key={candidate.id}
+                                                        type="button"
+                                                        aria-pressed={selected}
+                                                        onClick={() => setSelectedBaseFrameId(candidate.id)}
+                                                        className={`min-w-0 overflow-hidden rounded-md border-2 bg-white text-left transition ${selected ? 'border-cyan-500 shadow-neo-sm' : 'border-slate-200 hover:border-slate-950'}`}
+                                                    >
+                                                        <div className={`relative overflow-hidden bg-slate-100 ${candidateIsWeb ? 'aspect-video' : 'aspect-[9/16]'}`}>
+                                                            <FrameCandidateImage url={candidate.url} alt={`Frame ${candidate.frameIndex + 1}`} selected={selected} fit="contain" />
+                                                            {selected && (
+                                                                <span className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-cyan-500 text-white">
+                                                                    <Check className="h-3.5 w-3.5" />
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-2 px-2 py-2 text-[11px] font-bold text-slate-600">
+                                                            <span className="tabular-nums">{formatFrameOffset(candidate.relativeSeconds)}</span>
+                                                            <span className="truncate">Frame {candidate.frameIndex + 1}</span>
+                                                        </div>
+                                                        <div className="border-t border-slate-100 px-2 pb-2 text-[10px] font-semibold text-slate-400">
+                                                            {shortSessionId(candidate.sessionId)}
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-black px-4 py-3">
+                            <div className="min-w-0 max-w-full truncate text-xs font-semibold text-slate-500">
+                                {selectedBaseFrame
+                                    ? `${selectedBaseFrame.sessionId} at ${formatFrameOffset(selectedBaseFrame.relativeSeconds)}`
+                                    : activeBaseTemplate
+                                        ? 'Using saved base frame'
+                                        : 'No frame selected'}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {activeBaseTemplate && (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetBaseFrame}
+                                        disabled={baseFrameSaving}
+                                        className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-rose-400 hover:text-rose-700 disabled:opacity-60"
+                                    >
+                                        <RotateCcw className="h-4 w-4" />
+                                        Reset
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleSaveBaseFrame}
+                                    disabled={!selectedBaseFrame || baseFrameSaving || baseFrameLoading}
+                                    className="inline-flex h-9 items-center gap-2 rounded-md border-2 border-black bg-cyan-400 px-4 text-xs font-black text-slate-950 shadow-neo-sm transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {baseFrameSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </section>

@@ -2884,6 +2884,7 @@ export interface HeatmapOverviewScreen {
     confidence: 'high' | 'medium' | 'low';
     priority: 'critical' | 'high' | 'watch';
     evidenceSessionId: string | null;
+    baseTemplate?: HeatmapBaseTemplate | null;
 }
 
 export interface HeatmapIterationScreen {
@@ -2902,6 +2903,7 @@ export interface HeatmapIterationScreen {
     incidentRatePer100: number;
     lastSeenAt: string | null;
     evidenceSessionId: string | null;
+    baseTemplate?: HeatmapBaseTemplate | null;
 }
 
 export interface HeatmapIterationVersion {
@@ -2946,6 +2948,54 @@ export interface WebAttentionHeatmapResponse {
     confidenceScore?: number;
     modelVersion?: string;
     signalsUsed?: string[];
+}
+
+export interface HeatmapBaseTemplate {
+    id: string;
+    screenName: string;
+    platform: string;
+    appVersion: string | null;
+    imageUrl: string;
+    sourceSessionId: string | null;
+    sourceTimestampMs: number;
+    imageSizeBytes: number | null;
+    pageWidth: number | null;
+    pageHeight: number | null;
+    viewportWidth: number | null;
+    viewportHeight: number | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface HeatmapBaseFrameCandidate {
+    id: string;
+    sessionId: string;
+    timestamp: number;
+    frameIndex: number;
+    url: string;
+    sessionStartedAt: string;
+    relativeSeconds: number | null;
+    appVersion: string | null;
+    platform: string | null;
+}
+
+export interface HeatmapBaseFrameCandidatesResponse {
+    candidates: HeatmapBaseFrameCandidate[];
+    baseTemplate: HeatmapBaseTemplate | null;
+    generatedAt: string;
+}
+
+export interface SaveHeatmapBaseTemplateInput {
+    projectId: string;
+    screenName: string;
+    sourceSessionId: string;
+    sourceTimestampMs: number;
+    platform?: string | null;
+    appVersion?: string | null;
+    pageWidth?: number | null;
+    pageHeight?: number | null;
+    viewportWidth?: number | null;
+    viewportHeight?: number | null;
 }
 
 export interface ErrorOverviewGroup {
@@ -3376,6 +3426,54 @@ export async function getWebAttentionHeatmap(
     const endpoint = `/api/overview/heatmaps/attention?${params.toString()}`;
     const cacheKey = `overview:heatmaps:attention:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v6`;
     return fetchWithCache<WebAttentionHeatmapResponse>(endpoint, {}, cacheKey, 600_000);
+}
+
+export async function getHeatmapBaseFrameCandidates(
+    projectId: string,
+    screenName: string,
+    timeRange?: string,
+    platform?: string,
+    appVersion?: string | null,
+): Promise<HeatmapBaseFrameCandidatesResponse> {
+    const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
+    const normalizedAppVersion = appVersion && appVersion !== 'all' ? appVersion : undefined;
+    const params = new URLSearchParams({ projectId, screenName });
+    if (timeRange) params.set('timeRange', timeRange);
+    if (normalizedPlatform) params.set('platform', normalizedPlatform);
+    if (normalizedAppVersion) params.set('appVersion', normalizedAppVersion);
+    return fetchJson<HeatmapBaseFrameCandidatesResponse>(`/api/overview/heatmaps/base-templates/candidates?${params.toString()}`, {
+        cache: 'no-store',
+    });
+}
+
+export async function saveHeatmapBaseTemplate(input: SaveHeatmapBaseTemplateInput): Promise<{ baseTemplate: HeatmapBaseTemplate }> {
+    const params = new URLSearchParams({ projectId: input.projectId });
+    const response = await fetchJson<{ baseTemplate: HeatmapBaseTemplate }>(`/api/overview/heatmaps/base-templates?${params.toString()}`, {
+        method: 'POST',
+        body: JSON.stringify({
+            screenName: input.screenName,
+            sourceSessionId: input.sourceSessionId,
+            sourceTimestampMs: input.sourceTimestampMs,
+            platform: input.platform ?? undefined,
+            appVersion: input.appVersion ?? undefined,
+            pageWidth: input.pageWidth ?? undefined,
+            pageHeight: input.pageHeight ?? undefined,
+            viewportWidth: input.viewportWidth ?? undefined,
+            viewportHeight: input.viewportHeight ?? undefined,
+        }),
+    });
+    cache.clear();
+    inFlightGetRequests.clear();
+    return response;
+}
+
+export async function deleteHeatmapBaseTemplate(projectId: string, templateId: string): Promise<void> {
+    const params = new URLSearchParams({ projectId });
+    await fetchJson<void>(`/api/overview/heatmaps/base-templates/${encodeURIComponent(templateId)}?${params.toString()}`, {
+        method: 'DELETE',
+    });
+    cache.clear();
+    inFlightGetRequests.clear();
 }
 
 export async function getErrorsOverview(projectId: string, timeRange?: string, platform?: string): Promise<ErrorsOverviewResponse> {
@@ -4108,6 +4206,7 @@ export interface AlltimeHeatmapScreen {
     pageHeight?: number | null;
     viewportWidth?: number | null;
     viewportHeight?: number | null;
+    baseTemplate?: HeatmapBaseTemplate | null;
 }
 // Added sessionIds to fix lint errors in Realtime.tsx
 
@@ -5358,6 +5457,9 @@ export const api = {
     getHeatmapsOverview,
     getHeatmapScreenOverview,
     getWebAttentionHeatmap,
+    getHeatmapBaseFrameCandidates,
+    saveHeatmapBaseTemplate,
+    deleteHeatmapBaseTemplate,
     getErrorsOverview,
     getCrashesOverview,
     getANRsOverview,

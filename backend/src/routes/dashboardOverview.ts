@@ -6,10 +6,12 @@
  */
 
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
     db,
     dbRead,
+    heatmapBaseTemplates,
     projects,
     recordingArtifacts,
     sessionMetrics,
@@ -22,9 +24,10 @@ import {
 } from '../db/client.js';
 import { getClickHouseClient, isClickHouseReadsEnabled } from '../db/clickhouse.js';
 import { getRedis } from '../db/redis.js';
-import { downloadFromS3ForArtifact } from '../db/s3.js';
+import { deleteFromS3, downloadFromS3ForArtifact, uploadToS3 } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
+import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { config } from '../config.js';
 import { OVERVIEW_CACHE_TTL_SECONDS, buildOverviewCacheKey, persistOverviewCachePayload } from '../services/dashboardOverviewCache.js';
 import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
@@ -49,6 +52,8 @@ import {
     extractMobileHierarchySnapshotsFromArtifact,
     type MobileAttentionSessionInput,
 } from '../utils/mobileAttentionHeatmap.js';
+import { getSessionScreenshotFrames } from '../services/screenshotFrames.js';
+import { getThumbnailAtTimestamp } from '../services/sessionThumbnail.js';
 
 const router = Router();
 const redis = getRedis();
@@ -64,6 +69,9 @@ const WEB_ATTENTION_SAMPLE_SESSION_LIMIT = 12;
 const WEB_ATTENTION_MAX_ARTIFACTS = 30;
 const WEB_ATTENTION_MAX_ARTIFACTS_PER_SESSION = 3;
 const WEB_ATTENTION_DOWNLOAD_CONCURRENCY = 6;
+const HEATMAP_BASE_FRAME_CANDIDATE_SESSION_LIMIT = 4;
+const HEATMAP_BASE_FRAME_CANDIDATE_MAX_FRAMES = 180;
+const HEATMAP_BASE_FRAME_CANDIDATE_MAX_FRAMES_PER_SESSION = 72;
 // Mild tilt toward recent sessions: 0 = uniform random, 1 = strongly favor newest.
 // Kept low so the sample still represents the whole window, just leaning slightly recent.
 const WEB_ATTENTION_RECENCY_BIAS = 0.4;
@@ -969,6 +977,7 @@ type HeatmapIterationScreen = {
     incidentRatePer100: number;
     lastSeenAt: string | null;
     evidenceSessionId: string | null;
+    baseTemplate?: HeatmapBaseTemplateView | null;
 };
 
 type HeatmapIterationVersion = {
@@ -984,7 +993,117 @@ type HeatmapIterationSummary = {
     versions: HeatmapIterationVersion[];
 };
 
-function mergeHeatmapScreen(name: string, alltime: HeatmapScreenSource | undefined, rangeData: HeatmapScreenSource | undefined, includeTouchHotspots: boolean) {
+type HeatmapBaseTemplateRow = typeof heatmapBaseTemplates.$inferSelect;
+
+type HeatmapBaseTemplateView = {
+    id: string;
+    screenName: string;
+    platform: string;
+    appVersion: string | null;
+    imageUrl: string;
+    sourceSessionId: string | null;
+    sourceTimestampMs: number;
+    imageSizeBytes: number | null;
+    pageWidth: number | null;
+    pageHeight: number | null;
+    viewportWidth: number | null;
+    viewportHeight: number | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+type HeatmapBaseTemplateMap = Map<string, HeatmapBaseTemplateView[]>;
+
+function normalizeHeatmapTemplatePlatformScope(value?: string | null): string {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'web' || normalized === 'ios' || normalized === 'android' || normalized === 'mobile') {
+        return normalized;
+    }
+    return 'all';
+}
+
+function normalizeHeatmapTemplateAppVersionScope(value?: string | null): string {
+    const normalized = String(value || '').trim();
+    if (!normalized || normalized.toLowerCase() === 'all' || normalized === 'All versions') {
+        return 'all';
+    }
+    return normalized.slice(0, 120);
+}
+
+function templateImageUrl(templateId: string): string {
+    return `/api/overview/heatmaps/base-templates/${encodeURIComponent(templateId)}/image`;
+}
+
+function serializeHeatmapBaseTemplate(row: HeatmapBaseTemplateRow): HeatmapBaseTemplateView {
+    const appVersionScope = normalizeHeatmapTemplateAppVersionScope(row.appVersionScope);
+    return {
+        id: row.id,
+        screenName: row.screenName,
+        platform: normalizeHeatmapTemplatePlatformScope(row.platformScope),
+        appVersion: appVersionScope === 'all' ? null : appVersionScope,
+        imageUrl: templateImageUrl(row.id),
+        sourceSessionId: row.sourceSessionId,
+        sourceTimestampMs: Number(row.sourceTimestampMs),
+        imageSizeBytes: row.imageSizeBytes ?? null,
+        pageWidth: row.pageWidth ?? null,
+        pageHeight: row.pageHeight ?? null,
+        viewportWidth: row.viewportWidth ?? null,
+        viewportHeight: row.viewportHeight ?? null,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+    };
+}
+
+async function loadHeatmapBaseTemplateMap(projectId: string): Promise<HeatmapBaseTemplateMap> {
+    const rows = await db
+        .select()
+        .from(heatmapBaseTemplates)
+        .where(eq(heatmapBaseTemplates.projectId, projectId))
+        .orderBy(desc(heatmapBaseTemplates.updatedAt));
+
+    const map: HeatmapBaseTemplateMap = new Map();
+    for (const row of rows) {
+        const view = serializeHeatmapBaseTemplate(row);
+        const list = map.get(view.screenName) ?? [];
+        list.push(view);
+        map.set(view.screenName, list);
+    }
+    return map;
+}
+
+function pickHeatmapBaseTemplate(
+    templatesByScreen: HeatmapBaseTemplateMap,
+    screenName: string,
+    options: { platform?: string | null; appVersion?: string | null } = {},
+): HeatmapBaseTemplateView | null {
+    const normalizedScreenName = normalizeHeatmapScreenName(screenName) ?? screenName;
+    const candidates = templatesByScreen.get(normalizedScreenName) ?? templatesByScreen.get(screenName) ?? [];
+    if (candidates.length === 0) return null;
+
+    const platformScope = normalizeHeatmapTemplatePlatformScope(options.platform);
+    const appVersionScope = normalizeHeatmapTemplateAppVersionScope(options.appVersion);
+    const templateApp = (template: HeatmapBaseTemplateView) => template.appVersion ?? 'all';
+    const matchesPlatform = (template: HeatmapBaseTemplateView, scope: string) => template.platform === scope;
+    const matchesApp = (template: HeatmapBaseTemplateView, scope: string) => templateApp(template) === scope;
+
+    return (
+        candidates.find((template) => matchesPlatform(template, platformScope) && matchesApp(template, appVersionScope))
+        ?? candidates.find((template) => matchesPlatform(template, 'all') && matchesApp(template, appVersionScope))
+        ?? candidates.find((template) => matchesPlatform(template, platformScope) && matchesApp(template, 'all'))
+        ?? candidates.find((template) => matchesPlatform(template, 'all') && matchesApp(template, 'all'))
+        ?? (platformScope === 'all' ? candidates.find((template) => matchesApp(template, appVersionScope)) : undefined)
+        ?? (platformScope === 'all' ? candidates.find((template) => matchesApp(template, 'all')) : undefined)
+        ?? null
+    );
+}
+
+function mergeHeatmapScreen(
+    name: string,
+    alltime: HeatmapScreenSource | undefined,
+    rangeData: HeatmapScreenSource | undefined,
+    includeTouchHotspots: boolean,
+    baseTemplate: HeatmapBaseTemplateView | null = null,
+) {
     const hasScreenPreview = (source: HeatmapScreenSource | undefined) => Boolean(
         source?.screenshotUrl && source?.screenFirstSeenMs && source?.sessionIds?.[0],
     );
@@ -1010,14 +1129,16 @@ function mergeHeatmapScreen(name: string, alltime: HeatmapScreenSource | undefin
         frictionScore: Number(
             (alltime?.frictionScore ?? rangeData?.frictionScore ?? 0).toFixed?.(1) ?? alltime?.frictionScore ?? rangeData?.frictionScore ?? 0,
         ),
-        screenshotUrl: previewSource?.screenshotUrl ?? null,
-        sessionIds: sessionSource?.sessionIds ?? [],
-        screenFirstSeenMs: previewSource?.screenFirstSeenMs ?? null,
+        screenshotUrl: baseTemplate?.imageUrl ?? previewSource?.screenshotUrl ?? null,
+        sessionIds: baseTemplate?.sourceSessionId
+            ? [baseTemplate.sourceSessionId, ...(sessionSource?.sessionIds || []).filter((sessionId) => sessionId !== baseTemplate.sourceSessionId)]
+            : sessionSource?.sessionIds ?? [],
+        screenFirstSeenMs: baseTemplate?.sourceTimestampMs ?? previewSource?.screenFirstSeenMs ?? null,
         touchHotspots,
-        pageWidth: alltime?.pageWidth ?? rangeData?.pageWidth ?? null,
-        pageHeight: alltime?.pageHeight ?? rangeData?.pageHeight ?? null,
-        viewportWidth: alltime?.viewportWidth ?? rangeData?.viewportWidth ?? null,
-        viewportHeight: alltime?.viewportHeight ?? rangeData?.viewportHeight ?? null,
+        pageWidth: baseTemplate?.pageWidth ?? alltime?.pageWidth ?? rangeData?.pageWidth ?? null,
+        pageHeight: baseTemplate?.pageHeight ?? alltime?.pageHeight ?? rangeData?.pageHeight ?? null,
+        viewportWidth: baseTemplate?.viewportWidth ?? alltime?.viewportWidth ?? rangeData?.viewportWidth ?? null,
+        viewportHeight: baseTemplate?.viewportHeight ?? alltime?.viewportHeight ?? rangeData?.viewportHeight ?? null,
         rangeVisits,
         rangeRageTaps,
         rangeErrors,
@@ -1031,7 +1152,8 @@ function mergeHeatmapScreen(name: string, alltime: HeatmapScreenSource | undefin
         primarySignal: getHeatmapPrimarySignal(rangeRageTapRatePer100, rangeErrorRatePer100, rangeExitRate),
         confidence: getHeatmapConfidence(rangeVisits, touchHotspots.length),
         priority: getHeatmapPriority(rangeImpactScore, rangeEstimatedAffectedSessions),
-        evidenceSessionId: previewSource?.sessionIds?.[0] ?? null,
+        evidenceSessionId: baseTemplate?.sourceSessionId ?? previewSource?.sessionIds?.[0] ?? null,
+        baseTemplate,
     };
 }
 
@@ -1235,35 +1357,39 @@ function applyHeatmapIterationScreenshots(
     iteration: HeatmapIterationSummary,
     alltimeMap: Map<string, HeatmapScreenSource>,
     frictionMap: Map<string, HeatmapScreenSource>,
+    templatesByScreen: HeatmapBaseTemplateMap,
+    platform?: string,
 ): HeatmapIterationSummary {
-    const applyScreenshot = (screen: HeatmapIterationScreen): HeatmapIterationScreen => {
+    const applyScreenshot = (screen: HeatmapIterationScreen, appVersion?: string | null): HeatmapIterationScreen => {
         const fallbackSource = alltimeMap.get(screen.name) ?? frictionMap.get(screen.name);
         const fallbackEvidenceSessionId = fallbackSource?.sessionIds?.[0] ?? null;
         const fallbackScreenshot = fallbackSource?.screenshotUrl ?? null;
         const hasTimestampedFallback = Boolean(fallbackScreenshot && fallbackSource?.screenFirstSeenMs && fallbackEvidenceSessionId);
         const fallbackHotspots = fallbackSource?.touchHotspots ?? [];
+        const baseTemplate = pickHeatmapBaseTemplate(templatesByScreen, screen.name, { platform, appVersion });
         return {
             ...screen,
-            screenshotUrl: screen.screenshotUrl ?? fallbackScreenshot,
-            screenFirstSeenMs: screen.screenFirstSeenMs ?? (hasTimestampedFallback ? fallbackSource?.screenFirstSeenMs ?? null : null),
-            evidenceSessionId: screen.screenshotUrl
+            screenshotUrl: baseTemplate?.imageUrl ?? screen.screenshotUrl ?? fallbackScreenshot,
+            screenFirstSeenMs: baseTemplate?.sourceTimestampMs ?? screen.screenFirstSeenMs ?? (hasTimestampedFallback ? fallbackSource?.screenFirstSeenMs ?? null : null),
+            evidenceSessionId: baseTemplate?.sourceSessionId ?? (screen.screenshotUrl
                 ? screen.evidenceSessionId
                 : hasTimestampedFallback
                     ? fallbackEvidenceSessionId
-                    : screen.evidenceSessionId,
+                    : screen.evidenceSessionId),
             touchHotspots: screen.touchHotspots?.length ? screen.touchHotspots : fallbackHotspots,
-            pageWidth: screen.pageWidth ?? fallbackSource?.pageWidth ?? null,
-            pageHeight: screen.pageHeight ?? fallbackSource?.pageHeight ?? null,
-            viewportWidth: screen.viewportWidth ?? fallbackSource?.viewportWidth ?? null,
-            viewportHeight: screen.viewportHeight ?? fallbackSource?.viewportHeight ?? null,
+            pageWidth: baseTemplate?.pageWidth ?? screen.pageWidth ?? fallbackSource?.pageWidth ?? null,
+            pageHeight: baseTemplate?.pageHeight ?? screen.pageHeight ?? fallbackSource?.pageHeight ?? null,
+            viewportWidth: baseTemplate?.viewportWidth ?? screen.viewportWidth ?? fallbackSource?.viewportWidth ?? null,
+            viewportHeight: baseTemplate?.viewportHeight ?? screen.viewportHeight ?? fallbackSource?.viewportHeight ?? null,
+            baseTemplate,
         };
     };
 
     return {
-        overall: iteration.overall.map(applyScreenshot),
+        overall: iteration.overall.map((screen) => applyScreenshot(screen, null)),
         versions: iteration.versions.map((version) => ({
             ...version,
-            screens: version.screens.map(applyScreenshot),
+            screens: version.screens.map((screen) => applyScreenshot(screen, version.appVersion)),
         })),
     };
 }
@@ -1315,13 +1441,14 @@ async function fetchHeatmapSources(
 }
 
 async function loadHeatmapSummary(cookieHeader: string | undefined, projectId: string, timeRange?: string, platform?: string) {
-    const [{ allTime, friction, failedSections }, rawScreenIteration] = await Promise.all([
+    const [{ allTime, friction, failedSections }, rawScreenIteration, templatesByScreen] = await Promise.all([
         fetchHeatmapSources(cookieHeader, projectId, timeRange, platform),
         loadHeatmapIterationSummary(projectId, timeRange, platform),
+        loadHeatmapBaseTemplateMap(projectId),
     ]);
     const alltimeMap = new Map<string, HeatmapScreenSource>((allTime.screens || []).map((screen) => [screen.name, screen]));
     const frictionMap = new Map<string, HeatmapScreenSource>((friction.screens || []).map((screen) => [screen.name, screen]));
-    const screenIteration = applyHeatmapIterationScreenshots(rawScreenIteration, alltimeMap, frictionMap);
+    const screenIteration = applyHeatmapIterationScreenshots(rawScreenIteration, alltimeMap, frictionMap, templatesByScreen, platform);
     const includeAllTimeOnlyScreens = !timeRange || timeRange === 'all';
     const screenNames = new Set<string>(frictionMap.keys());
     if (includeAllTimeOnlyScreens) {
@@ -1331,7 +1458,13 @@ async function loadHeatmapSummary(cookieHeader: string | undefined, projectId: s
     }
 
     return {
-        screens: Array.from(screenNames).map((name) => mergeHeatmapScreen(name, alltimeMap.get(name), frictionMap.get(name), true)),
+        screens: Array.from(screenNames).map((name) => mergeHeatmapScreen(
+            name,
+            alltimeMap.get(name),
+            frictionMap.get(name),
+            true,
+            pickHeatmapBaseTemplate(templatesByScreen, name, { platform }),
+        )),
         screenIteration,
         lastUpdated: allTime.lastUpdated ?? new Date().toISOString(),
         failedSections,
@@ -1339,11 +1472,16 @@ async function loadHeatmapSummary(cookieHeader: string | undefined, projectId: s
 }
 
 async function loadHeatmapScreenDetail(cookieHeader: string | undefined, projectId: string, screenName: string, timeRange?: string, platform?: string) {
-    const { allTime, friction, failedSections } = await fetchHeatmapSources(cookieHeader, projectId, timeRange, platform);
+    const [{ allTime, friction, failedSections }, templatesByScreen] = await Promise.all([
+        fetchHeatmapSources(cookieHeader, projectId, timeRange, platform),
+        loadHeatmapBaseTemplateMap(projectId),
+    ]);
     const alltimeScreen = (allTime.screens || []).find((screen) => screen.name === screenName);
     const frictionScreen = (friction.screens || []).find((screen) => screen.name === screenName);
 
-    if (!alltimeScreen && !frictionScreen) {
+    const baseTemplate = pickHeatmapBaseTemplate(templatesByScreen, screenName, { platform });
+
+    if (!alltimeScreen && !frictionScreen && !baseTemplate) {
         return {
             screen: null,
             failedSections,
@@ -1351,7 +1489,7 @@ async function loadHeatmapScreenDetail(cookieHeader: string | undefined, project
     }
 
     return {
-        screen: mergeHeatmapScreen(screenName, alltimeScreen, frictionScreen, true),
+        screen: mergeHeatmapScreen(screenName, alltimeScreen, frictionScreen, true, baseTemplate),
         failedSections,
     };
 }
@@ -1801,6 +1939,285 @@ async function loadAttentionHeatmap(projectId: string, screenName: string, timeR
         return loadMobileAttentionHeatmap(projectId, screenName, timeRange, platform, appVersion);
     }
     return loadWebAttentionHeatmap(projectId, screenName, timeRange, platform, appVersion);
+}
+
+function sampleHeatmapFrameCandidates<T>(frames: T[], limit: number): T[] {
+    if (frames.length <= limit) return frames;
+    if (limit <= 1) return frames.slice(0, 1);
+
+    const sampled: T[] = [];
+    const step = (frames.length - 1) / (limit - 1);
+    const used = new Set<number>();
+    for (let index = 0; index < limit; index += 1) {
+        const frameIndex = Math.max(0, Math.min(frames.length - 1, Math.round(index * step)));
+        if (used.has(frameIndex)) continue;
+        used.add(frameIndex);
+        sampled.push(frames[frameIndex]);
+    }
+    return sampled;
+}
+
+async function loadHeatmapBaseFrameCandidates(
+    projectId: string,
+    screenName: string,
+    timeRange?: string,
+    platform?: string,
+    appVersion?: string,
+) {
+    const normalizedScreenName = normalizeHeatmapScreenName(screenName);
+    if (!normalizedScreenName) {
+        throw ApiError.badRequest('screenName is invalid');
+    }
+
+    const startedAfter = buildStartedAfter(timeRange);
+    const platformCondition = buildSessionPlatformCondition(platform);
+    const conditions: SQL[] = [
+        eq(sessions.projectId, projectId),
+        eq(sessions.replayAvailable, true),
+        sql`COALESCE(${sessions.replayRetentionState}, 'saved') = 'saved'`,
+        eq(sessions.recordingDeleted, false),
+        eq(sessions.isReplayExpired, false),
+    ];
+    if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
+    if (platformCondition) conditions.push(platformCondition);
+    if (appVersion) conditions.push(eq(sessions.appVersion, appVersion));
+
+    const rows = await db
+        .select({
+            sessionId: sessions.id,
+            startedAt: sessions.startedAt,
+            platform: sessions.platform,
+            appVersion: sessions.appVersion,
+            screensVisited: sessionMetrics.screensVisited,
+        })
+        .from(sessions)
+        .innerJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
+        .where(and(...conditions))
+        .orderBy(desc(sessions.startedAt))
+        .limit(250);
+
+    const matchedRows = rows
+        .filter((row) => normalizeHeatmapScreenPath(row.screensVisited || []).includes(normalizedScreenName))
+        .slice(0, HEATMAP_BASE_FRAME_CANDIDATE_SESSION_LIMIT);
+
+    const candidates: Array<{
+        id: string;
+        sessionId: string;
+        timestamp: number;
+        frameIndex: number;
+        url: string;
+        sessionStartedAt: string;
+        relativeSeconds: number | null;
+        appVersion: string | null;
+        platform: string | null;
+    }> = [];
+
+    for (const row of matchedRows) {
+        if (candidates.length >= HEATMAP_BASE_FRAME_CANDIDATE_MAX_FRAMES) break;
+
+        const framesResult = await getSessionScreenshotFrames(row.sessionId, {
+            urlMode: 'proxy',
+            buildOnCacheMiss: true,
+        });
+        if (!framesResult || framesResult.frames.length === 0) continue;
+
+        const remaining = HEATMAP_BASE_FRAME_CANDIDATE_MAX_FRAMES - candidates.length;
+        const perSessionLimit = Math.max(1, Math.min(HEATMAP_BASE_FRAME_CANDIDATE_MAX_FRAMES_PER_SESSION, remaining));
+        const sampledFrames = sampleHeatmapFrameCandidates(framesResult.frames, perSessionLimit);
+        for (const frame of sampledFrames) {
+            const timestamp = Number(frame.timestamp);
+            if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+            candidates.push({
+                id: `${row.sessionId}:${timestamp}`,
+                sessionId: row.sessionId,
+                timestamp,
+                frameIndex: frame.index,
+                url: frame.proxyUrl || frame.url,
+                sessionStartedAt: row.startedAt.toISOString(),
+                relativeSeconds: Number.isFinite(timestamp)
+                    ? Math.max(0, Number(((timestamp - row.startedAt.getTime()) / 1000).toFixed(1)))
+                    : null,
+                appVersion: row.appVersion ?? null,
+                platform: row.platform ?? null,
+            });
+        }
+    }
+
+    const templatesByScreen = await loadHeatmapBaseTemplateMap(projectId);
+    return {
+        candidates,
+        baseTemplate: pickHeatmapBaseTemplate(templatesByScreen, normalizedScreenName, { platform, appVersion }),
+        generatedAt: new Date().toISOString(),
+    };
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
+    return Math.round(numeric);
+}
+
+async function invalidateHeatmapOverviewCaches(projectId: string): Promise<void> {
+    try {
+        const keys = await redis.keys(`overview:heatmaps*:${projectId}:*`);
+        if (keys.length > 0) {
+            await redis.del(...keys);
+        }
+    } catch (err) {
+        logger.warn({ err, projectId }, '[overview] failed to invalidate heatmap overview caches');
+    }
+}
+
+async function saveHeatmapBaseTemplate(params: {
+    userId: string;
+    projectId: string;
+    screenName: string;
+    platform?: string | null;
+    appVersion?: string | null;
+    sourceSessionId: string;
+    sourceTimestampMs: number;
+    pageWidth?: number | null;
+    pageHeight?: number | null;
+    viewportWidth?: number | null;
+    viewportHeight?: number | null;
+}) {
+    const normalizedScreenName = normalizeHeatmapScreenName(params.screenName);
+    if (!normalizedScreenName) {
+        throw ApiError.badRequest('screenName is invalid');
+    }
+
+    const sourceTimestampMs = Number(params.sourceTimestampMs);
+    if (!Number.isFinite(sourceTimestampMs) || sourceTimestampMs <= 0) {
+        throw ApiError.badRequest('sourceTimestampMs is invalid');
+    }
+
+    const [sourceRow] = await db
+        .select({
+            sessionId: sessions.id,
+            projectId: sessions.projectId,
+            platform: sessions.platform,
+            appVersion: sessions.appVersion,
+            replayAvailable: sessions.replayAvailable,
+            replayRetentionState: sessions.replayRetentionState,
+            recordingDeleted: sessions.recordingDeleted,
+            isReplayExpired: sessions.isReplayExpired,
+            screensVisited: sessionMetrics.screensVisited,
+        })
+        .from(sessions)
+        .innerJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
+        .where(eq(sessions.id, params.sourceSessionId))
+        .limit(1);
+
+    if (!sourceRow || sourceRow.projectId !== params.projectId) {
+        throw ApiError.notFound('Source session not found for this project');
+    }
+    if (!canOpenReplayFromSessionFields(sourceRow)) {
+        throw ApiError.badRequest('Source session replay is no longer available');
+    }
+    if (!normalizeHeatmapScreenPath(sourceRow.screensVisited || []).includes(normalizedScreenName)) {
+        throw ApiError.badRequest('Source session does not include this screen');
+    }
+
+    const image = await getThumbnailAtTimestamp(params.sourceSessionId, Math.round(sourceTimestampMs), {
+        width: 1440,
+        format: 'jpeg',
+    });
+    if (!image) {
+        throw ApiError.notFound('Selected frame could not be loaded');
+    }
+
+    const [project] = await db
+        .select({ teamId: projects.teamId })
+        .from(projects)
+        .where(eq(projects.id, params.projectId))
+        .limit(1);
+    if (!project) {
+        throw ApiError.notFound('Project not found');
+    }
+
+    const templateId = randomUUID();
+    const objectKey = `tenant/${project.teamId}/project/${params.projectId}/heatmap-base-templates/${templateId}.jpg`;
+    const upload = await uploadToS3(
+        params.projectId,
+        objectKey,
+        image,
+        'image/jpeg',
+        {
+            kind: 'heatmap_base_template',
+            source_session_id: params.sourceSessionId,
+            source_timestamp_ms: String(Math.round(sourceTimestampMs)),
+        },
+    );
+    if (!upload.success) {
+        logger.error({ projectId: params.projectId, objectKey, error: upload.error }, '[overview] failed to upload heatmap base template');
+        throw ApiError.internal('Failed to save selected frame');
+    }
+
+    const platformScope = normalizeHeatmapTemplatePlatformScope(params.platform);
+    const appVersionScope = normalizeHeatmapTemplateAppVersionScope(params.appVersion);
+    const now = new Date();
+    const values = {
+        sourceSessionId: params.sourceSessionId,
+        sourceTimestampMs: Math.round(sourceTimestampMs),
+        imageS3ObjectKey: objectKey,
+        imageEndpointId: upload.endpointId,
+        imageSizeBytes: image.length,
+        pageWidth: parsePositiveInteger(params.pageWidth),
+        pageHeight: parsePositiveInteger(params.pageHeight),
+        viewportWidth: parsePositiveInteger(params.viewportWidth),
+        viewportHeight: parsePositiveInteger(params.viewportHeight),
+        updatedByUserId: params.userId,
+        updatedAt: now,
+    };
+
+    const [existing] = await db
+        .select()
+        .from(heatmapBaseTemplates)
+        .where(and(
+            eq(heatmapBaseTemplates.projectId, params.projectId),
+            eq(heatmapBaseTemplates.screenName, normalizedScreenName),
+            eq(heatmapBaseTemplates.platformScope, platformScope),
+            eq(heatmapBaseTemplates.appVersionScope, appVersionScope),
+        ))
+        .limit(1);
+
+    const [row] = existing
+        ? await db
+            .update(heatmapBaseTemplates)
+            .set(values)
+            .where(eq(heatmapBaseTemplates.id, existing.id))
+            .returning()
+        : await db
+            .insert(heatmapBaseTemplates)
+            .values({
+                id: templateId,
+                projectId: params.projectId,
+                screenName: normalizedScreenName,
+                platformScope,
+                appVersionScope,
+                createdByUserId: params.userId,
+                ...values,
+                createdAt: now,
+            })
+            .returning();
+
+    if (existing?.imageEndpointId && (existing.imageS3ObjectKey !== objectKey || existing.imageEndpointId !== upload.endpointId)) {
+        const deleted = await deleteFromS3(existing.imageEndpointId, existing.imageS3ObjectKey);
+        if (!deleted) {
+            logger.warn(
+                {
+                    projectId: params.projectId,
+                    templateId: existing.id,
+                    objectKey: existing.imageS3ObjectKey,
+                    endpointId: existing.imageEndpointId,
+                },
+                '[overview] failed to delete replaced heatmap base template image',
+            );
+        }
+    }
+
+    await invalidateHeatmapOverviewCaches(params.projectId);
+    return serializeHeatmapBaseTemplate(row);
 }
 
 const STABILITY_OVERVIEW_FP_LIMIT = 50;
@@ -2563,6 +2980,141 @@ router.get(
 );
 
 router.get(
+    '/heatmaps/base-templates/candidates',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const scope = await resolveOverviewScope(req, { requireProjectId: true });
+        const screenName = typeof req.query.screenName === 'string' ? req.query.screenName : undefined;
+        if (!screenName) {
+            throw ApiError.badRequest('screenName is required');
+        }
+
+        const rawAppVersion = typeof req.query.appVersion === 'string' ? req.query.appVersion.trim() : '';
+        const appVersion = normalizeHeatmapTemplateAppVersionScope(rawAppVersion);
+        const payload = await loadHeatmapBaseFrameCandidates(
+            scope.normalizedProjectId!,
+            screenName,
+            scope.normalizedTimeRange,
+            scope.normalizedPlatform,
+            appVersion === 'all' ? undefined : appVersion,
+        );
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(payload);
+    }),
+);
+
+router.get(
+    '/heatmaps/base-templates/:templateId/image',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const templateId = req.params.templateId;
+        const [template] = await db
+            .select()
+            .from(heatmapBaseTemplates)
+            .where(eq(heatmapBaseTemplates.id, templateId))
+            .limit(1);
+
+        if (!template) {
+            throw ApiError.notFound('Heatmap base template not found');
+        }
+
+        const accessibleProjectIds = await getAccessibleProjectIds(req.user!.id);
+        if (!accessibleProjectIds.includes(template.projectId)) {
+            throw ApiError.forbidden('Access denied');
+        }
+
+        const image = await downloadFromS3ForArtifact(template.projectId, template.imageS3ObjectKey, template.imageEndpointId);
+        if (!image) {
+            throw ApiError.notFound('Heatmap base template image not found');
+        }
+
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.setHeader('Content-Length', String(image.length));
+        res.send(image);
+    }),
+);
+
+router.post(
+    '/heatmaps/base-templates',
+    sessionAuth,
+    writeApiRateLimiter,
+    asyncHandler(async (req, res) => {
+        const scope = await resolveOverviewScope(req, { requireProjectId: true });
+        const body = (req.body && typeof req.body === 'object') ? req.body as Record<string, unknown> : {};
+        const screenName = typeof body.screenName === 'string' ? body.screenName : '';
+        const sourceSessionId = typeof body.sourceSessionId === 'string' ? body.sourceSessionId : '';
+        const sourceTimestampMs = Number(body.sourceTimestampMs);
+
+        if (!screenName) {
+            throw ApiError.badRequest('screenName is required');
+        }
+        if (!sourceSessionId) {
+            throw ApiError.badRequest('sourceSessionId is required');
+        }
+
+        const template = await saveHeatmapBaseTemplate({
+            userId: req.user!.id,
+            projectId: scope.normalizedProjectId!,
+            screenName,
+            platform: typeof body.platform === 'string' ? body.platform : scope.normalizedPlatform,
+            appVersion: typeof body.appVersion === 'string' ? body.appVersion : null,
+            sourceSessionId,
+            sourceTimestampMs,
+            pageWidth: parsePositiveInteger(body.pageWidth),
+            pageHeight: parsePositiveInteger(body.pageHeight),
+            viewportWidth: parsePositiveInteger(body.viewportWidth),
+            viewportHeight: parsePositiveInteger(body.viewportHeight),
+        });
+
+        res.setHeader('Cache-Control', 'no-store');
+        res.json({ baseTemplate: template });
+    }),
+);
+
+router.delete(
+    '/heatmaps/base-templates/:templateId',
+    sessionAuth,
+    writeApiRateLimiter,
+    asyncHandler(async (req, res) => {
+        const templateId = req.params.templateId;
+        const [template] = await db
+            .select()
+            .from(heatmapBaseTemplates)
+            .where(eq(heatmapBaseTemplates.id, templateId))
+            .limit(1);
+
+        if (!template) {
+            throw ApiError.notFound('Heatmap base template not found');
+        }
+
+        const accessibleProjectIds = await getAccessibleProjectIds(req.user!.id);
+        if (!accessibleProjectIds.includes(template.projectId)) {
+            throw ApiError.forbidden('Access denied');
+        }
+
+        await db.delete(heatmapBaseTemplates).where(eq(heatmapBaseTemplates.id, templateId));
+        const deleted = template.imageEndpointId
+            ? await deleteFromS3(template.imageEndpointId, template.imageS3ObjectKey)
+            : false;
+        if (!deleted && template.imageEndpointId) {
+            logger.warn(
+                {
+                    projectId: template.projectId,
+                    templateId: template.id,
+                    objectKey: template.imageS3ObjectKey,
+                    endpointId: template.imageEndpointId,
+                },
+                '[overview] failed to delete heatmap base template image',
+            );
+        }
+        await invalidateHeatmapOverviewCaches(template.projectId);
+
+        res.status(204).send();
+    }),
+);
+
+router.get(
     '/heatmaps',
     sessionAuth,
     asyncHandler(async (req, res) => {
@@ -2572,7 +3124,7 @@ router.get(
                 'heatmaps',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v10` : 'v10',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v11` : 'v11',
             ),
             routeName: 'heatmaps',
             res,
@@ -2640,7 +3192,7 @@ router.get(
                 `heatmaps:screen:${screenName}`,
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v7` : 'v7',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v8` : 'v8',
             ),
             routeName: 'heatmaps-screen',
             res,

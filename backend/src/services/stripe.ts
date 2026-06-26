@@ -29,7 +29,8 @@ import {
 let stripe: Stripe | null = null;
 let loggedStripeDisabled = false;
 const MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY = 'rejourney_managed';
-const MANAGED_PLAN_CHANGE_PORTAL_METADATA_VALUE = 'plan_change_v1';
+const MANAGED_PLAN_CHANGE_PORTAL_METADATA_PREFIX = 'plan_change_v1';
+const MANAGED_SUBSCRIPTION_CANCEL_PORTAL_METADATA_VALUE = 'subscription_cancel_v1';
 
 export interface BillingPortalPlanChangeProduct {
     productId: string;
@@ -364,11 +365,13 @@ export async function createBillingPortalPlanChangeSession({
     teamId,
     priceId,
     returnUrl,
+    changeType,
     portalProducts = [],
 }: {
     teamId: string;
     priceId: string;
     returnUrl: string;
+    changeType: 'upgrade' | 'downgrade';
     portalProducts?: BillingPortalPlanChangeProduct[];
 }): Promise<string | null> {
     const client = getStripe();
@@ -398,7 +401,7 @@ export async function createBillingPortalPlanChangeSession({
             throw new Error('Subscription has no items to update');
         }
 
-        const configuration = await ensureManagedPlanChangePortalConfiguration(client, returnUrl, portalProducts);
+        const configuration = await ensureManagedPlanChangePortalConfiguration(client, returnUrl, portalProducts, changeType);
         const sessionParams: Stripe.BillingPortal.SessionCreateParams = {
             customer: team.stripeCustomerId,
             return_url: returnUrl,
@@ -498,11 +501,8 @@ async function ensureManagedPlanChangePortalConfiguration(
     client: Stripe,
     returnUrl: string,
     portalProducts: BillingPortalPlanChangeProduct[],
+    changeType: 'upgrade' | 'downgrade' | 'cancellation' = 'upgrade',
 ): Promise<string | undefined> {
-    if (config.NODE_ENV === 'production') {
-        return undefined;
-    }
-
     const products = portalProducts
         .map(product => ({
             product: product.productId,
@@ -525,6 +525,7 @@ async function ensureManagedPlanChangePortalConfiguration(
     if (products.length > 0) {
         features.subscription_update = {
             enabled: true,
+            billing_cycle_anchor: changeType === 'upgrade' ? 'now' : 'unchanged',
             default_allowed_updates: ['price'],
             products,
             proration_behavior: 'none',
@@ -534,12 +535,24 @@ async function ensureManagedPlanChangePortalConfiguration(
         };
     }
 
+    // Stripe portal configurations cannot include multiple same-interval prices for one product.
+    const productsSignature = products
+        .map(product => `${product.product}:${product.prices.slice().sort().join(',')}`)
+        .sort()
+        .join('|');
+    const metadataValue = products.length > 0
+        ? `${MANAGED_PLAN_CHANGE_PORTAL_METADATA_PREFIX}:${changeType}:${productsSignature}`
+        : MANAGED_SUBSCRIPTION_CANCEL_PORTAL_METADATA_VALUE;
+    const configurationName = products.length > 0
+        ? `Rejourney ${changeType} ${products[0]?.prices[0] || 'target'}`
+        : 'Rejourney subscription cancellation';
+
     const existingConfigs = await client.billingPortal.configurations.list({
         active: true,
         limit: 100,
     });
     const existing = existingConfigs.data.find(candidate =>
-        candidate.metadata?.[MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY] === MANAGED_PLAN_CHANGE_PORTAL_METADATA_VALUE
+        candidate.metadata?.[MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY] === metadataValue
     );
 
     if (existing) {
@@ -548,9 +561,9 @@ async function ensureManagedPlanChangePortalConfiguration(
             features,
             metadata: {
                 ...existing.metadata,
-                [MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY]: MANAGED_PLAN_CHANGE_PORTAL_METADATA_VALUE,
+                [MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY]: metadataValue,
             },
-            name: 'Rejourney local plan changes',
+            name: configurationName,
         });
         return updated.id;
     }
@@ -559,9 +572,9 @@ async function ensureManagedPlanChangePortalConfiguration(
         default_return_url: returnUrl,
         features,
         metadata: {
-            [MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY]: MANAGED_PLAN_CHANGE_PORTAL_METADATA_VALUE,
+            [MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY]: metadataValue,
         },
-        name: 'Rejourney local plan changes',
+        name: configurationName,
     });
     return created.id;
 }
@@ -846,6 +859,104 @@ function extractSubscriptionPeriod(subData: any): { periodStart: Date | null; pe
     }
 
     return { periodStart: null, periodEnd: null };
+}
+
+function extractInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+    const invoiceData = invoice as any;
+    return typeof invoiceData.subscription === 'string'
+        ? invoiceData.subscription
+        : invoiceData.subscription?.id ?? null;
+}
+
+function formatStripePlanName(value: string | null | undefined): string | null {
+    const normalized = value?.replace(/\s+/g, ' ').trim();
+    if (!normalized) return null;
+
+    if (/^[a-z0-9_-]+$/i.test(normalized)) {
+        return normalized
+            .replace(/[_-]+/g, ' ')
+            .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    return normalized;
+}
+
+function resolveInvoicePlanName(invoice: Stripe.Invoice, subscription?: Stripe.Subscription | null): string {
+    const invoiceData = invoice as any;
+    const firstLine = invoiceData.lines?.data?.find((line: any) => line.price || line.description);
+    const linePrice = firstLine?.price && typeof firstLine.price !== 'string'
+        ? firstLine.price
+        : null;
+    const subscriptionPrice = subscription?.items?.data?.[0]?.price;
+    const price = linePrice || (subscriptionPrice && typeof subscriptionPrice !== 'string' ? subscriptionPrice : null);
+
+    return formatStripePlanName(
+        price?.metadata?.plan_name
+        || price?.metadata?.plan
+        || price?.nickname
+        || firstLine?.description
+    ) || 'your selected plan';
+}
+
+function resolveInvoiceCustomerEmail(invoice: Stripe.Invoice): string | null {
+    const invoiceData = invoice as any;
+    const customer = invoiceData.customer;
+    return invoiceData.customer_email
+        || invoiceData.customer_details?.email
+        || (customer && typeof customer !== 'string' ? customer.email : null)
+        || null;
+}
+
+async function retrieveInvoiceForPaymentAction(invoice: Stripe.Invoice): Promise<Stripe.Invoice> {
+    const invoiceData = invoice as any;
+    if (invoiceData.hosted_invoice_url && resolveInvoiceCustomerEmail(invoice)) {
+        return invoice;
+    }
+
+    const client = getStripe();
+    if (!client) {
+        return invoice;
+    }
+
+    try {
+        return await client.invoices.retrieve(invoice.id, { expand: ['customer'] });
+    } catch (err) {
+        logger.warn({ err, invoiceId: invoice.id }, 'Failed to retrieve invoice details for payment action email');
+        return invoice;
+    }
+}
+
+async function resolveBillingRecipientEmails(
+    team: { id: string; billingEmail: string | null; ownerUserId: string | null },
+    extraEmails: Array<string | null | undefined> = []
+): Promise<string[]> {
+    const members = await db
+        .select({ email: users.email })
+        .from(teamMembers)
+        .innerJoin(users, eq(teamMembers.userId, users.id))
+        .where(and(
+            eq(teamMembers.teamId, team.id),
+            inArray(teamMembers.role, ['owner', 'admin', 'billing_admin'])
+        ));
+
+    let recipientEmails = [
+        ...members.map((member) => member.email),
+        team.billingEmail,
+        ...extraEmails,
+    ].filter((email): email is string => Boolean(email));
+
+    if (recipientEmails.length === 0 && team.ownerUserId) {
+        const [owner] = await db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, team.ownerUserId))
+            .limit(1);
+        if (owner?.email) {
+            recipientEmails.push(owner.email);
+        }
+    }
+
+    return [...new Set(recipientEmails.map((email) => email.trim()).filter(Boolean))];
 }
 
 async function resolveSubscriptionRetentionTier(
@@ -1222,13 +1333,13 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
 /**
  * Handle invoice.payment_action_required event
  * Fired when the payment requires customer authentication (e.g. 3D Secure).
- * We ensure the team is NOT provisioned until payment succeeds.
+ * We email the hosted invoice link and mark existing paid subscriptions as
+ * payment-failed without clearing their Stripe price. Subscription status
+ * webhooks remain responsible for provisioning and deprovisioning plan access.
  */
 async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice): Promise<void> {
     const invoiceData = invoice as any;
-    const subscriptionId = typeof invoiceData.subscription === 'string'
-        ? invoiceData.subscription
-        : invoiceData.subscription?.id;
+    const subscriptionId = extractInvoiceSubscriptionId(invoice);
 
     if (!subscriptionId) {
         logger.debug({ invoiceId: invoice.id }, 'Payment action required invoice has no subscription');
@@ -1236,7 +1347,13 @@ async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice): Prom
     }
 
     // Find team by subscription ID
-    const [team] = await db.select({ id: teams.id, stripePriceId: teams.stripePriceId })
+    const [team] = await db.select({
+        id: teams.id,
+        name: teams.name,
+        stripePriceId: teams.stripePriceId,
+        billingEmail: teams.billingEmail,
+        ownerUserId: teams.ownerUserId,
+    })
         .from(teams)
         .where(eq(teams.stripeSubscriptionId, subscriptionId))
         .limit(1);
@@ -1246,27 +1363,70 @@ async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice): Prom
         return;
     }
 
-    // If the team was incorrectly provisioned (stripePriceId set while payment
-    // is still pending), revert to free-tier limits.
-    if (team.stripePriceId) {
+    const resolvedInvoice = await retrieveInvoiceForPaymentAction(invoice);
+    const resolvedInvoiceData = resolvedInvoice as any;
+    let subscription: Stripe.Subscription | null = null;
+    const client = getStripe();
+
+    if (client) {
+        try {
+            subscription = await client.subscriptions.retrieve(subscriptionId);
+        } catch (err) {
+            logger.warn({ err, subscriptionId, invoiceId: invoice.id }, 'Failed to retrieve subscription for payment action email');
+        }
+    }
+
+    // Existing paid teams should be paused until payment succeeds, but their
+    // plan record should not be cleared here. invoice.paid clears this flag.
+    const shouldRecordPaymentFailure = Boolean(team.stripePriceId) || invoiceData.billing_reason !== 'subscription_create';
+    if (shouldRecordPaymentFailure) {
         await db.update(teams)
-            .set({ stripePriceId: null, updatedAt: new Date() })
+            .set({ paymentFailedAt: new Date(), updatedAt: new Date() })
             .where(eq(teams.id, team.id));
 
         const { invalidateSessionCache } = await import('./quotaCheck.js');
         await invalidateSessionCache(team.id);
+    }
 
-        logger.warn({
+    const hostedInvoiceUrl = resolvedInvoiceData.hosted_invoice_url as string | undefined;
+    const customerEmail = resolveInvoiceCustomerEmail(resolvedInvoice);
+    const recipientEmails = await resolveBillingRecipientEmails(team, [customerEmail]);
+
+    if (!hostedInvoiceUrl) {
+        logger.warn({ teamId: team.id, subscriptionId, invoiceId: invoice.id }, 'Payment action required invoice missing hosted invoice URL');
+    } else if (recipientEmails.length === 0) {
+        logger.warn({ teamId: team.id, subscriptionId, invoiceId: invoice.id }, 'No recipients found for payment action required email');
+    } else {
+        try {
+            const { sendPaymentActionRequiredEmail } = await import('./email.js');
+            await sendPaymentActionRequiredEmail(recipientEmails, {
+                teamName: team.name || 'Your Team',
+                planName: resolveInvoicePlanName(resolvedInvoice, subscription),
+                amountDueCents: typeof resolvedInvoiceData.amount_remaining === 'number'
+                    ? resolvedInvoiceData.amount_remaining
+                    : resolvedInvoice.amount_due || 0,
+                currency: resolvedInvoice.currency || 'usd',
+                invoiceUrl: hostedInvoiceUrl,
+            });
+        } catch (emailErr) {
+            logger.error({ err: emailErr, teamId: team.id, invoiceId: invoice.id }, 'Failed to send payment action required email');
+        }
+    }
+
+    if (shouldRecordPaymentFailure) {
+        logger.info({
             teamId: team.id,
             subscriptionId,
             invoiceId: invoice.id,
-        }, 'Reverted team to free-tier limits — payment action required but plan was already provisioned');
+            recipientsCount: recipientEmails.length,
+        }, 'Payment action required - payment failed status recorded and email attempted');
     } else {
         logger.info({
             teamId: team.id,
             subscriptionId,
             invoiceId: invoice.id,
-        }, 'Payment action required — team correctly not provisioned');
+            recipientsCount: recipientEmails.length,
+        }, 'Payment action required - email attempted for unprovisioned subscription');
     }
 }
 

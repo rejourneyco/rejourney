@@ -11,6 +11,7 @@ import {
     sendOtpEmail,
     sendBillingWarningEmail,
     sendDeveloperSetupEmail,
+    sendPaymentActionRequiredEmail,
     sendPlanChangeEmail,
     sendSubscriptionExpiredEmail,
     sendTeamInviteEmail,
@@ -85,6 +86,16 @@ describe('Email Previews', () => {
 
     it('generates Subscription Expired email', async () => {
         await sendSubscriptionExpiredEmail('admin@example.com', 'ACME Corp', 'Growth');
+    });
+
+    it('generates Payment Action Required email', async () => {
+        await sendPaymentActionRequiredEmail('admin@example.com', {
+            teamName: 'ACME Corp',
+            planName: 'Growth',
+            amountDueCents: 1500,
+            currency: 'usd',
+            invoiceUrl: 'https://invoice.stripe.com/example',
+        });
     });
 
     it('generates Developer Setup email', async () => {

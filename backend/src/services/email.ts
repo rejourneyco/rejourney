@@ -236,6 +236,17 @@ function truncateForSubject(value: string, maxLength = 150): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+function formatCurrencyFromCents(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amountCents / 100);
+  } catch {
+    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
 function renderKeyValueTable(rows: Array<[string, string | number | null | undefined]>): string {
   const visibleRows = rows.filter(([, value]) => value !== null && value !== undefined && String(value).trim().length > 0);
   if (visibleRows.length === 0) return '';
@@ -800,6 +811,91 @@ export async function sendSubscriptionExpiredEmail(
   });
 
   logger.info({ email: recipients, teamName, planName }, 'Subscription expired email sent');
+}
+
+export interface PaymentActionRequiredEmailParams {
+  teamName: string;
+  planName: string;
+  amountDueCents: number;
+  currency: string;
+  invoiceUrl: string;
+}
+
+/**
+ * Send payment authentication required email.
+ * Sent when Stripe has an open invoice that needs customer action, such as 3DS.
+ */
+export async function sendPaymentActionRequiredEmail(
+  email: string | string[],
+  params: PaymentActionRequiredEmailParams
+): Promise<void> {
+  const transport = getTransporter();
+  if (!transport) return;
+
+  const amount = formatCurrencyFromCents(params.amountDueCents, params.currency);
+  const recipients = Array.isArray(email) ? email.join(',') : email;
+  const planLabel = params.planName || 'your selected plan';
+
+  const sections: EmailSection[] = [
+    {
+      style: 'warning',
+      content: `
+        <div style="font-size: 13px; margin-bottom: 8px; color: ${BRAND.warning}; font-weight: 800;">Payment authentication needed</div>
+        <div style="font-weight: 800; font-size: 18px; color: ${BRAND.text};">Complete your ${escapeHtml(planLabel)} payment</div>
+      `
+    },
+    {
+      style: 'default',
+      content: `
+        <p style="margin-bottom: 16px;">
+          Your recent billing change for <strong>${escapeHtml(params.teamName)}</strong> is almost complete, but Stripe needs one more payment authentication step.
+        </p>
+        <p style="margin-bottom: 16px;">
+          The open invoice amount is <strong>${escapeHtml(amount)}</strong>.
+        </p>
+        <p style="margin-bottom: 0;">
+          Please complete the secure payment step so your Rejourney billing stays active.
+        </p>
+      `
+    },
+    {
+      style: 'info',
+      content: `
+        <strong>Already completed it?</strong> You can ignore this email. Stripe will update Rejourney automatically when the payment succeeds.
+      `
+    }
+  ];
+
+  const html = generateEmailHtml({
+    title: 'Complete Your Payment',
+    previewText: `Stripe needs one more payment step for ${params.teamName}`,
+    sections,
+    action: {
+      label: 'Complete Payment',
+      url: params.invoiceUrl
+    },
+    secondaryAction: {
+      label: 'View Billing Settings',
+      url: emailBillingUrl()
+    },
+    alertType: 'billing',
+    metaBadges: [
+      { label: 'Amount', value: amount, color: 'orange' },
+      { label: 'Status', value: 'Action needed', color: 'orange' },
+    ],
+    footerText: `Sent to billing admins of ${params.teamName}.`,
+    timestamp: new Date()
+  });
+
+  await transport.sendMail({
+    from: config.SMTP_FROM || 'Rejourney Billing <billing@rejourney.co>',
+    to: recipients,
+    subject: `Action Required: Complete payment for ${params.teamName}`,
+    text: `Stripe needs one more payment authentication step for ${params.teamName}. Open invoice amount: ${amount}. Complete payment: ${params.invoiceUrl}`,
+    html
+  });
+
+  logger.info({ email: recipients, teamName: params.teamName, amountDueCents: params.amountDueCents, currency: params.currency }, 'Payment action required email sent');
 }
 
 export interface DeveloperSetupEmailProject {

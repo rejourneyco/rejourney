@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Not Completed</title>
+  <title>Complete Your Payment</title>
   <style>
     @media only screen and (max-width: 680px) {
       .rj-outer { padding-left: 12px !important; padding-right: 12px !important; }
@@ -19,7 +19,7 @@
 <body style="font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8fafd; margin: 0; padding: 0; color: #202124; line-height: 1.5; -webkit-font-smoothing: antialiased;">
   <!-- Preheader -->
   <div style="display:none;font-size:1px;color:#f8fafd;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
-    Your Growth subscription for ACME Corp was not activated — no charge was made
+    Stripe needs one more payment step for ACME Corp
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   </div>
 
@@ -48,7 +48,7 @@
               </div>
             
             
-            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Payment Not Completed</h1>
+            <h1 style="font-size: 28px; font-weight: 750; line-height: 1.2; margin: 0 0 12px; letter-spacing: 0; color: #202124;">Complete Your Payment</h1>
             
             
               <div style="font-size: 13px; font-weight: 600; color: #5f6368; margin: 0 0 18px;">
@@ -57,6 +57,20 @@
             
 
             
+              <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #edf0f3;">
+                
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b06000;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Amount:</span>
+        <span>$15.00</span>
+      </span>
+    
+      <span style="display: inline-block; font-size: 12px; line-height: 1.35; font-weight: 750; margin: 0 14px 7px 0; color: #b06000;">
+        <span style="font-weight: 700; opacity: 0.78; margin-right: 4px;">Status:</span>
+        <span>Action needed</span>
+      </span>
+    
+              </div>
+            
           </div>
 
           <!-- Content -->
@@ -64,9 +78,9 @@
             
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         
-        <div style="border-left: 3px solid #7b1fa2; padding: 0 0 0 16px; background: #ffffff; border-left-color: #b3261e;">
-        <div style="font-size: 13px; margin-bottom: 8px; color: #b3261e; font-weight: 800;">Payment not completed</div>
-        <div style="font-weight: 800; font-size: 18px; color: #202124;">Your subscription to Growth was not activated</div>
+        <div style="border-left: 3px solid #7b1fa2; padding: 0 0 0 16px; background: #ffffff; border-left-color: #b06000;">
+        <div style="font-size: 13px; margin-bottom: 8px; color: #b06000; font-weight: 800;">Payment authentication needed</div>
+        <div style="font-weight: 800; font-size: 18px; color: #202124;">Complete your Growth payment</div>
       </div>
       </div>
     
@@ -74,13 +88,13 @@
         
         <div style="font-size: 15px; line-height: 1.65; color: #202124; padding: 0; margin: 0;">
         <p style="margin-bottom: 16px;">
-          Your recent subscription attempt for <strong>ACME Corp</strong> required additional payment verification, which was not completed in time.
+          Your recent billing change for <strong>ACME Corp</strong> is almost complete, but Stripe needs one more payment authentication step.
         </p>
         <p style="margin-bottom: 16px;">
-          <strong>You have not been charged.</strong> Your team has been moved back to the Free plan.
+          The open invoice amount is <strong>$15.00</strong>.
         </p>
         <p style="margin-bottom: 0;">
-          To subscribe to the <strong>Growth</strong> plan, please try again from the billing page and complete all payment verification steps.
+          Please complete the secure payment step so your Rejourney billing stays active.
         </p>
       </div>
       </div>
@@ -88,15 +102,15 @@
       <div style="border-bottom: 1px solid #edf0f3; padding: 24px 0;">
         
         <div style="border-left: 3px solid #7b1fa2; padding: 0 0 0 16px; background: #ffffff; border-left-color: #1a73e8;">
-        <strong>Tip:</strong> If your card keeps requiring verification, try using a different payment method or contact your bank to pre-authorize the payment.
+        <strong>Already completed it?</strong> You can ignore this email. Stripe will update Rejourney automatically when the payment succeeds.
       </div>
       </div>
     
             
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 28px; border-collapse: collapse;">
         <tr>
-          <td style="padding: 0 10px 10px 0;"><a href="http://localhost:8080/dashboard/billing" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">Resubscribe Now</a></td>
-          
+          <td style="padding: 0 10px 10px 0;"><a href="https://invoice.stripe.com/example" style="background-color: #1a73e8; color: #ffffff; display: inline-block; padding: 12px 16px; font-weight: 800; text-decoration: none; border-radius: 6px; font-size: 14px; line-height: 1.25;">Complete Payment</a></td>
+          <td style="padding: 0 0 10px 0;"><a href="http://localhost:8080/dashboard/billing" style="background-color: #ffffff; color: #202124; display: inline-block; padding: 11px 15px; font-weight: 800; text-decoration: none; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; line-height: 1.25;">View Billing Settings</a></td>
         </tr>
       </table>
     

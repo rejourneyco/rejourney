@@ -429,6 +429,7 @@ router.post(
             teamId,
             priceId: plan.priceId,
             returnUrl: returnUrl || defaultReturnUrl,
+            changeType: preview.changeType,
             portalProducts: [{
                 productId: plan.productId,
                 priceIds: [plan.priceId],

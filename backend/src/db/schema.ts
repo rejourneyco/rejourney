@@ -641,6 +641,40 @@ export const recordingArtifacts = pgTable(
     ]
 );
 
+export const heatmapBaseTemplates = pgTable(
+    'heatmap_base_templates',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        screenName: text('screen_name').notNull(),
+        platformScope: varchar('platform_scope', { length: 20 }).default('all').notNull(),
+        appVersionScope: varchar('app_version_scope', { length: 120 }).default('all').notNull(),
+        sourceSessionId: varchar('source_session_id', { length: 64 }).references(() => sessions.id, { onDelete: 'set null' }),
+        sourceTimestampMs: bigint('source_timestamp_ms', { mode: 'number' }).notNull(),
+        imageS3ObjectKey: text('image_s3_object_key').notNull(),
+        imageEndpointId: varchar('image_endpoint_id', { length: 255 }),
+        imageSizeBytes: integer('image_size_bytes'),
+        pageWidth: integer('page_width'),
+        pageHeight: integer('page_height'),
+        viewportWidth: integer('viewport_width'),
+        viewportHeight: integer('viewport_height'),
+        createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+        updatedByUserId: uuid('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('heatmap_base_templates_scope_unique').on(
+            table.projectId,
+            table.screenName,
+            table.platformScope,
+            table.appVersionScope,
+        ),
+        index('heatmap_base_templates_project_screen_idx').on(table.projectId, table.screenName),
+        index('heatmap_base_templates_source_session_idx').on(table.sourceSessionId),
+    ],
+);
+
 export const replayShareLinks = pgTable(
     'replay_share_links',
     {
@@ -1335,6 +1369,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     apiKeys: many(apiKeys),
     sessions: many(sessions),
     replayShareLinks: many(replayShareLinks),
+    heatmapBaseTemplates: many(heatmapBaseTemplates),
     projectUsage: many(projectUsage),
     storageEndpoints: many(storageEndpoints),
     revenueDaily: many(projectRevenueDaily),
@@ -1345,6 +1380,7 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
     metrics: one(sessionMetrics, { fields: [sessions.id], references: [sessionMetrics.sessionId] }),
     recordingArtifacts: many(recordingArtifacts),
     replayShareLinks: many(replayShareLinks),
+    heatmapBaseTemplates: many(heatmapBaseTemplates),
 }));
 
 export const sessionMetricsRelations = relations(sessionMetrics, ({ one }) => ({
@@ -1355,6 +1391,13 @@ export const sessionMetricsRelations = relations(sessionMetrics, ({ one }) => ({
 
 export const recordingArtifactsRelations = relations(recordingArtifacts, ({ one }) => ({
     session: one(sessions, { fields: [recordingArtifacts.sessionId], references: [sessions.id] }),
+}));
+
+export const heatmapBaseTemplatesRelations = relations(heatmapBaseTemplates, ({ one }) => ({
+    project: one(projects, { fields: [heatmapBaseTemplates.projectId], references: [projects.id] }),
+    sourceSession: one(sessions, { fields: [heatmapBaseTemplates.sourceSessionId], references: [sessions.id] }),
+    createdBy: one(users, { fields: [heatmapBaseTemplates.createdByUserId], references: [users.id] }),
+    updatedBy: one(users, { fields: [heatmapBaseTemplates.updatedByUserId], references: [users.id] }),
 }));
 
 export const replayShareLinksRelations = relations(replayShareLinks, ({ one }) => ({
