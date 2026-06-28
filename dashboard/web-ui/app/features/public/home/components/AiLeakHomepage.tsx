@@ -171,7 +171,7 @@ export const AiLeakHomepage: React.FC = () => {
                             <span className="block whitespace-nowrap">Revenue Acceleration.</span>
                         </h1>
                         <p className="landing-hero-subtitle mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
-                            Power self-healing products.
+                            Make sure your users onboard, convert, and finish checkout.
                         </p>
                         {/* Action buttons matching style */}
                         <div className="landing-hero-actions mt-9 flex w-full max-w-[20.5rem] flex-col items-center justify-center gap-3 sm:mt-11 sm:w-auto sm:max-w-none sm:flex-row">
@@ -259,7 +259,7 @@ export const AiLeakHomepage: React.FC = () => {
                                 First, Rejourney records the user sessions.
                             </h3>
                             <p className="mt-4 text-base font-medium leading-8 text-slate-600">
-                                The repair note is grounded in the replay timeline: user actions, console events, network failures, DOM state, and the specific sessions that prove the leak is real.
+                                The user's session and journey is recorded as a video with collected metadata. 
                             </p>
                         </div>
                         <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
@@ -272,7 +272,7 @@ export const AiLeakHomepage: React.FC = () => {
                         <div className="space-y-4">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Issue detection</p>
                             <h3 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                                Then, Marlin creates the ranked leak feed.
+                                Then, Rejourney creates the ranked "leaks" feed.
                             </h3>
                             <p className="text-base font-medium leading-8 text-slate-600">
                                 Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
