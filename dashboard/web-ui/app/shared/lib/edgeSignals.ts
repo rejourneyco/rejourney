@@ -1,7 +1,11 @@
+import { getGoogleAdsConversionId, getGoogleAdsSignupConversionLabel } from "~/shared/config/runtimeEnv";
+
 type EdgeSignalProperties = Record<string, string | number | boolean>;
 
 declare global {
   interface Window {
+    dataLayer?: unknown[];
+    gtag?: (...args: unknown[]) => void;
     zaraz?: {
       track?: (eventName: string, eventProperties?: EdgeSignalProperties) => Promise<unknown> | unknown;
     };
@@ -9,6 +13,7 @@ declare global {
 }
 
 type ZarazTrack = NonNullable<NonNullable<Window["zaraz"]>["track"]>;
+type GtagTrack = NonNullable<Window["gtag"]>;
 
 export type AccountActivationMethod = "otp" | "github";
 
@@ -29,6 +34,18 @@ function getZarazTrack(): ZarazTrack | null {
   return track.bind(window.zaraz);
 }
 
+function getGtagTrack(): GtagTrack | null {
+  return typeof window.gtag === "function" ? window.gtag.bind(window) : null;
+}
+
+function getDashboardPageLocation(): string {
+  const origin = typeof window.location?.origin === "string" && window.location.origin
+    ? window.location.origin
+    : "https://rejourney.co";
+
+  return `${origin.replace(/\/$/, "")}/dashboard/`;
+}
+
 async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
   while (Date.now() < deadline) {
     const track = getZarazTrack();
@@ -40,8 +57,34 @@ async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
   return getZarazTrack();
 }
 
+function trackGoogleAdsSignupConversion(): void {
+  const gtag = getGtagTrack();
+  if (!gtag) return;
+
+  const conversionId = getGoogleAdsConversionId();
+  if (!conversionId) return;
+
+  const signupConversionLabel = getGoogleAdsSignupConversionLabel();
+  if (signupConversionLabel) {
+    gtag("event", "conversion", {
+      send_to: `${conversionId}/${signupConversionLabel}`,
+    });
+    return;
+  }
+
+  // Fallback for URL-based Google Ads conversion actions while the action label
+  // is not configured in the app. The explicit event above is the precise path.
+  gtag("config", conversionId, {
+    page_location: getDashboardPageLocation(),
+    page_path: "/dashboard/",
+    page_title: "Rejourney Dashboard",
+  });
+}
+
 export async function trackAccountActivationSignal(method: AccountActivationMethod): Promise<void> {
   if (typeof window === "undefined") return;
+
+  trackGoogleAdsSignupConversion();
 
   const deadline = Date.now() + SIGNAL_BUDGET_MS;
   const track = await waitForZarazTrack(deadline);

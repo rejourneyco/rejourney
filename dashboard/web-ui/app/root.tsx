@@ -21,13 +21,32 @@ import {
 import type { Route } from "./+types/root";
 
 import "./styles/index.css";
-import { getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
+import { getGoogleAdsConversionId, getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
 import {
     getLocalizedPublicUrl,
     getMarketingHomeCopy,
     MARKETING_LOCALES,
 } from "./shared/lib/internationalMarketing";
 import { isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
+
+function renderGoogleAdsBootstrap(conversionId: string): string {
+    return [
+        "(function(){",
+        `var conversionId=${JSON.stringify(conversionId)};`,
+        "var path=window.location.pathname;",
+        "if(path.indexOf('/dashboard')===0||path.indexOf('/demo')===0){return;}",
+        "window.dataLayer=window.dataLayer||[];",
+        "function gtag(){dataLayer.push(arguments);}",
+        "window.gtag=window.gtag||gtag;",
+        "var tag=document.createElement('script');",
+        "tag.async=true;",
+        "tag.src='https://www.googletagmanager.com/gtag/js?id='+encodeURIComponent(conversionId);",
+        "document.head.appendChild(tag);",
+        "gtag('js',new Date());",
+        "gtag('config',conversionId);",
+        "})();",
+    ].join("");
+}
 
 export const links: Route.LinksFunction = () => [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -57,6 +76,7 @@ export const meta: Route.MetaFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
+    const googleAdsConversionId = getGoogleAdsConversionId();
     const locale = MARKETING_LOCALES.en;
     const copy = getMarketingHomeCopy(locale);
 
@@ -76,6 +96,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <meta httpEquiv="Content-Language" content={locale.languageTag} />
                 <Meta />
                 <Links />
+                {googleAdsConversionId ? (
+                    <script
+                        dangerouslySetInnerHTML={{
+                            __html: renderGoogleAdsBootstrap(googleAdsConversionId),
+                        }}
+                    />
+                ) : null}
                 {/* Structured data for rich results */}
                 <script
                     type="application/ld+json"

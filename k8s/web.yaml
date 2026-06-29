@@ -123,6 +123,18 @@ spec:
                   name: turnstile-secret
                   key: TURNSTILE_SITE_KEY
                   optional: true
+            - name: VITE_GOOGLE_ADS_CONVERSION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_CONVERSION_ID
+                  optional: true
+            - name: VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL
+                  optional: true
           resources:
             requests:
               cpu: 200m

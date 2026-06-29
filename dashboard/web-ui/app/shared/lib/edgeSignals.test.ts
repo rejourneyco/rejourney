@@ -30,6 +30,7 @@ describe('edge signals', () => {
   it('sends account activation through Zaraz when the tracker is ready', async () => {
     const track = vi.fn().mockResolvedValue(undefined);
     setTestWindow({
+      ENV: {},
       setTimeout,
       zaraz: { track },
     });
@@ -43,6 +44,7 @@ describe('edge signals', () => {
     vi.useFakeTimers();
     const track = vi.fn().mockResolvedValue(undefined);
     const testWindow = {
+      ENV: {},
       setTimeout,
       zaraz: {},
     };
@@ -60,6 +62,7 @@ describe('edge signals', () => {
   it('does not fail login when Zaraz never becomes available', async () => {
     vi.useFakeTimers();
     setTestWindow({
+      ENV: {},
       setTimeout,
       zaraz: {},
     });
@@ -68,5 +71,45 @@ describe('edge signals', () => {
     await vi.advanceTimersByTimeAsync(3500);
 
     await expect(signal).resolves.toBeUndefined();
+  });
+
+  it('sends the Google Ads signup conversion when the conversion label is configured', async () => {
+    const gtag = vi.fn();
+    setTestWindow({
+      ENV: {
+        VITE_GOOGLE_ADS_CONVERSION_ID: '18175283670',
+        VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
+      },
+      gtag,
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    await trackAccountActivationSignal('otp');
+
+    expect(gtag).toHaveBeenCalledWith('event', 'conversion', {
+      send_to: 'AW-18175283670/Rt-7COH-3cccENaj09pD',
+    });
+  });
+
+  it('falls back to a dashboard page view for URL-based Google Ads conversion actions', async () => {
+    const gtag = vi.fn();
+    setTestWindow({
+      ENV: {
+        VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
+      },
+      gtag,
+      location: { origin: 'https://rejourney.co' },
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    await trackAccountActivationSignal('github');
+
+    expect(gtag).toHaveBeenCalledWith('config', 'AW-18175283670', {
+      page_location: 'https://rejourney.co/dashboard/',
+      page_path: '/dashboard/',
+      page_title: 'Rejourney Dashboard',
+    });
   });
 });
