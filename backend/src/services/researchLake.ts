@@ -857,6 +857,284 @@ const FUNNEL_TRANSITION_ALIASES = [
             'workspace_created',
         ],
     },
+    {
+        transition: 'ad_viewed',
+        names: [
+            'ad_viewed',
+            'ad_view',
+            'ad_seen',
+            'ad_shown',
+            'ad_displayed',
+            'ad_impression',
+            'ad_exposure',
+            'ad_rendered',
+        ],
+    },
+    {
+        transition: 'ad_clicked',
+        names: [
+            'ad_clicked',
+            'ad_click',
+            'ad_tapped',
+            'ad_tap',
+            'ad_cta_clicked',
+            'ad_opened',
+        ],
+    },
+    {
+        transition: 'native_ad_viewed',
+        names: [
+            'native_ad_viewed',
+            'native_ad_impression',
+            'native_ad_seen',
+            'native_ad_shown',
+            'native_ad_displayed',
+        ],
+    },
+    {
+        transition: 'native_ad_clicked',
+        names: [
+            'native_ad_clicked',
+            'native_ad_click',
+            'native_ad_tapped',
+            'native_ad_cta_clicked',
+        ],
+    },
+    {
+        transition: 'banner_ad_viewed',
+        names: [
+            'banner_ad_viewed',
+            'banner_ad_impression',
+            'banner_ad_seen',
+            'banner_ad_shown',
+            'banner_ad_displayed',
+        ],
+    },
+    {
+        transition: 'banner_ad_clicked',
+        names: [
+            'banner_ad_clicked',
+            'banner_ad_click',
+            'banner_ad_tapped',
+            'banner_ad_cta_clicked',
+        ],
+    },
+    {
+        transition: 'interstitial_ad_viewed',
+        names: [
+            'interstitial_ad_viewed',
+            'interstitial_ad_impression',
+            'interstitial_ad_seen',
+            'interstitial_ad_shown',
+            'interstitial_ad_displayed',
+        ],
+    },
+    {
+        transition: 'interstitial_ad_clicked',
+        names: [
+            'interstitial_ad_clicked',
+            'interstitial_ad_click',
+            'interstitial_ad_tapped',
+            'interstitial_ad_cta_clicked',
+        ],
+    },
+    {
+        transition: 'rewarded_ad_viewed',
+        names: [
+            'rewarded_ad_viewed',
+            'rewarded_ad_impression',
+            'rewarded_ad_seen',
+            'rewarded_ad_shown',
+            'rewarded_video_ad_viewed',
+            'rewarded_video_ad_impression',
+        ],
+    },
+    {
+        transition: 'rewarded_ad_clicked',
+        names: [
+            'rewarded_ad_clicked',
+            'rewarded_ad_click',
+            'rewarded_ad_tapped',
+            'rewarded_video_ad_clicked',
+        ],
+    },
+    {
+        transition: 'video_ad_viewed',
+        names: [
+            'video_ad_viewed',
+            'video_ad_impression',
+            'video_ad_seen',
+            'video_ad_shown',
+            'video_ad_started',
+        ],
+    },
+    {
+        transition: 'video_ad_clicked',
+        names: [
+            'video_ad_clicked',
+            'video_ad_click',
+            'video_ad_tapped',
+            'video_ad_cta_clicked',
+        ],
+    },
+    {
+        transition: 'sponsored_ad_viewed',
+        names: [
+            'sponsored_ad_viewed',
+            'sponsored_ad_impression',
+            'sponsored_ad_seen',
+            'sponsored_ad_shown',
+            'sponsored_content_viewed',
+        ],
+    },
+    {
+        transition: 'sponsored_ad_clicked',
+        names: [
+            'sponsored_ad_clicked',
+            'sponsored_ad_click',
+            'sponsored_ad_tapped',
+            'sponsored_content_clicked',
+        ],
+    },
+    {
+        transition: 'variant_selected',
+        names: [
+            'variant_selected',
+            'product_variant_selected',
+            'select_variant',
+            'variant_chosen',
+        ],
+    },
+    {
+        transition: 'size_selected',
+        names: [
+            'size_selected',
+            'product_size_selected',
+            'select_size',
+            'size_chosen',
+        ],
+    },
+    {
+        transition: 'color_selected',
+        names: [
+            'color_selected',
+            'product_color_selected',
+            'select_color',
+            'color_chosen',
+        ],
+    },
+    {
+        transition: 'quantity_changed',
+        names: [
+            'quantity_changed',
+            'quantity_updated',
+            'item_quantity_changed',
+            'cart_quantity_changed',
+        ],
+    },
+    {
+        transition: 'reviews_viewed',
+        names: [
+            'reviews_viewed',
+            'review_viewed',
+            'product_reviews_viewed',
+            'ratings_viewed',
+        ],
+    },
+    {
+        transition: 'shipping_info_viewed',
+        names: [
+            'shipping_info_viewed',
+            'shipping_viewed',
+            'shipping_details_viewed',
+            'delivery_info_viewed',
+        ],
+    },
+    {
+        transition: 'return_policy_viewed',
+        names: [
+            'return_policy_viewed',
+            'returns_viewed',
+            'returns_policy_viewed',
+            'refund_policy_viewed',
+        ],
+    },
+    {
+        transition: 'wishlist_add',
+        names: [
+            'wishlist_add',
+            'add_to_wishlist',
+            'added_to_wishlist',
+            'product_added_to_wishlist',
+            'favorite_added',
+            'saved_item',
+        ],
+    },
+    {
+        transition: 'share_clicked',
+        names: [
+            'share_clicked',
+            'share_click',
+            'share_tapped',
+            'product_shared',
+            'item_shared',
+        ],
+    },
+    {
+        transition: 'upgrade_clicked',
+        names: [
+            'upgrade_clicked',
+            'upgrade_click',
+            'upgrade_cta_clicked',
+            'click_upgrade',
+        ],
+    },
+    {
+        transition: 'upgrade_completed',
+        names: [
+            'upgrade_completed',
+            'upgrade_complete',
+            'upgraded',
+            'plan_upgraded',
+            'subscription_upgraded',
+        ],
+    },
+    {
+        transition: 'discount_offer_viewed',
+        names: [
+            'discount_offer_viewed',
+            'discount_viewed',
+            'offer_viewed',
+            'promo_offer_viewed',
+        ],
+    },
+    {
+        transition: 'discount_offer_accepted',
+        names: [
+            'discount_offer_accepted',
+            'discount_accepted',
+            'offer_accepted',
+            'promo_offer_accepted',
+        ],
+    },
+    {
+        transition: 'cancel_flow_started',
+        names: [
+            'cancel_flow_started',
+            'cancellation_started',
+            'cancel_started',
+            'subscription_cancel_flow_started',
+        ],
+    },
+    {
+        transition: 'cancel_confirmed',
+        names: [
+            'cancel_confirmed',
+            'cancellation_confirmed',
+            'subscription_cancel_confirmed',
+            'subscription_cancellation_confirmed',
+        ],
+    },
 ] as const;
 
 type FunnelTransition = typeof FUNNEL_TRANSITION_ALIASES[number]['transition'];
@@ -1071,38 +1349,55 @@ function buildInteractionSkeleton(interactions: ResearchInteractionRow[]): Resea
         if (!targetKey || elements.has(targetKey)) continue;
 
         let role = interaction.kind === 'input' ? 'input' : interaction.kind === 'scroll' ? 'scroll_region' : 'interactive';
-        if (interaction.funnel_transition === 'purchase_complete') {
+        const transition = stringValue(interaction.funnel_transition);
+        if (transition === 'purchase_complete') {
             role = 'cta_purchase';
-        } else if (interaction.funnel_transition === 'checkout_start') {
+        } else if (transition === 'checkout_start') {
             role = 'cta_checkout';
-        } else if (interaction.funnel_transition === 'cart_add') {
+        } else if (transition === 'cart_add') {
             role = 'cta_cart_add';
-        } else if (interaction.funnel_transition === 'product_view') {
+        } else if (transition === 'product_view') {
             role = 'view_item';
-        } else if (interaction.funnel_transition === 'paywall_view') {
+        } else if (transition === 'paywall_view') {
             role = 'paywall_element';
-        } else if (interaction.funnel_transition === 'plan_selected') {
+        } else if (transition === 'plan_selected') {
             role = 'plan_selector';
-        } else if (interaction.funnel_transition === 'signup') {
+        } else if (transition === 'signup') {
             role = 'cta_signup';
-        } else if (interaction.funnel_transition === 'login') {
+        } else if (transition === 'login') {
             role = 'cta_login';
-        } else if (interaction.funnel_transition === 'trial_start') {
+        } else if (transition === 'trial_start') {
             role = 'cta_trial_start';
-        } else if (interaction.funnel_transition === 'subscription_start') {
+        } else if (transition === 'subscription_start') {
             role = 'cta_subscription_start';
-        } else if (interaction.funnel_transition === 'refund') {
+        } else if (transition === 'refund') {
             role = 'cta_refund';
-        } else if (interaction.funnel_transition === 'cancellation') {
+        } else if (transition === 'cancellation') {
             role = 'cta_cancellation';
-        } else if (interaction.funnel_transition === 'payment_failure') {
+        } else if (transition === 'payment_failure') {
             role = 'payment_failure_element';
-        } else if (interaction.funnel_transition === 'onboarding_completed') {
+        } else if (transition === 'onboarding_completed') {
             role = 'cta_onboarding';
-        } else if (interaction.funnel_transition === 'feature_used') {
+        } else if (transition === 'feature_used') {
             role = 'feature_element';
-        } else if (interaction.funnel_transition === 'coupon_use') {
+        } else if (transition === 'coupon_use') {
             role = 'cta_coupon_use';
+        } else if (transition === 'ad_clicked' || transition.endsWith('_ad_clicked')) {
+            role = 'ad_click';
+        } else if (transition === 'ad_viewed' || transition.endsWith('_ad_viewed')) {
+            role = 'ad_impression';
+        } else if (['variant_selected', 'size_selected', 'color_selected', 'quantity_changed'].includes(transition)) {
+            role = 'product_option';
+        } else if (['reviews_viewed', 'shipping_info_viewed', 'return_policy_viewed'].includes(transition)) {
+            role = 'product_info';
+        } else if (['wishlist_add', 'share_clicked'].includes(transition)) {
+            role = 'engagement_element';
+        } else if (['upgrade_clicked', 'upgrade_completed'].includes(transition)) {
+            role = 'upgrade_element';
+        } else if (['discount_offer_viewed', 'discount_offer_accepted'].includes(transition)) {
+            role = 'discount_element';
+        } else if (['cancel_flow_started', 'cancel_confirmed'].includes(transition)) {
+            role = 'cancellation_element';
         }
 
         elements.set(targetKey, {

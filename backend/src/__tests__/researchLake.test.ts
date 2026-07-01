@@ -376,6 +376,35 @@ describe('research lake anonymized payload shape', () => {
             { event: { name: 'card_declined' }, transition: 'payment_failure' },
             { event: { name: 'tutorial_completed' }, transition: 'onboarding_completed' },
             { event: { name: 'tool-used' }, transition: 'feature_used' },
+            { event: { name: 'adDisplayed' }, transition: 'ad_viewed' },
+            { event: { name: 'ad_tapped' }, transition: 'ad_clicked' },
+            { event: { name: 'native_ad_impression' }, transition: 'native_ad_viewed' },
+            { event: { name: 'native_ad_cta_clicked' }, transition: 'native_ad_clicked' },
+            { event: { name: 'banner_ad_shown' }, transition: 'banner_ad_viewed' },
+            { event: { name: 'banner_ad_click' }, transition: 'banner_ad_clicked' },
+            { event: { name: 'interstitial_ad_displayed' }, transition: 'interstitial_ad_viewed' },
+            { event: { name: 'interstitial_ad_tapped' }, transition: 'interstitial_ad_clicked' },
+            { event: { name: 'rewarded_video_ad_impression' }, transition: 'rewarded_ad_viewed' },
+            { event: { name: 'rewardedVideoAdClicked' }, transition: 'rewarded_ad_clicked' },
+            { event: { name: 'video_ad_started' }, transition: 'video_ad_viewed' },
+            { event: { name: 'video_ad_cta_clicked' }, transition: 'video_ad_clicked' },
+            { event: { name: 'sponsored_content_viewed' }, transition: 'sponsored_ad_viewed' },
+            { event: { name: 'sponsoredContentClicked' }, transition: 'sponsored_ad_clicked' },
+            { event: { name: 'product_variant_selected' }, transition: 'variant_selected' },
+            { event: { name: 'select-size' }, transition: 'size_selected' },
+            { event: { name: 'colorChosen' }, transition: 'color_selected' },
+            { event: { name: 'cart_quantity_changed' }, transition: 'quantity_changed' },
+            { event: { name: 'productReviewsViewed' }, transition: 'reviews_viewed' },
+            { event: { name: 'delivery_info_viewed' }, transition: 'shipping_info_viewed' },
+            { event: { name: 'refund_policy_viewed' }, transition: 'return_policy_viewed' },
+            { event: { name: 'add_to_wishlist' }, transition: 'wishlist_add' },
+            { event: { name: 'product_shared' }, transition: 'share_clicked' },
+            { event: { name: 'upgrade_cta_clicked' }, transition: 'upgrade_clicked' },
+            { event: { name: 'plan_upgraded' }, transition: 'upgrade_completed' },
+            { event: { name: 'promo_offer_viewed' }, transition: 'discount_offer_viewed' },
+            { event: { name: 'offerAccepted' }, transition: 'discount_offer_accepted' },
+            { event: { name: 'subscription_cancel_flow_started' }, transition: 'cancel_flow_started' },
+            { event: { name: 'subscriptionCancellationConfirmed' }, transition: 'cancel_confirmed' },
             { event: { name: 'cancel_button_clicked' }, transition: null },
         ] as const;
 
@@ -394,7 +423,7 @@ describe('research lake anonymized payload shape', () => {
         expect(interactions.map((interaction) => interaction.funnel_transition)).toEqual(
             cases.map((entry) => entry.transition),
         );
-        expect(__researchLakeTestInternals.funnelTransitionAliases).toHaveLength(16);
+        expect(__researchLakeTestInternals.funnelTransitionAliases).toHaveLength(45);
     });
 
     it('normalizes configured custom event names before matching funnel transitions', () => {

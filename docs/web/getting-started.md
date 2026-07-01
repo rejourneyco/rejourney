@@ -301,6 +301,35 @@ Use stable, lowercase `snake_case` names. The preferred names below give Rejourn
 | Payment failed | `payment_failed` | `payment_failure`, `charge_failed` |
 | Onboarding completed | `onboarding_completed` | `onboarding_milestone`, `complete_onboarding` |
 | Feature used | `feature_used` | `key_feature_used`, `use_feature` |
+| Ad viewed | `ad_viewed` | `ad_impression`, `ad_seen`, `ad_shown`, `ad_displayed` |
+| Ad clicked | `ad_clicked` | `ad_click`, `ad_tapped`, `ad_cta_clicked` |
+| Native ad viewed | `native_ad_viewed` | `native_ad_impression`, `native_ad_shown` |
+| Native ad clicked | `native_ad_clicked` | `native_ad_click`, `native_ad_tapped` |
+| Banner ad viewed | `banner_ad_viewed` | `banner_ad_impression`, `banner_ad_shown` |
+| Banner ad clicked | `banner_ad_clicked` | `banner_ad_click`, `banner_ad_tapped` |
+| Interstitial ad viewed | `interstitial_ad_viewed` | `interstitial_ad_impression`, `interstitial_ad_shown` |
+| Interstitial ad clicked | `interstitial_ad_clicked` | `interstitial_ad_click`, `interstitial_ad_tapped` |
+| Rewarded ad viewed | `rewarded_ad_viewed` | `rewarded_ad_impression`, `rewarded_video_ad_viewed` |
+| Rewarded ad clicked | `rewarded_ad_clicked` | `rewarded_ad_click`, `rewarded_video_ad_clicked` |
+| Video ad viewed | `video_ad_viewed` | `video_ad_impression`, `video_ad_started` |
+| Video ad clicked | `video_ad_clicked` | `video_ad_click`, `video_ad_tapped` |
+| Sponsored ad viewed | `sponsored_ad_viewed` | `sponsored_ad_impression`, `sponsored_content_viewed` |
+| Sponsored ad clicked | `sponsored_ad_clicked` | `sponsored_ad_click`, `sponsored_content_clicked` |
+| Variant selected | `variant_selected` | `product_variant_selected`, `select_variant` |
+| Size selected | `size_selected` | `product_size_selected`, `select_size` |
+| Color selected | `color_selected` | `product_color_selected`, `select_color` |
+| Quantity changed | `quantity_changed` | `quantity_updated`, `cart_quantity_changed` |
+| Reviews viewed | `reviews_viewed` | `product_reviews_viewed`, `ratings_viewed` |
+| Shipping info viewed | `shipping_info_viewed` | `shipping_details_viewed`, `delivery_info_viewed` |
+| Return policy viewed | `return_policy_viewed` | `returns_viewed`, `refund_policy_viewed` |
+| Wishlist add | `wishlist_add` | `add_to_wishlist`, `added_to_wishlist` |
+| Share clicked | `share_clicked` | `share_tapped`, `product_shared` |
+| Upgrade clicked | `upgrade_clicked` | `upgrade_cta_clicked`, `click_upgrade` |
+| Upgrade completed | `upgrade_completed` | `upgraded`, `plan_upgraded` |
+| Discount offer viewed | `discount_offer_viewed` | `discount_viewed`, `promo_offer_viewed` |
+| Discount offer accepted | `discount_offer_accepted` | `discount_accepted`, `offer_accepted` |
+| Cancel flow started | `cancel_flow_started` | `cancellation_started`, `subscription_cancel_flow_started` |
+| Cancel confirmed | `cancel_confirmed` | `cancellation_confirmed`, `subscription_cancel_confirmed` |
 
 Use these property names when they apply:
 

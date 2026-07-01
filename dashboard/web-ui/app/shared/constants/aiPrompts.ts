@@ -83,7 +83,10 @@ Use these names when the app has the matching action:
 - Account and onboarding: signup_completed, login, onboarding_completed
 - Browse and checkout: product_view, add_to_cart, checkout_started
 - Revenue and subscriptions: purchase_completed, paywall_view, plan_selected, trial_started, subscription_started, subscription_cancelled, refund_processed, payment_failed
-- Discounts and engagement: coupon_use, feature_used
+- Ads: ad_viewed, ad_clicked, native_ad_viewed, native_ad_clicked, banner_ad_viewed, banner_ad_clicked, interstitial_ad_viewed, interstitial_ad_clicked, rewarded_ad_viewed, rewarded_ad_clicked, video_ad_viewed, video_ad_clicked, sponsored_ad_viewed, sponsored_ad_clicked
+- Product choice and hesitation: variant_selected, size_selected, color_selected, quantity_changed, reviews_viewed, shipping_info_viewed, return_policy_viewed, wishlist_add, share_clicked
+- Discounts, upgrades, and churn: coupon_use, discount_offer_viewed, discount_offer_accepted, upgrade_clicked, upgrade_completed, cancel_flow_started, cancel_confirmed
+- Engagement: feature_used
 
 REVENUE TRACKING FOR THE GENERAL REVENUE CHART:
 - If this app has checkout, subscriptions, paid plans, credits, tips, or in-app purchases, instrument a dedicated money-collected event named 'purchase_completed'. Do not map device/setup/screen events such as 'device_info', 'app_initialized', 'page_view', or 'screen_view' as revenue.
@@ -229,7 +232,10 @@ Use these names when the app has the matching action:
 - Account and onboarding: signup_completed, login, onboarding_completed
 - Browse and checkout: product_view, add_to_cart, checkout_started
 - Revenue and subscriptions: purchase_completed, paywall_view, plan_selected, trial_started, subscription_started, subscription_cancelled, refund_processed, payment_failed
-- Discounts and engagement: coupon_use, feature_used
+- Ads: ad_viewed, ad_clicked, native_ad_viewed, native_ad_clicked, banner_ad_viewed, banner_ad_clicked, interstitial_ad_viewed, interstitial_ad_clicked, rewarded_ad_viewed, rewarded_ad_clicked, video_ad_viewed, video_ad_clicked, sponsored_ad_viewed, sponsored_ad_clicked
+- Product choice and hesitation: variant_selected, size_selected, color_selected, quantity_changed, reviews_viewed, shipping_info_viewed, return_policy_viewed, wishlist_add, share_clicked
+- Discounts, upgrades, and churn: coupon_use, discount_offer_viewed, discount_offer_accepted, upgrade_clicked, upgrade_completed, cancel_flow_started, cancel_confirmed
+- Engagement: feature_used
 
 REVENUE TRACKING FOR THE GENERAL REVENUE CHART:
 - If this app has checkout, subscriptions, paid plans, credits, tips, or in-app purchases, instrument a dedicated money-collected event named 'purchase_completed'. Do not map device/setup/screen events such as 'device_info', 'app_initialized', or 'screen_view' as revenue.
@@ -414,7 +420,10 @@ Use these names when the app has the matching action:
 - Account and onboarding: signup_completed, login, onboarding_completed
 - Browse and checkout: product_view, add_to_cart, checkout_started
 - Revenue and subscriptions: purchase_completed, paywall_view, plan_selected, trial_started, subscription_started, subscription_cancelled, refund_processed, payment_failed
-- Discounts and engagement: coupon_use, feature_used
+- Ads: ad_viewed, ad_clicked, native_ad_viewed, native_ad_clicked, banner_ad_viewed, banner_ad_clicked, interstitial_ad_viewed, interstitial_ad_clicked, rewarded_ad_viewed, rewarded_ad_clicked, video_ad_viewed, video_ad_clicked, sponsored_ad_viewed, sponsored_ad_clicked
+- Product choice and hesitation: variant_selected, size_selected, color_selected, quantity_changed, reviews_viewed, shipping_info_viewed, return_policy_viewed, wishlist_add, share_clicked
+- Discounts, upgrades, and churn: coupon_use, discount_offer_viewed, discount_offer_accepted, upgrade_clicked, upgrade_completed, cancel_flow_started, cancel_confirmed
+- Engagement: feature_used
 
 REVENUE TRACKING FOR THE GENERAL REVENUE CHART:
 - If this app has checkout, subscriptions, paid plans, credits, tips, or in-app purchases, instrument a dedicated money-collected event named "purchase_completed". Do not map device/setup/screen events such as "device_info", "app_initialized", or "screen_view" as revenue.
