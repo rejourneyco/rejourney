@@ -11,7 +11,11 @@ import { logger } from '../logger.js';
 import { triggerErrorSpikeAlert, triggerApiDegradationAlert } from '../services/alertService.js';
 import { pingWorker } from '../services/monitoring.js';
 import { writeProductAnalyticsDailyRollupInputToClickHouse } from '../services/clickhouseProductRollupsSink.js';
-import { queryProductDailyStatsFromClickHouse } from '../services/productRollupsClickHouse.js';
+import {
+    queryProductDailyStatsFromClickHouse,
+    queryProductDailyUniqueUserCountFromClickHouse,
+} from '../services/productRollupsClickHouse.js';
+import { protectUniqueUserCountAfterIdentityScrub } from '../services/rollupIdentityProtection.js';
 
 // Track last run time
 let lastRunTime: Date | null = null;
@@ -19,6 +23,52 @@ let lastDailyRollupTime: Date | null = null;
 let isRunning = false;
 
 const redis = getRedis();
+
+async function resolveUniqueUserCountForRollup(params: {
+    projectId: string;
+    date: string;
+    computedUniqueUserCount: number;
+    identityScrubbedSessionCount: number;
+}): Promise<{ uniqueUserCount: number; source: string }> {
+    if (params.identityScrubbedSessionCount <= 0) {
+        return { uniqueUserCount: params.computedUniqueUserCount, source: 'stats_aggregator' };
+    }
+
+    let existingUniqueUserCount: number | null = null;
+    try {
+        existingUniqueUserCount = await queryProductDailyUniqueUserCountFromClickHouse({
+            projectId: params.projectId,
+            date: params.date,
+        });
+    } catch (err) {
+        logger.warn({
+            err,
+            projectId: params.projectId,
+            date: params.date,
+        }, 'Failed to read existing unique-user rollup before identity-scrub protection');
+    }
+
+    const protectedCount = protectUniqueUserCountAfterIdentityScrub({
+        computedUniqueUserCount: params.computedUniqueUserCount,
+        existingUniqueUserCount,
+        identityScrubbedSessionCount: params.identityScrubbedSessionCount,
+    });
+
+    if (protectedCount.preservedExisting) {
+        logger.info({
+            projectId: params.projectId,
+            date: params.date,
+            computedUniqueUserCount: params.computedUniqueUserCount,
+            existingUniqueUserCount,
+            identityScrubbedSessionCount: params.identityScrubbedSessionCount,
+        }, 'Preserved existing daily unique-user rollup after session identity scrub');
+    }
+
+    return {
+        uniqueUserCount: protectedCount.uniqueUserCount,
+        source: protectedCount.preservedExisting ? 'stats_aggregator_identity_preserved' : 'stats_aggregator',
+    };
+}
 
 /**
  * Compute percentile values for a given array
@@ -54,6 +104,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 appVersion: sessions.appVersion,
                 geoCountry: sessions.geoCountry,
                 deviceId: sessions.deviceId,
+                identityScrubbedAt: sessions.identityScrubbedAt,
                 interactionScore: sessionMetrics.interactionScore,
                 uxScore: sessionMetrics.uxScore,
                 apiErrorCount: sessionMetrics.apiErrorCount,
@@ -108,10 +159,14 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         const geoCountryBreakdown: Record<string, number> = {};
         const customEventBreakdown: Record<string, number> = {};
         const uniqueUserSet = new Set<string>();
+        let identityScrubbedSessionCount = 0;
 
         for (const s of daySessions) {
             const dur = s.durationSeconds || 0;
             const screens = s.screensVisited || [];
+            if (s.identityScrubbedAt) {
+                identityScrubbedSessionCount++;
+            }
 
             // Engagement segments
             if (dur < 10) {
@@ -229,6 +284,12 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         const totalScrolls = daySessions.reduce((sum, s) => sum + (s.scrollCount || 0), 0);
         const totalGestures = daySessions.reduce((sum, s) => sum + (s.gestureCount || 0), 0);
         const totalInteractions = totalTouches + totalScrolls + totalGestures + daySessions.reduce((sum, s) => sum + (s.inputCount || 0), 0);
+        const uniqueUserRollup = await resolveUniqueUserCountForRollup({
+            projectId,
+            date: dateStr,
+            computedUniqueUserCount: uniqueUserSet.size,
+            identityScrubbedSessionCount,
+        });
 
         await writeProductAnalyticsDailyRollupInputToClickHouse({
             projectId,
@@ -257,7 +318,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             totalScrolls,
             totalGestures,
             totalInteractions,
-            uniqueUserCount: uniqueUserSet.size,
+            uniqueUserCount: uniqueUserRollup.uniqueUserCount,
             deviceModelBreakdown,
             osVersionBreakdown,
             platformBreakdown,
@@ -268,7 +329,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             exitScreenBreakdown,
             geoCountryBreakdown,
             customEventBreakdown,
-            source: 'stats_aggregator',
+            source: uniqueUserRollup.source,
         });
 
         logger.debug({ projectId, date: dateStr, totalSessions }, 'Daily rollup completed');

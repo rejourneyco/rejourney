@@ -1184,7 +1184,7 @@ router.get(
             : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v6-country-dau`;
+        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v7-gdpr-identity`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1255,7 +1255,7 @@ router.get(
                 nullif(trim(${sessions.anonymousHash}), ''),
                 nullif(trim(${sessions.anonymousDisplayId}), ''),
                 nullif(trim(${sessions.deviceId}), ''),
-                ${sessions.id}
+                CASE WHEN ${sessions.identityScrubbedAt} IS NULL THEN ${sessions.id} ELSE NULL END
             )`;
             const platformCondition = buildSessionPlatformCondition(normalizedPlatform);
             const rawConditions: SQL[] = [

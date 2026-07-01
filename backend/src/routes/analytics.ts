@@ -1079,7 +1079,7 @@ router.get(
             nullif(${sessions.anonymousHash}, ''),
             nullif(${sessions.anonymousDisplayId}, ''),
             nullif(${sessions.deviceId}, ''),
-            ${sessions.id}
+            CASE WHEN ${sessions.identityScrubbedAt} IS NULL THEN ${sessions.id} ELSE NULL END
         )`;
 
         // Get accessible projects for user
@@ -1127,7 +1127,7 @@ router.get(
         }
 
         // Build cache key
-        const cacheKey = `analytics:geo-issues:${projectIds.sort().join(',')}:${timeRange || 'all'}:${issueType || 'all'}:${normalizedPlatform || 'all'}:v2-location-cap-${GEO_ISSUE_LOCATION_RESPONSE_LIMIT}`;
+        const cacheKey = `analytics:geo-issues:${projectIds.sort().join(',')}:${timeRange || 'all'}:${issueType || 'all'}:${normalizedPlatform || 'all'}:v3-gdpr-identity-${GEO_ISSUE_LOCATION_RESPONSE_LIMIT}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));

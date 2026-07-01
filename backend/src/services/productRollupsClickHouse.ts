@@ -355,6 +355,34 @@ export async function queryProductDailyStatsFromClickHouse(params: {
     return dailyRows;
 }
 
+export async function queryProductDailyUniqueUserCountFromClickHouse(params: {
+    projectId: string;
+    date: string;
+}): Promise<number | null> {
+    if (!canReadProductRollupsFromClickHouse() || !params.projectId) return null;
+
+    const result = await getClickHouseClient().query({
+        query: `
+            SELECT
+                argMax(unique_user_count, updated_at) AS uniqueUserCount
+            FROM app_daily_rollups
+            WHERE project_id = {projectId:UUID}
+              AND date = {date:Date}
+            GROUP BY project_id, date
+            LIMIT 1
+        `,
+        query_params: {
+            projectId: params.projectId,
+            date: params.date,
+        },
+        format: 'JSONEachRow',
+    });
+
+    const rows = await result.json<{ uniqueUserCount: string | number }>();
+    if (rows.length === 0) return null;
+    return toNumber(rows[0]?.uniqueUserCount);
+}
+
 export async function queryProductAllTimeStatsFromClickHouse(params: {
     projectIds: string[];
     startDate?: string;
