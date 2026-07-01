@@ -86,6 +86,8 @@ export async function trackAccountActivationSignal(method: AccountActivationMeth
 
   trackGoogleAdsSignupConversion();
 
+  if (!window.zaraz) return;
+
   const deadline = Date.now() + SIGNAL_BUDGET_MS;
   const track = await waitForZarazTrack(deadline);
   if (!track) return;

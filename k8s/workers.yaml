@@ -515,7 +515,7 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 600
+      activeDeadlineSeconds: 7200
       backoffLimit: 1
       template:
         metadata:
@@ -789,18 +789,20 @@ spec:
                 - name: RESEARCH_LAKE_PREFIX
                   value: "v1"
                 - name: RESEARCH_LAKE_BATCH_SIZE
-                  value: "50"
+                  value: "200"
+                - name: RESEARCH_LAKE_CONCURRENCY
+                  value: "8"
                 - name: RESEARCH_LAKE_MAX_RUNTIME_MS
-                  value: "240000"
+                  value: "5400000"
                 - name: RESEARCH_LAKE_LOOKAHEAD_HOURS
                   value: "24"
               resources:
                 requests:
-                  cpu: 150m
-                  memory: 256Mi
+                  cpu: 500m
+                  memory: 512Mi
                 limits:
-                  cpu: "750m"
-                  memory: 768Mi
+                  cpu: "3"
+                  memory: 3Gi
 
 ---
 # Research Lake Compactor CronJob
@@ -821,7 +823,7 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 3600
+      activeDeadlineSeconds: 14400
       backoffLimit: 1
       template:
         metadata:
@@ -883,16 +885,16 @@ spec:
                 - name: RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS
                   value: "120"
                 - name: RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES
-                  value: "5000"
+                  value: "100000"
                 - name: RESEARCH_LAKE_COMPACTOR_CHUNK_ROWS
-                  value: "10000"
+                  value: "5000"
               resources:
                 requests:
-                  cpu: 250m
-                  memory: 512Mi
+                  cpu: 500m
+                  memory: 1Gi
                 limits:
-                  cpu: "1"
-                  memory: 2Gi
+                  cpu: "2"
+                  memory: 4Gi
 
 ---
 # Billing Worker REMOVED - billing now handled by Stripe webhooks via API server
