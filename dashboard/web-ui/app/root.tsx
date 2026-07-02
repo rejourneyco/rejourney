@@ -21,7 +21,7 @@ import {
 import type { Route } from "./+types/root";
 
 import "./styles/index.css";
-import { getGoogleAdsConversionId, getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
+import { getGoogleAdsConversionId, getPublicRuntimeEnvSnapshot, getRedditPixelId } from "./shared/config/runtimeEnv";
 import {
     getLocalizedPublicUrl,
     getMarketingHomeCopy,
@@ -44,6 +44,30 @@ function renderGoogleAdsBootstrap(conversionId: string): string {
         "document.head.appendChild(tag);",
         "gtag('js',new Date());",
         "gtag('config',conversionId);",
+        "})();",
+    ].join("");
+}
+
+function renderRedditPixelBootstrap(pixelId: string): string {
+    return [
+        "(function(){",
+        `var pixelId=${JSON.stringify(pixelId)};`,
+        "var path=window.location.pathname;",
+        "if(path.indexOf('/dashboard')===0||path.indexOf('/demo')===0){return;}",
+        "if(!pixelId||window.__rejourneyRedditPixelBootstrapped===pixelId){return;}",
+        "window.__rejourneyRedditPixelBootstrapped=pixelId;",
+        "if(!window.rdt){",
+        "var rdt=function(){rdt.sendEvent?rdt.sendEvent.apply(rdt,arguments):rdt.callQueue.push(arguments);};",
+        "rdt.callQueue=[];",
+        "window.rdt=rdt;",
+        "var script=document.createElement('script');",
+        "script.async=true;",
+        "script.src='https://www.redditstatic.com/ads/pixel.js?pixel_id='+encodeURIComponent(pixelId);",
+        "var firstScript=document.getElementsByTagName('script')[0];",
+        "if(firstScript&&firstScript.parentNode){firstScript.parentNode.insertBefore(script,firstScript);}else{document.head.appendChild(script);}",
+        "}",
+        "window.rdt('init',pixelId);",
+        "window.rdt('track','PageVisit');",
         "})();",
     ].join("");
 }
@@ -77,6 +101,7 @@ export const meta: Route.MetaFunction = () => [
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
     const googleAdsConversionId = getGoogleAdsConversionId();
+    const redditPixelId = getRedditPixelId();
     const locale = MARKETING_LOCALES.en;
     const copy = getMarketingHomeCopy(locale);
 
@@ -100,6 +125,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <script
                         dangerouslySetInnerHTML={{
                             __html: renderGoogleAdsBootstrap(googleAdsConversionId),
+                        }}
+                    />
+                ) : null}
+                {redditPixelId ? (
+                    <script
+                        dangerouslySetInnerHTML={{
+                            __html: renderRedditPixelBootstrap(redditPixelId),
                         }}
                     />
                 ) : null}

@@ -92,6 +92,20 @@ describe('edge signals', () => {
     });
   });
 
+  it('sends the Reddit signup conversion when the pixel is bootstrapped', async () => {
+    const rdt = vi.fn();
+    setTestWindow({
+      ENV: {},
+      rdt,
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    await trackAccountActivationSignal('github');
+
+    expect(rdt).toHaveBeenCalledWith('track', 'SignUp');
+  });
+
   it('falls back to a dashboard page view for URL-based Google Ads conversion actions', async () => {
     const gtag = vi.fn();
     setTestWindow({

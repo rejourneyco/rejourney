@@ -92,6 +92,7 @@ if (isProduction) {
           "https://googleads.g.doubleclick.net",
           "https://pagead2.googlesyndication.com",
           "https://www.google.com",
+          "https://www.redditstatic.com",
         ],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],

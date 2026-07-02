@@ -135,6 +135,12 @@ spec:
                   name: app-secret
                   key: VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL
                   optional: true
+            - name: VITE_REDDIT_PIXEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_REDDIT_PIXEL_ID
+                  optional: true
           resources:
             requests:
               cpu: 200m
