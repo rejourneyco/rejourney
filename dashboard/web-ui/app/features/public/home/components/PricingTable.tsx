@@ -55,7 +55,12 @@ const formatPlanPrice = (priceCents: number) => {
     return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`;
 };
 
-const formatApproxCurrency = (value: number) => `~$${value.toFixed(2)}`;
+const formatCurrency = (value: number, maximumFractionDigits = 0) =>
+    new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits,
+    }).format(value);
 
 const getOrderedPlans = (availablePlans: PricingPlan[]) => {
     const source = availablePlans.length > 0 ? availablePlans : FALLBACK_PLANS;
@@ -69,19 +74,6 @@ const getOrderedPlans = (availablePlans: PricingPlan[]) => {
     }).filter((plan): plan is PricingPlan => Boolean(plan));
 };
 
-const posthogCost = (sessions: number): number => {
-    if (sessions <= 5000) return 0;
-    const remaining = sessions - 5000;
-    return (
-        Math.min(remaining, 20000) * 0.00425 +
-        Math.max(0, Math.min(remaining - 20000, 75000)) * 0.0025 +
-        Math.max(0, Math.min(remaining - 95000, 250000)) * 0.00176 +
-        Math.max(0, remaining - 345000) * 0.00176
-    );
-};
-
-const sentryReplayCost = (sessions: number): number => sessions * 0.006;
-
 const rejourneyPlan = (sessions: number): { price: number; plan: string; isCustom: boolean } => {
     if (sessions <= 5000) return { price: 0, plan: 'Free', isCustom: false };
     if (sessions <= 25000) return { price: 5, plan: 'Starter', isCustom: false };
@@ -91,10 +83,34 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
     return { price: 149, plan: 'Custom', isCustom: true };
 };
 
-const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' }> = ({ children, tone = 'check' }) => (
+const ROI_LIFT_PRESETS = [
+    { label: '+0.10pt', value: 0.1 },
+    { label: '+0.25pt', value: 0.25 },
+    { label: '+0.50pt', value: 0.5 },
+];
+
+const ROI_BENCHMARK_SOURCES = [
+    {
+        label: 'Baymard cart abandonment research',
+        href: 'https://baymard.com/lists/cart-abandonment-rate',
+        stat: '70.22% average documented cart abandonment rate across 50 studies.',
+    },
+    {
+        label: 'Littledata Shopify benchmark',
+        href: 'https://www.littledata.io/ecommerce-conversion-rate',
+        stat: '1.4% average Shopify conversion rate; 3.2%+ is top 20%.',
+    },
+    {
+        label: 'RevenueCat subscription app benchmarks',
+        href: 'https://www.revenuecat.com/blog/growth/subscription-app-trends-benchmarks-2026/',
+        stat: 'Longer trials converted 42.5% vs 25.5% for very short trials in RevenueCat benchmark data.',
+    },
+];
+
+const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
     <li className="flex gap-3 text-[13px] font-medium leading-6 text-slate-600">
-        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-            {tone === 'minus'
+        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' || tone === 'warning' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+            {tone === 'minus' || tone === 'warning'
                 ? <Minus className="h-3 w-3 stroke-[2.5px]" aria-hidden />
                 : <Check className="h-3 w-3 stroke-[2.5px]" aria-hidden />}
         </span>
@@ -108,6 +124,90 @@ const PlanGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ tit
         <ul className="space-y-3">{children}</ul>
     </div>
 );
+
+const captureControlLabel = (hasHighIntentCapture: boolean) =>
+    hasHighIntentCapture
+        ? 'High-Intent Capture keeps revenue-critical journeys'
+        : 'Standard replay sampling, masking, and length controls';
+
+const retentionHighlightClass = (retention: string) => {
+    const days = Number.parseInt(retention, 10);
+    return Number.isFinite(days) && days >= 30 ? 'text-emerald-700' : 'text-amber-600';
+};
+
+const isShortRetention = (retention: string) => {
+    const days = Number.parseInt(retention, 10);
+    return Number.isFinite(days) && days < 30;
+};
+
+const isLowAiLeakCoverage = (planName: string) => planName === 'free' || planName === 'starter';
+
+const RetentionEvidenceLabel: React.FC<{ retention: string }> = ({ retention }) => (
+    <>
+        <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
+        {' '}of checkout, onboarding, and paywall evidence
+    </>
+);
+
+const fixWorkflowCoverageDetail = (planName: string) => {
+    switch (planName) {
+        case 'free':
+            return 'for short launch cohorts and first funnel checks';
+        case 'starter':
+            return 'for early traffic cohorts and first fix cycles';
+        case 'growth':
+            return 'for campaigns, experiments, and funnel comparisons';
+        case 'pro':
+            return 'for high-volume checkout, subscription, and onboarding fixes';
+        case 'scale':
+            return 'with high-intent capture control for noisy traffic';
+        default:
+            return 'for conversion-critical fixes';
+    }
+};
+
+const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retention: string }> = ({
+    planName,
+    sessions,
+    retention,
+}) => {
+    return (
+        <>
+            <span className="font-bold text-indigo-700">{sessions}</span>
+            {' '}journeys across{' '}
+            <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
+            {' '}
+            {fixWorkflowCoverageDetail(planName)}
+        </>
+    );
+};
+
+const aiLeakUpgradePositioning = (planName: string, sessions: string) => {
+    switch (planName) {
+        case 'free':
+            return { lead: `${sessions} conversion journeys`, detail: ' baseline for AI Leak Detection' };
+        case 'starter':
+            return { lead: '5x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+        case 'growth':
+            return { lead: '20x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+        case 'pro':
+            return { lead: '70x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+        case 'scale':
+            return { lead: '200x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+        default:
+            return { lead: `${sessions} conversion journeys`, detail: ' for AI leak scans' };
+    }
+};
+
+const AiLeakUpgradeLabel: React.FC<{ planName: string; sessions: string }> = ({ planName, sessions }) => {
+    const positioning = aiLeakUpgradePositioning(planName, sessions);
+    return (
+        <>
+            <span className="font-bold text-indigo-700">{positioning.lead}</span>
+            {positioning.detail}
+        </>
+    );
+};
 
 const PRICING_FAQS = [
     {
@@ -168,6 +268,9 @@ export const PricingTable: React.FC = () => {
     const footerCopy = getMarketingHomeCopy(location.pathname).footer;
     const [availablePlans, setAvailablePlans] = useState<PricingPlan[]>([]);
     const [sliderValue, setSliderValue] = useState(DEFAULT_CALCULATOR_SLIDER_VALUE);
+    const [currentConversionRate, setCurrentConversionRate] = useState(1.4);
+    const [averageConversionValue, setAverageConversionValue] = useState(75);
+    const [conversionLiftPoints, setConversionLiftPoints] = useState(0.25);
     const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
     const [contactCopied, setContactCopied] = useState(false);
     const copyResetTimerRef = useRef<number | null>(null);
@@ -201,10 +304,22 @@ export const PricingTable: React.FC = () => {
 
     const plans = useMemo(() => getOrderedPlans(availablePlans), [availablePlans]);
     const calculatorSessions = sliderToSessions(sliderValue);
-    const posthogMonthlyCost = posthogCost(calculatorSessions);
-    const sentryMonthlyCost = sentryReplayCost(calculatorSessions);
     const rejourneyMonthlyPlan = rejourneyPlan(calculatorSessions);
     const sliderStyle = { '--slider-fill': `${sliderValue}%` } as CSSProperties;
+    const safeConversionRate = Math.max(0, currentConversionRate);
+    const safeAverageConversionValue = Math.max(0, averageConversionValue);
+    const safeConversionLiftPoints = Math.max(0, conversionLiftPoints);
+    const baselineConversions = calculatorSessions * (safeConversionRate / 100);
+    const recoveredConversions = calculatorSessions * (safeConversionLiftPoints / 100);
+    const baselineRevenue = baselineConversions * safeAverageConversionValue;
+    const recoveredMonthlyRevenue = recoveredConversions * safeAverageConversionValue;
+    const netMonthlyUpside = recoveredMonthlyRevenue - rejourneyMonthlyPlan.price;
+    const roiPercent = rejourneyMonthlyPlan.price > 0
+        ? (netMonthlyUpside / rejourneyMonthlyPlan.price) * 100
+        : null;
+    const breakEvenConversions = safeAverageConversionValue > 0 && rejourneyMonthlyPlan.price > 0
+        ? rejourneyMonthlyPlan.price / safeAverageConversionValue
+        : 0;
 
     const updatePlansRailState = () => {
         const rail = plansRailRef.current;
@@ -384,32 +499,39 @@ export const PricingTable: React.FC = () => {
 
                                     <div className="mt-7 flex-1 space-y-5">
                                         <PlanGroup title="Revenue evidence">
-                                            <PlanCheck>{copy.sessionsPerMonth(formatInteger(plan.sessionLimit, locale.languageTag))}</PlanCheck>
-                                            <PlanCheck>{copy.replayRetention(plan.videoRetentionLabel)}</PlanCheck>
-                                            <PlanCheck>Feeds AI leak ranking, heatmaps, journeys, and crash context</PlanCheck>
+                                            <PlanCheck>{formatInteger(plan.sessionLimit, locale.languageTag)} session replays/month included</PlanCheck>
+                                            <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
+                                                <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />
+                                            </PlanCheck>
                                             <PlanCheck tone={smartCaptureEnabled ? 'check' : 'minus'}>
-                                                {smartCaptureEnabled ? 'Smart Capture rules for high-value leaks' : 'Standard leak capture controls'}
+                                                {captureControlLabel(smartCaptureEnabled)}
                                             </PlanCheck>
                                         </PlanGroup>
 
                                         <PlanGroup title="Revenue analytics">
                                             <PlanCheck>Unlimited events, DAU, and MAU</PlanCheck>
-                                            <PlanCheck>Funnels, cohorts, revenue, and retention charts</PlanCheck>
-                                            <PlanCheck>Drop-off drill-downs backed by captured sessions</PlanCheck>
+                                            <PlanCheck>Funnels, cohorts, revenue, and retention trends</PlanCheck>
+                                            <PlanCheck>Checkout, onboarding, signup, and subscription drill-downs</PlanCheck>
                                         </PlanGroup>
 
                                         <PlanGroup title="Fix workflow">
-                                            <PlanCheck>
+                                            <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
                                                 <span className="inline-flex flex-wrap items-center gap-2">
                                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
                                                         + AI Leak Detection
                                                     </span>
-                                                    <span>ranks repeated conversion blockers</span>
+                                                    <span><AiLeakUpgradeLabel planName={planName} sessions={formatInteger(plan.sessionLimit, locale.languageTag)} /></span>
                                                 </span>
                                             </PlanCheck>
-                                            <PlanCheck>Find checkout, onboarding, and product drop-offs</PlanCheck>
-                                            <PlanCheck>Search high-intent users, errors, devices, and metadata</PlanCheck>
-                                            <PlanCheck>Fix-ready evidence for product, support, and engineering</PlanCheck>
+                                            <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
+                                                <FixWorkflowCoverage
+                                                    planName={planName}
+                                                    sessions={formatInteger(plan.sessionLimit, locale.languageTag)}
+                                                    retention={plan.videoRetentionLabel}
+                                                />
+                                            </PlanCheck>
+                                            <PlanCheck>AI Query Builder searches users, events, errors, devices, and metadata in that window</PlanCheck>
+                                            <PlanCheck>Crash, API, ANR, Device, Geo fixes</PlanCheck>
                                         </PlanGroup>
                                     </div>
 
@@ -461,60 +583,160 @@ export const PricingTable: React.FC = () => {
                         <span className="mt-1.5 block text-sm font-medium leading-normal text-slate-500">{copy.comparisonSubtitle}</span>
                     </div>
 
-                    <div className="grid gap-8 border border-slate-200 bg-white/60 backdrop-blur-md p-6 shadow-sm lg:grid-cols-[0.85fr_1.35fr]">
-                        <div>
-                            <div className="mb-3 flex items-end justify-between gap-4">
-                                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{copy.sessionsPerMonthLabel}</span>
-                                <span className="text-2xl font-bold text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
+                    <div className="grid gap-8 border border-slate-200 bg-white/60 backdrop-blur-md p-6 shadow-sm lg:grid-cols-[0.95fr_1.2fr]">
+                        <div className="space-y-6">
+                            <div>
+                                <div className="mb-3 flex items-end justify-between gap-4">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{copy.sessionsPerMonthLabel}</span>
+                                    <span className="text-2xl font-bold text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    step="any"
+                                    value={sliderValue}
+                                    onChange={(event) => setSliderValue(Number(event.target.value))}
+                                    className="pricing-range-slider"
+                                    style={sliderStyle}
+                                    aria-label={copy.monthlySessionsAriaLabel}
+                                />
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {VOLUME_PRESETS.map((preset) => {
+                                        const active = Math.abs(calculatorSessions - preset.sessions) / preset.sessions < 0.08;
+                                        return (
+                                            <button
+                                                key={preset.label}
+                                                type="button"
+                                                onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
+                                                className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
+                                                    active
+                                                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
+                                                }`}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                step="any"
-                                value={sliderValue}
-                                onChange={(event) => setSliderValue(Number(event.target.value))}
-                                className="pricing-range-slider"
-                                style={sliderStyle}
-                                aria-label={copy.monthlySessionsAriaLabel}
-                            />
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {VOLUME_PRESETS.map((preset) => {
-                                    const active = Math.abs(calculatorSessions - preset.sessions) / preset.sessions < 0.08;
-                                    return (
-                                        <button
-                                            key={preset.label}
-                                            type="button"
-                                            onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
-                                            className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
-                                                active
-                                                    ? 'border-indigo-600 bg-indigo-600 text-white'
-                                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
-                                            }`}
-                                            style={{ WebkitTapHighlightColor: 'transparent' }}
-                                        >
-                                            {preset.label}
-                                        </button>
-                                    );
-                                })}
+
+                            <div className="grid gap-4 sm:grid-cols-3">
+                                <label className="block">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current conversion</span>
+                                    <div className="mt-2 flex h-11 items-center border border-slate-200 bg-white px-3 shadow-sm">
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            step={0.1}
+                                            value={currentConversionRate}
+                                            onChange={(event) => setCurrentConversionRate(Number(event.target.value))}
+                                            className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none"
+                                        />
+                                        <span className="text-xs font-bold text-slate-400">%</span>
+                                    </div>
+                                </label>
+                                <label className="block">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Value per conversion</span>
+                                    <div className="mt-2 flex h-11 items-center border border-slate-200 bg-white px-3 shadow-sm">
+                                        <span className="text-xs font-bold text-slate-400">$</span>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            step={1}
+                                            value={averageConversionValue}
+                                            onChange={(event) => setAverageConversionValue(Number(event.target.value))}
+                                            className="w-full bg-transparent pl-1 text-sm font-bold text-slate-950 outline-none"
+                                        />
+                                    </div>
+                                </label>
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lift from fixes</span>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {ROI_LIFT_PRESETS.map((preset) => (
+                                            <button
+                                                key={preset.label}
+                                                type="button"
+                                                onClick={() => setConversionLiftPoints(preset.value)}
+                                                className={`h-11 flex-1 border px-2 text-xs font-bold transition shadow-sm ${
+                                                    conversionLiftPoints === preset.value
+                                                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
+                                                }`}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
+
+                            <p className="text-xs font-medium leading-5 text-slate-500">
+                                Model: monthly journeys x conversion-rate lift x value per conversion. Use order value for stores, first-month value for subscriptions, or blended revenue per activated user for onboarding.
+                            </p>
                         </div>
 
-                        <div className="grid overflow-hidden border border-slate-200 rounded-xl bg-white/70 backdrop-blur-md shadow-sm sm:grid-cols-3">
-                            <div className="border-b border-slate-100 bg-indigo-50/30 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
-                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Rejourney</p>
-                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">${rejourneyMonthlyPlan.price}</p>
-                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
+                        <div className="space-y-5">
+                            <div className="grid overflow-hidden border border-slate-200 rounded-xl bg-white/75 backdrop-blur-md shadow-sm sm:grid-cols-3">
+                                <div className="border-b border-slate-100 bg-emerald-50/40 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Recovered/month</p>
+                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatCurrency(recoveredMonthlyRevenue)}</p>
+                                    <p className="mt-2 text-xs font-normal text-slate-500">{formatInteger(recoveredConversions, locale.languageTag)} extra conversions modeled</p>
+                                </div>
+                                <div className="border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Rejourney plan</p>
+                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatCurrency(rejourneyMonthlyPlan.price)}</p>
+                                    <p className="mt-2 text-xs font-normal text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
+                                </div>
+                                <div className="p-5 sm:p-6">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Estimated ROI</p>
+                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">
+                                        {roiPercent === null ? 'Free' : `${Math.round(roiPercent).toLocaleString()}%`}
+                                    </p>
+                                    <p className="mt-2 text-xs font-normal text-slate-500">
+                                        {roiPercent === null
+                                            ? 'No paid plan cost at this volume'
+                                            : `${formatCurrency(netMonthlyUpside)} net after plan cost`}
+                                    </p>
+                                </div>
                             </div>
-                            <div className="border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
-                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">PostHog</p>
-                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
-                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.posthogEstimate}</p>
+
+                            <div className="grid gap-3 sm:grid-cols-3">
+                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Baseline revenue</p>
+                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{formatCurrency(baselineRevenue)}</p>
+                                </div>
+                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Break even</p>
+                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{breakEvenConversions <= 0 ? '0' : breakEvenConversions.toFixed(1)}</p>
+                                    <p className="mt-1 text-xs font-medium text-slate-500">extra conversions/month</p>
+                                </div>
+                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Annualized upside</p>
+                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{formatCurrency(Math.max(0, netMonthlyUpside) * 12)}</p>
+                                </div>
                             </div>
-                            <div className="p-5 sm:p-6">
-                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Sentry</p>
-                                <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
-                                <p className="mt-2 text-xs font-normal text-slate-500">{copy.sentryEstimate}</p>
+
+                            <div className="border border-slate-200 bg-slate-50/70 p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Research benchmarks used</p>
+                                <div className="mt-3 grid gap-3">
+                                    {ROI_BENCHMARK_SOURCES.map((source) => (
+                                        <a
+                                            key={source.href}
+                                            href={source.href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="group text-sm font-medium leading-5 text-slate-600 hover:text-indigo-700"
+                                        >
+                                            <span className="font-bold text-slate-900 group-hover:text-indigo-700">{source.label}:</span>{' '}
+                                            {source.stat}
+                                        </a>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>

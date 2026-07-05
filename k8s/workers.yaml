@@ -815,7 +815,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  schedule: "17 * * * *"
+  schedule: "17 */6 * * *"
   startingDeadlineSeconds: 600
   suspend: false
   concurrencyPolicy: Forbid
@@ -823,7 +823,7 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 14400
+      activeDeadlineSeconds: 21600
       backoffLimit: 1
       template:
         metadata:

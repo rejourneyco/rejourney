@@ -77,7 +77,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   starter: 'Find the first leaks in real traffic',
   growth: 'Rank conversion leaks as traffic scales',
   pro: 'For high-volume product and checkout flows',
-  scale: 'High-scale revenue leak work with Smart Capture',
+  scale: 'High-scale funnels with high-intent capture',
 };
 
 const PLAN_ACCENT_COLORS: Record<string, string> = {
@@ -88,16 +88,100 @@ const PLAN_ACCENT_COLORS: Record<string, string> = {
   scale: '#0f766e',
 };
 
-const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' }> = ({ children, tone = 'check' }) => (
+const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
   <div className="flex gap-2.5 text-xs font-medium leading-5 text-slate-605">
-    <span className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-      {tone === 'minus'
+    <span className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' || tone === 'warning' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+      {tone === 'minus' || tone === 'warning'
         ? <Minus className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />
         : <Check className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />}
     </span>
     <span className="min-w-0 flex-1">{children}</span>
   </div>
 );
+
+const captureControlLabel = (hasHighIntentCapture: boolean) =>
+  hasHighIntentCapture
+    ? 'High-Intent Capture keeps revenue-critical journeys'
+    : 'Standard replay sampling, masking, and length controls';
+
+const retentionHighlightClass = (retention: string) => {
+  const days = Number.parseInt(retention, 10);
+  return Number.isFinite(days) && days >= 30 ? 'text-emerald-700' : 'text-amber-600';
+};
+
+const isShortRetention = (retention: string) => {
+  const days = Number.parseInt(retention, 10);
+  return Number.isFinite(days) && days < 30;
+};
+
+const isLowAiLeakCoverage = (planName: string) => planName === 'free' || planName === 'starter';
+
+const RetentionEvidenceLabel: React.FC<{ retention: string }> = ({ retention }) => (
+  <>
+    <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
+    {' '}of checkout, onboarding, and paywall history
+  </>
+);
+
+const fixWorkflowCoverageDetail = (planName: string) => {
+  switch (planName) {
+    case 'free':
+      return 'for short launch cohorts and first funnel checks';
+    case 'starter':
+      return 'for early traffic cohorts and first fix cycles';
+    case 'growth':
+      return 'for campaigns, experiments, and funnel comparisons';
+    case 'pro':
+      return 'for high-volume checkout, subscription, and onboarding fixes';
+    case 'scale':
+      return 'with high-intent capture control for noisy traffic';
+    default:
+      return 'for conversion-critical fixes';
+  }
+};
+
+const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retention: string }> = ({
+  planName,
+  sessions,
+  retention,
+}) => {
+  return (
+    <>
+      <span className="font-bold text-indigo-700">{sessions}</span>
+      {' '}journeys across{' '}
+      <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
+      {' '}
+      {fixWorkflowCoverageDetail(planName)}
+    </>
+  );
+};
+
+const aiLeakUpgradePositioning = (planName: string, sessions: string) => {
+  switch (planName) {
+    case 'free':
+      return { lead: `${sessions} conversion journeys`, detail: ' baseline for AI Leak Detection' };
+    case 'starter':
+      return { lead: '5x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+    case 'growth':
+      return { lead: '20x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+    case 'pro':
+      return { lead: '70x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+    case 'scale':
+      return { lead: '200x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+    default:
+      return { lead: `${sessions} conversion journeys`, detail: ' for AI leak scans' };
+  }
+};
+
+const AiLeakUpgradeLabel: React.FC<{ planName: string; sessions: string }> = ({ planName, sessions }) => {
+  const positioning = aiLeakUpgradePositioning(planName, sessions);
+  return (
+    <>
+      <span className="font-bold text-indigo-700">{positioning.lead}</span>
+      {positioning.detail}
+    </>
+  );
+};
 
 export const BillingSettings: React.FC = () => {
   const { isDemoMode } = useDemoMode();
@@ -988,24 +1072,36 @@ export const BillingSettings: React.FC = () => {
                 <div className="mb-5 border-t border-slate-150/40 pt-4 space-y-4">
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue evidence</p>
-                    <PlanCheck>{plan.sessionLimit.toLocaleString()} captured sessions/mo</PlanCheck>
-                    <PlanCheck>{plan.videoRetentionLabel} conversion history</PlanCheck>
+                    <PlanCheck>{plan.sessionLimit.toLocaleString()} session replays/mo included</PlanCheck>
+                    <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
+                      <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />
+                    </PlanCheck>
                     <PlanCheck tone={hasSmartCapture ? 'check' : 'minus'}>
-                      {hasSmartCapture ? 'Smart Capture rules' : 'Standard leak capture controls'}
+                      {captureControlLabel(hasSmartCapture)}
                     </PlanCheck>
                   </div>
 
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue analytics</p>
                     <PlanCheck>Unlimited events, DAU & MAU</PlanCheck>
-                    <PlanCheck>Funnels, cohorts, revenue</PlanCheck>
-                    <PlanCheck>Drop-off drill-downs use captured sessions</PlanCheck>
+                    <PlanCheck>Funnels, cohorts, revenue, and retention trends</PlanCheck>
+                    <PlanCheck>Checkout, onboarding, signup, and subscription drill-downs</PlanCheck>
                   </div>
 
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fix workflow</p>
-                    <PlanCheck>AI leak ranking and fix context</PlanCheck>
-                    <PlanCheck>Heatmaps, journeys, crash/API context</PlanCheck>
+                    <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
+                      AI Leak Detection: <AiLeakUpgradeLabel planName={planName} sessions={plan.sessionLimit.toLocaleString()} />
+                    </PlanCheck>
+                    <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
+                      <FixWorkflowCoverage
+                        planName={planName}
+                        sessions={plan.sessionLimit.toLocaleString()}
+                        retention={plan.videoRetentionLabel}
+                      />
+                    </PlanCheck>
+                    <PlanCheck>AI Query Builder searches users, events, errors, devices, and metadata in that window</PlanCheck>
+                    <PlanCheck>Heatmaps, journeys, crash/API, device, and geo context</PlanCheck>
                   </div>
                 </div>
               </div>
