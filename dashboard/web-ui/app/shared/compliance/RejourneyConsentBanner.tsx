@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Cookie, ShieldCheck, ShieldX } from "lucide-react";
 import { useAuth } from "~/shared/providers/AuthContext";
-import { useTeam } from "~/shared/providers/TeamContext";
+import { useSafeTeam } from "~/shared/providers/TeamContext";
 import {
     disableRejourneyWebsiteTelemetry,
     isEmbeddedFrame,
@@ -19,7 +19,7 @@ type ConsentState = "loading" | "pending" | "accepted" | "rejected" | "disabled"
 export function RejourneyConsentBanner() {
     const location = useLocation();
     const { user } = useAuth();
-    const { currentTeam, teams } = useTeam();
+    const { currentTeam, teams } = useSafeTeam();
     const [consentState, setConsentState] = useState<ConsentState>("loading");
     const [startSource, setStartSource] = useState<"stored_consent" | "banner_accept">("stored_consent");
     const isAppShellPath = location.pathname.startsWith("/dashboard") || location.pathname.startsWith("/demo");

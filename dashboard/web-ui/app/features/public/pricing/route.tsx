@@ -131,7 +131,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Starter",
-                                            serviceType: "Web and mobile analytics",
+                                            serviceType: "Shopify and app subscription revenue recovery",
                                         },
                                     },
                                     {
@@ -143,7 +143,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Growth",
-                                            serviceType: "Web and mobile analytics",
+                                            serviceType: "Shopify and app subscription revenue recovery",
                                         },
                                     },
                                     {
@@ -155,7 +155,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Pro",
-                                            serviceType: "Web and mobile analytics",
+                                            serviceType: "Shopify and app subscription revenue recovery",
                                         },
                                     },
                                     {
@@ -167,7 +167,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Scale",
-                                            serviceType: "Web and mobile analytics with Smart Capture",
+                                            serviceType: "Shopify and app subscription revenue recovery with Smart Capture",
                                         },
                                     },
                                 ],

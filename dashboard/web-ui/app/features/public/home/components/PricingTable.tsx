@@ -112,19 +112,19 @@ const PlanGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ tit
 const PRICING_FAQS = [
     {
         question: 'Are analytics unlimited?',
-        answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. Rejourney pricing is planned around saved session replay volume, not around every event your app sends.',
+        answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. The paid meter is captured session volume because those sessions are what let Rejourney explain revenue leaks, not just count traffic.',
     },
     {
-        question: 'What happens when I use all included session replays?',
-        answer: 'Replay recording pauses until the next billing cycle or until you upgrade. Rejourney still accepts analytics events, so funnels, cohorts, journeys, heatmaps, crashes, ANRs, errors, and geo analytics keep updating while replay capture waits for more allowance.',
+        question: 'What happens when I use all included captured sessions?',
+        answer: 'New revenue evidence stops saving until the next billing cycle or until you upgrade. Rejourney still accepts analytics events for high-level charts, but fresh AI leak packets, heatmaps, journey drill-downs, crash context, replay search, and fix evidence need captured sessions to stay useful.',
     },
     {
         question: 'How is Rejourney different from usage-based replay pricing?',
-        answer: 'Many observability and product analytics tools meter several things at once: events, replays, errors, seats, sites, add-ons, retention, or separate product packages. Rejourney keeps the public plans anchored to included monthly session replays, with core analytics and debugging features included.',
+        answer: 'Many observability and product analytics tools meter several things at once: events, replays, errors, seats, sites, add-ons, retention, or separate product packages. Rejourney keeps the public plans anchored to included monthly captured sessions, with core analytics and debugging features included.',
     },
     {
         question: 'Do web and mobile replays cost different amounts?',
-        answer: 'No. The listed Rejourney plans use one session replay allowance for web and mobile. You do not need to buy a separate mobile replay add-on just to understand native app sessions.',
+        answer: 'No. The listed Rejourney plans use one captured-session allowance for web and mobile. You do not need to buy a separate mobile replay add-on just to understand native app sessions.',
     },
     {
         question: 'Do I pay per seat or tracked user?',
@@ -132,11 +132,11 @@ const PRICING_FAQS = [
     },
     {
         question: 'Are crashes, ANRs, errors, heatmaps, and journeys add-ons?',
-        answer: 'No. They are part of the core Rejourney workspace. The plan limit decides how many session replays you can save each month and how long those replays are retained.',
+        answer: 'No. They are part of the core Rejourney workspace. The plan limit decides how many captured sessions can become revenue-leak evidence each month and how long that evidence is retained.',
     },
     {
-        question: 'What counts as a session replay?',
-        answer: 'A session replay is one saved user session from the web or mobile SDK. It can include the screens, routes, events, errors, and interaction context from that user journey. Analytics events still count as analytics, not as extra replay charges.',
+        question: 'What counts as a captured session?',
+        answer: 'A captured session is one saved user session from the web or mobile SDK. It can include replay, screens, routes, events, errors, requests, and interaction context from that user journey. Analytics events still count as analytics, not as extra replay charges.',
     },
     {
         question: 'Can high-traffic teams control what gets recorded?',
@@ -152,7 +152,7 @@ const PRICING_FAQS = [
     },
     {
         question: 'How should I compare Rejourney with PostHog, Sentry, Hotjar, Fullstory, or LogRocket?',
-        answer: 'Start with the billing unit and the workflow you need. If the important work is reviewing user sessions, journeys, heatmaps, crashes, and product analytics together, compare how many replays are included, whether mobile is bundled, which features are add-ons, how retention works, and whether seats or events can change the bill.',
+        answer: 'Start with the job you need done. If the important work is finding why users drop before checkout, onboarding, purchase, or activation, compare how many captured sessions feed that workflow, whether mobile is bundled, which features are add-ons, how retention works, and whether seats or events can change the bill.',
     },
     {
         question: 'Can we self-host Rejourney instead of using cloud pricing?',
@@ -383,29 +383,33 @@ export const PricingTable: React.FC = () => {
                                     </div>
 
                                     <div className="mt-7 flex-1 space-y-5">
-                                        <PlanGroup title="Replays">
+                                        <PlanGroup title="Revenue evidence">
                                             <PlanCheck>{copy.sessionsPerMonth(formatInteger(plan.sessionLimit, locale.languageTag))}</PlanCheck>
                                             <PlanCheck>{copy.replayRetention(plan.videoRetentionLabel)}</PlanCheck>
+                                            <PlanCheck>Feeds AI leak ranking, heatmaps, journeys, and crash context</PlanCheck>
                                             <PlanCheck tone={smartCaptureEnabled ? 'check' : 'minus'}>
-                                                {smartCaptureEnabled ? 'Smart Capture included' : 'Standard replay capture controls'}
+                                                {smartCaptureEnabled ? 'Smart Capture rules for high-value leaks' : 'Standard leak capture controls'}
                                             </PlanCheck>
                                         </PlanGroup>
 
-                                        <PlanGroup title="Analytics">
-                                            <PlanCheck>Unlimited DAU and MAU</PlanCheck>
-                                            <PlanCheck>Unlimited events</PlanCheck>
-                                            <PlanCheck>Funnels, cohorts, and analytics retention</PlanCheck>
+                                        <PlanGroup title="Revenue analytics">
+                                            <PlanCheck>Unlimited events, DAU, and MAU</PlanCheck>
+                                            <PlanCheck>Funnels, cohorts, revenue, and retention charts</PlanCheck>
+                                            <PlanCheck>Drop-off drill-downs backed by captured sessions</PlanCheck>
                                         </PlanGroup>
 
-                                        <PlanGroup title="Features">
+                                        <PlanGroup title="Fix workflow">
                                             <PlanCheck>
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
-                                                    + AI Leak Detection
+                                                <span className="inline-flex flex-wrap items-center gap-2">
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
+                                                        + AI Leak Detection
+                                                    </span>
+                                                    <span>ranks repeated conversion blockers</span>
                                                 </span>
                                             </PlanCheck>
-                                            <PlanCheck>Query builder</PlanCheck>
-                                            <PlanCheck>Crashes, ANRs, errors, and stability tools</PlanCheck>
-                                            <PlanCheck>Heatmaps, journeys, and geo analytics</PlanCheck>
+                                            <PlanCheck>Find checkout, onboarding, and product drop-offs</PlanCheck>
+                                            <PlanCheck>Search high-intent users, errors, devices, and metadata</PlanCheck>
+                                            <PlanCheck>Fix-ready evidence for product, support, and engineering</PlanCheck>
                                         </PlanGroup>
                                     </div>
 

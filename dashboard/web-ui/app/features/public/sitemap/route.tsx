@@ -53,12 +53,19 @@ export async function loader() {
 
     const pricingRoutes: SitemapRoute[] = [{
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/pricing"),
-        priority: "0.8",
+        priority: "0.95",
         changefreq: "weekly",
         alternates: getLocalizedAlternateLinksForPath("/pricing"),
     }];
 
     const productRoutes: SitemapRoute[] = [
+        {
+            path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/how-it-works"),
+            priority: "0.85",
+            changefreq: "weekly",
+            image: `${baseUrl}/images/growth-engines.png`,
+            imageTitle: "How Rejourney recovers checkout and subscription revenue",
+        },
         {
             path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/rejourney-marlin"),
             priority: "0.8",
@@ -75,16 +82,6 @@ export async function loader() {
         },
     ];
 
-    const companyRoutes: SitemapRoute[] = [
-        {
-            path: "/about",
-            priority: "0.7",
-            changefreq: "monthly",
-            image: `${baseUrl}/images/founders/mohammad-rashid.jpg`,
-            imageTitle: "Mohammad Rashid, CEO of Rejourney",
-        },
-    ];
-
     const seoRoutes: SitemapRoute[] = SEO_PAGES.map((page) => ({
         path: page.path,
         priority: page.kind === "alternative" ? "0.8" : "0.9",
@@ -95,7 +92,7 @@ export async function loader() {
 
     const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, `/docs/${slug}`),
-        priority: slug === "reactnative/overview" ? "0.9" : "0.6",
+        priority: slug === "shopify/getting-started" ? "0.9" : slug === "reactnative/overview" ? "0.8" : "0.6",
         changefreq: "weekly",
         alternates: getLocalizedAlternateLinksForPath(`/docs/${slug}`),
     }));
@@ -122,7 +119,7 @@ export async function loader() {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...companyRoutes, ...seoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
+${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...seoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
   <url>
     <loc>${escapeXml(`${baseUrl}${route.path}`)}</loc>
     <lastmod>${"lastmod" in route && route.lastmod ? route.lastmod : lastModified}</lastmod>

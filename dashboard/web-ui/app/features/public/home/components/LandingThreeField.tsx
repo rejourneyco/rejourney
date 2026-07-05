@@ -4,7 +4,7 @@ import type { BufferAttribute, Group, Line, LineBasicMaterial, Mesh } from 'thre
 type LandingThreeFieldProps = {
     className?: string;
     seed?: number;
-    variant?: 'landing-hero' | 'landing-page' | 'landing-sparse';
+    variant?: 'landing-hero' | 'landing-page' | 'landing-sparse' | 'how-it-works-hero';
 };
 
 type ParticleState = {
@@ -55,9 +55,11 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     
     const isHero = variant === 'landing-hero';
+    const isHowItWorks = variant === 'how-it-works-hero';
     const isLandingPage = variant === 'landing-page';
     const isLandingSparse = variant === 'landing-sparse';
     const isAmbient = isLandingPage || isLandingSparse;
+    const isHeroOrHowItWorks = isHero || isHowItWorks;
 
     useEffect(() => {
         if (typeof window === 'undefined' || !canvasRef.current) return;
@@ -90,7 +92,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 powerPreference: 'high-performance',
             });
             renderer.setClearAlpha(0);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, startsSmall ? 1.1 : (isHero ? 1.5 : 1.0)));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, startsSmall ? 1.1 : (isHeroOrHowItWorks ? 1.5 : 1.0)));
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
             const scene = new THREE.Scene();
@@ -112,8 +114,8 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     ctx.clearRect(0, 0, 64, 64);
                     const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
                     gradient.addColorStop(0, 'rgba(255,255,255,1)');
-                    gradient.addColorStop(0.2, 'rgba(156,163,175,0.8)');
-                    gradient.addColorStop(0.5, 'rgba(59,130,246,0.2)');
+                    gradient.addColorStop(0.2, 'rgba(148,163,184,0.74)');
+                    gradient.addColorStop(0.5, 'rgba(16,185,129,0.18)');
                     gradient.addColorStop(1, 'rgba(0,0,0,0)');
                     ctx.fillStyle = gradient;
                     ctx.fillRect(0, 0, 64, 64);
@@ -126,20 +128,20 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const particleTexture = createParticleTexture();
 
             // Ambient background lighting
-            scene.add(new THREE.AmbientLight(0xf0f7ff, isHero ? 2.85 : 1.85));
+            scene.add(new THREE.AmbientLight(0xf0f7ff, isHeroOrHowItWorks ? 2.85 : 1.85));
 
             // Floating neon point lights to illuminate the hero globe (only for heroes)
-            const cyanLight = new THREE.PointLight(0x38bdf8, isHero ? 11 : 0, 20);
+            const cyanLight = new THREE.PointLight(0x2563eb, isHeroOrHowItWorks ? 8 : 0, 20);
             scene.add(cyanLight);
 
-            const blueLight = new THREE.PointLight(0x3b82f6, isHero ? 9 : 0, 18);
+            const blueLight = new THREE.PointLight(0x10b981, isHeroOrHowItWorks ? 6 : 0, 18);
             scene.add(blueLight);
 
-            const azureLight = new THREE.PointLight(0x60a5fa, isHero ? 5 : 0, 16);
+            const azureLight = new THREE.PointLight(0xf59e0b, isHeroOrHowItWorks ? 4 : 0, 16);
             scene.add(azureLight);
 
             // Add a directional light for specular highlights
-            const dirLight = new THREE.DirectionalLight(0xffffff, isHero ? 1.45 : 0);
+            const dirLight = new THREE.DirectionalLight(0xffffff, isHeroOrHowItWorks ? 1.45 : 0);
             dirLight.position.set(5, 5, 4);
             scene.add(dirLight);
 
@@ -148,12 +150,12 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             scene.add(root);
 
             // Create background stars/particles
-            const starCount = isHero ? 48 : (isLandingPage ? (startsSmall ? 82 : 180) : (startsSmall ? 48 : 90));
+            const starCount = isHeroOrHowItWorks ? 48 : (isLandingPage ? (startsSmall ? 82 : 180) : (startsSmall ? 48 : 90));
             const starPositions = new Float32Array(starCount * 3);
             const starColors = new Float32Array(starCount * 3);
             const starSizes = new Float32Array(starCount);
             const starStates: ParticleState[] = [];
-            const starPalette = [0x60a5fa, 0x38bdf8, 0x3b82f6, 0x93c5fd, 0xffffff];
+            const starPalette = [0x2563eb, 0x0ea5e9, 0x10b981, 0xf59e0b, 0xffffff];
 
             for (let i = 0; i < starCount; i++) {
                 const x = (random() - 0.5) * 16.0;
@@ -169,7 +171,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 starColors[i * 3] = color.r * brightness;
                 starColors[i * 3 + 1] = color.g * brightness;
                 starColors[i * 3 + 2] = color.b * brightness;
-                starSizes[i] = random() * (isHero ? 0.07 : (isLandingPage ? (startsSmall ? 0.11 : 0.16) : 0.12)) + (isHero ? 0.024 : (isLandingPage ? (startsSmall ? 0.04 : 0.06) : 0.045));
+                starSizes[i] = random() * (isHeroOrHowItWorks ? 0.07 : (isLandingPage ? (startsSmall ? 0.11 : 0.16) : 0.12)) + (isHeroOrHowItWorks ? 0.024 : (isLandingPage ? (startsSmall ? 0.04 : 0.06) : 0.045));
 
                 starStates.push({
                     x,
@@ -189,7 +191,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const starMaterial = register(new THREE.ShaderMaterial({
                 uniforms: {
                     map: { value: particleTexture },
-                    opacity: { value: isHero ? 0.34 : (isLandingPage ? (startsSmall ? 0.46 : 0.76) : 0.56) },
+                    opacity: { value: isHeroOrHowItWorks ? 0.34 : (isLandingPage ? (startsSmall ? 0.46 : 0.76) : 0.56) },
                 },
                 vertexShader: `
                     attribute float size;
@@ -229,10 +231,104 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const flowLines: FlowLineState[] = [];
             const sparseMeshes: SparseMeshState[] = [];
 
+            const pipelineNodes: Mesh[] = [];
+            const pipelineCurves: any[] = [];
+            const pipelinePackets: Mesh[] = [];
+            const packetStates: Array<{ curveIndex: number; progress: number; speed: number }> = [];
+            let pipelineGroup: Group | null = null;
+
+            if (isHowItWorks) {
+                pipelineGroup = new THREE.Group();
+                root.add(pipelineGroup);
+
+                // Define 4 nodes along a wavy path
+                const nodePositions = [
+                    new THREE.Vector3(-3.5, 1.2, -0.5),
+                    new THREE.Vector3(-1.2, -1.0, 0.2),
+                    new THREE.Vector3(1.2, 1.0, -0.2),
+                    new THREE.Vector3(3.5, -1.2, 0.5)
+                ];
+
+                const nodeGeometries = [
+                    new THREE.SphereGeometry(0.35, 16, 16),
+                    new THREE.IcosahedronGeometry(0.38, 1),
+                    new THREE.OctahedronGeometry(0.38, 1),
+                    new THREE.TorusKnotGeometry(0.24, 0.06, 48, 6)
+                ];
+
+                const nodeColors = [0x2563eb, 0x0ea5e9, 0x10b981, 0xf59e0b];
+
+                // Create the node meshes
+                for (let i = 0; i < 4; i++) {
+                    const material = register(new THREE.MeshBasicMaterial({
+                        color: nodeColors[i],
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0.35,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    }));
+                    const mesh = new THREE.Mesh(nodeGeometries[i], material);
+                    mesh.position.copy(nodePositions[i]);
+                    pipelineGroup.add(mesh);
+                    pipelineNodes.push(mesh);
+                }
+
+                // Create curved connection paths between adjacent nodes
+                for (let i = 0; i < 3; i++) {
+                    const start = nodePositions[i];
+                    const end = nodePositions[i + 1];
+                    
+                    // Add control points to make a nice wave
+                    const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                    mid.y += (i % 2 === 0 ? 0.6 : -0.6); // alternate curve offset
+                    mid.z += 0.4;
+
+                    const curve = new THREE.CatmullRomCurve3([start, mid, end]);
+                    pipelineCurves.push(curve);
+
+                    // Draw the connection path line
+                    const points = curve.getPoints(60);
+                    const lineGeom = register(new THREE.BufferGeometry().setFromPoints(points));
+                    const lineMat = register(new THREE.LineBasicMaterial({
+                        color: 0x2563eb,
+                        transparent: true,
+                        opacity: 0.18,
+                        depthWrite: false,
+                        blending: THREE.NormalBlending
+                    }));
+                    const line = new THREE.Line(lineGeom, lineMat);
+                    pipelineGroup.add(line);
+                }
+
+                // Create flying data packets
+                const packetGeom = register(new THREE.SphereGeometry(0.06, 8, 8));
+                const packetColor = 0x10b981;
+                
+                // We'll create 12 packets distributed across paths
+                for (let i = 0; i < 12; i++) {
+                    const packetMat = register(new THREE.MeshBasicMaterial({
+                        color: packetColor,
+                        transparent: true,
+                        opacity: 0.8,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    }));
+                    const packet = new THREE.Mesh(packetGeom, packetMat);
+                    pipelineGroup.add(packet);
+                    pipelinePackets.push(packet);
+
+                    const curveIndex = i % 3;
+                    const progress = random();
+                    const speed = 0.08 + random() * 0.12;
+                    packetStates.push({ curveIndex, progress, speed });
+                }
+            }
+
             if (isHero) {
                 const globeGeometry = register(new THREE.SphereGeometry(2.25, 42, 24));
                 const globeSurfaceMaterial = register(new THREE.MeshPhysicalMaterial({
-                    color: 0x7dd3fc,
+                    color: 0x93c5fd,
                     metalness: 0.02,
                     roughness: 0.22,
                     clearcoat: 0.75,
@@ -245,7 +341,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 root.add(knotMesh);
 
                 const globeWireframeMat = register(new THREE.MeshBasicMaterial({
-                    color: 0x60a5fa,
+                    color: 0x2563eb,
                     wireframe: true,
                     transparent: true,
                     opacity: 0.28,
@@ -257,7 +353,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 knotMesh.add(globeWireframe);
 
                 const ringMaterial = register(new THREE.MeshBasicMaterial({
-                    color: 0x38bdf8,
+                    color: 0x10b981,
                     wireframe: true,
                     transparent: true,
                     opacity: 0.26,
@@ -437,6 +533,10 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     camera.position.z = width < 640 ? 8.45 : 7.5;
                     root.position.set(width < 640 ? 0.2 : 0, width < 640 ? -0.2 : 0, 0);
                     root.scale.setScalar(width < 640 ? 0.76 : (width < 1024 ? 0.9 : 1.0));
+                } else if (isHowItWorks) {
+                    camera.position.z = width < 640 ? 9.5 : 8.5;
+                    root.position.set(0, 0, 0);
+                    root.scale.setScalar(width < 640 ? 0.8 : 1.1);
                 } else if (width < 640) {
                     camera.position.z = 9.3;
                     root.position.set(width < 430 ? 0.98 : 1.12, -1.42, -0.35);
@@ -505,6 +605,28 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     });
                 }
 
+                if (isHowItWorks && pipelineGroup && pipelineNodes.length) {
+                    pipelineNodes.forEach((node, i) => {
+                        node.rotation.x = elapsed * 0.22 * (i % 2 === 0 ? 1 : -1);
+                        node.rotation.y = elapsed * 0.28;
+                        node.rotation.z = elapsed * 0.12;
+                    });
+
+                    pipelinePackets.forEach((packet, i) => {
+                        const state = packetStates[i];
+                        const t = (elapsed * state.speed + state.progress) % 1.0;
+                        const curve = pipelineCurves[state.curveIndex];
+                        if (curve) {
+                            const pos = curve.getPointAt(t);
+                            packet.position.copy(pos);
+                            
+                            const opacity = Math.sin(t * Math.PI) * 0.85;
+                            const mat = packet.material as any;
+                            if (mat) mat.opacity = opacity;
+                        }
+                    });
+                }
+
                 root.rotation.y = Math.sin(elapsed * (isLandingPage ? 0.07 : 0.1)) * (isLandingPage ? 0.025 : 0.05);
                 if (isLandingPage) {
                     root.rotation.x = Math.sin(elapsed * 0.06) * 0.026;
@@ -524,7 +646,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 }
 
                 // Orbit point lights around the hero globe
-                if (isHero) {
+                if (isHeroOrHowItWorks) {
                     const lightTime1 = elapsed * 0.6;
                     cyanLight.position.x = Math.sin(lightTime1) * 3.2;
                     cyanLight.position.z = Math.cos(lightTime1) * 3.2;
@@ -596,19 +718,19 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             width: '100%',
         }
         : {
-            height: isHero ? 'max(140%, 1020px)' : '100%',
+            height: isHeroOrHowItWorks ? 'max(140%, 1020px)' : '100%',
             left: '50%',
             maxWidth: 'none',
-            top: isHero ? '48%' : '50%',
+            top: isHeroOrHowItWorks ? '48%' : '50%',
             transform: 'translate3d(-50%, -50%, 0)',
-            width: isHero ? 'max(145vw, 1580px)' : '100%',
+            width: isHeroOrHowItWorks ? 'max(145vw, 1580px)' : '100%',
         };
     const variantClassName = isLandingPage
         ? 'landing-three-field--page'
-        : (isHero ? 'landing-three-field--hero' : 'landing-three-field--sparse');
+        : (isHeroOrHowItWorks ? 'landing-three-field--hero' : 'landing-three-field--sparse');
     const wrapperClassName = isLandingPage
         ? `pointer-events-none fixed inset-0 z-0 overflow-hidden ${variantClassName} ${className}`
-        : `pointer-events-none absolute inset-0 z-0 overflow-hidden ${isHero ? '' : 'lg:overflow-visible'} ${variantClassName} ${className}`;
+        : `pointer-events-none absolute inset-0 z-0 overflow-hidden ${isHeroOrHowItWorks ? '' : 'lg:overflow-visible'} ${variantClassName} ${className}`;
 
     return (
         <div
@@ -626,16 +748,18 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                             position: absolute;
                             inset: 0;
                             background:
-                                radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.08), transparent 50%),
-                                radial-gradient(circle at 20% 80%, rgba(56, 189, 248, 0.06), transparent 45%),
+                                radial-gradient(circle at 80% 20%, rgba(37, 99, 235, 0.09), transparent 50%),
+                                radial-gradient(circle at 20% 80%, rgba(16, 185, 129, 0.07), transparent 45%),
+                                radial-gradient(circle at 50% 58%, rgba(245, 158, 11, 0.045), transparent 42%),
                                 linear-gradient(180deg, #ffffff 0%, #fcfdfe 100%);
                         }
                         .landing-light-haze {
                             position: absolute;
                             inset: -12% -15%;
                             background:
-                                radial-gradient(ellipse at 75% 20%, rgba(59, 130, 246, 0.08), transparent 50%),
-                                radial-gradient(ellipse at 25% 70%, rgba(56, 189, 248, 0.07), transparent 45%);
+                                radial-gradient(ellipse at 75% 20%, rgba(37, 99, 235, 0.09), transparent 50%),
+                                radial-gradient(ellipse at 25% 70%, rgba(16, 185, 129, 0.08), transparent 45%),
+                                radial-gradient(ellipse at 54% 48%, rgba(245, 158, 11, 0.045), transparent 42%);
                             filter: blur(45px);
                             animation: landingHazeDrift 28s ease-in-out infinite alternate;
                         }
@@ -652,7 +776,8 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                         @media (max-width: 640px) {
                             .landing-three-field--hero .landing-light-bg {
                                 background:
-                                    radial-gradient(circle at 76% 28%, rgba(59, 130, 246, 0.06), transparent 42%),
+                                    radial-gradient(circle at 76% 28%, rgba(37, 99, 235, 0.065), transparent 42%),
+                                    radial-gradient(circle at 20% 72%, rgba(16, 185, 129, 0.055), transparent 42%),
                                     linear-gradient(180deg, #ffffff 0%, #fcfdfe 100%);
                             }
                             .landing-three-field--hero .landing-light-haze {

@@ -17,6 +17,13 @@ export interface DocMetadata {
  * This is a client-safe copy of DOCS_MAP from docsLoader.server.ts
  */
 export const DOCS_MAP: Record<string, { file: string; title: string; category?: string; description: string; keywords: string[] }> = {
+    'shopify/getting-started': {
+        file: 'shopify/getting-started.md',
+        title: 'Shopify',
+        category: 'Shopify',
+        description: 'Add Rejourney to Shopify storefronts, custom themes, and headless Shopify sites with domain allowlisting, consent-aware replay, privacy controls, and commerce events.',
+        keywords: ['Shopify session replay', 'Shopify analytics SDK', 'Shopify custom theme analytics', 'headless Shopify session replay', 'Shopify conversion debugging']
+    },
     'web/getting-started': {
         file: 'web/getting-started.md',
         title: 'Web SDK',

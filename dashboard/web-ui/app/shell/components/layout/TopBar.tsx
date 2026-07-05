@@ -7,8 +7,7 @@ import { useTeam } from '~/shared/providers/TeamContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { clearCache, getTeamBillingUsage, getTeamPlan, TeamUsage } from '~/features/app/billing/api';
 import { clearCacheMatching } from '~/shared/api/client';
-import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, BookOpen, Check, Menu, Mail, Home } from 'lucide-react';
-import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
+import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, Check, Menu, Home } from 'lucide-react';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE, DASHBOARD_MANUAL_REFRESH_START } from '~/shared/constants/events';
 
 interface TopBarProps {
@@ -29,8 +28,6 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
   const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
   const [teamPlan, setTeamPlan] = useState<{ planName: string; sessionLimit: number; videoRetentionLabel: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
-  const [copiedContactEmail, setCopiedContactEmail] = useState(false);
-  const [copiedDocs, setCopiedDocs] = useState(false);
   const refreshPulseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearDashboardCachesForRefresh = useCallback(() => {
@@ -215,18 +212,6 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
     }
   }, [currentProject?.publicKey]);
 
-  const handleCopyDocsUrl = useCallback(() => {
-    navigator.clipboard.writeText(buildProjectAIIntegrationPrompt(currentProject));
-    setCopiedDocs(true);
-    setTimeout(() => setCopiedDocs(false), 2000);
-  }, [currentProject]);
-
-  const handleCopyContactEmail = useCallback(() => {
-    navigator.clipboard.writeText('contact@rejourney.co');
-    setCopiedContactEmail(true);
-    setTimeout(() => setCopiedContactEmail(false), 2000);
-  }, []);
-
   const refreshTitle = isRefreshing
     ? 'Refreshing dashboard data...'
     : lastRefreshTime
@@ -304,34 +289,6 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
             )}
           </button>
         )}
-
-        {/* Contact Devs Button */}
-        <button
-          onClick={handleCopyContactEmail}
-          className="group hidden h-8 w-8 shrink-0 items-center justify-center border border-[#2563eb] bg-[#3b82f6] shadow-sm transition-all hover:border-[#1d4ed8] hover:bg-[#2563eb] active:shadow-none sm:flex"
-          title="Copy developer contact email: contact@rejourney.co"
-          aria-label="Copy developer contact email"
-        >
-          {copiedContactEmail ? (
-            <Check className="h-4 w-4 text-white stroke-[3]" />
-          ) : (
-            <Mail className="h-4 w-4 text-white stroke-[2.5]" />
-          )}
-        </button>
-
-        {/* AI Docs Button */}
-        <button
-          onClick={handleCopyDocsUrl}
-          className="group hidden h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:shadow-none sm:flex"
-          title="Copy AI Integration Prompt"
-          aria-label="Copy AI integration prompt"
-        >
-          {copiedDocs ? (
-            <Check className="h-4 w-4 text-black stroke-[3]" />
-          ) : (
-            <BookOpen className="h-4 w-4 text-black transition-colors group-hover:text-[#5dadec] stroke-[2]" />
-          )}
-        </button>
 
         {/* Refresh Button - Icon Only */}
         <button

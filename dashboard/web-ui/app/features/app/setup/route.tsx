@@ -17,7 +17,11 @@ import {
   Users,
 } from 'lucide-react';
 import { addTeamMember, createTeam, sendProjectSetupEmail, updateTeam } from '~/shared/api/client';
-import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
+import {
+  buildProjectAIPromptById,
+  getAIPromptDefinition,
+  getAIPromptIdsForProject,
+} from '~/shared/constants/aiPrompts';
 import { cn } from '~/shared/lib/cn';
 import { useAuth } from '~/shared/providers/AuthContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
@@ -26,12 +30,9 @@ import { Button } from '~/shared/ui/core/Button';
 import { Modal } from '~/shared/ui/core/Modal';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { Input } from '~/shared/ui/core/Input';
-import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import type { Project } from '~/shared/types';
 import { CreateProjectForm } from './CreateProjectForm';
-import { PricingThreeField } from '~/features/public/home/components/PricingThreeField';
 import {
   buildDeveloperSetupEmail,
   formatProjectPlatforms,
@@ -176,10 +177,37 @@ export const SetupRoute: React.FC = () => {
     setWorkspaceConfirmError(null);
   }, [currentTeam?.id, currentTeam?.name]);
 
-  const aiPrompt = useMemo(() => buildProjectAIIntegrationPrompt({
-    ...activeProject,
+  const promptProjectContext = useMemo(() => ({
+    ...(activeProject ?? {}),
     teamName: currentTeam?.name ?? undefined,
   }), [activeProject, currentTeam?.name]);
+  const aiSetupInstructionPrompts = useMemo(() => {
+    return getAIPromptIdsForProject(promptProjectContext).map((promptId) => {
+      const definition = getAIPromptDefinition(promptId);
+      return {
+        id: promptId,
+        label: definition.label,
+        promptText: buildProjectAIPromptById(promptId, promptProjectContext),
+      };
+    });
+  }, [promptProjectContext]);
+  const aiPrompt = useMemo(() => {
+    if (aiSetupInstructionPrompts.length === 1) return aiSetupInstructionPrompts[0].promptText;
+
+    return [
+      'Use the matching Rejourney AI setup instructions for this project.',
+      'Choose the section that matches the app you are editing and follow it exactly.',
+      '',
+      ...aiSetupInstructionPrompts.flatMap((prompt) => [
+        '==========================================================',
+        `AI SETUP INSTRUCTIONS: ${prompt.label}`,
+        '==========================================================',
+        '',
+        prompt.promptText,
+        '',
+      ]),
+    ].join('\n').trim();
+  }, [aiSetupInstructionPrompts]);
 
   const simpleEmailBody = useMemo(() => {
     if (!activeProject) return '';
@@ -658,26 +686,8 @@ export const SetupRoute: React.FC = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-[var(--dashboard-canvas)] pb-12 text-slate-700 dark:text-slate-350 overflow-x-hidden">
-      {/* 3js Particle Background */}
-      <PricingThreeField variant="hero" seed={19} layout="wizard" className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-65" />
-
+    <div className="relative min-h-full bg-[var(--dashboard-canvas)] pb-12 text-slate-700 dark:text-slate-350 overflow-x-hidden">
       <div className="relative z-10">
-        <DashboardPageHeader
-          title="Setup"
-          {...dashboardPageHeaderProps('setup')}
-        >
-          {activeProject?.id && (
-            <Link
-              to={`${pathPrefix}/settings/${activeProject.id}`}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 dark:bg-slate-900 dark:text-white dark:border-slate-800 transition-colors"
-            >
-              <span>Project Settings</span>
-              <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
-            </Link>
-          )}
-        </DashboardPageHeader>
-
         <main className="mx-auto w-full max-w-[800px] space-y-6 px-4 py-5 pb-8 sm:px-6 sm:py-6 sm:pb-10">
           {isJoinedTeam && currentTeam && (
             <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 text-emerald-800 dark:text-emerald-300 shadow-sm">
@@ -1145,7 +1155,7 @@ export const SetupRoute: React.FC = () => {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">Developer Handoff</h3>
                   </div>
                   <p className="text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400">
-                    Start by copying the AI prompt. It includes the public key, platform choices, app identifiers, and install steps.
+                    Start by copying the AI setup instructions. They include the public key, platform choices, app identifiers, and install steps.
                   </p>
 
                   {/* Public key container */}
@@ -1177,18 +1187,8 @@ export const SetupRoute: React.FC = () => {
                           <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider">Recommended</span>
                         </h4>
                         <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400">
-                          Paste this prompt into your cursor, v0, copilot, or AI coding assistant. It instructs the AI to download, install, and initialize the Rejourney SDK using your configurations.
+                          Paste the copied setup instructions into Cursor, v0, Copilot, or another AI coding assistant. They include the exact setup steps with your configuration filled in.
                         </p>
-                      </div>
-                    </div>
-
-                    {/* AI Setup Prompt Visual Preview */}
-                    <div className="mt-4 space-y-1.5">
-                      <label className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                        Prompt Preview
-                      </label>
-                      <div className="relative rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-4 font-mono text-[10px] leading-relaxed text-slate-600 dark:text-slate-400 max-h-[260px] overflow-y-auto whitespace-pre-wrap">
-                        {aiPrompt}
                       </div>
                     </div>
 
@@ -1207,7 +1207,7 @@ export const SetupRoute: React.FC = () => {
                         ) : (
                           <>
                             <Terminal className="mr-2 h-4.5 w-4.5" />
-                            Copy AI Setup Prompt
+                            Copy AI Setup Instructions
                           </>
                         )}
                       </Button>
@@ -1460,7 +1460,7 @@ export const SetupRoute: React.FC = () => {
         >
           <div className="space-y-4">
             <p className="text-xs font-semibold leading-relaxed text-slate-500 dark:text-slate-400">
-              Send simplified integration instructions directly to your developer. The email includes our project API key and the AI setup prompt.
+              Send simplified integration instructions directly to your developer. The email includes our project API key and the AI setup instructions.
             </p>
 
             <Input

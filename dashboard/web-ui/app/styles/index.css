@@ -5282,7 +5282,7 @@
 @media (max-width: 640px) {
   .landing-home {
     background:
-      linear-gradient(180deg, #f8fbff 0%, #f7f3ff 28%, #fff7ed 58%, #eefbf5 100%);
+      linear-gradient(180deg, #f8fbff 0%, #eff6ff 28%, #ecfdf5 58%, #fffbeb 100%);
   }
 
   .landing-home .landing-page-field {

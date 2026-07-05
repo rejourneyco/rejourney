@@ -1,5 +1,5 @@
 /**
- * Rejourney Dashboard - Landing Page Route
+ * Rejourney - Landing Page Route
  * 
  * This is the main landing page, server-side rendered for SEO/crawlers.
  */
@@ -22,21 +22,8 @@ import {
 const homeLocale = MARKETING_LOCALES.en;
 const canonicalUrl = getMarketingLocaleUrl(homeLocale);
 const socialPreviewImage = "https://rejourney.co/images/growth-engines.png?v=20260619";
-const socialPreviewAlt = "Rejourney AI funnel leak detection and revenue analytics preview";
-const homeKeywords = [
-    "AI funnel leak detection",
-    "funnel leak detection",
-    "AI session replay",
-    "session replay AI",
-    "conversion leak detection",
-    "onboarding analytics",
-    "checkout analytics",
-    "revenue analytics",
-    "rage tap detection",
-    "product analytics",
-    "technical founder analytics",
-    "open source analytics",
-];
+const socialPreviewAlt = "Rejourney Shopify and subscription revenue dashboard preview";
+const homeKeywords = homeLocale.keywords;
 
 export function loader({ request }: Route.LoaderArgs) {
     const redirectPath = getMarketingLocaleRedirectPath(request);
@@ -136,7 +123,7 @@ export default function LandingPage() {
                                 name: "Rejourney",
                                 applicationCategory: "BusinessApplication",
                                 operatingSystem: "Web, iOS, Android",
-                                description: "AI funnel leak detection that watches session replays, clusters rage taps, API errors, crashes, journey loops, and drop-offs, then creates ranked fix packets for revenue teams.",
+                                description: "Revenue recovery for Shopify, ecommerce, and app subscription teams. Rejourney shows checkout drop-off, failed billing, churn risk, and the replay-backed evidence behind each lost conversion.",
                                 url: "https://rejourney.co/",
                                 offers: {
                                     "@type": "Offer",

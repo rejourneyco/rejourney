@@ -440,7 +440,7 @@ export default function LoginPage() {
                                     {email}
                                 </div>
                                 <p className="mt-3 text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500">
-                                    If it is not there after 2 minutes, check your spam folder.
+                                    Check your spam folder.
                                 </p>
                             </div>
 

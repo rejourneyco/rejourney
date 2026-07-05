@@ -1,5 +1,3 @@
-import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
-
 const LEGACY_ANALYTICS_ROUTE_ALIASES: Array<{ from: string; to: string }> = [
   { from: '/analytics/api', to: '/api' },
   { from: '/analytics/devices', to: '/devices' },
@@ -36,5 +34,5 @@ export function normalizeLegacyAnalyticsAppPath(path: string): string {
 }
 
 export function stripDashboardPathPrefix(path: string): string {
-  return normalizeLegacyAnalyticsAppPath(path).replace(/^\/(dashboard|demo)/, '') || (isIssueDetectionUiEnabled() ? '/leaks' : '/general');
+  return normalizeLegacyAnalyticsAppPath(path).replace(/^\/(dashboard|demo)/, '') || '/general';
 }

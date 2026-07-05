@@ -11,7 +11,12 @@ import { DocsLayout } from "~/shared/docs/DocsLayout";
 import { DocsSidebar } from "~/shared/docs/DocsSidebar";
 import { DocsAIPromptCallout, getDocsAIPromptText, MarkdownContent } from "~/shared/docs/MarkdownContent";
 import { getProjects, type ApiProject } from "~/shared/api/client";
-import { buildProjectAIIntegrationPrompt, buildSelfHostedAIDeploymentPrompt } from "~/shared/constants/aiPrompts";
+import {
+    buildProjectAIIntegrationPrompt,
+    buildProjectAIPromptLinkInstruction,
+    buildSelfHostedAIDeploymentPrompt,
+    type AIPromptId,
+} from "~/shared/constants/aiPrompts";
 import { getDocMetadata } from "~/shared/lib/docsConfig";
 import { getContentLocaleCopy, getLocalizedDocMetadata } from "~/shared/lib/contentLocalization";
 import {
@@ -25,7 +30,7 @@ import {
     MARKETING_LOCALES,
 } from "~/shared/lib/internationalMarketing";
 import { useAuth } from "~/shared/providers/AuthContext";
-import { useTeam } from "~/shared/providers/TeamContext";
+import { useSafeTeam } from "~/shared/providers/TeamContext";
 
 function getSlugFromParams(params: any): string {
     // Route is configured as /docs/* so React Router provides the splat param as "*"
@@ -59,6 +64,18 @@ function selectProjectForDocsPrompt(projects: ApiProject[], teamId?: string | nu
     }
 
     return candidateProjects[0] ?? null;
+}
+
+function getPromptIdForDocPath(path?: string): AIPromptId | null {
+    if (path === "shopify/getting-started") return "shopify";
+    if (path === "web/getting-started") return "web";
+    if (path === "reactnative/overview") return "react-native";
+    if (path === "swift/overview") return "swift";
+    return null;
+}
+
+function getCurrentOrigin(): string {
+    return typeof window === "undefined" ? "https://rejourney.co" : window.location.origin;
 }
 
 export const meta: Route.MetaFunction = ({ params, location }) => {
@@ -138,6 +155,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
     const localeCode = locale.code;
 
+    if (slug === "shopify") {
+        throw redirect(getLocalizedPublicPath(locale, "/docs/shopify/getting-started"));
+    }
+
     if (slug === "web/overview") {
         throw redirect(getLocalizedPublicPath(locale, "/docs/web/getting-started"));
     }
@@ -160,31 +181,38 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 export default function DocPage({ loaderData }: Route.ComponentProps) {
     const { content, metadata, localeCode, contentLocaleCode } = loaderData;
     const { isAuthenticated } = useAuth();
-    const { currentTeam } = useTeam();
+    const { currentTeam } = useSafeTeam();
     const locale = MARKETING_LOCALES[localeCode] ?? MARKETING_LOCALES.en;
     const contentLocale = MARKETING_LOCALES[contentLocaleCode] ?? MARKETING_LOCALES.en;
     const copy = getContentLocaleCopy(locale);
     const localizedMetadata = metadata ? getLocalizedDocMetadata(metadata, locale) : null;
     const aiPromptText = getDocsAIPromptText(content);
     const isSelfHostedOverview = metadata?.path === "selfhosted";
+    const promptId = getPromptIdForDocPath(metadata?.path);
     const getDocsIntegrationPrompt = useCallback(async () => {
         if (isSelfHostedOverview) {
             return buildSelfHostedAIDeploymentPrompt();
         }
 
         if (!isAuthenticated) {
-            return buildProjectAIIntegrationPrompt(null);
+            return promptId
+                ? buildProjectAIPromptLinkInstruction(promptId, null, getCurrentOrigin())
+                : buildProjectAIIntegrationPrompt(null);
         }
 
         try {
             const projects = await getProjects();
             const project = selectProjectForDocsPrompt(projects, currentTeam?.id ?? null);
-            return buildProjectAIIntegrationPrompt(project);
+            return promptId
+                ? buildProjectAIPromptLinkInstruction(promptId, project, getCurrentOrigin())
+                : buildProjectAIIntegrationPrompt(project);
         } catch (error) {
             console.error("Failed to load project for docs AI integration prompt:", error);
-            return buildProjectAIIntegrationPrompt(null);
+            return promptId
+                ? buildProjectAIPromptLinkInstruction(promptId, null, getCurrentOrigin())
+                : buildProjectAIIntegrationPrompt(null);
         }
-    }, [currentTeam?.id, isAuthenticated, isSelfHostedOverview]);
+    }, [currentTeam?.id, isAuthenticated, isSelfHostedOverview, promptId]);
 
     if (!localizedMetadata) {
         return (
@@ -233,7 +261,7 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                                         "@type": "ListItem",
                                         "position": 1,
                                         "name": copy.docsBreadcrumb,
-                                        "item": getLocalizedPublicUrl(locale, "/docs/web/getting-started")
+                                        "item": getLocalizedPublicUrl(locale, "/docs/shopify/getting-started")
                                     },
                                     {
                                         "@type": "ListItem",

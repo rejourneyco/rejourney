@@ -91,6 +91,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
 
   const routeWithoutPrefix = useMemo(() => location.pathname.replace(/^\/(dashboard|demo)/, ''), [location.pathname]);
   const isSetupRoute = isSetupSupportRoute(location.pathname);
+  const isSetupWizardRoute = routeWithoutPrefix === '/setup';
 
   // Changing this forces a remount of routed pages, ensuring all screens reset
   // their local state/effects when switching team/project.
@@ -98,6 +99,11 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     () => `${currentTeam?.id ?? 'no-team'}:${selectedProject?.id ?? 'no-project'}`,
     [currentTeam?.id, selectedProject?.id],
   );
+  const contentScopeKey = isSetupWizardRoute ? 'setup-wizard' : routeScopeKey;
+  const dashboardContentClassName = [
+    'dashboard-content dashboard-surface-mix min-h-0 min-w-0 flex-1 overflow-x-hidden',
+    isSetupWizardRoute ? 'overflow-y-hidden' : 'overflow-y-auto',
+  ].join(' ');
   const isProjectDependentRoute = useMemo(() => (
     routeWithoutPrefix.startsWith('/general')
     || routeWithoutPrefix.startsWith('/sessions')
@@ -194,7 +200,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           pathPrefix={pathPrefix}
         />
       </div>
-      <div key={routeScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--dashboard-canvas)]">
+      <div key={contentScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--dashboard-canvas)]">
         <TopBar currentProject={selectedProject} hideDemoHomeLink={isDemoLayout} />
         {isDemoLayout && <DemoLiveNotice />}
         {projectsError && (
@@ -203,7 +209,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           </div>
         )}
         <div
-          className="dashboard-content dashboard-surface-mix min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+          className={dashboardContentClassName}
         >
           <DashboardManualRefreshProvider value={manualRefreshCycle}>
             {shouldRouteToSetup ? (

@@ -16,9 +16,29 @@ const selfhostedDocs = markdownDocs.filter(doc => doc.category === 'Self-Hosting
 const communityDocs = markdownDocs.filter(doc => doc.category === 'Community' || doc.category === 'Development');
 const archDocs = markdownDocs.filter(doc => doc.category === 'Architecture');
 const swiftDocs = markdownDocs.filter(doc => doc.category === 'Swift (iOS)');
+const shopifyDocs = markdownDocs.filter(doc => doc.category === 'Shopify');
 const webDocs = markdownDocs.filter(doc => doc.category === 'Web');
 
 const NAVIGATION: NavCategory[] = [
+    ...(shopifyDocs.length > 0 ? [{
+        category: "Shopify",
+        sections: [
+            {
+                title: "Getting Started",
+                links: [
+                    { label: "Overview", href: "/docs/shopify/getting-started", isRoute: true },
+                    { label: "Before You Start", href: "/docs/shopify/getting-started#before-you-start", isRoute: false },
+                    { label: "Headless Shopify", href: "/docs/shopify/getting-started#headless-shopify", isRoute: false },
+                    { label: "Theme Install", href: "/docs/shopify/getting-started#shopify-theme-install", isRoute: false },
+                    { label: "Consent", href: "/docs/shopify/getting-started#consent", isRoute: false },
+                    { label: "Commerce Events", href: "/docs/shopify/getting-started#commerce-events", isRoute: false },
+                    { label: "Privacy Controls", href: "/docs/shopify/getting-started#privacy-controls", isRoute: false },
+                    { label: "Checkout Limits", href: "/docs/shopify/getting-started#checkout-limits", isRoute: false },
+                    { label: "Verify", href: "/docs/shopify/getting-started#verify", isRoute: false },
+                ]
+            }
+        ]
+    }] : []),
     ...(webDocs.length > 0 ? [{
         category: "Web",
         sections: [
@@ -120,7 +140,7 @@ export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Web", "React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
     const navigation = NAVIGATION.map((cat) => {
         if (cat.category !== "Web") {

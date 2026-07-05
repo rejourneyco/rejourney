@@ -158,23 +158,12 @@ export default function RejourneyMarlinPage() {
 
         <section className="bg-white px-5 py-20 sm:px-8 lg:px-10">
           <div className="mx-auto max-w-7xl space-y-24">
-            <div className="max-w-4xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">
-                What Marlin actually uses
-              </p>
-              <h2 className="mt-4 font-display text-4xl font-extrabold leading-tight tracking-normal text-slate-950 sm:text-5xl">
-                The fix starts from the issue Rejourney already found.
-              </h2>
-              <p className="mt-5 max-w-3xl text-lg font-medium leading-8 text-slate-600">
-                Marlin is not a generic code assistant. It starts with Rejourney's issue detection: ranked leaks, replay evidence, affected sessions, and the markdown handoff your team already uses to debug.
-              </p>
-            </div>
 
             <section id="issue-detection" className="grid gap-10 lg:grid-cols-[0.48fr_0.52fr] lg:items-center">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Issue detection</p>
                 <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                  First, Marlin watches the ranked leak feed.
+                  The fix starts from the recorded user sessions by Rejourney.
                 </h3>
                 <p className="mt-4 text-base font-medium leading-8 text-slate-600">
                   Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
@@ -189,7 +178,7 @@ export default function RejourneyMarlinPage() {
               <div className="mx-auto max-w-4xl text-center">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Replay context</p>
                 <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                  Then it keeps the exact user session attached.
+                  Then it creates a ranked "leaks" cause and fix feed.
                 </h3>
                 <p className="mt-4 text-base font-medium leading-8 text-slate-600">
                   The repair note is grounded in the replay timeline: user actions, console events, network failures, DOM state, and the specific sessions that prove the leak is real.

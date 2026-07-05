@@ -44,7 +44,7 @@ export const meta: MetaFunction = () => {
       content:
         "Learn about Rejourney, created at The University of Texas at Austin by Mohammad Rashid and Fowwaz Moeen after starting as an internal replay tool.",
     },
-    { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
+    { name: "robots", content: "noindex, follow, max-image-preview:large" },
     { property: "og:title", content: "About Rejourney" },
     {
       property: "og:description",

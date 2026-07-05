@@ -73,11 +73,11 @@ import {
 import { trackRejourneyRevenueEvent } from '~/shared/compliance/rejourneyWebsiteTelemetry';
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
-  free: 'Perfect for Stable Monthly Rejourney',
-  starter: 'For Apps Growing Fast',
-  growth: 'For Apps with more users',
-  pro: 'For high-traffic applications',
-  scale: 'For high-scale replay teams with Smart Capture',
+  free: 'Validate the funnel before traffic ramps',
+  starter: 'Find the first leaks in real traffic',
+  growth: 'Rank conversion leaks as traffic scales',
+  pro: 'For high-volume product and checkout flows',
+  scale: 'High-scale revenue leak work with Smart Capture',
 };
 
 const PLAN_ACCENT_COLORS: Record<string, string> = {
@@ -763,7 +763,7 @@ export const BillingSettings: React.FC = () => {
 
           <div>
             <div className="min-w-0">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Session replays recorded</div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Revenue evidence recorded</div>
               <div className="flex items-baseline gap-2">
                 <span className="font-mono text-4xl font-semibold text-slate-950">
                   {sessionReplaysUsed.toLocaleString()}
@@ -774,7 +774,7 @@ export const BillingSettings: React.FC = () => {
               </div>
               {bonusSessionsActive > 0 ? (
                 <p className="mt-2 max-w-xl text-xs font-medium text-slate-600">
-                  Plan includes {planSessionCap.toLocaleString()} session replays; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
+                  Plan includes {planSessionCap.toLocaleString()} captured sessions; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
                 </p>
               ) : null}
             </div>
@@ -784,7 +784,7 @@ export const BillingSettings: React.FC = () => {
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className={`text-sm font-semibold ${usageToneClass}`}>
-                  {usagePercent}% of replay quota used
+                  {usagePercent}% of captured-session quota used
                 </span>
                 <span className="font-mono text-xs font-semibold text-slate-500">
                   {sessionReplaysUsed.toLocaleString()} / {effectiveSessionLimit.toLocaleString()}
@@ -797,8 +797,8 @@ export const BillingSettings: React.FC = () => {
                 />
               </div>
               <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                <span>{sessionsRemainingDisplay.toLocaleString()} session replays remaining</span>
-                <span>{planSessionCap.toLocaleString()} base replay cap</span>
+                <span>{sessionsRemainingDisplay.toLocaleString()} captured sessions remaining</span>
+                <span>{planSessionCap.toLocaleString()} base plan cap</span>
               </div>
             </div>
 
@@ -829,8 +829,8 @@ export const BillingSettings: React.FC = () => {
               {isAtLimit ? <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-600" />}
               <span className="text-sm font-medium text-rose-800">
                 {isAtLimit
-                  ? 'Session replay limit reached. Replay recording is paused until the next billing cycle or upgrade. General analytics still updates every session.'
-                  : 'Approaching replay limit. Consider upgrading to avoid replay recording interruption.'}
+                  ? 'Captured-session limit reached. Fresh AI leak packets, heatmaps, journey drill-downs, crash context, and replay evidence pause until the next billing cycle or upgrade. General analytics still counts every session.'
+                  : 'Approaching captured-session limit. Consider upgrading to keep revenue-leak evidence flowing.'}
               </span>
             </div>
           )}
@@ -911,7 +911,7 @@ export const BillingSettings: React.FC = () => {
                 <div className="dashboard-inner-surface p-4 text-sm font-medium text-slate-600">
                   {currentPlanName === 'free'
                     ? 'No payment method is needed while this team is on Free.'
-                    : 'Add a payment method in Stripe Billing before reaching the session replay limit.'}
+                    : 'Add a payment method in Stripe Billing before reaching the captured-session limit.'}
                 </div>
               )}
             </section>
@@ -922,7 +922,7 @@ export const BillingSettings: React.FC = () => {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 relative z-10 mt-6">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Subscription Plans</h2>
-          <p className="mt-1 text-sm font-medium text-slate-500">Compare monthly session replays and replay retention without leaving this screen.</p>
+          <p className="mt-1 text-sm font-medium text-slate-500">Compare monthly revenue evidence volume and conversion history without leaving this screen.</p>
         </div>
         <div className="text-xs font-semibold text-slate-500 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
           Need more? <a href="mailto:contact@rejourney.co" className="font-bold text-indigo-600 hover:underline">Contact Sales</a>
@@ -987,25 +987,25 @@ export const BillingSettings: React.FC = () => {
 
                 <div className="mb-5 border-t border-slate-150/40 pt-4 space-y-4">
                   <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Replays</p>
-                    <PlanCheck>{plan.sessionLimit.toLocaleString()} replays/mo</PlanCheck>
-                    <PlanCheck>{plan.videoRetentionLabel} retention</PlanCheck>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue evidence</p>
+                    <PlanCheck>{plan.sessionLimit.toLocaleString()} captured sessions/mo</PlanCheck>
+                    <PlanCheck>{plan.videoRetentionLabel} conversion history</PlanCheck>
                     <PlanCheck tone={hasSmartCapture ? 'check' : 'minus'}>
-                      {hasSmartCapture ? 'Smart Capture' : 'Standard capture controls'}
+                      {hasSmartCapture ? 'Smart Capture rules' : 'Standard leak capture controls'}
                     </PlanCheck>
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Analytics</p>
-                    <PlanCheck>Unlimited DAU & MAU</PlanCheck>
-                    <PlanCheck>Unlimited events</PlanCheck>
-                    <PlanCheck>Funnels, cohorts, retention</PlanCheck>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue analytics</p>
+                    <PlanCheck>Unlimited events, DAU & MAU</PlanCheck>
+                    <PlanCheck>Funnels, cohorts, revenue</PlanCheck>
+                    <PlanCheck>Drop-off drill-downs use captured sessions</PlanCheck>
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Features</p>
-                    <PlanCheck>Query builder & journeys</PlanCheck>
-                    <PlanCheck>Crashes, heatmaps, geo</PlanCheck>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fix workflow</p>
+                    <PlanCheck>AI leak ranking and fix context</PlanCheck>
+                    <PlanCheck>Heatmaps, journeys, crash/API context</PlanCheck>
                   </div>
                 </div>
               </div>
@@ -1179,7 +1179,7 @@ export const BillingSettings: React.FC = () => {
                   ) : planChangeModal.preview.isImmediate ? (
                     <div className="dashboard-inner-surface p-3 text-sm">
                       <div className="font-semibold text-slate-900">Takes effect immediately</div>
-                      <p className="text-slate-600 mt-1">Your new session replay limit will be active right away.</p>
+                      <p className="text-slate-600 mt-1">Your new captured-session limit will be active right away.</p>
                     </div>
                   ) : (
                     <div className="dashboard-inner-surface p-3 text-sm">

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildProjectAIIntegrationPrompt } from './aiPrompts';
+import {
+    SHOPIFY_AI_INTEGRATION_PROMPT,
+    buildAIPromptUrl,
+    buildProjectAIPromptById,
+    buildProjectAIPromptLinkInstruction,
+    buildProjectAIIntegrationPrompt,
+    getAIPromptIdsForProject,
+} from './aiPrompts';
 
 describe('buildProjectAIIntegrationPrompt', () => {
   it('includes dashboard project context before the integration instructions', () => {
@@ -42,5 +49,64 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(contextBlock).not.toContain('- Web allowed');
     expect(contextBlock).not.toContain('- iOS bundle ID:');
     expect(contextBlock).not.toContain('- Android package name:');
+  });
+
+  it('builds platform-specific prompt URLs with project context', () => {
+    const promptUrl = buildAIPromptUrl('web', {
+      publicKey: 'pk_live_checkout_123',
+      name: 'Checkout App',
+      platforms: ['web'],
+      webAllowedDomains: ['checkout.example.com'],
+    }, 'https://example.test');
+
+    expect(promptUrl).toContain('https://example.test/docs/ai-prompts/web?');
+    expect(promptUrl).toContain('publicKey=pk_live_checkout_123');
+    expect(promptUrl).toContain('project=Checkout+App');
+    expect(promptUrl).toContain('webAllowedDomains=checkout.example.com');
+  });
+
+  it('copies a short instruction that points to the platform prompt URL', () => {
+    const instruction = buildProjectAIPromptLinkInstruction('web', {
+      publicKey: 'pk_live_checkout_123',
+      platforms: ['web'],
+    }, 'https://example.test');
+
+    expect(instruction).toContain('Use the Rejourney Web SDK AI setup prompt at this URL:');
+    expect(instruction).toContain('https://example.test/docs/ai-prompts/web?');
+    expect(instruction).toContain('The URL returns the full plain-text prompt');
+    expect(instruction).not.toContain('IF REACT NATIVE');
+  });
+
+  it('returns a web-only prompt body from the hidden prompt builder', () => {
+    const prompt = buildProjectAIPromptById('web', {
+      publicKey: 'pk_live_web_123',
+      platforms: ['web'],
+    });
+
+    expect(prompt).toContain('IF WEB');
+    expect(prompt).toContain('pk_live_web_123');
+    expect(prompt).not.toContain('IF REACT NATIVE');
+    expect(prompt).not.toContain('IF SWIFT');
+  });
+
+  it('adds Shopify guidance while preserving the web setup body', () => {
+    expect(SHOPIFY_AI_INTEGRATION_PROMPT).toContain('IF WEB');
+    expect(SHOPIFY_AI_INTEGRATION_PROMPT).toContain('SHOPIFY IMPORTANT NOTES AND DIFFERENCES');
+    expect(SHOPIFY_AI_INTEGRATION_PROMPT).toContain('Shopify custom theme');
+    expect(SHOPIFY_AI_INTEGRATION_PROMPT).toContain('checkout_started');
+  });
+
+  it('offers Shopify prompt links alongside web prompts for web projects', () => {
+    expect(getAIPromptIdsForProject({
+      publicKey: 'pk_live_web_123',
+      platforms: ['web'],
+    })).toEqual(['web', 'shopify']);
+
+    expect(getAIPromptIdsForProject({
+      publicKey: 'pk_live_shopify_123',
+      name: 'Shopify Storefront',
+      platforms: ['web'],
+      webAllowedDomains: ['store.myshopify.com'],
+    })).toEqual(['shopify', 'web']);
   });
 });

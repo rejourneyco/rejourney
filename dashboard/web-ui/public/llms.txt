@@ -1,18 +1,18 @@
 # Rejourney
 
-> Rejourney is an open-source AI funnel leak detection platform for web and mobile teams. It watches session replays, rage taps, API logs, crashes, journey loops, and drop-offs, then creates ranked fix packets for PMs, founders, and technical builders.
+> Rejourney is a revenue recovery platform for Shopify, ecommerce, and app subscription teams. It helps teams find checkout drop-off, failed billing, subscription churn risk, and replay-backed evidence for why buyers do not convert, renew, or finish payment.
 
 ## Best Starting Points
 
-- [Home](https://rejourney.co/): AI funnel leak detection overview for finding onboarding, checkout, activation, churn, and revenue leaks from session replay evidence.
-- [About](https://rejourney.co/about): Company page for Rejourney's UT Austin origin, Austin location, and founders Mohammad Rashid and Fowwaz Moeen.
-- [Pricing](https://rejourney.co/pricing): Fixed-price mobile analytics and session replay plans.
+- [Home](https://rejourney.co/): Shopify, ecommerce, and app subscription revenue recovery overview for finding failed billing, checkout drop-off, churn, and revenue leaks.
+- [Pricing](https://rejourney.co/pricing): Fixed-price revenue recovery plans for Shopify checkout, ecommerce conversion, and app subscription teams.
+- [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for iOS, Expo, and React Native teams.
+- [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from captured sessions to replay-backed revenue recovery.
 - [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
 - [Self-Healing Software](https://rejourney.co/self-healing-software): Product and engineering workflow for turning replay, stability, API, device, and journey signals into fix-ready repair context.
 - [Stability Monitoring](https://rejourney.co/stability-monitoring): Stability workflow for crashes, errors, ANRs, API spikes, affected users, devices, releases, and replay evidence.
 - [API Endpoint Insights](https://rejourney.co/api-endpoint-insights): API endpoint analytics for endpoint volume, latency, failure codes, risk, and affected session evidence.
 - [Device Insights](https://rejourney.co/device-insights): Device analytics for mobile app engagement, crash and ANR pressure, OS/app-version cohorts, and replay context.
-- [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for iOS, Expo, and React Native teams.
 - [Web Session Replay](https://rejourney.co/web-session-replay): Browser replay for web apps, checkout, onboarding, account flows, and product dashboards.
 - [Replay-First Mentality](https://rejourney.co/replay-first-mentality): Product thinking guide for grounding analytics, support, and bug triage in real sessions.
 - [Importance of Open Source](https://rejourney.co/importance-of-open-source): Why source visibility, self-hosting, and auditability matter for replay data.
@@ -28,7 +28,8 @@
 
 ## Core Product Concepts
 
-- AI funnel leak detection from replay evidence, rage taps, API logs, crashes, journey loops, and drop-offs.
+- Shopify checkout, ecommerce conversion, and app subscription revenue recovery.
+- Replay-backed evidence for failed billing, subscription churn risk, checkout drop-off, rage taps, API errors, crashes, and confusing flows.
 - Mobile session replay for iOS, Android, Expo, React Native, and Swift applications.
 - Touch heatmaps for mobile app screens, including rage tap and dead tap investigation.
 - Crash reporting, ANR monitoring, and stability signals for production mobile apps.
@@ -38,7 +39,7 @@
 - Self-healing software workflows that turn repeated production friction into replay-backed fix packets.
 - Mobile journeys and product analytics for understanding funnels and user flows.
 - Self-hosted observability deployment for teams that need data ownership.
-- Open-source mobile observability alternative to usage-priced analytics platforms.
+- Open-source revenue recovery alternative to usage-priced analytics platforms.
 - Unlimited events, unlimited analytics data retention, unlimited team members, and unlimited projects for product analytics workflows.
 
 ## Engineering Articles By Search Intent

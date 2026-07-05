@@ -64,6 +64,7 @@ function checkRobotsAndSitemap() {
   assertNotIncludes("public/robots.txt", "Disallow: /demo", "robots.txt must not block the live demo.");
   assertNotIncludes("app/features/public/sitemap/route.tsx", 'path: "/dashboard"', "Sitemap must not include authenticated dashboard routes.");
   assertNotIncludes("app/features/public/sitemap/route.tsx", "<loc>https://rejourney.co/dashboard", "Sitemap must not output dashboard URLs.");
+  assertNotIncludes("app/features/public/sitemap/route.tsx", 'path: "/about"', "Sitemap should not promote the About page as a search sitelink.");
   assertIncludes("server.js", "LEGACY_PUBLIC_HTML_REDIRECTS", "Legacy /index.html public HTML redirects must stay in place.");
 }
 
@@ -112,7 +113,10 @@ function checkTitles() {
 
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
-  assertIncludes("app/features/public/home/route.tsx", "AI funnel leak detection", "Home page metadata must keep AI funnel leak detection discoverability.");
+  assertIncludes("app/features/public/home/route.tsx", "Shopify, ecommerce, and app subscription", "Home page metadata must stay aligned to Shopify, ecommerce, and app subscription buyers.");
+  assertIncludes("app/features/public/about/route.tsx", "noindex, follow", "About page should be noindexed so Google favors product/pricing sitelinks.");
+  assertIncludes("app/root.tsx", "/mobile-session-replay", "Homepage sitelink schema should promote Mobile Session Replay.");
+  assertIncludes("app/root.tsx", "/pricing", "Homepage sitelink schema should promote Pricing.");
   assertIncludes("app/shell/components/layout/Header.tsx", "Self-Healing Software", "Header Platform menu must include Self-Healing Software.");
   assertIncludes("app/shell/components/layout/Header.tsx", "Stability Monitoring", "Header Platform menu must include Stability Monitoring.");
   assertIncludes("app/shell/components/layout/Header.tsx", "API Endpoint Insights", "Header Platform menu must include API Endpoint Insights.");

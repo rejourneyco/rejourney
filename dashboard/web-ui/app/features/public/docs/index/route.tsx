@@ -76,7 +76,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
-    return redirect(getLocalizedPublicPath(locale, "/docs/web/getting-started"));
+    return redirect(getLocalizedPublicPath(locale, "/docs/shopify/getting-started"));
 }
 
 export default function Docs() {

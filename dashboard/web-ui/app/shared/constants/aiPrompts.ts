@@ -39,9 +39,9 @@ Also check for Vue, Nuxt, SvelteKit, Remix, Gatsby, Astro, and Angular integrati
 
 ROUTE TRACKING:
 - If using a framework integration, prefer its built-in route tracking.
-- If using the vanilla browser API in a single-page app, call trackRoute after navigation changes:
+- If using the vanilla browser API and you need custom names for in-page views, call trackScreen:
 import { Rejourney } from '@rejourneyco/browser';
-Rejourney.trackRoute(window.location.pathname);
+Rejourney.trackScreen(window.location.pathname);
 
 USER IDENTITY (Hook this up immediately using a non-PII ID like a UUID):
 import { Rejourney } from '@rejourneyco/browser';
@@ -648,6 +648,137 @@ type ProjectForPrompt = {
   webAllowedDomains?: string[] | null;
 } | null;
 
+export type AIPromptId = 'all' | 'web' | 'shopify' | 'react-native' | 'swift' | 'self-hosted';
+
+export type AIPromptDefinition = {
+  id: AIPromptId;
+  label: string;
+  description: string;
+  docsPath: string;
+  prompt: string;
+};
+
+function extractPromptSection(startHeading: string, endHeading?: string): string {
+  const startIndex = AI_INTEGRATION_PROMPT.indexOf(startHeading);
+  if (startIndex === -1) return AI_INTEGRATION_PROMPT;
+
+  const endIndex = endHeading
+    ? AI_INTEGRATION_PROMPT.indexOf(endHeading, startIndex + startHeading.length)
+    : -1;
+
+  return AI_INTEGRATION_PROMPT
+    .slice(startIndex, endIndex === -1 ? AI_INTEGRATION_PROMPT.length : endIndex)
+    .trim();
+}
+
+export const WEB_AI_INTEGRATION_PROMPT = extractPromptSection(
+  'IF WEB — follow this section:',
+  'IF REACT NATIVE — follow this section:',
+);
+
+export const REACT_NATIVE_AI_INTEGRATION_PROMPT = extractPromptSection(
+  'IF REACT NATIVE — follow this section:',
+  'IF SWIFT (native iOS) — follow this section:',
+);
+
+export const SWIFT_AI_INTEGRATION_PROMPT = extractPromptSection(
+  'IF SWIFT (native iOS) — follow this section:',
+);
+
+export const SHOPIFY_AI_INTEGRATION_PROMPT = `${WEB_AI_INTEGRATION_PROMPT}
+
+==========================================================
+SHOPIFY IMPORTANT NOTES AND DIFFERENCES:
+==========================================================
+
+Use this section when the web app is a Shopify storefront, Shopify custom theme, Hydrogen app, or headless Shopify site.
+
+SHOPIFY SETUP CHOICES:
+- If this is a headless Shopify app (Hydrogen, Next.js, Remix, Gatsby, or another storefront app), install and initialize @rejourneyco/browser exactly like the Web section above.
+- If this is a Shopify custom theme with a build step, install @rejourneyco/browser in the theme project, initialize it from a storefront JavaScript source file, then bundle that source into a Shopify theme asset or theme app extension app embed asset.
+- Do not paste a bare npm import into Shopify's theme code editor. Browsers cannot resolve @rejourneyco/browser unless a bundler has turned it into a real browser asset first.
+- Do not invent CDN URLs, jsDelivr imports, unpkg imports, floating @latest URLs, or window.Rejourney snippets. Use a script tag only if the project's Rejourney deployment explicitly provides a versioned browser bundle for that install path.
+- Shopify checkout, payment, CAPTCHA, and third-party app iframes may be cross-origin. Do not try to inspect or record third-party iframe DOM.
+
+SHOPIFY DOMAIN ALLOWLIST:
+- Add every customer-facing storefront host to Web allowed domains before testing.
+- Include exact hosts such as example.com, www.example.com, shop.example.com, and the relevant myshopify.com host when it actually serves the storefront.
+- Use wildcards only when the same storefront is intentionally served across subdomains.
+- If /api/sdk/config returns 403 or the SDK logs a domain warning, fix Web allowed domains first.
+
+SHOPIFY CONSENT:
+- Keep autoStart false unless the store already has a valid analytics/session replay consent flow.
+- Initialize early, then call Rejourney.start() only after the store's privacy or cookie banner allows analytics/session replay.
+- When using Shopify's Customer Privacy API, load consent-tracking-api, check window.Shopify.customerPrivacy.analyticsProcessingAllowed(), and respond to the visitorConsentCollected event.
+- On consent withdrawal, call Rejourney.setConsent({ analytics: false, replay: false }).
+
+SHOPIFY COMMERCE EVENTS:
+- Instrument product_view on product pages.
+- Instrument add_to_cart when a variant is added.
+- Instrument checkout_started before leaving cart or storefront-controlled checkout entry points.
+- Instrument purchase_completed only after an order is confirmed. Prefer backend/webhook confirmation for authoritative revenue.
+- Use stable IDs: productId, variantId, orderId, transactionId.
+- Use amount and currency for revenue. Do not send raw customer emails, names, addresses, or payment details.
+
+SHOPIFY PRIVACY:
+- All text inputs are masked by default, but still add explicit masks around account, address, cart note, discount, and customer data areas.
+- Use data-rj-mask for text that should be hidden but keep layout shape.
+- Use data-rj-block for payment, address, authentication, customer account, and sensitive third-party app widgets.
+- Disable trackConsoleLogs if the theme or storefront logs customer, cart, order, or payment data.
+
+SHOPIFY VERIFICATION:
+- Test on the real storefront host, not only a theme preview URL.
+- Confirm the host is in Web allowed domains.
+- Accept consent if required.
+- Visit product, cart, account, and any storefront-controlled checkout entry pages.
+- Trigger product_view or add_to_cart.
+- Confirm the Rejourney session appears as platform web with the expected custom event markers.`;
+
+export const AI_PROMPT_DEFINITIONS: Record<AIPromptId, AIPromptDefinition> = {
+  all: {
+    id: 'all',
+    label: 'All SDKs',
+    description: 'Detect the app stack and follow only the matching Web, React Native, or Swift section.',
+    docsPath: '/docs',
+    prompt: AI_INTEGRATION_PROMPT,
+  },
+  web: {
+    id: 'web',
+    label: 'Web SDK',
+    description: 'Browser and JavaScript app setup for Rejourney Web SDK.',
+    docsPath: '/docs/web/getting-started',
+    prompt: WEB_AI_INTEGRATION_PROMPT,
+  },
+  shopify: {
+    id: 'shopify',
+    label: 'Shopify',
+    description: 'Shopify storefront, custom theme, and headless Shopify setup.',
+    docsPath: '/docs/shopify/getting-started',
+    prompt: SHOPIFY_AI_INTEGRATION_PROMPT,
+  },
+  'react-native': {
+    id: 'react-native',
+    label: 'React Native',
+    description: 'React Native and Expo app setup for Rejourney.',
+    docsPath: '/docs/reactnative/overview',
+    prompt: REACT_NATIVE_AI_INTEGRATION_PROMPT,
+  },
+  swift: {
+    id: 'swift',
+    label: 'Swift iOS',
+    description: 'Native Swift and SwiftUI iOS setup for Rejourney.',
+    docsPath: '/docs/swift/overview',
+    prompt: SWIFT_AI_INTEGRATION_PROMPT,
+  },
+  'self-hosted': {
+    id: 'self-hosted',
+    label: 'Self-hosted',
+    description: 'Self-hosted Rejourney deployment runbook.',
+    docsPath: '/docs/selfhosted',
+    prompt: SELF_HOSTED_DEPLOYMENT_PROMPT,
+  },
+};
+
 function formatPromptPlatform(platform: string): string {
   if (platform === 'ios') return 'iOS';
   if (platform === 'android') return 'Android';
@@ -683,6 +814,119 @@ export function buildProjectAIIntegrationPrompt(project: ProjectForPrompt): stri
     '',
     AI_INTEGRATION_PROMPT.replace(/PUBLIC_KEY_HERE/g, key),
   ].join('\n');
+}
+
+export function normalizeAIPromptId(value: unknown): AIPromptId | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized in AI_PROMPT_DEFINITIONS ? normalized as AIPromptId : null;
+}
+
+export function getAIPromptDefinition(promptId: AIPromptId): AIPromptDefinition {
+  return AI_PROMPT_DEFINITIONS[promptId];
+}
+
+export function projectFromAIPromptSearchParams(params: URLSearchParams): ProjectForPrompt {
+  const publicKey = params.get('publicKey') || undefined;
+  const name = params.get('project') || undefined;
+  const teamName = params.get('team') || undefined;
+  const platforms = params.get('platforms')?.split(',').map((platform) => platform.trim()).filter(Boolean);
+  const webAllowedDomains = params.get('webAllowedDomains')?.split(',').map((domain) => domain.trim()).filter(Boolean);
+  const webDomain = params.get('webDomain') || null;
+  const bundleId = params.get('bundleId') || undefined;
+  const packageName = params.get('packageName') || undefined;
+
+  return {
+    publicKey,
+    name,
+    teamName,
+    platforms,
+    webAllowedDomains,
+    webDomain,
+    bundleId,
+    packageName,
+  };
+}
+
+function appendPromptSearchParam(url: URL, key: string, value: string | undefined | null): void {
+  const normalized = value?.trim();
+  if (normalized) url.searchParams.set(key, normalized);
+}
+
+export function buildAIPromptUrl(promptId: AIPromptId, project: ProjectForPrompt, origin = 'https://rejourney.co'): string {
+  const baseUrl = origin.endsWith('/') ? origin.slice(0, -1) : origin;
+  const url = new URL(`${baseUrl}/docs/ai-prompts/${promptId}`);
+  appendPromptSearchParam(url, 'publicKey', project?.publicKey);
+  appendPromptSearchParam(url, 'project', project?.name);
+  appendPromptSearchParam(url, 'team', project?.teamName);
+  appendPromptSearchParam(url, 'platforms', project?.platforms?.join(','));
+  appendPromptSearchParam(url, 'webAllowedDomains', project?.webAllowedDomains?.join(','));
+  appendPromptSearchParam(url, 'webDomain', project?.webDomain);
+  appendPromptSearchParam(url, 'bundleId', project?.bundleId);
+  appendPromptSearchParam(url, 'packageName', project?.packageName);
+  return url.toString();
+}
+
+export function buildProjectAIPromptById(promptId: AIPromptId, project: ProjectForPrompt): string {
+  if (promptId === 'self-hosted') return SELF_HOSTED_DEPLOYMENT_PROMPT;
+  if (promptId === 'all') return buildProjectAIIntegrationPrompt(project);
+
+  const key = project?.publicKey?.trim() || EXAMPLE_PROJECT_KEY;
+  const definition = getAIPromptDefinition(promptId);
+  return [
+    buildProjectContextBlock(project, key),
+    '',
+    definition.prompt.replace(/PUBLIC_KEY_HERE/g, key),
+  ].join('\n');
+}
+
+export function buildProjectAIPromptLinkInstruction(promptId: AIPromptId, project: ProjectForPrompt, origin = 'https://rejourney.co'): string {
+  if (promptId === 'self-hosted') return SELF_HOSTED_DEPLOYMENT_PROMPT;
+  const definition = getAIPromptDefinition(promptId);
+  const key = project?.publicKey?.trim() || EXAMPLE_PROJECT_KEY;
+  const promptUrl = buildAIPromptUrl(promptId, project, origin);
+  const docsUrl = `${origin.endsWith('/') ? origin.slice(0, -1) : origin}${definition.docsPath}`;
+
+  return [
+    buildProjectContextBlock(project, key),
+    '',
+    `Use the Rejourney ${definition.label} AI setup prompt at this URL:`,
+    promptUrl,
+    '',
+    'The URL returns the full plain-text prompt for AI coding agents. Read it and follow it exactly.',
+    `Human-readable docs: ${docsUrl}`,
+  ].join('\n');
+}
+
+function projectLooksLikeShopify(project: ProjectForPrompt): boolean {
+  const candidates = [
+    project?.name,
+    project?.webDomain,
+    ...(project?.webAllowedDomains ?? []),
+  ].filter((value): value is string => Boolean(value));
+
+  return candidates.some((value) => /shopify|myshopify|hydrogen/i.test(value));
+}
+
+export function getAIPromptIdsForProject(project: ProjectForPrompt): AIPromptId[] {
+  const platforms = project?.platforms ?? [];
+  const promptIds: AIPromptId[] = [];
+  const hasWeb = platforms.includes('web') || Boolean(project?.webDomain || project?.webAllowedDomains?.length);
+  const hasReactNative = platforms.includes('react-native');
+  const hasSwift = platforms.includes('ios');
+
+  if (hasWeb) {
+    if (projectLooksLikeShopify(project)) {
+      promptIds.push('shopify', 'web');
+    } else {
+      promptIds.push('web', 'shopify');
+    }
+  }
+  if (hasReactNative) promptIds.push('react-native');
+  if (hasSwift) promptIds.push('swift');
+
+  if (promptIds.length === 0) promptIds.push('all');
+  return Array.from(new Set(promptIds));
 }
 
 export function buildSelfHostedAIDeploymentPrompt(): string {

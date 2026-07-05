@@ -1,6 +1,7 @@
 import type { Project } from '~/shared/types';
 
 export type SetupPlatform = 'web' | 'ios' | 'android' | 'react-native';
+export const SETUP_GATE_TOAST = "You can't have a Chicken before the Egg...Finish Setup";
 
 export const SETUP_PLATFORM_OPTIONS: Array<{
   id: SetupPlatform;
@@ -10,7 +11,7 @@ export const SETUP_PLATFORM_OPTIONS: Array<{
 }> = [
   {
     id: 'web',
-    label: 'Web App',
+    label: 'Web App or Shopify',
     shortLabel: 'Web',
     description: 'Browser SDK for marketing sites, dashboards, or SaaS apps.',
   },
@@ -95,7 +96,7 @@ export function buildDeveloperSetupInstructions({
     project?.bundleId ? `- iOS bundle ID: ${project.bundleId}` : null,
     project?.packageName ? `- Android package name: ${project.packageName}` : null,
     '',
-    'Use the AI setup prompt below in your coding tool, then ship a test build/session and confirm data appears in Rejourney.',
+    'Use the AI setup instructions below in your coding tool, then ship a test build/session and confirm data appears in Rejourney.',
     '',
     aiPrompt,
   ].filter((line): line is string => line !== null);
@@ -116,12 +117,12 @@ export function buildDeveloperSetupEmail({
     const lines = [
       'Hi,',
       '',
-      `Could you please integrate Rejourney into ${project?.name || 'our web application'}? It will allow us to record sessions and track user diagnostics.`,
+      `Please integrate Rejourney into ${project?.name || 'this app'}. You may not have Rejourney dashboard context, so this email includes the project details and setup instructions you need.`,
       '',
-      'Project details:',
+      'Project context:',
       teamName ? `- Team: ${teamName}` : null,
       project?.name ? `- Project: ${project.name}` : null,
-      project?.publicKey ? `- API Key: ${project.publicKey}` : null,
+      project?.publicKey ? `- Public key: ${project.publicKey}` : null,
       project ? `- Platforms: ${formatProjectPlatforms(project)}` : null,
       project?.webAllowedDomains?.length
         ? `- Web allowed domains: ${project.webAllowedDomains.join(', ')}`
@@ -131,20 +132,23 @@ export function buildDeveloperSetupEmail({
       project?.bundleId ? `- iOS bundle ID: ${project.bundleId}` : null,
       project?.packageName ? `- Android package name: ${project.packageName}` : null,
       '',
-      'Here are the quick options to get it set up:',
+      'Implementation goal:',
+      '- Install the matching Rejourney SDK for the app stack you find in the repo.',
+      '- Initialize Rejourney with the public key above.',
+      '- Add the route/screen tracking and privacy controls described in the instructions.',
+      '- Run a local or staging test session when finished.',
       '',
-      'Option 1: Using an AI Coding Agent (Cursor, Copilot, v0, etc.) - Recommended',
-      'Just copy and paste the prompt below into your AI editor. It has all the files and configurations needed:',
+      'Use the AI setup instructions below as the source of truth. They are written for an AI coding assistant, but they also work as the implementation checklist for a developer reviewing the code directly.',
+      '',
+      'AI setup instructions:',
       '--------------------------------------------------',
       aiPrompt,
       '--------------------------------------------------',
       '',
-      'Option 2: Manual Setup',
-      '- Package install: Install the Rejourney package.',
-      '- Initialize: Start the SDK with our project API key.',
-      project?.publicKey ? `  API Key: ${project.publicKey}` : null,
-      '',
-      'Once complete, please trigger a local test session so we can verify the data on our end.',
+      'Before you mark this complete:',
+      '- Confirm the production domains, bundle ID, and package name in the repo match the project context above.',
+      '- Do not send PII in custom events or metadata.',
+      '- Reply with what changed and whether a test session appeared in Rejourney.',
       '',
       'Thank you!',
     ].filter((line): line is string => line !== null);
@@ -153,9 +157,9 @@ export function buildDeveloperSetupEmail({
   }
 
   const lines = [
-    'Please finish the Rejourney SDK setup for this app.',
+    'Please finish the Rejourney SDK setup for this app. You may not have Rejourney dashboard context, so the project details are included below.',
     '',
-    'Project details:',
+    'Project context:',
     teamName ? `- Team: ${teamName}` : null,
     project?.name ? `- Project: ${project.name}` : null,
     project?.publicKey ? `- Public key: ${project.publicKey}` : null,
@@ -168,13 +172,14 @@ export function buildDeveloperSetupEmail({
     project?.bundleId ? `- iOS bundle ID: ${project.bundleId}` : null,
     project?.packageName ? `- Android package name: ${project.packageName}` : null,
     '',
-    'Next steps:',
+    'Implementation checklist:',
     '1. Install the matching Rejourney SDK.',
     '2. Initialize it with the public key above.',
-    '3. Confirm the production domains, bundle ID, and package name match the app before shipping.',
-    '4. Send one local or staging test session and confirm it appears in Rejourney.',
+    '3. Add route/screen tracking and privacy controls for this app stack.',
+    '4. Confirm the production domains, bundle ID, and package name match the app before shipping.',
+    '5. Send one local or staging test session and confirm it appears in Rejourney.',
     '',
-    'I can send the full AI setup prompt from the Rejourney setup page if you want the coding-agent version.',
+    'I can send the full AI setup instructions from the Rejourney setup page if you want the coding-agent version.',
   ].filter((line): line is string => line !== null);
 
   return lines.join('\n');

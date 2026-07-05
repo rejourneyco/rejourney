@@ -1,13 +1,11 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { isIssueDetectionUiEnabled } from "~/shared/config/runtimeEnv";
 import { useSessionData } from "~/shared/providers/SessionContext";
 import { useTeam } from "~/shared/providers/TeamContext";
 
 function getDefaultDashboardPath(pathname: string, search: string): string {
   const basePath = pathname.startsWith("/demo") ? "/demo" : "/dashboard";
-  const defaultPage = isIssueDetectionUiEnabled() ? "leaks" : "general";
-  return `${basePath}/${defaultPage}${search}`;
+  return `${basePath}/general${search}`;
 }
 
 export default function AppIndexRedirect() {

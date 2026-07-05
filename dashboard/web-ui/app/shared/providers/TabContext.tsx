@@ -8,7 +8,6 @@ import { getWorkspace, saveWorkspace, WorkspaceTab } from '~/shared/api/client';
 import { isUuid } from '~/shared/lib/ids';
 import { isPublicRoutePath } from '~/shared/lib/publicRoutePaths';
 import { normalizeLegacyAnalyticsAppPath, stripDashboardPathPrefix } from '~/shell/routing/dashboardRouteAliases';
-import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 
 export interface Tab {
     id: string;
@@ -56,7 +55,7 @@ const STALE_TAB_KEEP_COUNT = 6;
 const RECENTLY_CLOSED_LIMIT = 10;
 
 function getDefaultDashboardTabId(): string {
-    return isIssueDetectionUiEnabled() ? 'leaks' : 'general';
+    return 'general';
 }
 
 function getDefaultDashboardPath(prefix: string): string {

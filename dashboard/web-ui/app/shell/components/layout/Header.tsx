@@ -17,6 +17,7 @@ const FEATURE_GROUPS = [
   {
     title: "AI Workflows",
     items: [
+      { label: "How Rejourney Works", href: "/how-it-works", desc: "See the end-to-end flow from session recording to AI code fix" },
       { label: "AI Funnel Leak Detection", href: "/ai-funnel-leak-detection", desc: "Automatically map, rank, and track revenue friction points" },
       { label: "Rejourney Marlin", href: "/rejourney-marlin", desc: "Use replay context to suggest GitHub code fixes for revenue leaks" },
       { label: "Self-Healing Software", href: "/self-healing-software", desc: "Turn repeated production friction into fix-ready repair loops" },
@@ -59,10 +60,10 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const [isMobilePlatformOpen, setIsMobilePlatformOpen] = useState(false);
   const navigationLocale = MARKETING_LOCALES.en;
   const copy = getMarketingHomeCopy(navigationLocale).header;
-  const docsPath = getLocalizedPublicPath(navigationLocale, "/docs/web/getting-started");
+  const docsPath = getLocalizedPublicPath(navigationLocale, "/docs/shopify/getting-started");
   const benchmarksPath = getLocalizedPublicPath(navigationLocale, "/benchmarks");
   const pricingPath = getLocalizedPublicPath(navigationLocale, "/pricing");
-  const publicNavLinkClass = "text-base font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white transition-colors duration-200";
+  const publicNavLinkClass = "inline-flex min-h-10 items-center rounded-full px-3.5 text-[15px] font-bold tracking-[-0.01em] text-slate-900 dark:text-slate-100 transition-all duration-200 hover:bg-blue-50/90 hover:text-blue-700 dark:hover:bg-slate-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
   const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-4 py-1.5 font-sans text-xs font-semibold text-slate-600 dark:text-slate-100 rounded-full transition hover:border-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm";
   
   const isHomePage = location.pathname === "/";
@@ -94,8 +95,8 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
         aria-label={copy.ariaLabel}
         className={
           variant === 'floating'
-            ? "fixed inset-x-0 top-4 z-[100] mx-auto w-[92%] max-w-7xl rounded-full border border-slate-200/80 dark:border-slate-900 bg-white/80 dark:bg-slate-950/80 px-4 py-2 backdrop-blur-md shadow-md transition-all duration-305 hover:shadow-lg"
-            : "fixed inset-x-0 top-0 z-[100] w-full border-b border-slate-200/80 dark:border-slate-900 bg-white/90 dark:bg-slate-950/90 px-6 py-2 backdrop-blur-md shadow-sm transition-all duration-305"
+            ? "fixed inset-x-0 top-4 z-[100] mx-auto w-[92%] max-w-7xl rounded-full border border-slate-200/90 dark:border-slate-900 bg-white/92 dark:bg-slate-950/88 px-4 py-2 backdrop-blur-md shadow-md transition-all duration-305 hover:shadow-lg"
+            : "fixed inset-x-0 top-0 z-[100] w-full border-b border-slate-200/90 dark:border-slate-900 bg-white/94 dark:bg-slate-950/92 px-6 py-2 backdrop-blur-md shadow-sm transition-all duration-305"
         }
       >
         <div
@@ -110,18 +111,18 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
               <div className="flex h-8 w-8 items-center justify-center transition-transform group-hover:rotate-3">
                 <img src="/rejourneyIcon-removebg-preview.png" alt={copy.logoAlt} className="h-8 w-8 object-contain" />
               </div>
-              <span className="text-base font-bold tracking-tight text-slate-950 dark:text-slate-100 transition-colors">Rejourney</span>
+              <span className="text-[17px] font-extrabold tracking-tight text-slate-950 dark:text-slate-100 transition-colors">Rejourney</span>
             </Link>
 
-            <nav className="hidden items-center gap-6 lg:flex xl:gap-8 h-full">
+            <nav className="hidden items-center gap-1.5 lg:flex xl:gap-2 h-full">
               <div className="relative group h-full flex items-center">
                 <button
-                  className={`${publicNavLinkClass} flex items-center gap-1.5 focus:outline-none cursor-pointer py-3`}
+                  className={`${publicNavLinkClass} flex items-center gap-1.5 cursor-pointer`}
                   aria-expanded="false"
                   aria-haspopup="true"
                 >
                   Platform
-                  <ChevronDown className="h-4 w-4 transition-transform duration-200 group-hover:rotate-180 text-slate-400 dark:text-slate-500" />
+                  <ChevronDown className="h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:rotate-180 dark:text-slate-350" />
                 </button>
                 
                 {/* Mega Menu Dropdown */}
@@ -153,12 +154,14 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                   </div>
                 </div>
               </div>
-<Link
-                to={benchmarksPath}
+<a
+                href={GITHUB_REPO_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className={publicNavLinkClass}
               >
-                Benchmarks
-              </Link>
+                GitHub
+              </a>
               <Link
                 to={docsPath}
                 className={publicNavLinkClass}
@@ -176,28 +179,15 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <a
-              href={GITHUB_REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`${copy.github}, ${formatGithubStars(githubStars)} stars`}
-              className="hidden h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/60 px-3.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-350 hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-350 dark:hover:border-white dark:hover:bg-slate-800 md:inline-flex"
-            >
-              <Github className="h-4 w-4" />
-              <span>GitHub</span>
-              <span className="h-4 w-px bg-slate-200 dark:bg-slate-700/60" aria-hidden="true" />
-              <span className="inline-flex items-center gap-1 font-mono text-xs font-bold text-slate-600 dark:text-slate-300">
-                <Star className="h-3.5 w-3.5 fill-current text-amber-500" />
-                {formatGithubStars(githubStars)}
-              </span>
-            </a>
+
+
             {!isAuthenticated && (
-              <Link to="/login" className="hidden sm:inline-flex text-[14px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white transition-colors duration-200 mr-1">
+              <Link to="/login" className="hidden min-h-10 items-center rounded-full px-3.5 text-[15px] font-bold tracking-[-0.01em] text-slate-900 transition-all duration-200 hover:bg-blue-50/90 hover:text-blue-700 dark:text-slate-100 dark:hover:bg-slate-900 dark:hover:text-white sm:inline-flex">
                 {copy.login}
               </Link>
             )}
             <Link to={isAuthenticated ? "/dashboard" : "/login"} className="hidden sm:inline-flex">
-              <Button variant="ghost" className="font-sans font-semibold text-sm px-4.5 py-2 border border-slate-950 dark:border-slate-800 bg-slate-950 dark:bg-white text-white dark:text-slate-950 hover:bg-slate-800 dark:hover:bg-slate-100 hover:!text-white dark:hover:!text-slate-950 transition-all duration-200 rounded-full shadow-sm">
+              <Button variant="ghost" className="min-h-10 rounded-full border border-slate-950 bg-slate-950 px-5 py-2 font-sans text-[15px] font-extrabold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:!text-white hover:shadow-md dark:border-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100 dark:hover:!text-slate-950">
                 {isAuthenticated ? copy.dashboard : "Get started"}
               </Button>
             </Link>

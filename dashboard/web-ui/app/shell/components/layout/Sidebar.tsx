@@ -8,7 +8,8 @@ import { Input } from '~/shared/ui/core/Input';
 import { Button } from '~/shared/ui/core/Button';
 import { ProjectCreatedModal } from '~/shared/ui/core/ProjectCreatedModal';
 import { CreateProjectModal } from '~/features/app/setup/CreateProjectModal';
-import { shouldSurfaceSetup } from '~/features/app/setup/setupUtils';
+import { useToast } from '~/shared/providers/ToastContext';
+import { SETUP_GATE_TOAST, shouldSurfaceSetup } from '~/features/app/setup/setupUtils';
 import { DASHBOARD_PAGE_META, DashboardPageKey } from '~/shell/navigation/dashboardPageMeta';
 import {
   ChartNoAxesColumnIncreasing,
@@ -104,6 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [showAppSelector, setShowAppSelector] = useState(false);
   const [showTeamSelector, setShowTeamSelector] = useState(false);
   const [showAddAppModal, setShowAddAppModal] = useState(false);
@@ -297,7 +299,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Helper to prefix paths for demo mode
   const p = (path: string) => pathPrefix + path;
-  const defaultDashboardPath = p(showSetupNavItem ? '/setup' : isIssueDetectionUiEnabled() ? '/leaks' : '/general');
+  const setupPath = p('/setup');
+  const defaultDashboardPath = showSetupNavItem ? setupPath : p('/general');
 
   const closeCreateTeamModal = () => {
     setShowCreateTeamModal(false);
@@ -360,7 +363,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Settings,
       accent: '#475569',
       items: [
-        ...(showSetupNavItem ? [createSidebarNavItem(p('/setup'), 'setup')] : []),
+        ...(showSetupNavItem ? [createSidebarNavItem(setupPath, 'setup')] : []),
         ...(currentProject ? [createSidebarNavItem(p(`/settings/${currentProject.id}`), 'project')] : []),
         createSidebarNavItem(p('/team'), 'team'),
         createSidebarNavItem(p('/billing'), 'billing'),
@@ -375,7 +378,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         createSidebarNavItem(p('/account'), 'account'),
       ],
     },
-  ], [currentProject, pathPrefix, projects, showIssueDetectionUi, showSetupNavItem]);
+  ], [currentProject, pathPrefix, projects, setupPath, showIssueDetectionUi, showSetupNavItem]);
 
   // isActive needs to check if path matches, accounting for demo prefix
   const isActive = (path: string) => location.pathname === path;
@@ -388,6 +391,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       timeRange: prefetchTimeRange,
     });
   }, [currentProject?.id, prefetchTimeRange]);
+
+  const canOpenNavPath = React.useCallback((path: string) => (
+    !showSetupNavItem || path === setupPath
+  ), [setupPath, showSetupNavItem]);
+
+  const handleNavClick = React.useCallback((event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (!canOpenNavPath(path)) {
+      event.preventDefault();
+      setIsMobileOpen(false);
+      showToast(SETUP_GATE_TOAST);
+      if (location.pathname !== setupPath) {
+        navigate(setupPath, { replace: true });
+      }
+      return;
+    }
+
+    setIsMobileOpen(false);
+  }, [canOpenNavPath, location.pathname, navigate, setupPath, showToast]);
 
   const toggleSection = React.useCallback((sectionId: string) => {
     setCollapsedSections((prev) => {
@@ -413,6 +434,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const candidates = navSections
       .flatMap((section) => section.items)
       .filter((item) => item.path !== location.pathname)
+      .filter((item) => canOpenNavPath(item.path))
       .slice(0, 2);
 
     if (candidates.length === 0) return;
@@ -433,7 +455,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const timeoutId = globalThis.setTimeout(schedule, 350);
     return () => globalThis.clearTimeout(timeoutId);
-  }, [location.pathname, navSections, prefetchPath]);
+  }, [canOpenNavPath, location.pathname, navSections, prefetchPath]);
 
   return (
     <>
@@ -664,9 +686,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           to={item.path}
                           aria-current={itemActive ? 'page' : undefined}
                           title={collapsedDesktop ? item.label : undefined}
-                          onClick={() => setIsMobileOpen(false)}
-                          onMouseEnter={() => prefetchPath(item.path)}
-                          onFocus={() => prefetchPath(item.path)}
+                          onClick={(event) => handleNavClick(event, item.path)}
+                          onMouseEnter={() => {
+                            if (canOpenNavPath(item.path)) prefetchPath(item.path);
+                          }}
+                          onFocus={() => {
+                            if (canOpenNavPath(item.path)) prefetchPath(item.path);
+                          }}
                           className={`
                             dashboard-nav-item relative flex items-center overflow-hidden rounded-[6px] text-[0.95rem] transition-colors
                             ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'gap-3.5 px-4 py-3'}

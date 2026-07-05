@@ -6,7 +6,11 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { CheckCircle2, Copy, ExternalLink, KeyRound, Sparkles, X } from 'lucide-react';
-import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
+import {
+  buildProjectAIPromptById,
+  getAIPromptDefinition,
+  getAIPromptIdsForProject,
+} from '~/shared/constants/aiPrompts';
 import { Project } from '~/shared/types';
 import { Button } from './Button';
 import { Modal } from './Modal';
@@ -20,7 +24,7 @@ interface ProjectCreatedModalProps {
 function getProjectPlatformLabel(project: Project): string {
   if (project.platforms.length === 0) return 'No platform selected';
   const labels = project.platforms.map((platform) => (
-    platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Web'
+    platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : platform === 'react-native' ? 'React Native' : 'Web'
   ));
   if (labels.length === 1) return `${labels[0]} app`;
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
@@ -36,9 +40,34 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  const promptText = useMemo(() => {
-    return buildProjectAIIntegrationPrompt(project);
+  const setupInstructionPrompts = useMemo(() => {
+    return getAIPromptIdsForProject(project).map((promptId) => {
+      const definition = getAIPromptDefinition(promptId);
+      return {
+        id: promptId,
+        label: definition.label,
+        promptText: buildProjectAIPromptById(promptId, project),
+      };
+    });
   }, [project]);
+
+  const promptText = useMemo(() => {
+    if (setupInstructionPrompts.length === 1) return setupInstructionPrompts[0].promptText;
+
+    return [
+      'Use the matching Rejourney AI setup instructions for this project.',
+      'Choose the section that matches the app you are editing and follow it exactly.',
+      '',
+      ...setupInstructionPrompts.flatMap((prompt) => [
+        '==========================================================',
+        `AI SETUP INSTRUCTIONS: ${prompt.label}`,
+        '==========================================================',
+        '',
+        prompt.promptText,
+        '',
+      ]),
+    ].join('\n').trim();
+  }, [setupInstructionPrompts]);
 
   const handleCopyPublicKey = useCallback(async () => {
     if (!project?.publicKey) return;
@@ -85,7 +114,7 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
                   {project.name} is set up and ready for integration.
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-[#3c4043]">
-                  Copy the public key or grab a ready-to-paste AI setup prompt with this project already filled in.
+                  Copy the public key or AI setup instructions for this project.
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-[11px] font-bold uppercase text-[#1d4ed8]">
@@ -155,16 +184,11 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
             <section className="rounded-lg border border-[#dadce0] bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 text-sm font-semibold text-[#202124]">
                 <Sparkles className="h-4 w-4 text-[#5f6368]" />
-                AI setup prompt
+                AI setup instructions
               </div>
               <p className="mt-2 text-sm font-medium leading-6 text-[#3c4043]">
-                This copies a smart integration prompt with your new project key already inserted.
-                It supports Web, React Native, and native Swift (iOS) setup flows.
+                Copy setup instructions tailored to this project and paste them into your AI coding assistant.
               </p>
-
-              <div className="mt-4 rounded-md border border-[#dadce0] bg-[#f8fafd] px-4 py-3 text-xs font-medium leading-6 text-[#3c4043]">
-                Includes install steps, initialization, route or screen tracking, privacy notes, and your project key.
-              </div>
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Button
@@ -173,7 +197,7 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
                   className="!rounded-md !border !border-[#1a73e8] !bg-[#1a73e8] font-semibold text-white !shadow-none hover:!bg-[#1558b0]"
                 >
                   {copiedPrompt ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                  {copiedPrompt ? 'Prompt copied' : 'Copy AI prompt'}
+                  {copiedPrompt ? 'Setup instructions copied' : 'Copy AI setup instructions'}
                 </Button>
                 <Button
                   variant="outline"

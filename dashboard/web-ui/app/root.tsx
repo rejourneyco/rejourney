@@ -163,7 +163,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "Service",
                                     "@id": "https://rejourney.co/#service",
                                     "name": "Rejourney",
-                                    "serviceType": "AI funnel leak detection",
+                                    "serviceType": "Shopify and app subscription revenue recovery",
                                     "provider": { "@id": "https://rejourney.co/#organization" },
                                     "url": "https://rejourney.co/",
                                     "description": locale.metaDescription,
@@ -187,12 +187,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "ItemList",
                                     "name": "Sitelinks",
                                     "itemListElement": [
-                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs") },
-                                        { "@type": "SiteNavigationElement", "position": 2, "name": copy.header.engineering, "url": getLocalizedPublicUrl(locale, "/engineering") },
-                                        { "@type": "SiteNavigationElement", "position": 3, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
-                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.roadmap, "url": getLocalizedPublicUrl(locale, "/roadmap") },
-                                        { "@type": "SiteNavigationElement", "position": 5, "name": copy.header.selfHosted, "url": getLocalizedPublicUrl(locale, "/docs/selfhosted") },
-                                        { "@type": "SiteNavigationElement", "position": 6, "name": copy.header.login, "url": "https://rejourney.co/login" }
+                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
+                                        { "@type": "SiteNavigationElement", "position": 2, "name": "Mobile Session Replay", "url": getLocalizedPublicUrl(locale, "/mobile-session-replay") },
+                                        { "@type": "SiteNavigationElement", "position": 3, "name": "How Rejourney Works", "url": getLocalizedPublicUrl(locale, "/how-it-works") },
+                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs") },
+                                        { "@type": "SiteNavigationElement", "position": 5, "name": "Live Demo", "url": getLocalizedPublicUrl(locale, "/demo") },
+                                        { "@type": "SiteNavigationElement", "position": 6, "name": copy.header.engineering, "url": getLocalizedPublicUrl(locale, "/engineering") }
                                     ]
                                 }
                             ]

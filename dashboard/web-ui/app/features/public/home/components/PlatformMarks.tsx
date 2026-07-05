@@ -2,6 +2,53 @@ import React from 'react';
 
 /* Paths adapted from Simple Icons (MIT) — display-only marks. */
 
+export function MarkShopify(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
+            <path
+                d="M6.2 7.4 8.4 5h7.2l2.2 2.4 1.4 12.1a2 2 0 0 1-2 2.3H6.8a2 2 0 0 1-2-2.3L6.2 7.4Z"
+                fill="currentColor"
+            />
+            <path
+                d="M8.4 7.4c.22-2.7 1.5-5.2 3.95-5.2 2.1 0 3.08 1.77 3.25 5.2"
+                stroke="currentColor"
+                strokeWidth="1.25"
+                strokeLinecap="round"
+            />
+            <path
+                d="M13.55 10.05c-.43-.24-.93-.36-1.49-.36-.85 0-1.44.36-1.44.92 0 1.38 3.32 1.02 3.32 3.46 0 1.41-1.15 2.36-2.93 2.36-.83 0-1.62-.22-2.18-.6l.43-1.2c.5.32 1.1.5 1.72.5.88 0 1.49-.36 1.49-.98 0-1.43-3.3-1.08-3.3-3.43 0-1.34 1.1-2.28 2.82-2.28.82 0 1.49.17 1.99.49l-.43 1.12Z"
+                fill="white"
+            />
+        </svg>
+    );
+}
+
+export function MarkHydrogen(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
+            <path
+                d="M12 2.2 20.5 7.1v9.8L12 21.8 3.5 16.9V7.1L12 2.2Z"
+                fill="currentColor"
+            />
+            <path
+                d="M7.6 7.3h2.1v3.6h4.6V7.3h2.1v9.4h-2.1v-3.9H9.7v3.9H7.6V7.3Z"
+                fill="white"
+            />
+            <circle cx="18.1" cy="16.3" r="1" fill="white" opacity="0.86" />
+        </svg>
+    );
+}
+
+export function MarkGatsby(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
+            <circle cx="12" cy="12" r="10" fill="currentColor" />
+            <path d="M6.7 12a5.3 5.3 0 0 0 9.05 3.75l-7.5-7.5A5.28 5.28 0 0 0 6.7 12Z" fill="white" />
+            <path d="M12 6.7a5.28 5.28 0 0 1 4.34 2.25l1.45-1.26A7.2 7.2 0 0 0 6.9 7.02l10.08 10.08A7.15 7.15 0 0 0 19.2 12h-5v1.8h2.7A5.3 5.3 0 0 1 12 17.3a5.3 5.3 0 0 1 0-10.6Z" fill="white" />
+        </svg>
+    );
+}
+
 export function MarkSwift(props: React.SVGProps<SVGSVGElement>) {
     return (
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>

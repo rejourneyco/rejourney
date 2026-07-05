@@ -8,7 +8,8 @@ export const Footer: React.FC = () => {
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).footer;
   const { showToast } = useToast();
-  const docsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
+  const docsPath = getLocalizedPublicPath(locale, "/docs/shopify/getting-started");
+  const webDocsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
   const reactNativeDocsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
   const swiftDocsPath = getLocalizedPublicPath(locale, "/docs/swift/overview");
   const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
@@ -46,7 +47,8 @@ export const Footer: React.FC = () => {
   ];
   const resourceLinks = [
     { label: copy.docs, href: docsPath },
-    { label: "Web SDK", href: docsPath },
+    { label: "Shopify", href: docsPath },
+    { label: "Web SDK", href: webDocsPath },
     { label: "React Native SDK", href: reactNativeDocsPath },
     { label: "iOS SDK", href: swiftDocsPath },
     { label: copy.selfHosted, href: selfHostedPath },
@@ -62,32 +64,34 @@ export const Footer: React.FC = () => {
     showToast(copy.copyEmailToast);
   };
 
-  const linkClass = "block text-sm font-medium leading-normal text-slate-500 dark:text-slate-400 transition-colors hover:text-slate-900 dark:hover:text-slate-100";
-  const headingClass = "text-xs font-semibold tracking-wider uppercase text-slate-800 dark:text-slate-200";
+  const linkClass = "block text-sm font-semibold leading-normal text-slate-600 transition-all duration-200 hover:translate-x-0.5 hover:text-blue-700";
+  const headingClass = "text-xs font-extrabold tracking-wider uppercase text-slate-950";
   const sectionClass = "min-w-0 space-y-4";
 
   return (
-    <footer className="border-t border-slate-200 dark:border-slate-900 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400">
-      <div className="mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
+    <footer className="relative overflow-hidden border-t border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_42%,#f6fbf8_100%)] text-slate-600">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_12%,rgba(37,99,235,0.075),transparent_31%),radial-gradient(circle_at_86%_18%,rgba(16,185,129,0.08),transparent_29%),radial-gradient(circle_at_52%_100%,rgba(245,158,11,0.07),transparent_35%)]" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200/70 to-transparent" aria-hidden="true" />
+      <div className="relative mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
         <div className="grid gap-10 lg:grid-cols-[1.05fr_2fr] lg:gap-16">
           <div className="max-w-md">
             <Link to="/" className="inline-flex items-center gap-3 transition hover:opacity-80">
               <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="h-10 w-10 object-contain" />
-              <span className="font-mono text-xl font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100">Rejourney</span>
+              <span className="font-mono text-xl font-extrabold uppercase tracking-tight text-slate-950">Rejourney</span>
             </Link>
-            <p className="mt-5 text-sm font-medium leading-relaxed text-slate-500 dark:text-slate-400">
-              AI funnel leak detection for teams shipping growth. Rejourney watches replay evidence, ranks revenue leaks, and creates fix packets for product and engineering.
+            <p className="mt-5 text-sm font-medium leading-relaxed text-slate-600">
+              Revenue recovery for Shopify, ecommerce, and app subscription teams. Rejourney shows where checkout, billing, and renewal flows lose buyers.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
                 to="/demo"
-                className="inline-flex min-h-10 items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 px-5 text-xs font-semibold uppercase text-white shadow-md shadow-indigo-100 hover:shadow-indigo-200 transition-all duration-200 hover:-translate-y-0.5"
+                className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-5 text-xs font-extrabold uppercase text-white shadow-lg shadow-slate-200/80 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800"
               >
                 Demo
               </Link>
               <Link
                 to={pricingPath}
-                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 px-5 text-xs font-semibold uppercase text-slate-700 dark:text-slate-300 transition-all duration-200 hover:-translate-y-0.5 shadow-sm"
+                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-5 text-xs font-extrabold uppercase text-slate-800 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
               >
                 {copy.pricing}
               </Link>
@@ -169,7 +173,7 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-slate-200 dark:border-slate-900 pt-6 text-center text-sm font-semibold text-slate-400 dark:text-slate-500">
+        <div className="mt-12 border-t border-slate-200 pt-6 text-center text-sm font-semibold text-slate-500">
           {copy.copyright}
         </div>
       </div>

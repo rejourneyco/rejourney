@@ -8,7 +8,9 @@ export const publicRoutes = [
     route(locale, "features/public/home/redirect.tsx", { id: `public-home-${locale}-redirect` })
   ),
   route("docs", "features/public/docs/index/route.tsx", { id: "public-docs-index" }),
+  route("docs/ai-prompts/:promptId", "features/public/docs/ai-prompts/route.tsx", { id: "public-docs-ai-prompts" }),
   route("docs/*", "features/public/docs/slug/route.tsx", { id: "public-docs-slug" }),
+  route("how-it-works", "features/public/how-it-works/route.tsx", { id: "public-how-it-works" }),
   route("rejourney-marlin", "features/public/marlin/route.tsx", { id: "public-marlin" }),
   route("benchmarks", "features/public/benchmarks/route.tsx", { id: "public-benchmarks" }),
   route("contribute", "features/public/contribute/route.tsx", { id: "public-contribute" }),

@@ -13,12 +13,13 @@ import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { SessionDataProvider, useSessionData } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
-import { isSetupSupportRoute, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
+import { SETUP_GATE_TOAST, isSetupSupportRoute, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
 import type { Project } from "~/shared/types";
 import { readCookieValue } from "~/shared/utils/selectionCookies";
 import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
 import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
+import { useToast } from "~/shared/providers/ToastContext";
 
 export const meta: Route.MetaFunction = () => [
     // Authenticated app; crawlers without a session get redirected to /login.
@@ -119,16 +120,18 @@ function DashboardLayoutContent() {
     const { projects, selectedProject, isLoading } = useSessionData();
     const navigate = useNavigate();
     const location = useLocation();
+    const { showToast } = useToast();
 
     useEffect(() => {
         if (!isLoading) {
             const isSetupPage = isSetupSupportRoute(location.pathname);
             const isBypassed = selectedProject && typeof document !== "undefined" && document.cookie.includes(`bypass_setup_${selectedProject.id}=true`);
             if (!isBypassed && shouldSurfaceSetup(projects, selectedProject) && !isSetupPage) {
+                showToast(SETUP_GATE_TOAST);
                 navigate("/dashboard/setup", { replace: true });
             }
         }
-    }, [isLoading, projects, selectedProject, location.pathname, navigate]);
+    }, [isLoading, projects, selectedProject, location.pathname, navigate, showToast]);
 
     return (
         <ProjectLayout pathPrefix="/dashboard">
