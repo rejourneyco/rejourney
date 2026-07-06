@@ -73,30 +73,33 @@
         <h2 style="font-size: 12px; font-weight: 800; color: #6f7785; margin: 0 0 12px; letter-spacing: 0.02em;">Setup Email</h2>
         <div style="border-top: 1px solid #dadce0; border-bottom: 1px solid #dadce0; padding: 14px 0; background: #ffffff; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto;"><pre style="white-space: pre-wrap; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55;">Hi,
 
-Could you please integrate Rejourney into Mobile App? It will allow us to record sessions and track user diagnostics.
+Please integrate Rejourney into Mobile App. You may not have Rejourney dashboard context, so this email includes the project details and setup instructions you need.
 
-Project details:
+Project context:
 - Team: Rocket Ship
 - Project: Mobile App
-- API Key: rj_public_demo
+- Public key: rj_public_demo
 - Platforms: iOS, Android, React Native
 - iOS bundle ID: co.rejourney.mobile
 - Android package name: co.rejourney.mobile
 
-Here are the quick options to get it set up:
+Implementation goal:
+- Install the matching Rejourney SDK for the app stack you find in the repo.
+- Initialize Rejourney with the public key above.
+- Add the route/screen tracking and privacy controls described in the instructions.
+- Run a local or staging test session when finished.
 
-Option 1: Using an AI Coding Agent (Cursor, Copilot, v0, etc.) - Recommended
-Just copy and paste the prompt below into your AI editor. It has all the files and configurations needed:
+Use the AI setup instructions below as the source of truth. They are written for an AI coding assistant, but they also work as the implementation checklist for a developer reviewing the code directly.
+
+AI setup instructions:
 --------------------------------------------------
 Install @rejourney/react-native and initialize it with rj_public_demo in the app bootstrap.
 --------------------------------------------------
 
-Option 2: Manual Setup
-- Package install: Install the Rejourney package.
-- Initialize: Start the SDK with our project API key.
-  API Key: rj_public_demo
-
-Once complete, please trigger a local test session so we can verify the data on our end.
+Before you mark this complete:
+- Confirm the production domains, bundle ID, and package name in the repo match the project context above.
+- Do not send PII in custom events or metadata.
+- Reply with what changed and whether a test session appeared in Rejourney.
 
 Thank you!</pre></div>
       </div>

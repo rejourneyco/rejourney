@@ -22,6 +22,7 @@ import {
   Gauge,
   User,
   X,
+  Activity,
 } from 'lucide-react';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
@@ -1319,7 +1320,7 @@ export const RecordingsList: React.FC = () => {
         </div>
 
         <div className="sessions-desktop-table dashboard-mobile-scroll overflow-x-auto pb-2">
-          <div className="w-full min-w-[900px] overflow-hidden border-2 border-black bg-white shadow-neo lg:min-w-[1020px] xl:min-w-0">
+          <div className="w-full min-w-[900px] overflow-hidden border-2 border-black bg-white shadow-neo lg:min-w-[1020px] xl:min-w-[1070px]">
           <table className="w-full table-fixed border-collapse">
             <thead>
               <tr className="border-b-2 border-black bg-[#cffafe]">
@@ -1695,7 +1696,11 @@ export const RecordingsList: React.FC = () => {
                             }
                           }}
                           disabled={!canNavigateToSession}
-                          className={`inline-flex items-center justify-center border-2 border-transparent p-1.5 transition-all group/play ${isReplayBlocked ? 'cursor-not-allowed opacity-40 text-slate-300' : 'text-slate-700 hover:border-black hover:bg-[#67e8f9] hover:text-black hover:shadow-neo-sm'}`}
+                          className={`inline-flex items-center justify-center p-1.5 rounded-lg border transition-all duration-200 group/play
+                            ${isReplayBlocked 
+                              ? 'cursor-not-allowed opacity-40 text-slate-300 border-transparent' 
+                              : 'text-slate-600 bg-slate-50 border-slate-200/40 hover:bg-cyan-50 hover:text-cyan-600 hover:border-cyan-200/60 hover:shadow-sm'
+                            }`}
                           title={
                             !canNavigateToSession
                               ? 'Replay unavailable for this session'
@@ -1712,7 +1717,11 @@ export const RecordingsList: React.FC = () => {
                         </button>
                         <button
                           onClick={(e) => toggleExpand(e, session.id)}
-                          className={`inline-flex items-center justify-center border-2 border-transparent p-1.5 transition-all ${isExpanded ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm' : 'text-slate-600 hover:border-black hover:bg-[#ecfeff] hover:text-black hover:shadow-neo-sm'}`}
+                          className={`inline-flex items-center justify-center p-1.5 rounded-lg border transition-all duration-200
+                            ${isExpanded 
+                              ? 'bg-slate-100 border-slate-300 text-slate-800 shadow-sm' 
+                              : 'text-slate-600 bg-slate-50 border-slate-200/40 hover:bg-slate-100 hover:text-slate-800 hover:border-slate-300 hover:shadow-sm'
+                            }`}
                           title={isExpanded ? 'Collapse details' : 'Expand details'}
                           aria-label={isExpanded ? 'Collapse replay details' : 'Expand replay details'}
                           aria-expanded={isExpanded}
@@ -1726,11 +1735,11 @@ export const RecordingsList: React.FC = () => {
                   {/* Expanded Details - full-width row */}
                   {isExpanded && (
                     <tr>
-                      <td colSpan={9} className="border-b-2 border-black bg-[#f8fafc] p-0 align-top">
-                        <div className="px-5 sm:px-7 pb-5 pt-3 space-y-3">
+                      <td colSpan={9} className="border-b border-slate-200/80 bg-[#f8fafc]/50 p-0 align-top">
+                        <div className="px-5 sm:px-7 pb-5 pt-4 space-y-4">
 
                           {/* ── Top stats strip ── */}
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
 
                             {/* ── User Info (leftmost) ── */}
                             {(() => {
@@ -1757,51 +1766,41 @@ export const RecordingsList: React.FC = () => {
                               const showTotal = totalSessions !== null && sessionNum !== null && totalSessions >= sessionNum;
 
                               return (
-                                <div className="col-span-2 border-2 border-black bg-white p-3 shadow-neo-sm md:col-span-1">
-                                  <div className="mb-2 flex items-center gap-1 text-[9px] font-black uppercase text-slate-600">
-                                    <User className="w-3 h-3" /> User
+                                <div className="col-span-2 border border-slate-200 bg-white p-4 rounded-xl shadow-sm md:col-span-1 hover:shadow-md transition-shadow duration-200">
+                                  <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    <User className="w-3.5 h-3.5 text-slate-400" /> User
                                   </div>
-                                  <div className="space-y-1.5">
+                                  <div className="space-y-2">
                                     {/* Loyalty tier */}
                                     <div className="flex justify-between items-center">
                                       <span className="text-[10px] text-slate-500 font-semibold uppercase">Loyalty</span>
-                                      <span className={`border border-black px-1.5 py-0.5 text-[10px] font-black ${tier.color} ${tier.bg}`}>
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tier.color} ${tier.bg} border border-slate-100`}>
                                         {tier.label}
                                       </span>
                                     </div>
                                     {/* Session ordinal */}
                                     <div className="flex justify-between items-center">
                                       <span className="text-[10px] text-slate-500 font-semibold uppercase">Session #</span>
-                                      <span className="border border-black bg-[#f8fafc] px-1.5 py-0.5 font-mono text-xs font-black text-black">
+                                      <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-slate-800">
                                         {sessionNum !== null && sessionNum > 0 ? sessionNum : '—'}
                                         {showTotal ? ` of ${totalSessions}` : ''}
                                       </span>
                                     </div>
                                     {/* Engagement score */}
-                                    <div className="flex flex-col gap-1.5">
+                                    <div className="flex flex-col gap-2">
                                       <div className="flex justify-between items-center">
                                         <span className="text-[10px] text-slate-500 font-semibold uppercase">Engagement</span>
-                                        <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${interactionScore >= 70 ? 'text-black bg-[#86efac]' : interactionScore >= 40 ? 'text-black bg-[#f9a8d4]' : 'text-black bg-[#fecaca]'}`}>
+                                        <span className={`border border-slate-200/60 px-2 py-0.5 rounded-md font-mono text-xs font-bold ${interactionScore >= 70 ? 'text-emerald-700 bg-emerald-50' : interactionScore >= 40 ? 'text-pink-700 bg-pink-50' : 'text-rose-700 bg-rose-50'}`}>
                                           {interactionScore}/100
                                         </span>
                                       </div>
                                       {webSession ? (
-                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-1.5">
-                                          <div className="flex items-center justify-between">
+                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-2">
+                                          <div className="flex items-center justify-between mb-1">
                                             <span className="text-[10px] text-slate-500 font-semibold uppercase">Referral</span>
-                                            {webReferral && webReferral !== 'Direct' && webReferral !== 'Direct / none' && (
-                                              <a
-                                                href={getAbsoluteUrl(webReferral, selectedProject?.webDomain)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-[9px] font-bold text-sky-600 hover:text-sky-800 hover:underline shrink-0"
-                                              >
-                                                Visit Link ↗
-                                              </a>
-                                            )}
                                           </div>
                                           <div
-                                            className="min-w-0 break-all text-[10px] font-mono leading-normal text-slate-600 bg-slate-50 p-1.5 border border-black/10 rounded-sm max-h-[80px] overflow-y-auto"
+                                            className="min-w-0 break-all text-[10px] font-mono leading-relaxed text-slate-500 bg-slate-50/80 p-2 border border-slate-100 rounded-md max-h-[80px] overflow-y-auto"
                                             title={webReferral || 'Direct'}
                                           >
                                             {webReferral || 'Direct'}
@@ -1809,11 +1808,13 @@ export const RecordingsList: React.FC = () => {
                                         </div>
                                       ) : null}
                                       {webSession && webUtm ? (
-                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-1.5">
-                                          <span className="text-[10px] text-slate-500 font-semibold uppercase">UTM Parameters</span>
+                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-2">
+                                          <span className="text-[10px] text-slate-500 font-semibold uppercase mb-1">UTM Parameters</span>
                                           <div
-                                            className={`min-w-0 break-all text-[10px] font-mono leading-normal p-1.5 border rounded-sm max-h-[100px] overflow-y-auto ${
-                                              webUtm.hasUtm ? 'text-slate-700 bg-emerald-50/30 border-emerald-200' : 'text-slate-400 bg-slate-50 border-black/10'
+                                            className={`min-w-0 break-all text-[10px] font-mono leading-relaxed p-2.5 border rounded-md max-h-[100px] overflow-y-auto ${
+                                              webUtm.hasUtm 
+                                                ? 'text-emerald-800 bg-emerald-50/40 border-emerald-100' 
+                                                : 'text-slate-400 bg-slate-50/80 border-slate-100'
                                             }`}
                                             title={webUtm.title || undefined}
                                           >
@@ -1869,24 +1870,34 @@ export const RecordingsList: React.FC = () => {
                             })()}
 
                             {/* Performance */}
-                            <div className="border-2 border-black bg-white p-3 shadow-neo-sm">
-                              <div className="mb-2 flex items-center gap-1 text-[9px] font-black uppercase text-slate-600"><Gauge className="w-3 h-3" /> Performance</div>
-                              <div className="space-y-1.5">
+                            <div className="border border-slate-200 bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200">
+                              <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Gauge className="w-3.5 h-3.5 text-slate-400" /> Performance</div>
+                              <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Startup</span>
-                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${startupMs === null ? 'text-slate-500 bg-[#f8fafc]' : startupMs > 2000 ? 'text-black bg-[#fecaca]' : 'text-black bg-[#86efac]'}`}>
+                                  <span className={`border px-2 py-0.5 rounded-md font-mono text-xs font-bold ${
+                                    startupMs === null 
+                                      ? 'text-slate-500 bg-slate-50 border-slate-100' 
+                                      : startupMs > 2000 
+                                        ? 'text-rose-700 bg-rose-50 border-rose-100' 
+                                        : 'text-emerald-700 bg-emerald-50 border-emerald-100'
+                                  }`}>
                                     {startupMs === null ? 'N/A' : `${startupMs.toFixed(0)}ms`}
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">API Avg</span>
-                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${(session.apiAvgResponseMs || 0) > 1000 ? 'text-black bg-[#f9a8d4]' : 'text-black bg-[#f8fafc]'}`}>
+                                  <span className={`border px-2 py-0.5 rounded-md font-mono text-xs font-bold ${
+                                    (session.apiAvgResponseMs || 0) > 1000 
+                                      ? 'text-pink-700 bg-pink-50 border-pink-100' 
+                                      : 'text-slate-800 bg-slate-50 border-slate-100'
+                                  }`}>
                                     {(session.apiAvgResponseMs || 0).toFixed(0)}ms
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Duration</span>
-                                  <span className="border border-black bg-[#f8fafc] px-1.5 py-0.5 font-mono text-xs font-black text-black">
+                                  <span className="border border-slate-100 bg-slate-50 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-slate-800">
                                     {Math.floor(session.durationSeconds / 60)}:{String(session.durationSeconds % 60).padStart(2, '0')}
                                   </span>
                                 </div>
@@ -1894,9 +1905,9 @@ export const RecordingsList: React.FC = () => {
                             </div>
 
                             {/* Environment */}
-                            <div className="border-2 border-black bg-white p-3 shadow-neo-sm">
-                              <div className="mb-2 text-[9px] font-black uppercase text-slate-600">Environment</div>
-                              <div className="space-y-1.5">
+                            <div className="border border-slate-200 bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200">
+                              <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Globe className="w-3.5 h-3.5 text-slate-400" /> Environment</div>
+                              <div className="space-y-2">
                                 <div className="flex justify-between items-center gap-1">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase shrink-0">Network</span>
                                   <div
@@ -1937,54 +1948,86 @@ export const RecordingsList: React.FC = () => {
                             </div>
 
                             {/* API — compact inline */}
-                            <div className="border-2 border-black bg-white p-3 shadow-neo-sm">
-                              <div className="mb-2 text-[9px] font-black uppercase text-slate-600">API Calls</div>
-                              <div className="space-y-1.5">
+                            <div className="border border-slate-200 bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200">
+                              <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Activity className="w-3.5 h-3.5 text-slate-400" /> API Calls</div>
+                              <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Total</span>
-                                  <span className="border border-black bg-[#dbeafe] px-1.5 py-0.5 font-mono text-xs font-black text-black">{session.apiTotalCount || ((session.apiSuccessCount || 0) + (session.apiErrorCount || 0))}</span>
+                                  <span className="border border-blue-100 bg-blue-50 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-blue-700">{session.apiTotalCount || ((session.apiSuccessCount || 0) + (session.apiErrorCount || 0))}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">OK</span>
-                                  <span className="border border-black bg-[#86efac] px-1.5 py-0.5 font-mono text-xs font-black text-black">{session.apiSuccessCount || 0}</span>
+                                  <span className="border border-emerald-100 bg-emerald-50 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-emerald-700">{session.apiSuccessCount || 0}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Errors</span>
-                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${(session.apiErrorCount || 0) > 0 ? 'text-black bg-[#fecaca]' : 'text-slate-600 bg-[#f8fafc]'}`}>{session.apiErrorCount || 0}</span>
+                                  <span className={`border px-2 py-0.5 rounded-md font-mono text-xs font-bold ${
+                                    (session.apiErrorCount || 0) > 0 
+                                      ? 'text-rose-700 bg-rose-50 border-rose-100' 
+                                      : 'text-slate-500 bg-slate-50 border-slate-100'
+                                  }`}>{session.apiErrorCount || 0}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-[10px] text-slate-500 font-semibold uppercase">Avg Lat.</span>
-                                  <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${(session.apiAvgResponseMs || 0) > 1000 ? 'text-black bg-[#f9a8d4]' : 'text-black bg-[#f8fafc]'}`}>
+                                  <span className={`border px-2 py-0.5 rounded-md font-mono text-xs font-bold ${
+                                    (session.apiAvgResponseMs || 0) > 1000 
+                                      ? 'text-pink-700 bg-pink-50 border-pink-100' 
+                                      : 'text-slate-800 bg-slate-50 border-slate-100'
+                                  }`}>
                                     {(session.apiAvgResponseMs || 0).toFixed(0)}ms
                                   </span>
                                 </div>
                               </div>
                             </div>
                             {/* Replay - compact */}
-                            <div className={`flex flex-col gap-2 border-2 border-black p-3 shadow-neo-sm ${webSession ? 'bg-[#ecfeff]' : 'bg-white'}`}>
-                              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-slate-600">
+                            <button
+                              type="button"
+                              onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
+                              disabled={isReplayBlocked}
+                              className={`group flex flex-col justify-between text-left gap-3 border p-4 !rounded-xl shadow-sm transition-all duration-300 w-full focus:outline-none focus:ring-2 focus:ring-offset-2
+                                ${isReplayBlocked 
+                                  ? 'bg-slate-50 border-slate-200 cursor-not-allowed opacity-75' 
+                                  : webSession 
+                                    ? 'bg-gradient-to-br from-cyan-50/60 via-[#ecfeff]/40 to-indigo-50/30 border-cyan-100 hover:border-cyan-300/80 hover:shadow-md hover:scale-[1.02] cursor-pointer focus:ring-cyan-500' 
+                                    : 'bg-gradient-to-br from-indigo-50/40 via-indigo-50/20 to-slate-100/50 border-slate-200/80 hover:border-indigo-300/80 hover:shadow-md hover:scale-[1.02] cursor-pointer focus:ring-indigo-500'
+                                }`}
+                            >
+                              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                 <AnimalAvatar animal={replayAnimal} seed={replayAnimalSeed} size={18} active={isExpanded} neutral />
                                 {webSession ? 'Browser Replay' : 'Replay'}
                               </div>
-                              <NeoButton
-                                variant={webSession ? 'secondary' : 'primary'}
-                                size="sm"
-                                onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
-                                className={`w-full justify-center ${isReplayBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                disabled={isReplayBlocked}
-                              >
-                                {isReplayBlocked ? (
-                                  <><Loader size={12} className="animate-spin mr-2" /> Unavailable</>
-                                ) : isLiveIngest ? (
-                                  <><Play size={12} fill="currentColor" className="mr-2" /> Live Replay</>
-                                ) : (
-                                  <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
-                                )}
-                              </NeoButton>
-                              <div className="text-[9px] text-slate-400 font-medium text-center leading-tight">
+
+                              <div className="flex-1 flex flex-col items-center justify-center py-2.5 my-1 w-full">
+                                <div className={`h-11 w-11 rounded-full flex items-center justify-center shadow-sm transition-all duration-300
+                                  ${isReplayBlocked 
+                                    ? 'bg-slate-200 text-slate-400' 
+                                    : webSession
+                                      ? 'bg-cyan-600 text-white group-hover:scale-110 group-hover:bg-cyan-500 group-hover:shadow-md group-hover:shadow-cyan-500/25'
+                                      : 'bg-indigo-600 text-white group-hover:scale-110 group-hover:bg-indigo-500 group-hover:shadow-md group-hover:shadow-indigo-500/25'
+                                  }`}
+                                >
+                                  {isReplayBlocked ? (
+                                    <Loader className="h-5 w-5 animate-spin" />
+                                  ) : (
+                                    <Play className="h-5 w-5 ml-0.5 fill-current" />
+                                  )}
+                                </div>
+                                <span className={`text-[11px] font-black mt-3 transition-colors duration-200 uppercase tracking-wider
+                                  ${isReplayBlocked 
+                                    ? 'text-slate-400' 
+                                    : webSession
+                                      ? 'text-cyan-700 group-hover:text-cyan-900'
+                                      : 'text-indigo-700 group-hover:text-indigo-900'
+                                  }`}
+                                >
+                                  {isReplayBlocked ? 'Unavailable' : isLiveIngest ? 'Live Replay' : 'Open Replay'}
+                                </span>
+                              </div>
+
+                              <div className="text-[10px] text-slate-500 font-semibold text-center leading-tight w-full mt-0.5">
                                 {screensCount} {webSession ? 'page' : 'screen'}{screensCount !== 1 ? 's' : ''}&nbsp;·&nbsp;{Math.floor(session.durationSeconds / 60)}m {session.durationSeconds % 60}s
                               </div>
-                            </div>
+                            </button>
                           </div>
 
                           {/* ── Page Journey ── */}
@@ -1992,9 +2035,9 @@ export const RecordingsList: React.FC = () => {
                             const screens: string[] = (session as any).screensVisited || [];
                             if (screens.length === 0) return null;
                             return (
-                            <div className="border-2 border-black bg-white p-3 shadow-neo-sm">
-                                <div className="flex items-center justify-between mb-2.5">
-                                  <div className="text-[9px] font-black uppercase text-slate-600">Page Journey</div>
+                            <div className="border border-slate-200 bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Page Journey</div>
                                   <div className="text-[9px] font-semibold text-slate-400 uppercase">{screens.length} screen{screens.length !== 1 ? 's' : ''} visited</div>
                                 </div>
                                 <div className="overflow-x-auto no-scrollbar pb-1 pt-3">
@@ -2011,44 +2054,54 @@ export const RecordingsList: React.FC = () => {
                                                 href={getAbsoluteUrl(screen, selectedProject?.webDomain)}
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all hover:bg-slate-100 hover:border-slate-400
+                                                className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-semibold border transition-all duration-200
                                                   ${isEntry
-                                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/80 hover:border-emerald-300'
                                                     : isExit
-                                                    ? 'bg-pink-50 border-pink-300 text-pink-800 hover:bg-pink-100'
-                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                    ? 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100/80 hover:border-rose-300'
+                                                    : 'bg-slate-50 border-slate-200/80 text-slate-700 hover:bg-slate-100/80 hover:border-slate-350'
                                                   }`}
                                                 title={`Visit ${screen}`}
                                               >
-                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-pink-500' : 'bg-slate-300'}`} />
+                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-rose-500' : 'bg-slate-350'}`} />
                                                 <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
                                                 {/* step number badge */}
-                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
-                                                  ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full leading-none text-center shadow-sm border
+                                                  ${isEntry 
+                                                    ? 'bg-emerald-500 text-white border-emerald-400' 
+                                                    : isExit 
+                                                      ? 'bg-rose-500 text-white border-rose-400' 
+                                                      : 'bg-slate-200 text-slate-700 border-slate-300'
+                                                  }`}>
                                                   {idx + 1}
                                                 </span>
                                               </a>
                                             ) : (
                                               <div
-                                                className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all
+                                                className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-semibold border transition-all duration-200
                                                   ${isEntry
                                                     ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                                                     : isExit
-                                                    ? 'bg-pink-50 border-pink-300 text-pink-800'
-                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                    ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                                    : 'bg-slate-50 border-slate-200/80 text-slate-700'
                                                   }`}
                                               >
-                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-pink-500' : 'bg-slate-300'}`} />
+                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-rose-500' : 'bg-slate-350'}`} />
                                                 <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
                                                 {/* step number badge */}
-                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
-                                                  ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full leading-none text-center shadow-sm border
+                                                  ${isEntry 
+                                                    ? 'bg-emerald-500 text-white border-emerald-400' 
+                                                    : isExit 
+                                                      ? 'bg-rose-500 text-white border-rose-400' 
+                                                      : 'bg-slate-200 text-slate-700 border-slate-300'
+                                                  }`}>
                                                   {idx + 1}
                                                 </span>
                                               </div>
                                             )}
-                                            <span className={`text-[8px] font-bold uppercase tracking-wider
-                                              ${isEntry ? 'text-emerald-600' : isExit ? 'text-pink-600' : 'text-transparent'}`}>
+                                            <span className={`text-[9px] font-bold uppercase tracking-wider mt-1
+                                              ${isEntry ? 'text-emerald-600' : isExit ? 'text-rose-600' : 'text-transparent'}`}>
                                               {isEntry ? 'Entry' : isExit ? 'Exit' : 'ー'}
                                             </span>
                                           </div>

@@ -3811,12 +3811,10 @@
   border: 1px solid #d7dce2;
   border-radius: 6px;
   display: inline-flex;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
+  font-size: 0.7rem;
+  font-weight: 600;
   line-height: 1;
   padding: 0.32rem 0.5rem;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -3839,12 +3837,11 @@
   color: #334155;
   display: inline-flex;
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 600;
   gap: 0.35rem;
   height: 2rem;
   justify-content: center;
   padding: 0 0.65rem;
-  text-transform: uppercase;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
@@ -4365,9 +4362,8 @@
   align-items: center;
   color: #334155;
   display: inline-flex;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.74rem;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
 }
@@ -4376,13 +4372,12 @@
   align-items: center;
   display: inline-flex;
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 600;
   gap: 0.35rem;
   height: 2rem;
   justify-content: center;
   min-width: 2.5rem;
   padding: 0 0.75rem;
-  text-transform: uppercase;
   transition: background 140ms ease, color 140ms ease;
 }
 

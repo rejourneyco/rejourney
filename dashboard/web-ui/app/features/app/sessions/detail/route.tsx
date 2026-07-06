@@ -57,7 +57,7 @@ import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
-import { buildCollectedWebMetadata, getWebReferral, getWebUtmAttribution, getAbsoluteUrl } from '~/shared/lib/webAttributionMetadata';
+import { buildCollectedWebMetadata, getWebReferral, getWebUtmAttribution } from '~/shared/lib/webAttributionMetadata';
 import {
     buildCompressedBackgroundGaps,
     compressReplayEvents,
@@ -1364,6 +1364,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const [domCopied, setDomCopied] = useState(false);
     const [metadataCopied, setMetadataCopied] = useState(false);
     const [userIdCopied, setUserIdCopied] = useState(false);
+    const [referralCopied, setReferralCopied] = useState(false);
     const [sessionIdCopied, setSessionIdCopied] = useState(false);
     const [replayUrlCopied, setReplayUrlCopied] = useState(false);
     const [showHeaderDetails, setShowHeaderDetails] = useState(false);
@@ -4249,6 +4250,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         }
     };
 
+    const copyReferral = async () => {
+        if (!webReferral) return;
+        try {
+            await navigator.clipboard.writeText(webReferral);
+            setReferralCopied(true);
+            setTimeout(() => setReferralCopied(false), 2000);
+        } catch {
+            setReferralCopied(false);
+        }
+    };
+
     const copySessionId = async () => {
         if (!id) return;
         try {
@@ -4717,7 +4729,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             aria-label={`Copy session ID: ${id}`}
                                         >
                                             <span>{id || 'Unknown'}</span>
-                                            {sessionIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                            {sessionIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
                                         </button>
                                     </div>
                                 ) : null}
@@ -4733,7 +4745,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 aria-label={`Copy user ID: ${replayUserIdLabel}`}
                                             >
                                                 <span>{replayUserIdShown}</span>
-                                                {userIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                                {userIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
                                             </button>
                                         ) : (
                                             <strong>{replayUserIdShown}</strong>
@@ -4741,26 +4753,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     </div>
                                 ) : null}
                                 {isWebSession && webReferral && (
-                                    <div className="replay-header-detail-row" style={{ alignItems: 'flex-start' }}>
+                                    <div className="replay-header-detail-row">
                                         <span>Referral</span>
-                                        <div className="flex flex-col gap-1 min-w-0">
-                                            {(() => {
-                                                const absoluteUrl = getAbsoluteUrl(webReferral, selectedProject?.webDomain);
-                                                return absoluteUrl ? (
-                                                    <a
-                                                        href={absoluteUrl}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline break-all"
-                                                        title={absoluteUrl}
-                                                    >
-                                                        {webReferral}
-                                                    </a>
-                                                ) : (
-                                                    <strong className="text-[11px] break-all">{webReferral}</strong>
-                                                );
-                                            })()}
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={copyReferral}
+                                            className="replay-header-detail-copy"
+                                            title={`${webReferral} - click to copy`}
+                                            aria-label={`Copy referral URL: ${webReferral}`}
+                                        >
+                                            <span>{webReferral}</span>
+                                            {referralCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
+                                        </button>
                                     </div>
                                 )}
                                 {isWebSession && webUtm && webUtm.hasUtm && (

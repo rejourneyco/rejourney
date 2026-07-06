@@ -44,36 +44,36 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 }
 
 const DemoLiveNotice: React.FC = () => (
-  <div className="relative z-[9] border-b-2 border-black bg-white/95 px-3 py-2 text-slate-700 sm:px-4">
+  <div className="relative z-[9] border-b border-slate-200/50 bg-white/70 backdrop-blur-md px-3 py-2 text-slate-700 sm:px-4 shadow-sm">
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <div className="flex min-w-0 items-center gap-2.5">
         {/* Mobile Menu Toggle button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="flex h-8 w-8 shrink-0 items-center justify-center border-2 border-black bg-white shadow-neo-sm hover:bg-slate-50 md:hidden"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/60 bg-white/60 backdrop-blur-sm shadow-sm transition-all hover:bg-slate-50/80 md:hidden"
           aria-label="Toggle sidebar"
         >
-          <Menu className="h-4 w-4 stroke-[3]" />
+          <Menu className="h-4 w-4 stroke-[2]" />
         </button>
-        <span className="h-2 w-2 shrink-0 bg-emerald-400 ring-2 ring-emerald-100" aria-hidden="true" />
-        <p className="min-w-0 truncate text-xs font-black leading-5 text-slate-800 sm:text-sm uppercase tracking-wide">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse ring-4 ring-emerald-500/20" aria-hidden="true" />
+        <p className="min-w-0 truncate text-xs font-semibold leading-5 text-slate-800 sm:text-sm tracking-wide">
           You're in the live demo.
-          <span className="hidden text-slate-500 sm:inline normal-case font-bold"> Explore freely with sample data.</span>
+          <span className="hidden text-slate-500 sm:inline normal-case font-medium"> Explore freely with sample data.</span>
         </p>
       </div>
       <nav aria-label="Demo quick links" className="flex shrink-0 items-center gap-2">
         <Link
           to="/"
-          className="inline-flex h-8 items-center justify-center gap-1.5 border-2 border-black bg-[#60a5fa] px-3.5 text-xs font-black text-black shadow-neo-sm transition-all hover:bg-[#2563eb] hover:text-white active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/80 px-3.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition-all hover:bg-slate-50 hover:text-slate-900 hover:border-slate-300 active:scale-[0.98]"
         >
-          <ArrowLeft className="h-3.5 w-3.5 stroke-[3]" aria-hidden="true" />
+          <ArrowLeft className="h-3.5 w-3.5 stroke-[2]" aria-hidden="true" />
           <span>Back</span>
         </Link>
         <Link
           to="/login"
-          className="inline-flex h-8 items-center justify-center gap-1.5 border-2 border-black bg-[#86efac] px-4 text-xs font-black text-black shadow-neo-sm transition-all hover:bg-[#10b981] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-4 text-xs font-semibold text-white shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all hover:brightness-105 active:scale-[0.98]"
         >
-          <Rocket className="h-3.5 w-3.5 stroke-[3]" aria-hidden="true" />
+          <Rocket className="h-3.5 w-3.5 stroke-[2]" aria-hidden="true" />
           <span>Get started</span>
         </Link>
       </nav>
