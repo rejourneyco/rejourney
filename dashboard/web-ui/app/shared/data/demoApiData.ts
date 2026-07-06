@@ -1644,7 +1644,7 @@ const buildDemoFullSession = (demoReplayFixture: any) => {
         sdkVersion: demoReplayFixture.deviceInfo.sdkVersion || replayMetadata?.sdkVersion,
         deviceInfo: demoReplayFixture.deviceInfo,
         geoLocation: demoReplayFixture.geoLocation,
-        webReferral: demoReplayFixture.webReferral ?? null,
+        webReferral: (replayMetadata?.metadata?.webReferral as string) || demoReplayFixture.webReferral || null,
         webLandingRoute: demoReplayFixture.webLandingRoute ?? (platform === 'web' ? '/' : null),
         metadata: replayMetadata?.metadata,
         startTime: demoReplayFixture.startTime,

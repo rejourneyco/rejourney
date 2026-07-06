@@ -4740,6 +4740,69 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         )}
                                     </div>
                                 ) : null}
+                                {isWebSession && webReferral && (
+                                    <div className="replay-header-detail-row" style={{ alignItems: 'flex-start' }}>
+                                        <span>Referral</span>
+                                        <div className="flex flex-col gap-1 min-w-0">
+                                            {webReferral.includes('://') || (webReferral.includes('.') && !webReferral.includes(' ')) ? (
+                                                <a
+                                                    href={webReferral}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline break-all"
+                                                    title={webReferral}
+                                                >
+                                                    {webReferral}
+                                                </a>
+                                            ) : (
+                                                <strong className="text-[11px] break-all">{webReferral}</strong>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                {isWebSession && webUtm && webUtm.hasUtm && (
+                                    <div className="replay-header-detail-row" style={{ alignItems: 'flex-start' }}>
+                                        <span>UTM</span>
+                                        <div className="flex flex-col gap-1.5 text-[10px] bg-slate-50 border border-slate-200 rounded-sm p-2 min-w-0">
+                                            {webUtm.source && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">source:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.source}</span>
+                                                </div>
+                                            )}
+                                            {webUtm.medium && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">medium:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.medium}</span>
+                                                </div>
+                                            )}
+                                            {webUtm.campaign && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">campaign:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.campaign}</span>
+                                                </div>
+                                            )}
+                                            {webUtm.term && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">term:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.term}</span>
+                                                </div>
+                                            )}
+                                            {webUtm.content && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">content:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.content}</span>
+                                                </div>
+                                            )}
+                                            {webUtm.campaignId && (
+                                                <div>
+                                                    <span className="font-bold text-slate-400">id:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.campaignId}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -4841,8 +4904,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         </div>
                                                     </div>
                                                     <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
-                                                        {webReferral && <span className="max-w-[8rem] truncate" title={webReferral}>↩ {webReferral}</span>}
-                                                        {webUtm && <span className={`max-w-[8rem] truncate ${webUtm.hasUtm ? '' : 'text-slate-300'}`} title={webUtm.title}>UTM {webUtm.label}</span>}
                                                         <span title="Compressed S3 storage">{compressedStorageLabel}</span>
                                                     </div>
                                                 </div>
@@ -4854,8 +4915,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         <Globe className="h-3 w-3 shrink-0 text-slate-400" />
                                                         <span className="min-w-0 flex-1 truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
                                                         {replayUrlCopyButton}
-                                                        {webReferral && <span className="shrink-0 text-slate-400" title={webReferral}>· ↩ {webReferral}</span>}
-                                                        {webUtm && <span className={`max-w-[8rem] shrink truncate ${webUtm.hasUtm ? 'text-slate-400' : 'text-slate-300'}`} title={webUtm.title}>· UTM {webUtm.label}</span>}
                                                     </div>
                                                     <div className="shrink-0 px-3 text-[9px] font-black uppercase text-slate-400">{compressedStorageLabel}</div>
                                                     <div className="flex shrink-0 items-stretch text-slate-500">
@@ -4876,8 +4935,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         </div>
                                                     </div>
                                                     <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
-                                                        {webReferral && <span className="max-w-[8rem] truncate" title={webReferral}>↩ {webReferral}</span>}
-                                                        {webUtm && <span className={`max-w-[8rem] truncate ${webUtm.hasUtm ? '' : 'text-slate-300'}`} title={webUtm.title}>UTM {webUtm.label}</span>}
                                                         <span>{compressedStorageLabel}</span>
                                                     </div>
                                                 </div>

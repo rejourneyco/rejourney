@@ -1778,34 +1778,91 @@ export const RecordingsList: React.FC = () => {
                                       </span>
                                     </div>
                                     {/* Engagement score */}
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-[10px] text-slate-500 font-semibold uppercase">Engagement</span>
-                                      <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${interactionScore >= 70 ? 'text-black bg-[#86efac]' : interactionScore >= 40 ? 'text-black bg-[#f9a8d4]' : 'text-black bg-[#fecaca]'}`}>
-                                        {interactionScore}/100
-                                      </span>
+                                    <div className="flex flex-col gap-1.5">
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">Engagement</span>
+                                        <span className={`border border-black px-1.5 py-0.5 font-mono text-xs font-black ${interactionScore >= 70 ? 'text-black bg-[#86efac]' : interactionScore >= 40 ? 'text-black bg-[#f9a8d4]' : 'text-black bg-[#fecaca]'}`}>
+                                          {interactionScore}/100
+                                        </span>
+                                      </div>
+                                      {webSession ? (
+                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-1.5">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-slate-500 font-semibold uppercase">Referral</span>
+                                            {webReferral && webReferral !== 'Direct' && webReferral !== 'Direct / none' && (
+                                              <a
+                                                href={webReferral}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-[9px] font-bold text-sky-600 hover:text-sky-800 hover:underline shrink-0"
+                                              >
+                                                Visit Link ↗
+                                              </a>
+                                            )}
+                                          </div>
+                                          <div
+                                            className="min-w-0 break-all text-[10px] font-mono leading-normal text-slate-600 bg-slate-50 p-1.5 border border-black/10 rounded-sm max-h-[80px] overflow-y-auto"
+                                            title={webReferral || 'Direct'}
+                                          >
+                                            {webReferral || 'Direct'}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                      {webSession && webUtm ? (
+                                        <div className="flex flex-col gap-1 border-t border-slate-100 pt-1.5">
+                                          <span className="text-[10px] text-slate-500 font-semibold uppercase">UTM Parameters</span>
+                                          <div
+                                            className={`min-w-0 break-all text-[10px] font-mono leading-normal p-1.5 border rounded-sm max-h-[100px] overflow-y-auto ${
+                                              webUtm.hasUtm ? 'text-slate-700 bg-emerald-50/30 border-emerald-200' : 'text-slate-400 bg-slate-50 border-black/10'
+                                            }`}
+                                            title={webUtm.title || undefined}
+                                          >
+                                            {webUtm.hasUtm ? (
+                                              <div className="space-y-0.5 text-[9px]">
+                                                {webUtm.source && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">source:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.source}</span>
+                                                  </div>
+                                                )}
+                                                {webUtm.medium && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">medium:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.medium}</span>
+                                                  </div>
+                                                )}
+                                                {webUtm.campaign && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">campaign:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.campaign}</span>
+                                                  </div>
+                                                )}
+                                                {webUtm.term && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">term:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.term}</span>
+                                                  </div>
+                                                )}
+                                                {webUtm.content && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">content:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.content}</span>
+                                                  </div>
+                                                )}
+                                                {webUtm.campaignId && (
+                                                  <div>
+                                                    <span className="font-bold text-slate-400">id:</span>{' '}
+                                                    <span className="text-slate-800 font-semibold">{webUtm.campaignId}</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              'No UTM attribution'
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : null}
                                     </div>
-                                    {webSession ? (
-                                      <div className="flex justify-between items-start gap-2">
-                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">Referral</span>
-                                        <span
-                                          className="min-w-0 break-words text-right text-[10px] font-bold uppercase text-slate-600"
-                                          title={webReferral || 'Direct'}
-                                        >
-                                          {webReferralLabel}
-                                        </span>
-                                      </div>
-                                    ) : null}
-                                    {webSession && webUtm ? (
-                                      <div className="flex justify-between items-start gap-2">
-                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">UTM</span>
-                                        <span
-                                          className={`min-w-0 break-words text-right text-[10px] font-bold uppercase ${webUtm.hasUtm ? 'text-slate-700' : 'text-slate-400'}`}
-                                          title={webUtm.title}
-                                        >
-                                          {webUtm.label}
-                                        </span>
-                                      </div>
-                                    ) : null}
                                   </div>
                                 </div>
                               );

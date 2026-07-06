@@ -130,10 +130,15 @@ export default function TermsOfService() {
                                 <strong>GDPR Compliance:</strong> Rejourney is committed to GDPR compliance. We process data within the European Union and act as a Data Processor for the session data you collect.
                             </p>
                             <p className="mt-4">
-                                <strong>Anonymized and Aggregated Studies:</strong> You authorize Rejourney to create and use anonymized, aggregated, or de-identified data derived from Customer Data for product analytics, benchmarking, research, public reports, blog posts, articles, and other publications about usage patterns, performance, reliability, product trends, and similar findings.
+                                <strong>Anonymized and Aggregated Studies, Research Sharing & AI Training:</strong> You grant Rejourney a perpetual, irrevocable, worldwide, royalty-free license to create, use, and share fully anonymized, aggregated, or de-identified datasets derived from Customer Data and service telemetry. You agree that Rejourney may:
                             </p>
+                            <ul className="list-disc list-inside space-y-1 ml-4 mt-2">
+                                <li>Use these anonymized and de-identified datasets for academic and industrial research purposes, and share such datasets with trusted research partners and institutions.</li>
+                                <li>Use such anonymized, aggregated, and de-identified datasets to train, develop, and improve our artificial intelligence (AI), machine learning models, algorithms, and automated product features.</li>
+                                <li>Study usage patterns, performance, reliability, product trends, and publish articles, reports, benchmarks, or other publications based on these aggregated findings.</li>
+                            </ul>
                             <p className="mt-2">
-                                We will not publish raw session recordings, personal data, customer confidential information, or statistics that reasonably identify a specific customer, application, or end user without permission. Pseudonymized data is treated as personal data unless and until it has been rendered anonymous.
+                                We will never share or use raw session recordings, unmasked personal data (PII), customer confidential information, or information that could reasonably identify or single out a specific customer, application, or end-user for research or AI training purposes. All personal identifiers are fully masked, hashed, or permanently stripped prior to any processing under this section.
                             </p>
                             <p className="mt-2 text-muted-foreground italic">
                                 Note: Session recordings are retained for 7 days by default, after which they are automatically deleted unless you have a paid subscription.

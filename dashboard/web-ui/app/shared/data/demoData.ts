@@ -157,6 +157,11 @@ const demoReplaySessionMetadataById: Record<string, DemoReplaySessionMetadata> =
             os: 'macOS',
             osVersion: '26.5.0',
             userAgent: webDemoReplayFixture.deviceInfo.userAgent,
+            webReferral: 'https://www.reddit.com/r/webdev/comments/1eg9z1/check_out_rejourney_the_ultimate_session_replay_tool?utm_source=reddit&utm_medium=ads&utm_campaign=rejourney-launch&utm_content=classic-ad',
+            utm_source: 'reddit',
+            utm_medium: 'ads',
+            utm_campaign: 'rejourney-launch',
+            utm_content: 'classic-ad',
         },
     },
     [frankfurtDemoReplayFixture.sessionId]: {
@@ -233,7 +238,7 @@ const buildRecordedDemoSession = (
         sdkVersion: fixture.deviceInfo.sdkVersion || replayMetadata?.sdkVersion,
         deviceModel: fixture.deviceInfo.model || 'Unknown device',
         osVersion: fixture.deviceInfo.osVersion || 'Unknown',
-        webReferral: fixture.webReferral ?? null,
+        webReferral: (replayMetadata?.metadata?.webReferral as string) || fixture.webReferral || null,
         webLandingRoute: fixture.webLandingRoute ?? (platform === 'web' ? '/' : null),
         metadata: replayMetadata?.metadata,
         userId: (

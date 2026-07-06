@@ -143,12 +143,18 @@ export default function PrivacyPolicy() {
                                 <strong>Backups:</strong> Encrypted backups are retained for up to 90 days for disaster recovery.
                             </p>
 
-                            <h3 id="research" className="text-base font-semibold mt-6 mb-2">7. Anonymized Studies & Public Reports</h3>
+                            <h3 id="research" className="text-base font-semibold mt-6 mb-2">7. Anonymized Studies, Research Sharing & AI Training</h3>
                             <p>
-                                We may analyze Customer Data and service telemetry to create anonymized, aggregated, or de-identified datasets. We may use those datasets to study usage patterns, performance, reliability, product friction, adoption trends, and other findings, and we may publish articles, reports, benchmarks, or similar public materials based on those findings.
+                                We may analyze, process, and compile Customer Data and service telemetry to create fully anonymized, aggregated, or de-identified datasets. We may share these fully anonymous, non-personally identifiable (PII masked) datasets with trusted third-party research institutions or partners for academic and industrial research purposes.
                             </p>
                             <p className="mt-2">
-                                Public materials will not include raw session recordings, screenshots, request payloads, personal data, customer confidential information, or information that reasonably identifies or singles out a particular customer, application, or end-user unless we have separate permission.
+                                Additionally, we may use such fully anonymous, aggregated, and de-identified data for the purposes of training, developing, and improving our artificial intelligence (AI), machine learning models, and automated features.
+                            </p>
+                            <p className="mt-2">
+                                Prior to any sharing or training use, we apply rigorous privacy-preserving techniques to ensure all Personally Identifiable Information (PII) is permanently stripped or masked, and the data is rendered fully anonymous so that individual users, customer organizations, or apps cannot be re-identified under any circumstances. Once data is fully anonymized, it no longer constitutes "personal data" under the GDPR and other applicable global data privacy regulations.
+                            </p>
+                            <p className="mt-2">
+                                Shared research datasets and model training will never include raw session recordings, screenshots, request payloads, unmasked personal data, customer confidential information, or information that could reasonably identify or single out a particular customer, application, or end-user.
                             </p>
                             <p className="mt-2">
                                 Under GDPR, pseudonymized data remains personal data when it can be attributed to an individual using additional information. We treat pseudonymized data as personal data unless and until it has been rendered anonymous so that the individual is not or no longer identifiable by means reasonably likely to be used.

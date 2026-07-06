@@ -78,6 +78,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   growth: 'Rank conversion leaks as traffic scales',
   pro: 'For high-volume product and checkout flows',
   scale: 'High-scale funnels with high-intent capture',
+  enterprise: 'Custom captured-session volume & dedicated hardware',
 };
 
 const PLAN_ACCENT_COLORS: Record<string, string> = {
@@ -86,6 +87,7 @@ const PLAN_ACCENT_COLORS: Record<string, string> = {
   growth: '#188038',
   pro: '#9334e6',
   scale: '#0f766e',
+  enterprise: '#8b5cf6',
 };
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
@@ -770,12 +772,25 @@ export const BillingSettings: React.FC = () => {
     );
   }
 
-  const plansForDisplay: BillingPlan[] = availablePlans.length > 0 ? availablePlans : [
+  const basePlans = availablePlans.length > 0 ? availablePlans : [
     { name: 'free', displayName: 'Free', sessionLimit: 5000, videoRetentionTier: 1, videoRetentionDays: 7, videoRetentionLabel: '7 days', priceCents: 0 },
     { name: 'starter', displayName: 'Starter', sessionLimit: 25000, videoRetentionTier: 2, videoRetentionDays: 14, videoRetentionLabel: '14 days', priceCents: 500 },
     { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500 },
     { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500 },
     { name: 'scale', displayName: 'Scale', sessionLimit: 1000000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 14900, smartCaptureEnabled: true },
+  ];
+  const plansForDisplay: BillingPlan[] = [
+    ...basePlans,
+    ...(!basePlans.some(p => p.name === 'enterprise') ? [{
+      name: 'enterprise',
+      displayName: 'Enterprise',
+      sessionLimit: 10000000,
+      videoRetentionTier: 5,
+      videoRetentionDays: 90,
+      videoRetentionLabel: 'Custom',
+      priceCents: -1,
+      isCustom: true
+    }] : [])
   ];
   const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
   const currentPlanDisplay = teamPlan?.displayName || teamPlan?.planName || 'Free';
@@ -1013,7 +1028,7 @@ export const BillingSettings: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5 relative z-10 pb-12">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 relative z-10 pb-12">
         {plansForDisplay.map((plan) => {
           const isCurrentPlan = currentPlanName === plan.name;
           const currentPlanIndex = plansForDisplay.findIndex(p => p.name === currentPlanName);
@@ -1023,7 +1038,7 @@ export const BillingSettings: React.FC = () => {
           const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
           const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
           const price = plan.priceCents / 100;
-          const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale');
+          const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale' || plan.name === 'enterprise');
           const actionLabel = isSavingPlan
             ? '...'
             : isDowngrade
@@ -1035,24 +1050,30 @@ export const BillingSettings: React.FC = () => {
           const planName = plan.name.toLowerCase().trim();
           const isFeatured = planName === 'growth';
           const isScale = planName === 'scale';
+          const isEnterprise = planName === 'enterprise';
 
           const cardClassName = isCurrentPlan
             ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/15 backdrop-blur-md shadow-md hover:-translate-y-1.5 hover:shadow-lg'
             : isFreePlanDisabled || isScheduledPlan
               ? 'border-slate-100 bg-slate-50/40 opacity-70 shadow-none'
-              : isFeatured
-                ? 'border-indigo-500 ring-1 ring-indigo-500/40 bg-indigo-50/10 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5'
-                : 'border-slate-200/80 bg-white/75 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
+              : isEnterprise
+                ? 'border-purple-500/40 bg-gradient-to-b from-purple-50/50 via-indigo-50/50 to-white/70 shadow-sm hover:shadow-lg hover:-translate-y-1.5'
+                : isScale
+                  ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-sm hover:shadow-lg hover:-translate-y-1.5'
+                  : isFeatured
+                    ? 'border-indigo-500 ring-1 ring-indigo-500/40 bg-indigo-50/10 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5'
+                    : 'border-slate-200/80 bg-white/75 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
 
-          const buttonVariant = isCurrentPlan || isFeatured || isScale ? 'primary' : 'secondary';
+          const buttonVariant = isCurrentPlan || isFeatured || isScale || isEnterprise ? 'primary' : 'secondary';
 
           return (
             <div
               key={plan.name}
-              className={`relative flex flex-col justify-between overflow-hidden border rounded-2xl p-5 transition-all duration-300 ${cardClassName}`}
+              className={`relative flex flex-col justify-between overflow-hidden border rounded-2xl p-5 transition-all duration-300 min-h-[660px] ${cardClassName}`}
               style={{ '--plan-accent': PLAN_ACCENT_COLORS[plan.name] ?? '#1a73e8' } as React.CSSProperties}
             >
               {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-650" aria-hidden />}
+              {isEnterprise && <div className="absolute inset-x-0 top-0 h-1.5 bg-purple-650" aria-hidden />}
               
               <div>
                 <div className="flex min-h-[2.5rem] items-start justify-between gap-3">
@@ -1065,19 +1086,30 @@ export const BillingSettings: React.FC = () => {
                 </div>
 
                 <div className="my-4 flex items-end gap-x-1">
-                  <span className="text-2xl font-bold tracking-tight text-slate-950">{price === 0 ? 'Free' : `$${price}`}</span>
-                  {price > 0 && <span className="pb-0.5 text-xs font-semibold text-slate-500">/mo</span>}
+                  <span className="text-2xl font-bold tracking-tight text-slate-950">
+                    {isEnterprise ? 'Custom' : price === 0 ? 'Free' : `$${price}`}
+                  </span>
+                  {price > 0 && !isEnterprise && <span className="pb-0.5 text-xs font-semibold text-slate-500">/mo</span>}
                 </div>
 
                 <div className="mb-5 border-t border-slate-150/40 pt-4 space-y-4">
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue evidence</p>
-                    <PlanCheck>{plan.sessionLimit.toLocaleString()} session replays/mo included</PlanCheck>
-                    <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
-                      <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />
+                    <PlanCheck>Boost Web & Mobile Conversion, Checkout, and Subscription</PlanCheck>
+                    <PlanCheck>
+                      {isEnterprise
+                        ? 'Custom session replays/mo'
+                        : `${plan.sessionLimit.toLocaleString()} session replays/mo included`}
+                    </PlanCheck>
+                    <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
+                      {isEnterprise
+                        ? 'Custom conversion history retention'
+                        : <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />}
                     </PlanCheck>
                     <PlanCheck tone={hasSmartCapture ? 'check' : 'minus'}>
-                      {captureControlLabel(hasSmartCapture)}
+                      {isEnterprise
+                        ? 'Smart Capture custom rules included'
+                        : captureControlLabel(hasSmartCapture)}
                     </PlanCheck>
                   </div>
 
@@ -1090,17 +1122,27 @@ export const BillingSettings: React.FC = () => {
 
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fix workflow</p>
+                    <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
+                      {isEnterprise ? (
+                        <span>AI Leak Detection: Custom volume</span>
+                      ) : (
+                        <span>AI Leak Detection: <AiLeakUpgradeLabel planName={planName} sessions={plan.sessionLimit.toLocaleString()} /></span>
+                      )}
+                    </PlanCheck>
+                    <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
+                      {isEnterprise ? (
+                        <span>Custom volume of conversion-critical fixes</span>
+                      ) : (
+                        <FixWorkflowCoverage
+                          planName={planName}
+                          sessions={plan.sessionLimit.toLocaleString()}
+                          retention={plan.videoRetentionLabel}
+                        />
+                      )}
+                    </PlanCheck>
                     <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
-                      AI Leak Detection: <AiLeakUpgradeLabel planName={planName} sessions={plan.sessionLimit.toLocaleString()} />
+                      {isLowAiLeakCoverage(planName) ? 'Limited ' : ''}AI Query Builder searches users, events, errors, devices, and metadata in that window
                     </PlanCheck>
-                    <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
-                      <FixWorkflowCoverage
-                        planName={planName}
-                        sessions={plan.sessionLimit.toLocaleString()}
-                        retention={plan.videoRetentionLabel}
-                      />
-                    </PlanCheck>
-                    <PlanCheck>AI Query Builder searches users, events, errors, devices, and metadata in that window</PlanCheck>
                     <PlanCheck>Heatmaps, journeys, crash/API, device, and geo context</PlanCheck>
                   </div>
                 </div>
@@ -1115,6 +1157,13 @@ export const BillingSettings: React.FC = () => {
                   <div className="rounded-md border border-rose-200 bg-rose-50/80 backdrop-blur-sm px-3 py-2 text-center text-sm font-semibold text-rose-700">
                     Already scheduled
                   </div>
+                ) : isEnterprise ? (
+                  <a
+                    href="mailto:contact@rejourney.co?subject=Enterprise%20Plan%20Inquiry"
+                    className="flex h-10 w-full items-center justify-center rounded-md bg-purple-650 text-white font-semibold shadow-sm hover:bg-purple-700 text-sm transition"
+                  >
+                    Contact Sales
+                  </a>
                 ) : isBillingAdmin ? (
                   <NeoButton
                     variant={buttonVariant}

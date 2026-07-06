@@ -10,7 +10,7 @@ import { DashboardManualRefreshProvider } from '~/shared/providers/DashboardManu
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE } from '~/shared/constants/events';
 import { trackRejourneyDashboardContext } from '~/shared/compliance/rejourneyWebsiteTelemetry';
 import { isSetupSupportRoute } from '~/features/app/setup/setupUtils';
-import { Home, Rocket } from 'lucide-react';
+import { Home, Rocket, ArrowLeft, Menu } from 'lucide-react';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -44,28 +44,36 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 }
 
 const DemoLiveNotice: React.FC = () => (
-  <div className="relative z-[9] border-b border-slate-200 bg-white/95 px-2.5 py-1.5 text-slate-700 sm:px-3">
-    <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-      <div className="flex min-w-0 items-center gap-2">
+  <div className="relative z-[9] border-b-2 border-black bg-white/95 px-3 py-2 text-slate-700 sm:px-4">
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <div className="flex min-w-0 items-center gap-2.5">
+        {/* Mobile Menu Toggle button */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
+          className="flex h-8 w-8 shrink-0 items-center justify-center border-2 border-black bg-white shadow-neo-sm hover:bg-slate-50 md:hidden"
+          aria-label="Toggle sidebar"
+        >
+          <Menu className="h-4 w-4 stroke-[3]" />
+        </button>
         <span className="h-2 w-2 shrink-0 bg-emerald-400 ring-2 ring-emerald-100" aria-hidden="true" />
-        <p className="min-w-0 truncate text-xs font-semibold leading-5 text-slate-700 sm:text-sm">
+        <p className="min-w-0 truncate text-xs font-black leading-5 text-slate-800 sm:text-sm uppercase tracking-wide">
           You're in the live demo.
-          <span className="hidden text-slate-500 sm:inline"> Explore freely with sample data.</span>
+          <span className="hidden text-slate-500 sm:inline normal-case font-bold"> Explore freely with sample data.</span>
         </p>
       </div>
-      <nav aria-label="Demo quick links" className="flex shrink-0 items-center gap-1.5">
+      <nav aria-label="Demo quick links" className="flex shrink-0 items-center gap-2">
         <Link
           to="/"
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-cyan-200 bg-cyan-50 px-2.5 text-xs font-bold text-slate-800 shadow-sm transition-colors hover:border-cyan-300 hover:bg-cyan-100"
+          className="inline-flex h-8 items-center justify-center gap-1.5 border-2 border-black bg-[#60a5fa] px-3.5 text-xs font-black text-black shadow-neo-sm transition-all hover:bg-[#2563eb] hover:text-white active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
         >
-          <Home className="h-3.5 w-3.5 stroke-[2.6]" aria-hidden="true" />
-          <span>Home</span>
+          <ArrowLeft className="h-3.5 w-3.5 stroke-[3]" aria-hidden="true" />
+          <span>Back</span>
         </Link>
         <Link
           to="/login"
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-300 bg-emerald-300 px-2.5 text-xs font-bold text-emerald-950 shadow-sm transition-colors hover:border-emerald-400 hover:bg-emerald-200"
+          className="inline-flex h-8 items-center justify-center gap-1.5 border-2 border-black bg-[#86efac] px-4 text-xs font-black text-black shadow-neo-sm transition-all hover:bg-[#10b981] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
         >
-          <Rocket className="h-3.5 w-3.5 stroke-[2.6]" aria-hidden="true" />
+          <Rocket className="h-3.5 w-3.5 stroke-[3]" aria-hidden="true" />
           <span>Get started</span>
         </Link>
       </nav>
@@ -201,7 +209,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         />
       </div>
       <div key={contentScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--dashboard-canvas)]">
-        <TopBar currentProject={selectedProject} hideDemoHomeLink={isDemoLayout} />
+        {!isDemoLayout && <TopBar currentProject={selectedProject} hideDemoHomeLink={isDemoLayout} />}
         {isDemoLayout && <DemoLiveNotice />}
         {projectsError && (
           <div className="mx-4 mt-4 border-2 border-black bg-[#f9a8d4] px-4 py-3 text-sm font-extrabold text-black shadow-neo-sm sm:mx-6">

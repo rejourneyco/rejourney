@@ -199,15 +199,93 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             let ring1: Mesh | null = null;
             let ring2: Mesh | null = null;
 
-            if (isHero || isIcosahedron) {
+            const sparseMeshes: Array<{
+                mesh: Mesh;
+                baseX: number;
+                baseY: number;
+                baseZ: number;
+                drift: number;
+                phase: number;
+                speed: number;
+                spin: number;
+            }> = [];
+
+            if (variant === 'hero') {
+                const createWireMaterial = (color: number, opacity: number) => register(new THREE.MeshBasicMaterial({
+                    color,
+                    wireframe: true,
+                    transparent: true,
+                    opacity,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                }));
+
+                const addSparseMesh = (mesh: Mesh, x: number, y: number, z: number, scale: number) => {
+                    mesh.position.set(x, y, z);
+                    mesh.rotation.set(random() * Math.PI, random() * Math.PI, random() * Math.PI);
+                    mesh.scale.setScalar(scale);
+                    root.add(mesh);
+                    sparseMeshes.push({
+                        mesh,
+                        baseX: x,
+                        baseY: y,
+                        baseZ: z,
+                        drift: 0.15 + random() * 0.3,
+                        phase: random() * Math.PI * 2,
+                        speed: 0.08 + random() * 0.12,
+                        spin: 0.2 + random() * 0.4,
+                    });
+                };
+
+                addSparseMesh(
+                    new THREE.Mesh(
+                        register(new THREE.SphereGeometry(0.9, 16, 12)),
+                        createWireMaterial(0x38bdf8, 0.25),
+                    ),
+                    -4.8,
+                    2.0,
+                    -1.5,
+                    0.9,
+                );
+                addSparseMesh(
+                    new THREE.Mesh(
+                        register(new THREE.IcosahedronGeometry(0.85, 1)),
+                        createWireMaterial(0x6366f1, 0.22),
+                    ),
+                    4.8,
+                    1.2,
+                    -2.0,
+                    0.85,
+                );
+                addSparseMesh(
+                    new THREE.Mesh(
+                        register(new THREE.TorusGeometry(0.75, 0.2, 8, 32)),
+                        createWireMaterial(0xa78bfa, 0.2),
+                    ),
+                    -4.5,
+                    -2.2,
+                    -1.2,
+                    0.85,
+                );
+                addSparseMesh(
+                    new THREE.Mesh(
+                        register(new THREE.DodecahedronGeometry(0.8, 1)),
+                        createWireMaterial(0xf472b6, 0.18),
+                    ),
+                    4.5,
+                    -1.8,
+                    -1.5,
+                    0.8,
+                );
+            }
+
+            if (isIcosahedron) {
                  // Create the main abstract 3D shape
-                 const knotGeometry = isIcosahedron
-                     ? register(new THREE.IcosahedronGeometry(1.4, 0)) // Faceted glass gem!
-                     : register(new THREE.TorusKnotGeometry(1.6, 0.45, 280, 24, 2, 3));
+                 const knotGeometry = register(new THREE.IcosahedronGeometry(1.4, 0)); // Faceted glass gem!
 
                  const knotMaterial = register(new THREE.MeshPhysicalMaterial({
-                     color: isIcosahedron ? 0x6366f1 : 0x38bdf8, // Indigo for gem, cyan/sky-blue for torus knot
-                     metalness: isIcosahedron ? 0.05 : 0.2, // Lower metalness for clear crystal glass
+                     color: 0x6366f1, // Indigo for gem
+                     metalness: 0.05, // Lower metalness for clear crystal glass
                      roughness: 0.05, // Glossy surface
                      clearcoat: 1.0,
                      clearcoatRoughness: 0.05,
@@ -216,7 +294,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                      ior: 1.55,
                      transparent: true,
                      opacity: 0.9,
-                     depthWrite: isIcosahedron ? true : false,
+                     depthWrite: true,
                  }));
 
                  knotMesh = new THREE.Mesh(knotGeometry, knotMaterial);
@@ -224,10 +302,10 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
 
                  // Add a holographic glowing wireframe overlay for sharp faceted outlines
                  const wireframeMaterial = register(new THREE.MeshBasicMaterial({
-                     color: isIcosahedron ? 0x818cf8 : 0x38bdf8, // Indigo glow or cyan glow
+                     color: 0x818cf8, // Indigo glow
                      wireframe: true,
                      transparent: true,
-                     opacity: isIcosahedron ? 0.35 : 0.18,
+                     opacity: 0.35,
                      blending: THREE.AdditiveBlending,
                      depthWrite: false,
                  }));
@@ -238,7 +316,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
 
                  // Add thin glowing wireframe orbit rings for extra detail
                  const ringMaterial = register(new THREE.MeshBasicMaterial({
-                     color: isIcosahedron ? 0x6366f1 : 0x38bdf8,
+                     color: 0x6366f1,
                      wireframe: true,
                      transparent: true,
                      opacity: 0.18,
@@ -334,14 +412,25 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 lastTime = totalTime;
 
                 // Rotate knot and background groups
-                 if ((isHero || isIcosahedron) && knotMesh && ring1 && ring2) {
-                     knotMesh.rotation.x = elapsed * 0.15;
-                     knotMesh.rotation.y = elapsed * 0.2;
-                     knotMesh.rotation.z = elapsed * 0.08;
+                  if (isIcosahedron && knotMesh && ring1 && ring2) {
+                      knotMesh.rotation.x = elapsed * 0.15;
+                      knotMesh.rotation.y = elapsed * 0.2;
+                      knotMesh.rotation.z = elapsed * 0.08;
 
-                     ring1.rotation.z = -elapsed * 0.12;
-                     ring2.rotation.z = elapsed * 0.08;
-                 }
+                      ring1.rotation.z = -elapsed * 0.12;
+                      ring2.rotation.z = elapsed * 0.08;
+                  }
+
+                  if (variant === 'hero' && sparseMeshes.length) {
+                      sparseMeshes.forEach((shape, index) => {
+                          const pulse = elapsed * shape.speed + shape.phase;
+                          shape.mesh.position.x = shape.baseX + Math.sin(pulse) * shape.drift;
+                          shape.mesh.position.y = shape.baseY + Math.cos(pulse * 0.8 + index) * shape.drift * 0.7;
+                          shape.mesh.position.z = shape.baseZ + Math.sin(pulse * 0.6) * shape.drift * 0.4;
+                          shape.mesh.rotation.x += 0.003 * shape.spin;
+                          shape.mesh.rotation.y += 0.004 * shape.spin;
+                      });
+                  }
 
                 root.rotation.y = Math.sin(elapsed * 0.1) * 0.05;
 
@@ -372,10 +461,10 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 starPosAttr.needsUpdate = true;
 
                  // Dynamic scale pulsing on the knot to make it feel organic and alive
-                 if ((isHero || isIcosahedron) && knotMesh && !reducedMotion) {
-                     const scalePulse = 1.0 + Math.sin(elapsed * 0.8) * 0.03;
-                     knotMesh.scale.set(scalePulse, scalePulse, scalePulse);
-                 }
+                  if (isIcosahedron && knotMesh && !reducedMotion) {
+                      const scalePulse = 1.0 + Math.sin(elapsed * 0.8) * 0.03;
+                      knotMesh.scale.set(scalePulse, scalePulse, scalePulse);
+                  }
 
                 renderer.render(scene, camera);
 

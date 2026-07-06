@@ -17,9 +17,10 @@ const FALLBACK_PLANS: PricingPlan[] = [
     { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500, interval: 'month' },
     { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500, interval: 'month' },
     { name: 'scale', displayName: 'Scale', sessionLimit: 1000000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 14900, interval: 'month', smartCaptureEnabled: true },
+    { name: 'enterprise', displayName: 'Enterprise', sessionLimit: 10000000, videoRetentionTier: 5, videoRetentionDays: 90, videoRetentionLabel: 'Custom', priceCents: -1, interval: 'month', isCustom: true },
 ];
 
-const PLAN_ORDER = ['free', 'starter', 'growth', 'pro', 'scale'];
+const PLAN_ORDER = ['free', 'starter', 'growth', 'pro', 'scale', 'enterprise'];
 
 const VOLUME_PRESETS = [
     { label: '5k', sessions: 5000 },
@@ -50,6 +51,7 @@ const formatShortInteger = (value: number) => {
 };
 
 const formatPlanPrice = (priceCents: number) => {
+    if (priceCents < 0) return 'Custom';
     const price = priceCents / 100;
     if (price === 0) return '$0';
     return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`;
@@ -64,7 +66,7 @@ const formatCurrency = (value: number, maximumFractionDigits = 0) =>
 
 const getOrderedPlans = (availablePlans: PricingPlan[]) => {
     const source = availablePlans.length > 0 ? availablePlans : FALLBACK_PLANS;
-    const selectablePlans = source.filter((plan) => !plan.isCustom);
+    const selectablePlans = source.filter((plan) => !plan.isCustom || plan.name === 'enterprise');
 
     return PLAN_ORDER.map((planName) => {
         const matchingPlans = selectablePlans.filter((plan) => normalizePlanName(plan) === planName);
@@ -80,7 +82,7 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
     if (sessions <= 100000) return { price: 15, plan: 'Growth', isCustom: false };
     if (sessions <= 350000) return { price: 35, plan: 'Pro', isCustom: false };
     if (sessions <= 1000000) return { price: 149, plan: 'Scale', isCustom: false };
-    return { price: 149, plan: 'Custom', isCustom: true };
+    return { price: 149, plan: 'Enterprise', isCustom: true };
 };
 
 const ROI_LIFT_PRESETS = [
@@ -424,60 +426,40 @@ export const PricingTable: React.FC = () => {
                 </div>
 
                 <div className="relative z-10">
-                    <div className="mb-5 flex items-center justify-end gap-2">
-                        <button
-                            type="button"
-                            onClick={() => scrollPlansRail(-1)}
-                            disabled={!plansRailState.canScrollPrev}
-                            className="flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-650 rounded-full shadow-sm hover:border-slate-350 hover:bg-slate-50 transition disabled:opacity-35"
-                            aria-label="Show previous pricing plans"
-                            title="Previous plans"
-                        >
-                            <ChevronLeft className="h-4 w-4" aria-hidden />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => scrollPlansRail(1)}
-                            disabled={!plansRailState.canScrollNext}
-                            className="flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-650 rounded-full shadow-sm hover:border-slate-350 hover:bg-slate-50 transition disabled:opacity-35"
-                            aria-label="Show more pricing plans"
-                            title="More plans"
-                        >
-                            <ChevronRight className="h-4 w-4" aria-hidden />
-                        </button>
-                    </div>
-
-                    <div
-                        ref={plansRailRef}
-                        className="pricing-plan-rail -mx-5 flex snap-x snap-mandatory gap-5 overflow-x-auto px-5 pb-6 pt-4 sm:-mx-8 sm:px-8 lg:-mx-10 lg:px-10"
-                    >
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:gap-8 pt-4 pb-12">
                         {plans.map((plan) => {
                             const planName = normalizePlanName(plan);
                             const description = copy.planDescriptions[planName] ?? copy.planDescriptions.fallback;
                             const isFeatured = planName === 'growth';
                             const isScale = planName === 'scale';
+                            const isEnterprise = planName === 'enterprise';
                             const isFree = plan.priceCents === 0;
-                            const priceSuffix = isFree ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
-                            const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale');
+                            const priceSuffix = isFree || isEnterprise ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
+                            const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale' || isEnterprise);
 
-                            const cardClassName = isScale
-                                ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
-                                : isFeatured
-                                    ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-50/20 backdrop-blur-md shadow-md shadow-indigo-100/10 hover:shadow-lg hover:-translate-y-1.5'
-                                    : 'border-slate-200/80 bg-white/70 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
+                            const cardClassName = isEnterprise
+                                ? 'border-purple-500/40 bg-gradient-to-b from-purple-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
+                                : isScale
+                                    ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
+                                    : isFeatured
+                                        ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-50/20 backdrop-blur-md shadow-md shadow-indigo-100/10 hover:shadow-lg hover:-translate-y-1.5'
+                                        : 'border-slate-200/80 bg-white/70 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
 
-                            const buttonClassName = isScale
-                                ? 'bg-blue-600 text-white ring-1 ring-blue-500/20 shadow-blue-200/70 hover:bg-blue-700 focus:ring-blue-600'
-                                : isFeatured
-                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-600'
-                                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 focus:ring-indigo-600';
+                            const buttonClassName = isEnterprise
+                                ? 'bg-purple-600 text-white ring-1 ring-purple-500/20 shadow-purple-200/70 hover:bg-purple-700 focus:ring-purple-600 animate-pulse-subtle'
+                                : isScale
+                                    ? 'bg-blue-600 text-white ring-1 ring-blue-500/20 shadow-blue-200/70 hover:bg-blue-700 focus:ring-blue-600'
+                                    : isFeatured
+                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-600'
+                                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 focus:ring-indigo-600';
 
                             return (
                                 <article
                                     key={`${plan.name}-${plan.priceCents}`}
-                                    className={`relative flex min-h-[660px] w-[82vw] max-w-[390px] shrink-0 snap-start flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:w-[360px] sm:p-7 lg:w-[340px] xl:w-[360px] ${cardClassName}`}
+                                    className={`relative flex min-h-[680px] flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:p-7 ${cardClassName}`}
                                 >
                                     {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-600" aria-hidden />}
+                                    {isEnterprise && <div className="absolute inset-x-0 top-0 h-1.5 bg-purple-600" aria-hidden />}
 
                                     <div>
                                         <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
@@ -499,12 +481,21 @@ export const PricingTable: React.FC = () => {
 
                                     <div className="mt-7 flex-1 space-y-5">
                                         <PlanGroup title="Revenue evidence">
-                                            <PlanCheck>{formatInteger(plan.sessionLimit, locale.languageTag)} session replays/month included</PlanCheck>
-                                            <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
-                                                <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />
+                                            <PlanCheck>Boost Web & Mobile Conversion, Checkout, and Subscription</PlanCheck>
+                                            <PlanCheck>
+                                                {isEnterprise
+                                                    ? 'Custom session replays/month'
+                                                    : `${formatInteger(plan.sessionLimit, locale.languageTag)} session replays/month included`}
+                                            </PlanCheck>
+                                            <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
+                                                {isEnterprise
+                                                    ? 'Custom conversion evidence history'
+                                                    : <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />}
                                             </PlanCheck>
                                             <PlanCheck tone={smartCaptureEnabled ? 'check' : 'minus'}>
-                                                {captureControlLabel(smartCaptureEnabled)}
+                                                {isEnterprise
+                                                    ? 'Smart Capture custom rules included'
+                                                    : captureControlLabel(smartCaptureEnabled)}
                                             </PlanCheck>
                                         </PlanGroup>
 
@@ -515,65 +506,61 @@ export const PricingTable: React.FC = () => {
                                         </PlanGroup>
 
                                         <PlanGroup title="Fix workflow">
-                                            <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
+                                            <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
                                                 <span className="inline-flex flex-wrap items-center gap-2">
                                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
                                                         + AI Leak Detection
                                                     </span>
-                                                    <span><AiLeakUpgradeLabel planName={planName} sessions={formatInteger(plan.sessionLimit, locale.languageTag)} /></span>
+                                                    <span>
+                                                        {isEnterprise
+                                                            ? 'Custom volume conversion journeys'
+                                                            : <AiLeakUpgradeLabel planName={planName} sessions={formatInteger(plan.sessionLimit, locale.languageTag)} />}
+                                                    </span>
                                                 </span>
                                             </PlanCheck>
-                                            <PlanCheck tone={isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check'}>
-                                                <FixWorkflowCoverage
-                                                    planName={planName}
-                                                    sessions={formatInteger(plan.sessionLimit, locale.languageTag)}
-                                                    retention={plan.videoRetentionLabel}
-                                                />
+                                            <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
+                                                {isEnterprise ? (
+                                                    <span>Custom volume of conversion-critical fixes</span>
+                                                ) : (
+                                                    <FixWorkflowCoverage
+                                                        planName={planName}
+                                                        sessions={formatInteger(plan.sessionLimit, locale.languageTag)}
+                                                        retention={plan.videoRetentionLabel}
+                                                    />
+                                                )}
                                             </PlanCheck>
-                                            <PlanCheck>AI Query Builder searches users, events, errors, devices, and metadata in that window</PlanCheck>
+                                            <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
+                                                {isLowAiLeakCoverage(planName) ? 'Limited ' : ''}AI Query Builder searches users, events, errors, devices, and metadata in that window
+                                            </PlanCheck>
                                             <PlanCheck>Crash, API, ANR, Device, Geo fixes</PlanCheck>
                                         </PlanGroup>
                                     </div>
 
                                     <div className="mt-8 pt-2">
-                                        <Link
-                                            to="/login"
-                                            className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
-                                            style={{ WebkitTapHighlightColor: 'transparent' }}
-                                        >
-                                            {isFree ? copy.startFree : copy.getStarted}
-                                            <ArrowRight className="h-4 w-4" aria-hidden />
-                                        </Link>
+                                        {isEnterprise ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleCopyEmail}
+                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                            >
+                                                {contactCopied ? copy.copied : 'Contact Sales'}
+                                                <ArrowRight className="h-4 w-4" aria-hidden />
+                                            </button>
+                                        ) : (
+                                            <Link
+                                                to="/login"
+                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                            >
+                                                {isFree ? copy.startFree : copy.getStarted}
+                                                <ArrowRight className="h-4 w-4" aria-hidden />
+                                            </Link>
+                                        )}
                                     </div>
                                 </article>
                             );
                         })}
-                    </div>
-
-                    <div className="relative z-10 mt-8 overflow-hidden border border-slate-200 bg-white/65 backdrop-blur-md p-6 rounded-2xl shadow-sm sm:p-8 md:flex md:items-center md:justify-between md:gap-8 hover:border-indigo-200 transition-all duration-300">
-                        <div className="relative max-w-2xl">
-                            <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.enterpriseEyebrow}</p>
-                            <h2 className="mt-2.5 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{copy.enterpriseHeading(formatShortInteger(1000000))}</h2>
-                            <p className="mt-2 text-sm font-normal text-slate-500 leading-relaxed">
-                                {copy.enterpriseCopy}
-                            </p>
-                        </div>
-                        <div className="relative mt-5 shrink-0 md:mt-0">
-                            <button
-                                type="button"
-                                onClick={handleCopyEmail}
-                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all md:w-44 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                                    contactCopied
-                                        ? 'bg-emerald-600 text-white ring-1 ring-emerald-500/20 hover:bg-emerald-700 focus:ring-emerald-600'
-                                        : 'bg-indigo-600 text-white ring-1 ring-indigo-500/20 hover:bg-indigo-700 focus:ring-indigo-600'
-                                }`}
-                                aria-live="polite"
-                                style={{ WebkitTapHighlightColor: 'transparent' }}
-                            >
-                                {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                                {contactCopied ? copy.copied : copy.contact}
-                            </button>
-                        </div>
                     </div>
                 </div>
 
