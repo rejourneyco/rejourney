@@ -45,7 +45,7 @@ import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
 import { hasSuccessfulRecordingFromSession } from '~/shared/lib/replayAvailability';
 import { getWebNetworkDisplay, getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
-import { formatWebReferralLabel, getWebReferral, getWebUtmAttribution } from '~/shared/lib/webAttributionMetadata';
+import { formatWebReferralLabel, getWebReferral, getWebUtmAttribution, getAbsoluteUrl } from '~/shared/lib/webAttributionMetadata';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { BrowserBrandIcon } from '~/shared/ui/core/BrowserBrandIcon';
@@ -1791,7 +1791,7 @@ export const RecordingsList: React.FC = () => {
                                             <span className="text-[10px] text-slate-500 font-semibold uppercase">Referral</span>
                                             {webReferral && webReferral !== 'Direct' && webReferral !== 'Direct / none' && (
                                               <a
-                                                href={webReferral}
+                                                href={getAbsoluteUrl(webReferral, selectedProject?.webDomain)}
                                                 target="_blank"
                                                 rel="noreferrer"
                                                 className="text-[9px] font-bold text-sky-600 hover:text-sky-800 hover:underline shrink-0"
@@ -2006,23 +2006,47 @@ export const RecordingsList: React.FC = () => {
                                         <React.Fragment key={`${screen}-${idx}`}>
                                           {/* Screen pill */}
                                           <div className="flex flex-col items-center gap-0.5">
-                                            <div
-                                              className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all
-                                                ${isEntry
-                                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                                                  : isExit
-                                                  ? 'bg-pink-50 border-pink-300 text-pink-800'
-                                                  : 'bg-slate-50 border-slate-200 text-slate-700'
-                                                }`}
-                                            >
-                                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-pink-500' : 'bg-slate-300'}`} />
-                                              <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
-                                              {/* step number badge */}
-                                              <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
-                                                ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                                                {idx + 1}
-                                              </span>
-                                            </div>
+                                            {webSession ? (
+                                              <a
+                                                href={getAbsoluteUrl(screen, selectedProject?.webDomain)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all hover:bg-slate-100 hover:border-slate-400
+                                                  ${isEntry
+                                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                                                    : isExit
+                                                    ? 'bg-pink-50 border-pink-300 text-pink-800 hover:bg-pink-100'
+                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                  }`}
+                                                title={`Visit ${screen}`}
+                                              >
+                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-pink-500' : 'bg-slate-300'}`} />
+                                                <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
+                                                {/* step number badge */}
+                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
+                                                  ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                  {idx + 1}
+                                                </span>
+                                              </a>
+                                            ) : (
+                                              <div
+                                                className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all
+                                                  ${isEntry
+                                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                                                    : isExit
+                                                    ? 'bg-pink-50 border-pink-300 text-pink-800'
+                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                  }`}
+                                              >
+                                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-pink-500' : 'bg-slate-300'}`} />
+                                                <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
+                                                {/* step number badge */}
+                                                <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
+                                                  ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                  {idx + 1}
+                                                </span>
+                                              </div>
+                                            )}
                                             <span className={`text-[8px] font-bold uppercase tracking-wider
                                               ${isEntry ? 'text-emerald-600' : isExit ? 'text-pink-600' : 'text-transparent'}`}>
                                               {isEntry ? 'Entry' : isExit ? 'Exit' : 'ー'}

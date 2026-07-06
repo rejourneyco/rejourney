@@ -158,3 +158,27 @@ export function buildCollectedWebMetadata(session: any): Record<string, unknown>
     ...metadata,
   };
 }
+
+export function getAbsoluteUrl(urlPath: string | null | undefined, webDomain: string | null | undefined): string | undefined {
+  if (!urlPath) return undefined;
+  const trimmed = urlPath.trim();
+  if (!trimmed) return undefined;
+
+  // If it's already an absolute URL (has :// or starts with //), return it
+  if (trimmed.includes('://') || trimmed.startsWith('//')) {
+    return trimmed;
+  }
+
+  // If we have a webDomain, prepend it
+  if (webDomain) {
+    const domain = webDomain.trim();
+    // Ensure domain doesn't end with slash and path starts with slash
+    const base = domain.includes('://') ? domain : `https://${domain}`;
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    return `${cleanBase}${cleanPath}`;
+  }
+
+  return trimmed;
+}
+

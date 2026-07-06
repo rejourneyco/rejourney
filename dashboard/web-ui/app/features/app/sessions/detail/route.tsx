@@ -57,7 +57,7 @@ import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
-import { buildCollectedWebMetadata, getWebReferral, getWebUtmAttribution } from '~/shared/lib/webAttributionMetadata';
+import { buildCollectedWebMetadata, getWebReferral, getWebUtmAttribution, getAbsoluteUrl } from '~/shared/lib/webAttributionMetadata';
 import {
     buildCompressedBackgroundGaps,
     compressReplayEvents,
@@ -4744,19 +4744,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     <div className="replay-header-detail-row" style={{ alignItems: 'flex-start' }}>
                                         <span>Referral</span>
                                         <div className="flex flex-col gap-1 min-w-0">
-                                            {webReferral.includes('://') || (webReferral.includes('.') && !webReferral.includes(' ')) ? (
-                                                <a
-                                                    href={webReferral}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline break-all"
-                                                    title={webReferral}
-                                                >
-                                                    {webReferral}
-                                                </a>
-                                            ) : (
-                                                <strong className="text-[11px] break-all">{webReferral}</strong>
-                                            )}
+                                            {(() => {
+                                                const absoluteUrl = getAbsoluteUrl(webReferral, selectedProject?.webDomain);
+                                                return absoluteUrl ? (
+                                                    <a
+                                                        href={absoluteUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline break-all"
+                                                        title={absoluteUrl}
+                                                    >
+                                                        {webReferral}
+                                                    </a>
+                                                ) : (
+                                                    <strong className="text-[11px] break-all">{webReferral}</strong>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                 )}
