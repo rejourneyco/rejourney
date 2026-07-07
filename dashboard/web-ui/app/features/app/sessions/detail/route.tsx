@@ -774,6 +774,15 @@ const formatConsoleMessage = (event: SessionEvent): string => {
     if (type === 'app_background') return 'App moved to background';
     if (type === 'app_terminated' || type === 'session_end') return 'Session ended';
 
+    if (type === 'custom') {
+        const name = event.name || 'Custom Event';
+        const props = event.properties;
+        if (props && Object.keys(props).length > 0) {
+            return `${name} ${JSON.stringify(props)}`;
+        }
+        return name;
+    }
+
     return (
         event.message ||
         event.properties?.message ||
@@ -990,6 +999,10 @@ const getActivityEventDetail = (event: SessionEvent): string | null => {
         return event.properties?.urlPath || event.properties?.url || null;
     }
 
+    if (type === 'custom') {
+        return getReadablePropertiesSummary(event.properties);
+    }
+
     const target = getEventTargetSummary(event);
     if (target) return target;
 
@@ -1097,6 +1110,7 @@ const getLogBadgeStyles = (level: string): string => {
 const getTerminalLevelClass = (level: string): string => {
     if (level === 'error') return 'text-red-300';
     if (level === 'warn' || level === 'warning') return 'text-pink-300';
+    if (level === 'event') return 'text-violet-300';
     return 'text-emerald-300';
 };
 
@@ -1986,6 +2000,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const logEvents = useMemo(() => {
         const selected = allTimelineEvents.filter((event) => {
             if (isLogEvent(event)) return true;
+            if ((event.type || '').toLowerCase() === 'custom') return true;
             return isDemoReplay && isConsoleSupplementEvent(event);
         });
 
@@ -2006,7 +2021,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         return logEvents
             .map((event, index) => {
                 const relativeSeconds = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
-                const level = getLogLevel(event);
+                const level = (event.type || '').toLowerCase() === 'custom' ? 'event' : getLogLevel(event);
                 const marker = getFaultMarker(event);
                 const stack = getEventStackTrace(event);
                 const baseMessage = marker
