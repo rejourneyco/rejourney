@@ -55,7 +55,10 @@ export function getRedditPixelId(): string {
   return getRuntimeEnvSnapshot().VITE_REDDIT_PIXEL_ID?.trim() || "";
 }
 
-export function isIssueDetectionUiEnabled(): boolean {
+export function isIssueDetectionUiEnabled(pathname?: string): boolean {
+  if (pathname && (pathname.startsWith('/demo') || pathname.includes('/demo/'))) {
+    return true;
+  }
   return getRuntimeEnvSnapshot().SHOW_ISSUE_DETECTION_UI === "true";
 }
 

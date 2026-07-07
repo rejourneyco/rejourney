@@ -30,7 +30,7 @@ import {
 import { Issue, IssueSession } from '~/shared/types';
 import { DEMO_FEATURED_SESSION_ID, DEMO_REPLAY_SESSION_IDS, getDemoReplaySessionMetadata } from './demoData';
 
-const DEMO_NOW = Date.UTC(2026, 4, 18, 12, 0, 0);
+const DEMO_NOW = new Date().setHours(12, 0, 0, 0);
 
 let demoRandomSeed = 0x5eed1234;
 const demoRandom = () => {
@@ -304,9 +304,19 @@ export const demoInsightsTrends: InsightsTrends = {
         const isWeekend = date.getDay() === 0 || date.getDay() === 6;
         const progress = i / 29;
         const weekendFactor = isWeekend ? 0.84 : 1;
-        const dau = Math.round((74 + progress * 104) * weekendFactor + demoRandom() * 8);
+        let dau = Math.round((74 + progress * 104) * weekendFactor + demoRandom() * 8);
+        let sessions = Math.round(dau * (1.46 + demoRandom() * 0.24));
+
+        if (i === 28) {
+            dau = 310;
+            sessions = 460;
+        } else if (i === 29) {
+            dau = 350;
+            sessions = 520;
+        }
+
         const mau = Math.round(412 + progress * 252 + demoRandom() * 18);
-        const sessions = Math.round(dau * (1.46 + demoRandom() * 0.24));
+
         const apiErrorRate = Math.max(0.55, 1.85 - progress * 0.95 + (demoRandom() - 0.5) * 0.22);
         const avgDurationSeconds = Math.round(304 + progress * 86 + demoRandom() * 34);
         const productViews = Math.round(62 + progress * 136 + demoRandom() * 16);
@@ -314,28 +324,46 @@ export const demoInsightsTrends: InsightsTrends = {
         const webDau = dau - mobileDau;
         const nativeReleaseAge = i - 9;
         const webReleaseAge = i - 16;
-        const native250Share = nativeReleaseAge >= 0 ? Math.min(0.64, 0.12 + nativeReleaseAge * 0.035) : 0;
+        const native260ReleaseAge = i - 27;
+        const native260Share = native260ReleaseAge >= 0 ? Math.min(0.68, 0.15 + native260ReleaseAge * 0.28) : 0;
+        const native250Share = nativeReleaseAge >= 0 ? Math.max(0, Math.min(0.64, 0.12 + nativeReleaseAge * 0.035) - native260Share) : 0;
         const web2026051Share = webReleaseAge >= 0 ? Math.min(0.72, 0.18 + webReleaseAge * 0.045) : 0;
+
+        let dayCrashes = i % 11 === 0 ? 1 : 0;
+        let dayApiErrorRate = apiErrorRate;
+        let dayErrorCount = Math.round(2 + (1 - progress) * 5 + demoRandom() * 4);
+
+        if (i === 28) {
+            dayCrashes = 15;
+            dayApiErrorRate = 8.4;
+            dayErrorCount = 42;
+        } else if (i === 29) {
+            dayCrashes = 9;
+            dayApiErrorRate = 6.2;
+            dayErrorCount = 28;
+        }
 
         return {
             date: date.toISOString().split('T')[0],
             sessions,
-            crashes: i % 11 === 0 ? 1 : 0,
+            crashes: dayCrashes,
             rageTaps: Math.round(1 + demoRandom() * 4),
             dau,
             mau,
             avgApiResponseMs: Math.round(188 - progress * 38 + demoRandom() * 24),
-            apiErrorRate: Math.round(apiErrorRate * 100) / 100,
+            apiErrorRate: Math.round(dayApiErrorRate * 100) / 100,
             avgDurationSeconds,
-            errorCount: Math.round(2 + (1 - progress) * 5 + demoRandom() * 4),
+            errorCount: dayErrorCount,
             appVersionBreakdown: {
-                '2.5.0': nativeReleaseAge >= 0 ? Math.round(8 + nativeReleaseAge * 5.2 + demoRandom() * 5) : 0,
+                '2.6.0': native260ReleaseAge >= 0 ? Math.round(15 + native260ReleaseAge * 25 + demoRandom() * 5) : 0,
+                '2.5.0': nativeReleaseAge >= 0 ? Math.max(0, Math.round(8 + nativeReleaseAge * 5.2 + demoRandom() * 5) - (native260ReleaseAge >= 0 ? 30 : 0)) : 0,
                 '2.4.1': Math.max(18, Math.round(82 - i * 1.7 + demoRandom() * 5)),
                 '2.4.0': Math.max(8, Math.round(42 - i * 0.9 + demoRandom() * 3)),
                 'web-2026.05.1': webReleaseAge >= 0 ? Math.round(10 + webReleaseAge * 3.4 + demoRandom() * 4) : 0,
                 'web-2026.05.0': Math.max(6, Math.round(28 - i * 0.4 + demoRandom() * 2)),
             },
             appVersionDauBreakdown: {
+                '2.6.0': Math.round(mobileDau * native260Share),
                 '2.5.0': Math.round(mobileDau * native250Share),
                 '2.4.1': Math.round(mobileDau * Math.max(0.22, 0.62 - progress * 0.28)),
                 '2.4.0': Math.round(mobileDau * Math.max(0.05, 0.22 - progress * 0.12)),
@@ -1039,11 +1067,24 @@ const generateDailyHealth = () => {
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
         const progress = (29 - i) / 29;
-        const baseClean = 34 + Math.round(progress * 44 + demoRandom() * 8);
-        const baseError = Math.max(1, Math.round(6 - progress * 3 + demoRandom() * 2));
-        const baseRage = Math.max(0, Math.round(4 - progress * 2 + demoRandom() * 2));
-        const baseSlow = Math.max(0, Math.round(3 - progress * 1.5 + demoRandom() * 2));
-        const baseCrash = i % 13 === 0 ? 1 : 0;
+        let baseClean = 34 + Math.round(progress * 44 + demoRandom() * 8);
+        let baseError = Math.max(1, Math.round(6 - progress * 3 + demoRandom() * 2));
+        let baseRage = Math.max(0, Math.round(4 - progress * 2 + demoRandom() * 2));
+        let baseSlow = Math.max(0, Math.round(3 - progress * 1.5 + demoRandom() * 2));
+        let baseCrash = i % 13 === 0 ? 1 : 0;
+
+        if (i === 1) { // 1 day ago (spike!)
+            baseClean = 20;
+            baseError = 22;
+            baseRage = 15;
+            baseCrash = 8;
+        } else if (i === 0) { // today
+            baseClean = 28;
+            baseError = 14;
+            baseRage = 8;
+            baseCrash = 4;
+        }
+
         data.push({
             date: dateStr,
             clean: baseClean,
@@ -1594,15 +1635,16 @@ export const demoFrictionHeatmap: FrictionHeatmap = {
 import { demoReplayFixture as existingDemoReplayFixture } from './demoReplayData';
 import { demoReplayFixture as frankfurtDemoReplayFixture } from './demoReplayDataFrankfurt';
 import { demoReplayFixture as webDemoReplayFixture } from './demoReplayDataWeb';
+import { demoReplayFixture as videoDemoReplayFixture } from './demoReplayDataVideo';
 
-const demoReplayFixtures: any[] = [webDemoReplayFixture, frankfurtDemoReplayFixture, existingDemoReplayFixture];
+const demoReplayFixtures: any[] = [videoDemoReplayFixture, webDemoReplayFixture, frankfurtDemoReplayFixture, existingDemoReplayFixture];
 const defaultDemoReplayFixture =
     demoReplayFixtures.find((fixture) => fixture.sessionId === DEMO_FEATURED_SESSION_ID) ||
-    frankfurtDemoReplayFixture;
+    videoDemoReplayFixture;
 
 const buildDemoFullSession = (demoReplayFixture: any) => {
-    const networkRequests = demoReplayFixture.networkRequests;
-    const sessionEvents = demoReplayFixture.events;
+    const networkRequests = demoReplayFixture.networkRequests || [];
+    const sessionEvents = demoReplayFixture.events || [];
     const replayMetadata = getDemoReplaySessionMetadata(demoReplayFixture.sessionId);
     const startupEvent = sessionEvents.find((event: any) => event.type === 'app_startup') as { durationMs?: number } | undefined;
     const appStartupTimeMs = Math.round(startupEvent?.durationMs ?? replayMetadata?.appStartupTimeMs ?? 0);
@@ -1967,18 +2009,19 @@ export const demoLeaksResponse = {
             id: 'demo-leak-ready-checkout-coupon',
             shortId: 'LEAK-101',
             projectId: 'demo-project-001',
-            title: 'Checkout coupon validation loops after cart changes',
+            title: 'Users are giving up zooming into the product image',
             status: 'ready',
             severity: 'high',
-            issueType: 'abandon_after_api_error',
-            whyItMatters: 'Users abandon checkout after repeated coupon validation failures and rage taps on the payment CTA.',
-            affectedSessionsCount: 14,
-            affectedUsersCount: 9,
+            issueType: 'ux_friction',
+            whyItMatters: 'Leak Detected: Opportunity +$179. Affecting 15 users across all platforms.',
+            affectedSessionsCount: 22,
+            affectedUsersCount: 15,
             firstSeenAt: new Date(DEMO_NOW - 26 * 60 * 60 * 1000).toISOString(),
             lastSeenAt: new Date(DEMO_NOW - 42 * 60 * 1000).toISOString(),
-            estimatedCostUsd: 0.48,
+            estimatedCostUsd: 179.0,
+            estimatedAffectedUsersPercent: 92.5,
             contextStatus: 'ready',
-            topSignals: ['session_replay', 'api_error_cluster', 'rage_tap'],
+            topSignals: ['session_replay', 'dead_tap', 'abandonment'],
         },
         {
             id: 'demo-leak-researching-tour-selector',
@@ -1994,6 +2037,7 @@ export const demoLeaksResponse = {
             firstSeenAt: new Date(DEMO_NOW - 12 * 60 * 60 * 1000).toISOString(),
             lastSeenAt: new Date(DEMO_NOW - 18 * 60 * 1000).toISOString(),
             estimatedCostUsd: 0.21,
+            estimatedAffectedUsersPercent: 62.1,
             contextStatus: 'running',
             topSignals: ['session_segment_cluster', 'dead_tap', 'abandonment'],
         },
@@ -2011,6 +2055,7 @@ export const demoLeaksResponse = {
             firstSeenAt: new Date(DEMO_NOW - 8 * 60 * 60 * 1000).toISOString(),
             lastSeenAt: new Date(DEMO_NOW - 25 * 60 * 1000).toISOString(),
             estimatedCostUsd: 0.15,
+            estimatedAffectedUsersPercent: 45.3,
             contextStatus: 'queued',
             topSignals: ['visual_loop', 'api_latency', 'session_replay'],
         },
@@ -2028,6 +2073,7 @@ export const demoLeaksResponse = {
             firstSeenAt: new Date(DEMO_NOW - 5 * 60 * 60 * 1000).toISOString(),
             lastSeenAt: new Date(DEMO_NOW - 66 * 60 * 1000).toISOString(),
             estimatedCostUsd: 0.0,
+            estimatedAffectedUsersPercent: 30.0,
             contextStatus: 'budget_exhausted',
             topSignals: ['blank_screen', 'api_error', 'budget_cap'],
         },
@@ -2044,7 +2090,8 @@ export const demoLeaksResponse = {
             affectedUsersCount: 8,
             firstSeenAt: new Date(DEMO_NOW - 7 * 24 * 60 * 60 * 1000).toISOString(),
             lastSeenAt: new Date(DEMO_NOW - 3 * 24 * 60 * 60 * 1000).toISOString(),
-            estimatedCostUsd: 0.33,
+            estimatedCostUsd: 0.0,
+            estimatedAffectedUsersPercent: 15.0,
             contextStatus: 'ready',
             topSignals: ['session_replay', 'timeout', 'resolved'],
         },
@@ -2073,12 +2120,19 @@ export const demoLeakDetails = demoLeaksResponse.leaks.map((leak) => ({
             })),
         },
     ],
-    sessions: DEMO_REPLAY_SESSION_IDS.slice(0, Math.max(1, Math.min(3, leak.affectedSessionsCount))).map((sessionId, index) => ({
-        id: sessionId,
-        startedAt: new Date(DEMO_NOW - (index + 1) * 45 * 60 * 1000).toISOString(),
-        replayUrl: `/demo/sessions/${sessionId}`,
-        signalScore: 12 - index * 2,
-    })),
+    sessions: leak.id === 'demo-leak-ready-checkout-coupon'
+        ? [{
+            id: 'session_1779280282320_047794570aa44c92896290d6677ce0d1',
+            startedAt: new Date(DEMO_NOW - 45 * 60 * 1000).toISOString(),
+            replayUrl: `/demo/sessions/session_1779280282320_047794570aa44c92896290d6677ce0d1`,
+            signalScore: 12,
+        }]
+        : DEMO_REPLAY_SESSION_IDS.slice(0, Math.max(1, Math.min(3, leak.affectedSessionsCount))).map((sessionId, index) => ({
+            id: sessionId,
+            startedAt: new Date(DEMO_NOW - (index + 1) * 45 * 60 * 1000).toISOString(),
+            replayUrl: `/demo/sessions/${sessionId}`,
+            signalScore: 12 - index * 2,
+        })),
     codePointers: [],
     contextMarkdown: leak.contextStatus === 'ready' ? demoLeakContextMarkdown : null,
     contextMarkdownUrl: `/api/automations/leaks/${leak.id}/context/raw.md`,

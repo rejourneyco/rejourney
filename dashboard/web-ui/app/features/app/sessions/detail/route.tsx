@@ -4892,7 +4892,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             Refreshing the replay will request a fresh manifest and signed segment URLs.
                                         </p>
                                     </div>
-                                ) : playbackMode === 'rrweb' ? (
+                                ) : (playbackMode === 'rrweb' || (playbackMode === 'screenshots' && platform === 'web')) ? (
                                     <div className="replay-device-shell replay-browser-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
                                         <div className="replay-browser-window relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
                                             {/* macOS window chrome */}
@@ -4947,15 +4947,63 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 </div>
                                             )}
                                             <div className="replay-browser-viewport relative min-h-[360px] flex-1 xl:min-h-0">
-                                                <WebReplayPlayer
-                                                    events={compressedRrwebReplayEvents}
-                                                    replayKey={id}
-                                                    currentTime={currentPlaybackTime}
-                                                    isPlaying={isPlaying}
-                                                    playbackRate={playbackRate}
-                                                    durationSeconds={webReplayDurationSeconds}
-                                                    backgroundGaps={webReplayBackgroundGaps}
-                                                />
+                                                {playbackMode === 'rrweb' ? (
+                                                    <WebReplayPlayer
+                                                        events={compressedRrwebReplayEvents}
+                                                        replayKey={id}
+                                                        currentTime={currentPlaybackTime}
+                                                        isPlaying={isPlaying}
+                                                        playbackRate={playbackRate}
+                                                        durationSeconds={webReplayDurationSeconds}
+                                                        backgroundGaps={webReplayBackgroundGaps}
+                                                    />
+                                                ) : (
+                                                    <div className="relative w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden">
+                                                        {screenshotFrames[0]?.url && (
+                                                            <img
+                                                                src={screenshotFrames[0].url}
+                                                                alt=""
+                                                                loading="eager"
+                                                                decoding="async"
+                                                                onError={(event) => {
+                                                                    const fallbackUrl = screenshotFrames[0]?.proxyUrl;
+                                                                    if (fallbackUrl && event.currentTarget.dataset.fallbackApplied !== 'true') {
+                                                                        event.currentTarget.dataset.fallbackApplied = 'true';
+                                                                        event.currentTarget.src = fallbackUrl;
+                                                                    }
+                                                                }}
+                                                                className="absolute inset-0 h-full w-full object-contain"
+                                                                style={{ zIndex: 0 }}
+                                                            />
+                                                        )}
+                                                        <canvas
+                                                            ref={canvasRef}
+                                                            width={deviceWidth}
+                                                            height={deviceHeight}
+                                                            className="absolute inset-0 h-full w-full object-contain"
+                                                            style={{ zIndex: 1 }}
+                                                        />
+
+                                                        {showTouchOverlay && (
+                                                            <TouchOverlay
+                                                                events={touchEvents}
+                                                                deviceWidth={deviceWidth}
+                                                                deviceHeight={deviceHeight}
+                                                                currentTime={currentPlaybackRawTimestamp}
+                                                                visibleWindowMs={800}
+                                                            />
+                                                        )}
+
+                                                        {activeScreenshotBackgroundGap && (
+                                                            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
+                                                                <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">
+                                                                    <div className="text-xs font-black uppercase tracking-wide text-slate-300">App in background</div>
+                                                                    <div className="mt-2 text-lg font-black">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

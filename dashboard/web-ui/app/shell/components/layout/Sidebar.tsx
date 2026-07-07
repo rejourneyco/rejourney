@@ -28,6 +28,7 @@ import {
   ChevronsRight,
 } from 'lucide-react';
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
+import { useDemoMode } from '~/shared/providers/DemoModeContext';
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'rj-dashboard-sidebar-width';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'rj-dashboard-sidebar-collapsed';
@@ -229,7 +230,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Resize only on desktop — a full-height strip on mobile steals touches and breaks the drawer.
   const showResizeHandle = isDesktop && !collapsed;
-  const showIssueDetectionUi = isIssueDetectionUiEnabled();
+  const { isDemoMode } = useDemoMode();
+  const showIssueDetectionUi = isDemoMode || isIssueDetectionUiEnabled();
   const showSetupNavItem = !currentTeam || shouldSurfaceSetup(projects, currentProject);
 
   const startResize = (e: React.PointerEvent) => {

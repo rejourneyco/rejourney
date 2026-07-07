@@ -80,8 +80,9 @@ interface LeakAlertTeamMember {
     isRecipient: boolean;
 }
 
-export function loader(_args: LoaderFunctionArgs) {
-    if (!isIssueDetectionUiEnabled()) {
+export function loader({ request }: LoaderFunctionArgs) {
+    const url = new URL(request.url);
+    if (!isIssueDetectionUiEnabled(url.pathname)) {
         throw new Response('Not found', { status: 404 });
     }
     return null;
@@ -701,12 +702,14 @@ function LeakRow({
     const affectedPercent = estimateAffectedPercent(leak);
     const accentClass = generalAccentClass(leak);
 
+    const isZoomLeak = leak.id === 'demo-leak-ready-checkout-coupon';
+
     return (
         <button
             type="button"
             onClick={onSelect}
             className={`group relative block w-full border-b border-[#dadce0] px-4 py-3 text-left transition-colors sm:px-5 ${
-                active ? 'bg-[#f1f3ed]' : 'bg-white hover:bg-[#f8fafd]'
+                active ? 'bg-[#f1f3ed]' : isZoomLeak ? 'bg-white animate-priority-leak-pulse' : 'bg-white hover:bg-[#f8fafd]'
             }`}
         >
             <span className={`absolute bottom-0 left-0 top-0 w-[3px] ${accentClass}`} />
@@ -1755,6 +1758,20 @@ export const Leaks: React.FC = () => {
 
     return (
         <div className="rejourney-general-page flex h-full min-h-0 flex-col overflow-hidden bg-[#f8fafd] font-sans text-[#202124]">
+            <style>{`
+                @keyframes leak-priority-pulse {
+                    0%, 100% {
+                        box-shadow: inset 4px 0 0 #06b6d4;
+                    }
+                    50% {
+                        box-shadow: inset 4px 0 0 #06b6d4, 0 0 16px rgba(6, 182, 212, 0.42);
+                        background-color: #f0fdfa;
+                    }
+                }
+                .animate-priority-leak-pulse {
+                    animation: leak-priority-pulse 2.2s ease-in-out infinite;
+                }
+            `}</style>
             <div className="shrink-0 border-b border-[#dadce0] bg-white">
                 <div className="flex h-11 w-full items-center justify-between gap-3 px-4 sm:px-6">
                     <div className="flex min-w-0 items-center gap-2">

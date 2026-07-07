@@ -9,8 +9,9 @@ import { Project, RecordingSession, ProjectDailyStats } from '~/shared/types';
 import { demoReplayFixture as existingDemoReplayFixture } from './demoReplayData';
 import { demoReplayFixture as frankfurtDemoReplayFixture } from './demoReplayDataFrankfurt';
 import { demoReplayFixture as webDemoReplayFixture } from './demoReplayDataWeb';
+import { demoReplayFixture as videoDemoReplayFixture } from './demoReplayDataVideo';
 
-export const DEMO_NOW = Date.UTC(2026, 4, 18, 12, 0, 0);
+export const DEMO_NOW = new Date().setHours(12, 0, 0, 0);
 export const DEMO_NOW_ISO = new Date(DEMO_NOW).toISOString();
 
 let demoRandomSeed = 0x51f15eED;
@@ -19,7 +20,7 @@ const demoRandom = () => {
     return demoRandomSeed / 0x100000000;
 };
 
-const demoRecordedReplayFixtures = [webDemoReplayFixture, frankfurtDemoReplayFixture, existingDemoReplayFixture] as const;
+const demoRecordedReplayFixtures = [videoDemoReplayFixture, webDemoReplayFixture, frankfurtDemoReplayFixture, existingDemoReplayFixture] as const;
 
 export const DEMO_REPLAY_SESSION_IDS: string[] = demoRecordedReplayFixtures.map((fixture) => fixture.sessionId);
 
@@ -129,6 +130,36 @@ type DemoReplaySessionMetadata = {
 };
 
 const demoReplaySessionMetadataById: Record<string, DemoReplaySessionMetadata> = {
+    [videoDemoReplayFixture.sessionId]: {
+        userId: 'f3a47b1c-8e92-4d1a-be10-23456789abcd',
+        deviceId: 'demo-device-video-001',
+        anonymousDisplayName: 'CreatineShopper4C',
+        isFirstSession: true,
+        userFirstSeenAt: new Date(videoDemoReplayFixture.startTime).toISOString(),
+        visitorSessionNumber: 1,
+        visitorFinalSessionNumber: 1,
+        appStartupTimeMs: 820,
+        retentionDays: 30,
+        retentionTier: 4,
+        sdkVersion: '1.1.0',
+        networkType: 'wifi',
+        checkoutStatus: 'none',
+        metadata: {
+            appName: 'Burst Creatine',
+            appBundleId: 'rejourney.co',
+            demoSource: 'custom-video-extract',
+            userSegment: 'prospective_customer',
+            loyaltyTier: 'New',
+            acquisitionChannel: 'direct',
+            plan: 'growth',
+            featureArea: 'product detail zoom',
+            browser: 'Chrome',
+            browserVersion: '126.0.0.0',
+            os: 'macOS',
+            osVersion: '15.5',
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        },
+    },
     [webDemoReplayFixture.sessionId]: {
         userId: '9f73c1e0-5b6a-4f22-9e31-2a54f6c8d7b0',
         deviceId: 'demo-web-device-docs-001',
@@ -288,6 +319,7 @@ const buildRecordedDemoSession = (
 
 // Demo sessions - varied states to showcase different features
 const demoBaseSessions: RecordingSession[] = [
+    buildRecordedDemoSession(videoDemoReplayFixture, 'demo-device-video-001', true),
     buildRecordedDemoSession(webDemoReplayFixture, 'demo-web-device-docs-001', false),
     buildRecordedDemoSession(frankfurtDemoReplayFixture, 'demo-device-frankfurt-001', true),
     buildRecordedDemoSession(existingDemoReplayFixture, 'demo-device-001', false),

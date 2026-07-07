@@ -21,8 +21,9 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { deriveSourceGlobs } from './sourceGlobs';
 
-export function loader(_args: LoaderFunctionArgs) {
-    if (!isIssueDetectionUiEnabled()) {
+export function loader({ request }: LoaderFunctionArgs) {
+    const url = new URL(request.url);
+    if (!isIssueDetectionUiEnabled(url.pathname)) {
         throw new Response('Not found', { status: 404 });
     }
     return null;
