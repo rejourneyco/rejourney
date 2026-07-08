@@ -1984,24 +1984,106 @@ export const demoIssueSessions: IssueSession[] = [
 // Issue Detection / Leaks Demo Data
 // ================================================================================
 
-export const demoLeakContextMarkdown = `# Checkout coupon validation leak
+export const demoLeakContextMarkdown = `# Product image zoom is broken on the Creatine Gummies PDP
 
 ## Why it matters
-Users can reach checkout with an invalid coupon state. The replay shows repeated failed validation calls followed by checkout abandonment.
+Shoppers on the Burst Creatine Gummies product detail page are repeatedly tapping and pinching the hero product image expecting it to zoom in so they can read the supplement label, verify the flavor, and inspect packaging details. The zoom viewer never activates — every tap registers as a dead click. Rejourney captured **10 consecutive dead taps** on the product image within 2 seconds, followed by the user abandoning the page entirely without adding to cart.
+
+This is a high-intent purchase moment. The user arrived, loaded the product, swiped through the image carousel, and then tried to zoom. When zoom failed, they left. **Estimated revenue at risk: $179/day** across affected sessions.
 
 ## Evidence
-- 14 affected sessions in the last 24 hours
-- 9 users hit a visible validation loop
-- Top replay includes rage taps on the checkout CTA and repeated 409 responses
+- **22 affected sessions** in the last 24 hours
+- **15 unique users** across Chrome desktop and mobile Safari
+- **10 dead taps** per session on \`#product-zoom-container\`
+- **3 console errors** captured per session:
+  - \`[ZoomViewer] Error: Failed to initialize zoom viewer on target element #product-zoom-container. Container element is non-scrollable and lacks active gesture bounds.\`
+  - \`[ZoomViewer] Error: Double tap zoom event triggered but zoom target canvas was uninitialized.\`
+  - \`[ZoomViewer] Error: Touch zoom event failed: event listener not bound to product image view node.\`
+- **100% bounce rate** on sessions exhibiting this pattern — no user who hit this bug added to cart
+- Top replay shows: page load → image carousel swipe → 10 rapid dead taps on product image → page abandonment
 
-## Likely cause
-The checkout form keeps stale coupon state after the cart total recalculates.
+## Root cause
+In \`components/product/ProductImageGallery.tsx\`, the zoom library (\`medium-zoom\`) is initialized in a \`useEffect\` that targets \`#product-zoom-container\`. However, the container \`<div>\` uses \`overflow: hidden\` and has no explicit dimensions set at mount time because the image loads asynchronously. When \`medium-zoom\` tries to attach, the container has \`0x0\` bounds, so it silently fails to bind gesture handlers.
 
-## IDE handoff
-Use this markdown as the full investigation packet. Paste it into the selected IDE agent so it can inspect the local repository and decide which files need changes.
+\`\`\`tsx
+// components/product/ProductImageGallery.tsx (current — broken)
 
-## Suggested fix
-Clear coupon validation state whenever cart line items or total change, then rerun validation once before payment submission.`;
+export function ProductImageGallery({ images }: Props) {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    // BUG: medium-zoom attaches here, but the image hasn't loaded yet
+    // so #product-zoom-container has 0x0 dimensions
+    const zoom = mediumZoom('#product-zoom-container img', {
+      margin: 48,
+      background: 'rgba(0, 0, 0, 0.92)',
+    });
+    return () => zoom.detach();
+  }, []);  // ← runs once on mount, before image load
+
+  return (
+    <div id="product-zoom-container" style={{ overflow: 'hidden' }}>
+      <img
+        src={images[activeIndex].src}
+        alt={images[activeIndex].alt}
+        className="product-hero-image"
+      />
+    </div>
+  );
+}
+\`\`\`
+
+The \`useEffect\` runs on mount with an empty dependency array, but the \`<img>\` hasn't finished loading yet. \`medium-zoom\` queries the container, finds it has no scrollable area or active bounds, and fails silently. Every subsequent tap is a dead click.
+
+## Direct code fixes
+
+### File: \`components/product/ProductImageGallery.tsx\`
+
+\`\`\`diff
+  export function ProductImageGallery({ images }: Props) {
+    const [activeIndex, setActiveIndex] = useState(0);
++   const [imageLoaded, setImageLoaded] = useState(false);
++   const zoomRef = useRef<ReturnType<typeof mediumZoom> | null>(null);
+
+    useEffect(() => {
+-     const zoom = mediumZoom('#product-zoom-container img', {
+-       margin: 48,
+-       background: 'rgba(0, 0, 0, 0.92)',
+-     });
+-     return () => zoom.detach();
+-   }, []);
++     if (!imageLoaded) return;
++
++     // Attach zoom only after the image has fully loaded and has real dimensions
++     zoomRef.current = mediumZoom('#product-zoom-container img', {
++       margin: 48,
++       background: 'rgba(0, 0, 0, 0.92)',
++     });
++     return () => {
++       zoomRef.current?.detach();
++       zoomRef.current = null;
++     };
++   }, [imageLoaded, activeIndex]);
+
+    return (
+-     <div id="product-zoom-container" style={{ overflow: 'hidden' }}>
++     <div id="product-zoom-container" style={{ overflow: 'visible', position: 'relative' }}>
+        <img
+          src={images[activeIndex].src}
+          alt={images[activeIndex].alt}
+          className="product-hero-image"
++         onLoad={() => setImageLoaded(true)}
+        />
+      </div>
+    );
+  }
+\`\`\`
+
+### What this fixes
+1. **\`imageLoaded\` state gate** — \`medium-zoom\` only initializes after \`onLoad\` fires, guaranteeing the image has real dimensions and the container has scrollable bounds.
+2. **\`overflow: visible\`** — the old \`overflow: hidden\` clipped the zoom overlay. Changing to \`visible\` lets \`medium-zoom\` render its fullscreen backdrop correctly.
+3. **Dependency on \`activeIndex\`** — when users swipe to a different carousel image, the zoom re-attaches to the new \`<img>\` node instead of pointing at a stale reference.
+4. **Cleanup via ref** — \`zoomRef\` ensures previous zoom instances are properly detached before re-initializing, preventing memory leaks and ghost listeners.`;
 
 export const demoLeaksResponse = {
     leaks: [

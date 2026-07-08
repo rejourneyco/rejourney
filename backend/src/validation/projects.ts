@@ -122,10 +122,11 @@ export const createProjectSchema = z.object({
 export const updateProjectSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     teamId: z.string().uuid().optional(),
-    bundleId: appIdentifierSchema.optional(),
-    packageName: appIdentifierSchema.optional(),
+    bundleId: appIdentifierSchema.nullable().optional(),
+    packageName: appIdentifierSchema.nullable().optional(),
     webDomain: webAllowedDomainSchema.nullable().optional(),
     webAllowedDomains: webAllowedDomainsSchema.nullable().optional(),
+    platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native'])).optional(),
     rejourneyEnabled: z.boolean().optional(),
     recordingEnabled: z.boolean().optional(),
     textInputMasking: textInputMaskingSchema.optional(),

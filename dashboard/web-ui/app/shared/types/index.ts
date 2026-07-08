@@ -31,8 +31,8 @@ export interface Project {
   id: string;
   name: string;
   platforms: Platform[];
-  bundleId: string;
-  packageName?: string;
+  bundleId?: string | null;
+  packageName?: string | null;
   webDomain?: string | null;
   webAllowedDomains?: string[];
   teamId?: string;

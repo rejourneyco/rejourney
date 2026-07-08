@@ -1799,11 +1799,15 @@ router.put(
             });
         }
 
+        const nextPlatforms = data.platforms !== undefined
+            ? data.platforms
+            : getProjectPlatforms(currentProject);
+
         if (data.webDomain !== undefined || data.webAllowedDomains !== undefined) {
             const nextWebAllowedDomains = data.webAllowedDomains !== undefined
                 ? normalizeWebAllowedDomains(data.webAllowedDomains ?? [])
                 : normalizeWebAllowedDomains(data.webDomain ? [data.webDomain] : []);
-            if (getProjectPlatforms(currentProject).includes('web') && nextWebAllowedDomains.length === 0) {
+            if (nextPlatforms.includes('web') && nextWebAllowedDomains.length === 0) {
                 throw ApiError.badRequest('At least one allowed domain is required for web projects');
             }
         }
@@ -1816,6 +1820,11 @@ router.put(
         // Only include fields that are explicitly provided
         if (data.name !== undefined) updateData.name = data.name;
         if (data.teamId !== undefined) updateData.teamId = data.teamId;
+        if (data.platforms !== undefined) {
+            updateData.platform = data.platforms.includes('react-native')
+                ? 'react-native'
+                : data.platforms[0] ?? null;
+        }
         if (data.bundleId !== undefined) updateData.bundleId = data.bundleId;
         if (data.packageName !== undefined) updateData.packageName = data.packageName;
         if (data.webAllowedDomains !== undefined) {

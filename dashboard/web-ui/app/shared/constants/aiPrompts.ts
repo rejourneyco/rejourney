@@ -642,8 +642,8 @@ type ProjectForPrompt = {
   teamName?: string;
   publicKey?: string;
   platforms?: string[];
-  bundleId?: string;
-  packageName?: string;
+  bundleId?: string | null;
+  packageName?: string | null;
   webDomain?: string | null;
   webAllowedDomains?: string[] | null;
 } | null;

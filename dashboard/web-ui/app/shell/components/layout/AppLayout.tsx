@@ -50,30 +50,36 @@ const DemoLiveNotice: React.FC = () => (
         {/* Mobile Menu Toggle button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/60 bg-white/60 backdrop-blur-sm shadow-sm transition-all hover:bg-slate-50/80 md:hidden"
+          className="flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50 md:hidden"
           aria-label="Toggle sidebar"
         >
-          <Menu className="h-4 w-4 stroke-[2]" />
+          <Menu className="h-4 w-4 stroke-[3]" />
         </button>
-        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse ring-4 ring-emerald-500/20" aria-hidden="true" />
-        <p className="min-w-0 truncate text-xs font-semibold leading-5 text-slate-800 sm:text-sm tracking-wide">
-          You're in the live demo.
-          <span className="hidden text-slate-500 sm:inline normal-case font-medium"> Explore freely with sample data.</span>
-        </p>
+        <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0">
+          <img
+            src="/rejourneyIcon-removebg-preview.png"
+            alt="Rejourney Logo"
+            className="h-5 w-5 shrink-0 object-contain"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+          <span className="min-w-0 truncate text-xs font-semibold leading-5 text-slate-800 sm:text-sm tracking-wide">
+            Rejourney Dashboard
+          </span>
+        </Link>
       </div>
       <nav aria-label="Demo quick links" className="flex shrink-0 items-center gap-2">
         <Link
           to="/"
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/80 px-3.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition-all hover:bg-slate-50 hover:text-slate-900 hover:border-slate-300 active:scale-[0.98]"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-300/70 bg-white/50 px-5 text-sm font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/75 hover:shadow-md active:translate-y-0 sm:min-h-11 sm:px-6 sm:text-[0.95rem]"
         >
-          <ArrowLeft className="h-3.5 w-3.5 stroke-[2]" aria-hidden="true" />
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
           <span>Back</span>
         </Link>
         <Link
           to="/login"
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-4 text-xs font-semibold text-white shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all hover:brightness-105 active:scale-[0.98]"
+          className="group inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-950 bg-slate-950 px-5 text-sm font-bold text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] ring-1 ring-slate-950/10 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-800 hover:bg-slate-800 hover:shadow-[0_20px_44px_rgba(15,23,42,0.24)] active:translate-y-0 sm:min-h-11 sm:px-6 sm:text-[0.95rem]"
         >
-          <Rocket className="h-3.5 w-3.5 stroke-[2]" aria-hidden="true" />
+          <Rocket className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
           <span>Get started</span>
         </Link>
       </nav>
@@ -108,9 +114,10 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     [currentTeam?.id, selectedProject?.id],
   );
   const contentScopeKey = isSetupWizardRoute ? 'setup-wizard' : routeScopeKey;
+  const isFullBleedRoute = routeWithoutPrefix.startsWith('/leaks') || routeWithoutPrefix.startsWith('/geo');
   const dashboardContentClassName = [
     'dashboard-content dashboard-surface-mix min-h-0 min-w-0 flex-1 overflow-x-hidden',
-    isSetupWizardRoute ? 'overflow-y-hidden' : 'overflow-y-auto',
+    (isSetupWizardRoute || isFullBleedRoute) ? 'overflow-y-hidden' : 'overflow-y-auto',
   ].join(' ');
   const isProjectDependentRoute = useMemo(() => (
     routeWithoutPrefix.startsWith('/general')
@@ -131,7 +138,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   useEffect(() => {
     const handleProjectCreated = (event: any) => {
       // Refresh the SessionContext
-      refreshSessions().then(() => {
+      refreshSessions({ silent: true }).then(() => {
         // Auto-switch to the newly created project if provided
         if (event.detail) {
           const newProject = apiProjectToProject(event.detail);

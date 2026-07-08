@@ -1815,9 +1815,9 @@ export const Leaks: React.FC = () => {
                     setupHref={githubSetupHref}
                 />
             ) : (
-            <div className="flex min-h-0 w-full flex-1 overflow-hidden">
-                <div className={`grid min-h-0 w-full flex-1 bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[minmax(390px,0.49fr)_minmax(480px,0.51fr)]' : 'grid-cols-1'}`}>
-                    <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] lg:min-h-0 ${activeLeak ? 'lg:border-r lg:border-[#dadce0]' : ''}`}>
+            <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
+                <div className={`grid min-h-0 min-w-0 w-full flex-1 bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[360px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+                    <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] lg:min-h-0 ${activeLeak ? 'hidden lg:flex lg:border-r lg:border-[#dadce0]' : ''}`}>
                         <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
@@ -1883,7 +1883,7 @@ export const Leaks: React.FC = () => {
                             )}
                         </div>
 
-                            <div className="min-h-0 flex-1 overflow-y-auto">
+                            <div className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden">
                                 {isLoading && (
                                     <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {loadingSignalsLabel}
@@ -2013,7 +2013,7 @@ export const Leaks: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="min-h-0 flex-1 overflow-y-auto">
+                            <div className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden">
                                 {isDetailLoading ? (
                                     <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading context
@@ -2110,7 +2110,7 @@ export const Leaks: React.FC = () => {
                                                     </PaneButton>
                                                 </div>
                                             </div>
-                                            <pre className="mt-3 max-h-[380px] overflow-auto whitespace-pre-wrap rounded-md border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs font-medium leading-6 text-[#3c4043]">
+                                            <pre className="mt-3 max-h-[380px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs font-medium leading-6 text-[#3c4043]">
                                                 {selectedLeak?.contextMarkdown || 'Markdown context is not ready yet.'}
                                             </pre>
                                         </section>

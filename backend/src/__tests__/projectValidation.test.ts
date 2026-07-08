@@ -210,5 +210,14 @@ describe('Project Validation', () => {
             expect(updateProjectSchema.safeParse({ webAllowedDomains: [] }).success).toBe(true);
             expect(updateProjectSchema.safeParse({ webDomain: null }).success).toBe(true);
         });
+
+        it('accepts clearing app identifiers on project update', () => {
+            expect(updateProjectSchema.safeParse({ bundleId: null }).success).toBe(true);
+            expect(updateProjectSchema.safeParse({ packageName: null }).success).toBe(true);
+        });
+
+        it('accepts platforms array on project update', () => {
+            expect(updateProjectSchema.safeParse({ platforms: ['ios', 'web'] }).success).toBe(true);
+        });
     });
 });

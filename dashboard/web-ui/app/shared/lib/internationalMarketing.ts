@@ -70,7 +70,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "en-US",
     ogLocale: "en_US",
     dir: "ltr",
-    metaTitle: "Shopify & Subscription Revenue Recovery | Rejourney",
+    metaTitle: "E-com & Subscription Revenue Boost | Rejourney",
     metaDescription:
       "Recover checkout and subscription revenue for Shopify, ecommerce, and app subscription teams. See where buyers fail to convert, renew, or finish payment.",
     keywords: [
@@ -92,7 +92,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       "user recording",
       "funnel leak detection",
     ],
-    mainAriaLabel: "Rejourney - Shopify and app subscription revenue recovery",
+    mainAriaLabel: "Rejourney - E-Com and Subscription Revenue Boost",
     hero: {
       headlinePrimary: "AI finds funnel leaks",
       headlineSecondary: "Fix revenue leaks",
@@ -1187,7 +1187,7 @@ const englishHomeCopy: MarketingHomeCopy = {
   header: {
     ariaLabel: "Site navigation",
     mobileAriaLabel: "Site navigation mobile links",
-    logoAlt: "Rejourney | Shopify and app subscription revenue recovery",
+    logoAlt: "Rejourney | E-Com and Subscription Revenue Boost",
     engineering: "Engineering",
     docs: "Docs",
     roadmap: "Roadmap",

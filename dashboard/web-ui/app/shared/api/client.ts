@@ -1362,8 +1362,8 @@ export async function refreshSessions(): Promise<void> {
 export interface ApiProject {
     id: string;
     name: string;
-    bundleId?: string;
-    packageName?: string;
+    bundleId?: string | null;
+    packageName?: string | null;
     teamId?: string;
     webDomain?: string | null;
     webAllowedDomains?: string[];
@@ -1641,10 +1641,11 @@ export async function updateProject(
         rejourneyEnabled?: boolean;
         textInputMasking?: 'all' | 'secure_only';
         imageVideoMasking?: 'none' | 'all';
-        bundleId?: string;
-        packageName?: string;
+        bundleId?: string | null;
+        packageName?: string | null;
         webDomain?: string | null;
         webAllowedDomains?: string[] | null;
+        platforms?: string[];
     },
 ): Promise<ApiProject> {
     if (isDemoMode()) {

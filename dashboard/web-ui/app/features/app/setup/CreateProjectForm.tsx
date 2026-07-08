@@ -106,18 +106,18 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const iosAccentClass = !showIosIdentifier
     ? ""
     : isIosFilled
-      ? "border-l-emerald-500 bg-emerald-50/5 dark:bg-emerald-950/5"
+      ? "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
       : isIosRequired
-        ? "border-l-amber-500 bg-amber-50/10 dark:bg-amber-950/5"
-        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/20 dark:bg-slate-900/10";
+        ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
+        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/50 dark:bg-slate-900/20";
 
   const androidAccentClass = !showAndroidIdentifier
     ? ""
     : isAndroidFilled
-      ? "border-l-emerald-500 bg-emerald-50/5 dark:bg-emerald-950/5"
+      ? "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
       : isAndroidRequired
-        ? "border-l-amber-500 bg-amber-50/10 dark:bg-amber-950/5"
-        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/20 dark:bg-slate-900/10";
+        ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
+        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/50 dark:bg-slate-900/20";
 
   const visibleWebAllowedDomainsError = webAllowedDomains.trim() && (touchedFields.webAllowedDomains || submitAttempted)
     ? webAllowedDomainsError
@@ -169,8 +169,9 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       if (projectToEdit) {
         const updated = await updateProject(projectToEdit.id, {
           name: projectName.trim(),
-          bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || '') : '',
-          packageName: (includesAndroid || includesReactNative) ? (packageName.trim() || '') : '',
+          platforms: selectedPlatforms,
+          bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || null) : null,
+          packageName: (includesAndroid || includesReactNative) ? (packageName.trim() || null) : null,
           webDomain: includesWeb ? (parsedWebAllowedDomains[0] ?? null) : null,
           webAllowedDomains: includesWeb ? (parsedWebAllowedDomains ?? null) : null,
         });
@@ -215,37 +216,6 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
         </div>
       )}
 
-      <div className={cn(
-        "pl-4 border-l-2 py-1 space-y-2 transition-all duration-200 rounded-r-lg",
-        projectNameIsEmpty
-          ? "border-l-amber-500 bg-amber-50/5 dark:bg-amber-950/5"
-          : "border-l-emerald-500 bg-emerald-50/5 dark:bg-emerald-950/5"
-      )}>
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-350">
-            Project name <span className="text-red-500 font-bold">*</span>
-          </label>
-          {projectNameIsEmpty ? (
-            <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-              Required
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-              <Check className="h-3 w-3 inline" /> Filled
-            </span>
-          )}
-        </div>
-        <Input
-          placeholder="Consumer app, marketing site, checkout app"
-          value={projectName}
-          onChange={(event) => {
-            setProjectName(event.target.value);
-            setCreateError(null);
-          }}
-          className="h-11 bg-white/45 dark:bg-slate-950/45 border-white/35 dark:border-slate-900/30 backdrop-blur-md font-medium rounded-xl hover:border-slate-350 dark:hover:border-slate-800 focus-visible:ring-indigo-500/10 focus-visible:border-indigo-500"
-        />
-      </div>
-
       <div className="space-y-2">
         <div>
           <label className="text-sm font-semibold text-slate-850 dark:text-slate-200">What are you adding?</label>
@@ -267,10 +237,10 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   setCreateError(null);
                 }}
                 className={cn(
-                  'flex min-h-[108px] items-start gap-3.5 rounded-xl border p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-lg',
+                  'flex min-h-[108px] items-start gap-3.5 rounded-xl border p-4 text-left transition-all duration-300 cursor-pointer hover:-translate-y-1 hover:shadow-lg',
                   selected
-                    ? 'border-indigo-500/60 bg-indigo-500/10 dark:bg-indigo-500/20 backdrop-blur-md shadow-md shadow-indigo-500/5 scale-[1.01]'
-                    : 'border-white/40 dark:border-slate-900/40 bg-white/20 dark:bg-slate-950/20 backdrop-blur-md hover:bg-white/45 dark:hover:bg-slate-900/45 hover:shadow-md'
+                    ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/30 ring-2 ring-indigo-500/20 shadow-md shadow-indigo-500/5 scale-[1.01]'
+                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md'
                 )}
               >
                 <span className={cn(
@@ -301,18 +271,18 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       </div>
 
       {selectedPlatforms.length > 0 && (
-        <div className="rounded-2xl border border-white/35 dark:border-slate-900/35 bg-white/20 dark:bg-slate-950/20 backdrop-blur-md p-5 space-y-4 shadow-md">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-5 space-y-4 shadow-md">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 dark:text-slate-550">Configure Identifiers</h4>
           <div className="grid gap-4 md:grid-cols-2">
             {includesWeb && (
               <div className={cn(
                 "pl-4 border-l-2 py-1 space-y-2 transition-all duration-200 rounded-r-lg md:col-span-2",
                 webIsEmpty
-                  ? "border-l-amber-500 bg-amber-50/5 dark:bg-amber-950/5"
-                  : "border-l-emerald-500 bg-emerald-50/5 dark:bg-emerald-950/5"
+                  ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
+                  : "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
               )}>
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-350">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
                     Web Allowed Domains <span className="text-red-500 font-bold">*</span>
                   </label>
                   {webIsEmpty ? (
@@ -334,7 +304,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   onBlur={() => setTouchedFields((current) => ({ ...current, webAllowedDomains: true }))}
                   placeholder="app.example.com, www.example.com, *.example.com"
                   rows={2}
-                  className="w-full resize-y rounded-xl border border-white/35 dark:border-slate-900/30 bg-white/45 dark:bg-slate-950/45 backdrop-blur-md px-3 py-2 font-mono text-sm text-slate-900 dark:text-white outline-none placeholder:text-slate-400 hover:border-slate-350 dark:hover:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all shadow-sm"
+                  className="w-full resize-y rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-sm text-slate-900 dark:text-white outline-none placeholder:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-sm"
                 />
                 <p className="text-[11px] font-medium text-slate-550 dark:text-slate-450">
                   Paste production domains only. Full URLs are okay; Rejourney will keep the domain.
@@ -370,7 +340,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                 iosAccentClass
               )}>
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-350">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
                     iOS Bundle ID {isIosRequired && <span className="text-red-500 font-bold">*</span>}
                   </label>
                   {isIosFilled ? (
@@ -382,7 +352,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                       {includesReactNative ? 'At least one required' : 'Required'}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-650 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
                       Optional
                     </span>
                   )}
@@ -396,9 +366,9 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   }}
                   onBlur={() => setTouchedFields((current) => ({ ...current, bundleId: true }))}
                   error={visibleIosBundleIdError ?? undefined}
-                  className="h-11 bg-white/45 dark:bg-slate-950/45 border-white/35 dark:border-slate-900/30 backdrop-blur-md font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-indigo-500/10 focus-visible:border-indigo-500"
+                  className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
                 />
-                <p className="text-[11px] font-medium text-slate-550 dark:text-slate-450">
+                <p className="text-[11px] font-medium text-slate-555 dark:text-slate-455">
                   {includesReactNative && !includesIos ? 'Confirm bundle identifier.' : 'Use the bundle identifier from Xcode.'}
                 </p>
               </div>
@@ -410,7 +380,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                 androidAccentClass
               )}>
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-350">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
                     Android Package Name {isAndroidRequired && <span className="text-red-500 font-bold">*</span>}
                   </label>
                   {isAndroidFilled ? (
@@ -422,7 +392,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                       {includesAndroid ? 'Required' : 'At least one required'}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-650 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
                       Optional
                     </span>
                   )}
@@ -436,9 +406,9 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   }}
                   onBlur={() => setTouchedFields((current) => ({ ...current, packageName: true }))}
                   error={visibleAndroidPackageError ?? undefined}
-                  className="h-11 bg-white/45 dark:bg-slate-950/45 border-white/35 dark:border-slate-900/30 backdrop-blur-md font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-indigo-500/10 focus-visible:border-indigo-500"
+                  className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
                 />
-                <p className="text-[11px] font-medium text-slate-550 dark:text-slate-450">
+                <p className="text-[11px] font-medium text-slate-555 dark:text-slate-455">
                   Use the package name from your Android app manifest.
                 </p>
               </div>
@@ -446,6 +416,37 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
           </div>
         </div>
       )}
+
+      <div className={cn(
+        "pl-4 border-l-2 py-2 space-y-2 transition-all duration-200 rounded-r-lg",
+        projectNameIsEmpty
+          ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
+          : "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
+      )}>
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
+            Project name <span className="text-red-500 font-bold">*</span>
+          </label>
+          {projectNameIsEmpty ? (
+            <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+              Required
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+              <Check className="h-3 w-3 inline" /> Filled
+            </span>
+          )}
+        </div>
+        <Input
+          placeholder="Consumer app, marketing site, checkout app"
+          value={projectName}
+          onChange={(event) => {
+            setProjectName(event.target.value);
+            setCreateError(null);
+          }}
+          className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-medium rounded-xl hover:border-slate-300 dark:hover:border-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
+        />
+      </div>
 
       <div className="flex flex-col-reverse gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:justify-end">
         {submitHint && (

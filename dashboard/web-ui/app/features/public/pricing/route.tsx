@@ -131,7 +131,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Starter",
-                                            serviceType: "Shopify and app subscription revenue recovery",
+                                            serviceType: "E-Com and Subscription Revenue Boost",
                                         },
                                     },
                                     {
@@ -143,7 +143,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Growth",
-                                            serviceType: "Shopify and app subscription revenue recovery",
+                                            serviceType: "E-Com and Subscription Revenue Boost",
                                         },
                                     },
                                     {
@@ -155,7 +155,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Pro",
-                                            serviceType: "Shopify and app subscription revenue recovery",
+                                            serviceType: "E-Com and Subscription Revenue Boost",
                                         },
                                     },
                                     {
@@ -167,7 +167,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Scale",
-                                            serviceType: "Shopify and app subscription revenue recovery with Smart Capture",
+                                            serviceType: "E-Com and Subscription Revenue Boost with Smart Capture",
                                         },
                                     },
                                 ],

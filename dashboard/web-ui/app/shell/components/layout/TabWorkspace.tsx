@@ -10,7 +10,7 @@ interface TabWorkspaceProps {
 const PANE_ERROR_FALLBACK_CLASS = 'flex h-full min-h-[360px] items-center justify-center bg-background p-8';
 
 function getPaneBodyClass(routeWithoutPrefix: string): string {
-    const usesFullBleedWorkspace = routeWithoutPrefix.startsWith('/geo');
+    const usesFullBleedWorkspace = routeWithoutPrefix.startsWith('/geo') || routeWithoutPrefix.startsWith('/leaks');
     const usesViewportFit = routeWithoutPrefix.startsWith('/heatmaps');
     const usesReplayWorkbench = /^\/sessions\/[^/]+/.test(routeWithoutPrefix);
 

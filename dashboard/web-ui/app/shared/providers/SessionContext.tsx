@@ -141,7 +141,7 @@ interface SessionContextValue {
   projectsLoading: boolean;
   projectsReady: boolean;
   projectsError: string | null;
-  refreshSessions: () => Promise<void>;
+  refreshSessions: (options?: { silent?: boolean }) => Promise<void>;
   getSession: (id: string) => Promise<RecordingSession | null>;
   dashboardStats: {
     totalSessions: number;
@@ -478,7 +478,7 @@ export function SessionDataProvider({
     projectsLoading,
     projectsReady,
     projectsError,
-    refreshSessions: () => refreshProjects({ force: true }),
+    refreshSessions: (options?: { silent?: boolean }) => refreshProjects({ force: true, silent: options?.silent }),
     getSession,
     dashboardStats,
   };
