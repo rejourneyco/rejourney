@@ -261,7 +261,7 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                                         "@type": "ListItem",
                                         "position": 1,
                                         "name": copy.docsBreadcrumb,
-                                        "item": getLocalizedPublicUrl(locale, "/docs/shopify/getting-started")
+                                        "item": getLocalizedPublicUrl(locale, "/docs")
                                     },
                                     {
                                         "@type": "ListItem",

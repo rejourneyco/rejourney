@@ -88,8 +88,8 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                     ctx.clearRect(0, 0, 64, 64);
                     const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
                     gradient.addColorStop(0, 'rgba(255,255,255,1)');
-                    gradient.addColorStop(0.2, 'rgba(156,163,175,0.8)');
-                    gradient.addColorStop(0.5, 'rgba(59,130,246,0.2)');
+                    gradient.addColorStop(0.2, 'rgba(226,232,240,0.82)');
+                    gradient.addColorStop(0.5, 'rgba(203,213,225,0.22)');
                     gradient.addColorStop(1, 'rgba(0,0,0,0)');
                     ctx.fillStyle = gradient;
                     ctx.fillRect(0, 0, 64, 64);
@@ -102,20 +102,20 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             const particleTexture = createParticleTexture();
 
             // Ambient background lighting
-            scene.add(new THREE.AmbientLight(0xf0f7ff, isHero ? 3.2 : 2.0));
+            scene.add(new THREE.AmbientLight(0xfafafa, isHero ? 3.4 : 2.2));
 
             // Floating neon point lights to illuminate the metallic ribbon
-            const cyanLight = new THREE.PointLight(0x38bdf8, isHero ? 18 : 8, 20);
+            const cyanLight = new THREE.PointLight(0xfafafa, 0, 20);
             scene.add(cyanLight);
 
-            const purpleLight = new THREE.PointLight(0xa78bfa, isHero ? 14 : 6, 18);
+            const purpleLight = new THREE.PointLight(0xfafafa, 0, 18);
             scene.add(purpleLight);
 
-            const magentaLight = new THREE.PointLight(0xf472b6, isHero ? 12 : 5, 16);
+            const magentaLight = new THREE.PointLight(0xfafafa, 0, 16);
             scene.add(magentaLight);
 
             // Add a directional light for specular highlights
-            const dirLight = new THREE.DirectionalLight(0xffffff, isHero ? 2.5 : 1.0);
+            const dirLight = new THREE.DirectionalLight(0xffffff, isHero ? 0.5 : 0);
             dirLight.position.set(5, 5, 4);
             scene.add(dirLight);
 
@@ -129,7 +129,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             const starColors = new Float32Array(starCount * 3);
             const starSizes = new Float32Array(starCount);
             const starStates: ParticleState[] = [];
-            const starPalette = [0x60a5fa, 0x38bdf8, 0xa78bfa, 0xf472b6, 0xffffff];
+            const starPalette = [0xf8fafc, 0xf1f5f9, 0xe2e8f0, 0xcbd5e1, 0xffffff];
 
             for (let i = 0; i < starCount; i++) {
                 const x = (random() - 0.5) * 16.0;
@@ -153,7 +153,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                     z,
                     drift: 0.02 + random() * 0.05,
                     phase: random() * Math.PI * 2,
-                    speed: 0.15 + random() * 0.25,
+                    speed: (0.15 + random() * 0.25) * 0.28,
                 });
             }
 
@@ -165,7 +165,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
             const starMaterial = register(new THREE.ShaderMaterial({
                 uniforms: {
                     map: { value: particleTexture },
-                    opacity: { value: isHero ? 0.45 : 0.3 },
+                    opacity: { value: isHero ? 0.32 : 0.25 },
                 },
                 vertexShader: `
                     attribute float size;
@@ -240,7 +240,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 addSparseMesh(
                     new THREE.Mesh(
                         register(new THREE.SphereGeometry(0.9, 16, 12)),
-                        createWireMaterial(0x38bdf8, 0.25),
+                        createWireMaterial(0xe2e8f0, 0.20),
                     ),
                     -4.8,
                     2.0,
@@ -250,7 +250,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 addSparseMesh(
                     new THREE.Mesh(
                         register(new THREE.IcosahedronGeometry(0.85, 1)),
-                        createWireMaterial(0x6366f1, 0.22),
+                        createWireMaterial(0xcbd5e1, 0.16),
                     ),
                     4.8,
                     1.2,
@@ -260,7 +260,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 addSparseMesh(
                     new THREE.Mesh(
                         register(new THREE.TorusGeometry(0.75, 0.2, 8, 32)),
-                        createWireMaterial(0xa78bfa, 0.2),
+                        createWireMaterial(0xe2e8f0, 0.14),
                     ),
                     -4.5,
                     -2.2,
@@ -270,7 +270,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                 addSparseMesh(
                     new THREE.Mesh(
                         register(new THREE.DodecahedronGeometry(0.8, 1)),
-                        createWireMaterial(0xf472b6, 0.18),
+                        createWireMaterial(0xf1f5f9, 0.12),
                     ),
                     4.5,
                     -1.8,
@@ -284,16 +284,16 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                  const knotGeometry = register(new THREE.IcosahedronGeometry(1.4, 0)); // Faceted glass gem!
 
                  const knotMaterial = register(new THREE.MeshPhysicalMaterial({
-                     color: 0x6366f1, // Indigo for gem
+                     color: 0xe2e8f0, // Slate-200 for gem
                      metalness: 0.05, // Lower metalness for clear crystal glass
                      roughness: 0.05, // Glossy surface
                      clearcoat: 1.0,
                      clearcoatRoughness: 0.05,
-                     transmission: 0.8, // More transparent and glassy
+                     transmission: 0.6, // More transparent and glassy
                      thickness: 1.5, // Deeper refraction
                      ior: 1.55,
                      transparent: true,
-                     opacity: 0.9,
+                     opacity: 0.7,
                      depthWrite: true,
                  }));
 
@@ -302,7 +302,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
 
                  // Add a holographic glowing wireframe overlay for sharp faceted outlines
                  const wireframeMaterial = register(new THREE.MeshBasicMaterial({
-                     color: 0x818cf8, // Indigo glow
+                     color: 0xcbd5e1, // Slate-300
                      wireframe: true,
                      transparent: true,
                      opacity: 0.35,
@@ -316,7 +316,7 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
 
                  // Add thin glowing wireframe orbit rings for extra detail
                  const ringMaterial = register(new THREE.MeshBasicMaterial({
-                     color: 0x6366f1,
+                     color: 0xe2e8f0,
                      wireframe: true,
                      transparent: true,
                      opacity: 0.18,
@@ -521,42 +521,23 @@ export const PricingThreeField: React.FC<PricingThreeFieldProps> = ({
                         .pricing-light-bg {
                             position: absolute;
                             inset: 0;
-                            background:
-                                radial-gradient(circle at 80% 25%, rgba(125, 211, 252, 0.35), transparent 45%),
-                                radial-gradient(circle at 20% 65%, rgba(196, 181, 253, 0.38), transparent 40%),
-                                radial-gradient(circle at 50% 10%, rgba(13, 148, 136, 0.06), transparent 35%),
-                                linear-gradient(180deg, #f8fbff 0%, #f3f8fc 60%, #ffffff 100%);
+                            background: #f9f9fb;
                         }
                         .pricing-light-haze {
                             position: absolute;
                             inset: -12% -15%;
                             background:
-                                radial-gradient(ellipse at 75% 30%, rgba(125, 211, 252, 0.25), transparent 45%),
-                                radial-gradient(ellipse at 25% 60%, rgba(196, 181, 253, 0.22), transparent 42%),
-                                radial-gradient(ellipse at 50% 85%, rgba(244, 114, 182, 0.08), transparent 38%);
+                                radial-gradient(ellipse at 60% 40%, rgba(226,232,240,0.30), transparent 55%),
+                                radial-gradient(ellipse at 35% 65%, rgba(241,245,249,0.20), transparent 50%);
                             filter: blur(45px);
                             animation: pricingHazeDrift 22s ease-in-out infinite alternate;
                         }
                         .pricing-three-canvas {
-                            opacity: ${isHero ? '0.65' : '0.4'};
-                        }
-                        .dark .pricing-light-bg {
-                            background:
-                                radial-gradient(circle at 80% 25%, rgba(99, 102, 241, 0.15), transparent 45%),
-                                radial-gradient(circle at 20% 65%, rgba(168, 85, 247, 0.15), transparent 40%),
-                                radial-gradient(circle at 50% 10%, rgba(20, 184, 166, 0.04), transparent 35%),
-                                linear-gradient(180deg, #030712 0%, #0b0f19 60%, #030712 100%);
-                        }
-                        .dark .pricing-light-haze {
-                            background:
-                                radial-gradient(ellipse at 75% 30%, rgba(99, 102, 241, 0.12), transparent 45%),
-                                radial-gradient(ellipse at 25% 60%, rgba(168, 85, 247, 0.1), transparent 42%),
-                                radial-gradient(ellipse at 50% 85%, rgba(244, 114, 182, 0.04), transparent 38%);
-                            filter: blur(45px);
+                            opacity: 0.30;
                         }
                         @media (max-width: 640px) {
                             .pricing-three-canvas {
-                                opacity: ${isHero ? '0.45' : '0.25'};
+                                opacity: 0.22;
                             }
                         }
                         @media (prefers-reduced-motion: reduce) {

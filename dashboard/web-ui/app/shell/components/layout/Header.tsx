@@ -60,7 +60,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const [isMobilePlatformOpen, setIsMobilePlatformOpen] = useState(false);
   const navigationLocale = MARKETING_LOCALES.en;
   const copy = getMarketingHomeCopy(navigationLocale).header;
-  const docsPath = getLocalizedPublicPath(navigationLocale, "/docs/shopify/getting-started");
+  const docsPath = getLocalizedPublicPath(navigationLocale, "/docs");
   const benchmarksPath = getLocalizedPublicPath(navigationLocale, "/benchmarks");
   const pricingPath = getLocalizedPublicPath(navigationLocale, "/pricing");
   const publicNavLinkClass = "inline-flex min-h-10 items-center rounded-full px-3.5 text-[15px] font-bold tracking-[-0.01em] text-slate-900 dark:text-slate-100 transition-all duration-200 hover:bg-blue-50/90 hover:text-blue-700 dark:hover:bg-slate-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";

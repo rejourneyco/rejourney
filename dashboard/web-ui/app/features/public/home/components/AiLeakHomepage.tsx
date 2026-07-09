@@ -13,7 +13,6 @@ import {
     CreditCard,
     Sparkles,
     RefreshCw,
-    TrendingUp,
     X,
     ChevronLeft,
     Smartphone,
@@ -263,6 +262,144 @@ const SpinningGlobe: React.FC = () => {
     );
 };
 
+/**
+ * Sankey-style checkout funnel — Before vs After.
+ * Each panel draws a left-to-right flow: the full-height source bar (Add to Cart)
+ * splits into a Checkout ribbon and a Drop-off ribbon via smooth bezier curves,
+ * exactly like a real Sankey/alluvial diagram.
+ */
+const SankeyPanel: React.FC<{
+    title: string;
+    addToCart: number;
+    checkout: number;
+    accent: string;
+    accentLight: string;
+    dropColor: string;
+    dropLight: string;
+}> = ({ title, addToCart, checkout, accent, accentLight, dropColor, dropLight }) => {
+    const dropOff = addToCart - checkout;
+    const total = addToCart;
+
+    // ── Layout constants ──────────────────────────────────────────
+    // W/H are the inner chart area. We add a left pad for the source
+    // label and a right pad for dest labels — kept inside viewBox so
+    // nothing ever clips.
+    const PAD_LEFT  = 72;   // room for "6,810 / to Cart"
+    const PAD_RIGHT = 80;   // room for "4,319 / Checkout"
+    const TITLE_H   = 32;   // space above chart for the panel title
+    const CHART_H   = 200;
+    const W = PAD_LEFT + 400 + PAD_RIGHT;   // total SVG width
+    const H = TITLE_H + CHART_H + 16;       // total SVG height
+
+    const barW   = 10;
+    const sourceX = PAD_LEFT;
+    const destX   = W - PAD_RIGHT - barW;
+    const sourceH = CHART_H;
+    const sourceTop = TITLE_H;
+
+    // Ribbon heights
+    const checkoutH = (checkout / total) * sourceH;
+    const dropH     = (dropOff  / total) * sourceH;
+
+    const gap        = 12;
+    const checkoutTop = sourceTop;
+    const dropTop     = checkoutTop + checkoutH + gap;
+
+    const cx = (destX - sourceX - barW) * 0.42;
+
+    const checkoutPath = [
+        `M ${sourceX + barW} ${sourceTop}`,
+        `C ${sourceX + barW + cx} ${sourceTop}, ${destX - cx} ${checkoutTop}, ${destX} ${checkoutTop}`,
+        `L ${destX} ${checkoutTop + checkoutH}`,
+        `C ${destX - cx} ${checkoutTop + checkoutH}, ${sourceX + barW + cx} ${sourceTop + checkoutH}, ${sourceX + barW} ${sourceTop + checkoutH}`,
+        'Z',
+    ].join(' ');
+
+    const dropPath = [
+        `M ${sourceX + barW} ${sourceTop + checkoutH}`,
+        `C ${sourceX + barW + cx} ${sourceTop + checkoutH}, ${destX - cx} ${dropTop}, ${destX} ${dropTop}`,
+        `L ${destX} ${dropTop + dropH}`,
+        `C ${destX - cx} ${dropTop + dropH}, ${sourceX + barW + cx} ${sourceTop + sourceH}, ${sourceX + barW} ${sourceTop + sourceH}`,
+        'Z',
+    ].join(' ');
+
+    // Vertical midpoints for labels
+    const srcMid      = sourceTop + sourceH / 2;
+    const checkoutMid = checkoutTop + checkoutH / 2;
+    const dropMid     = dropTop + dropH / 2;
+
+    return (
+        <div className="flex-1 min-w-0">
+            {/* SVG carries everything — title included — so both panels are
+                always the same height and pixel-aligned. overflow visible is
+                a no-op here since everything is inside the viewBox. */}
+            <svg
+                viewBox={`0 0 ${W} ${H}`}
+                className="w-full"
+                style={{ display: 'block' }}
+                aria-label={title}
+            >
+                {/* Panel title */}
+                <text
+                    x={PAD_LEFT}
+                    y={16}
+                    textAnchor="start"
+                    dominantBaseline="middle"
+                    fill="#94a3b8"
+                    fontSize="11"
+                    fontWeight="700"
+                    letterSpacing="0.1em"
+                    fontFamily="system-ui, sans-serif"
+                    style={{ textTransform: 'uppercase' }}
+                >
+                    {title}
+                </text>
+
+                {/* ── Source bar ── */}
+                <rect x={sourceX} y={sourceTop} width={barW} height={sourceH} rx={5} fill="#60a5fa" />
+
+                {/* ── Checkout ribbon + bar ── */}
+                <path d={checkoutPath} fill={accentLight} />
+                <rect x={destX} y={checkoutTop} width={barW} height={checkoutH} rx={5} fill={accent} />
+
+                {/* ── Drop-off ribbon + bar ── */}
+                <path d={dropPath} fill={dropLight} />
+                <rect x={destX} y={dropTop} width={barW} height={dropH} rx={5} fill={dropColor} />
+
+                {/* ── Source label (left of source bar) ── */}
+                <text x={sourceX - 12} y={srcMid - 9} textAnchor="end" dominantBaseline="middle"
+                    fill="#e2e8f0" fontSize="15" fontWeight="700" fontFamily="system-ui, sans-serif">
+                    {addToCart.toLocaleString()}
+                </text>
+                <text x={sourceX - 12} y={srcMid + 9} textAnchor="end" dominantBaseline="middle"
+                    fill="#64748b" fontSize="11" fontFamily="system-ui, sans-serif">
+                    to Cart
+                </text>
+
+                {/* ── Checkout label (right of dest bar) ── */}
+                <text x={destX + barW + 12} y={checkoutMid - 9} textAnchor="start" dominantBaseline="middle"
+                    fill={accent} fontSize="17" fontWeight="700" fontFamily="system-ui, sans-serif">
+                    {checkout.toLocaleString()}
+                </text>
+                <text x={destX + barW + 12} y={checkoutMid + 9} textAnchor="start" dominantBaseline="middle"
+                    fill="#64748b" fontSize="11" fontFamily="system-ui, sans-serif">
+                    Checkout
+                </text>
+
+                {/* ── Drop-off label (right of dest bar) ── */}
+                <text x={destX + barW + 12} y={dropMid - 9} textAnchor="start" dominantBaseline="middle"
+                    fill="#94a3b8" fontSize="15" fontWeight="600" fontFamily="system-ui, sans-serif">
+                    {dropOff.toLocaleString()}
+                </text>
+                <text x={destX + barW + 12} y={dropMid + 9} textAnchor="start" dominantBaseline="middle"
+                    fill="#475569" fontSize="11" fontFamily="system-ui, sans-serif">
+                    Drop-off
+                </text>
+            </svg>
+        </div>
+    );
+};
+
 export const AiLeakHomepage: React.FC = () => {
     const location = useLocation();
     const homeCopy = getMarketingHomeCopy(location.pathname);
@@ -328,7 +465,7 @@ export const AiLeakHomepage: React.FC = () => {
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
 
     return (
-        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[#f8fbff] text-slate-900">
+        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[#f9f9fb] text-slate-900">
 
             <div className="relative z-10">
                 {/* Hero Section */}
@@ -338,7 +475,7 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
                     <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
-                        <h1 className="landing-hero-title mx-auto max-w-6xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-700 bg-clip-text font-display text-[1.68rem] font-extrabold leading-[1.04] tracking-normal text-transparent drop-shadow-[0_18px_44px_rgba(37,99,235,0.08)] min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[3.05rem] md:text-[3.65rem] lg:text-[4.45rem] xl:text-[5.35rem]">
+                        <h1 className="landing-hero-title mx-auto max-w-6xl font-display text-[1.68rem] font-extrabold leading-[1.04] tracking-normal text-slate-950 min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[3.05rem] md:text-[3.65rem] lg:text-[4.45rem] xl:text-[5.35rem]">
                             Boost Subscription and Checkout Revenue.
                         </h1>
                         <p className="landing-hero-subtitle mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
@@ -355,7 +492,7 @@ export const AiLeakHomepage: React.FC = () => {
                             </Link>
                             <Link
                                 to="/how-it-works"
-                                className="inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center rounded-full border border-slate-300/70 bg-white/50 px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/75 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                                className="inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center rounded-full border border-slate-300/80 bg-white/60 backdrop-blur-md px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/80 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
                             >
                                 How It Works
                             </Link>
@@ -391,129 +528,126 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            <div className="landing-after-hero relative z-10 overflow-hidden bg-[linear-gradient(180deg,#f8fbff_0%,#eff6ff_26%,#f0fdf4_52%,#fffbeb_78%,#f8fafc_100%)]">
+            <div className="landing-after-hero relative z-10 overflow-hidden bg-[#f9f9fb]">
                 <LandingThreeField variant="landing-sparse" seed={307} className="landing-after-hero-field" />
-                <div className="pointer-events-none absolute inset-0 z-[0] bg-[radial-gradient(circle_at_15%_9%,rgba(37,99,235,0.035),transparent_31%),radial-gradient(circle_at_86%_22%,rgba(14,165,233,0.026),transparent_34%),radial-gradient(circle_at_18%_52%,rgba(245,158,11,0.032),transparent_34%),radial-gradient(circle_at_82%_78%,rgba(16,185,129,0.036),transparent_34%)]" aria-hidden="true" />
-                <div className="pointer-events-none absolute inset-0 z-[1] bg-[linear-gradient(180deg,rgba(255,255,255,0.35)_0%,rgba(255,255,255,0.12)_28%,rgba(255,255,255,0.08)_56%,rgba(255,255,255,0.25)_100%)]" aria-hidden="true" />
-                <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-sky-200/45 to-transparent" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-slate-200/60 to-transparent" aria-hidden="true" />
 
             {/* Detailed product value sections for founders & revenue recovery */}
             <section className="landing-section relative z-10 overflow-hidden bg-transparent px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
                 <div className="mx-auto max-w-7xl space-y-32">
                     
-                    {/* Section 1: Checkout Form Leak Simulation */}
+                    {/* Section 1: Checkout Funnel Leak Detection */}
                     <div className="grid gap-12 lg:grid-cols-[0.42fr_0.58fr] lg:items-center">
                         <div className="space-y-4">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Revenue Leak Tracking</p>
                             <h3 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                                See the Exact Barriers Costing Revenue.
+                                Fix the Exact Barriers Costing Revenue.
                             </h3>
                         </div>
-                        <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50/50 p-6 shadow-2xl shadow-slate-200/50 flex items-center justify-center">
-                            <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-xl font-sans relative">
-                                {/* Mock Browser Bar */}
-                                <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 rounded-t-2xl relative">
-                                    <div className="flex gap-1.5 absolute left-4">
-                                        <div className="h-2.5 w-2.5 rounded-full bg-red-400" />
-                                        <div className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-                                        <div className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                                    </div>
-                                    <div className="bg-slate-100 border border-slate-200/60 rounded-md px-2.5 py-0.5 flex items-center justify-center gap-1.5 mx-auto max-w-[130px]">
-                                        <ShoppingBag className="h-2.5 w-2.5 text-slate-500" />
-                                        <span className="text-[9px] font-bold text-slate-600 tracking-wide">Cart</span>
+                        {/* Outer card — phone left, single insight card right */}
+                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-[#f0f1f3] shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden flex items-stretch gap-0">
+                            {/* Phone — flush left, no padding needed */}
+                            <div className="flex-shrink-0 flex items-end pl-5 pb-0 pt-5">
+                                <div className="w-[190px] rounded-t-[2rem] bg-slate-950 p-[5px] pb-0 shadow-[0_-12px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/[0.06]">
+                                    <div className="rounded-t-[1.65rem] overflow-hidden bg-white">
+                                        {/* Status bar */}
+                                        <div className="relative flex items-center justify-between bg-white px-3 pt-2 pb-1.5">
+                                            <span className="text-[8px] font-bold text-slate-800">9:41</span>
+                                            <div className="absolute left-1/2 -translate-x-1/2 top-0 w-16 h-3.5 bg-slate-950 rounded-b-full" />
+                                            <div className="h-1.5 w-3.5 rounded-[2px] border border-slate-400 p-px">
+                                                <div className="h-full w-3/4 rounded-[1px] bg-slate-500" />
+                                            </div>
+                                        </div>
+                                        {/* Nav bar */}
+                                        <div className="flex items-center justify-between bg-white border-b border-slate-100 px-3 py-1.5">
+                                            <span className="text-[8px] font-medium text-slate-500">Explore</span>
+                                            <span className="text-[9px] font-extrabold text-slate-900">Marketplace</span>
+                                            <div className="relative">
+                                                <ShoppingBag className="h-3.5 w-3.5 text-slate-700" />
+                                                <div className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-red-500 border border-white" />
+                                            </div>
+                                        </div>
+                                        {/* Product image with dead-tap */}
+                                        <div className="relative">
+                                            <img
+                                                src={MOUNTAIN_CARD_IMAGE}
+                                                alt="Rainier Climber Pass marketplace listing"
+                                                className="w-full h-[140px] object-cover"
+                                            />
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                                                <div className="h-10 w-10 rounded-full border-2 border-white/60 bg-white/20" />
+                                                <div className="absolute inset-0 h-10 w-10 rounded-full border border-white/30 scale-[1.6]" />
+                                            </div>
+                                        </div>
+                                        {/* Product info */}
+                                        <div className="px-3 py-2.5 space-y-1.5 bg-white">
+                                            <div className="flex items-start justify-between gap-1">
+                                                <div>
+                                                    <div className="text-[9px] font-extrabold text-slate-900 leading-tight">Rainier Climber Pass</div>
+                                                    <div className="text-[7px] text-slate-400 mt-0.5">Outdoor Adventures</div>
+                                                </div>
+                                                <div className="text-[10px] font-black text-slate-900 shrink-0">$196</div>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                {[1,2,3,4,5].map(i => (
+                                                    <div key={i} className="h-1.5 w-1.5 rounded-[1px] bg-amber-400" />
+                                                ))}
+                                                <span className="text-[7px] text-slate-400 ml-0.5">1,284</span>
+                                            </div>
+                                            <button type="button" className="w-full h-6 bg-slate-950 text-white rounded-lg text-[8px] font-bold cursor-not-allowed opacity-75">
+                                                Add to Cart
+                                            </button>
+                                            <div className="pt-1 space-y-1.5">
+                                                <div className="h-2 w-full rounded bg-slate-100" />
+                                                <div className="h-2 w-4/5 rounded bg-slate-100" />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                
-                                {/* Checkout Form Content */}
-                                <div className="p-6 space-y-4 relative rounded-b-2xl bg-white">
-                                    
-                                    {/* Order summary */}
-                                    <div className="flex gap-3 items-center bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
-                                        {/* Product Image */}
-                                        <div className="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 relative cursor-pointer group">
-                                            <img 
-                                                src={MOUNTAIN_CARD_IMAGE} 
-                                                alt="Rainier Climber Pass" 
-                                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                                            />
-                                            {/* Concentric click indicator on the image itself */}
-                                            <div className="absolute inset-0 bg-red-500/10 pointer-events-none animate-pulse" />
-                                        </div>
-                                        
-                                        {/* Product Details */}
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-[10px] font-extrabold text-slate-800 truncate">Rainier Climber Pass</div>
-                                            <div className="text-[8.5px] text-slate-400">Qty: 1 • Premium Access</div>
-                                        </div>
-                                        
-                                        {/* Price */}
-                                        <div className="text-right">
-                                            <span className="text-xs font-black text-slate-900">$196.00</span>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Input fields */}
-                                    <div className="space-y-3">
-                                        <div>
-                                            <div className="h-3 w-16 bg-slate-100 rounded mb-1.5" />
-                                            <div className="h-10 w-full border border-slate-200 rounded-lg bg-slate-50/50 px-3 flex items-center">
-                                                <div className="h-3 w-32 bg-slate-200/60 rounded" />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="h-3 w-20 bg-slate-100 rounded mb-1.5" />
-                                            <div className="h-10 w-full border border-slate-200 rounded-lg bg-slate-50/50 px-3 flex items-center justify-between">
-                                                <div className="h-3 w-40 bg-slate-200/60 rounded" />
-                                                <div className="h-4 w-6 bg-slate-200 rounded" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Stuck Pay Button */}
-                                    <button 
-                                        type="button" 
-                                        className="w-full h-11 bg-slate-950 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-80"
-                                    >
-                                        <span>Confirming Payment...</span>
-                                    </button>
+                            </div>
 
-                                    {/* Floating Checkout Leak Warning overlay */}
-                                    <div className="absolute right-[-24px] top-[42%] w-72 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-100 shadow-[0_20px_40px_rgba(15,23,42,0.15)] p-4 space-y-3.5 z-10 transition-transform duration-300 hover:scale-[1.02]">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <div className="relative flex h-2 w-2">
-                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                                </div>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600">
-                                                    UX Friction
-                                                </span>
-                                            </div>
-                                            <span className="text-[10px] font-mono text-slate-400 font-bold">#9201</span>
+                            {/* Single insight card — fills remaining space */}
+                            <div className="flex-1 min-w-0 flex items-center p-4">
+                                <div className="w-full bg-white rounded-2xl border border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.10)] p-4 space-y-3">
+                                    {/* Header */}
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                            <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-wide">Friction detected</span>
                                         </div>
-                                        
-                                        <div className="space-y-1">
-                                            <h4 className="text-xs font-bold text-slate-900">Dead Click on Product Image</h4>
-                                            <p className="text-[10px] text-slate-500 leading-normal">
-                                                42% of users click the main photo expecting to add it to checkout, but the image is non-interactive.
-                                            </p>
-                                        </div>
-                                        
-                                        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                                            <div>
-                                                <div className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Opportunity Value</div>
-                                                <div className="text-xs font-extrabold text-emerald-600 mt-0.5">+$3,136 today</div>
-                                            </div>
-                                            <Link 
-                                                to="/demo/general"
-                                                className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-sm shadow-blue-200 transition"
-                                            >
-                                                <Play className="h-2 w-2 fill-current" />
-                                                <span>Open Demo</span>
-                                            </Link>
-                                        </div>
+                                        <span className="text-[8px] font-mono text-slate-400">#9201</span>
                                     </div>
-                                    
+                                    {/* Issue */}
+                                    <div>
+                                        <div className="text-[11px] font-extrabold text-slate-900 leading-snug">Dead click on product image</div>
+                                        <div className="mt-1 text-[9px] text-slate-500 leading-relaxed">42% of users tap the photo expecting it to open checkout. Non-interactive — they abandon.</div>
+                                    </div>
+                                    {/* Revenue at risk */}
+                                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                                        <span className="text-[7px] font-semibold uppercase text-emerald-600/70">Revenue at risk</span>
+                                        <span className="text-[11px] font-bold text-emerald-700">$3,136 / mo</span>
+                                    </div>
+                                    {/* Divider + fix info */}
+                                    <div className="flex items-center justify-between text-[8px] text-slate-400 border-t border-slate-100 pt-2.5">
+                                        <span>Effort: <span className="text-slate-600 font-semibold">1–2 hrs</span></span>
+                                        <span>Impact: <span className="text-emerald-600 font-semibold">High</span></span>
+                                    </div>
+                                    {/* Buttons */}
+                                    <div className="space-y-1.5">
+                                        <Link
+                                            to="/demo/general"
+                                            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 h-7 text-[9px] font-bold text-white transition"
+                                        >
+                                            <Play className="h-2 w-2 fill-current" />
+                                            <span>Watch Session Replay</span>
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            className="flex w-full items-center justify-center rounded-xl border border-slate-950/10 bg-white hover:bg-slate-50 h-7 text-[9px] font-bold text-slate-800 shadow-sm transition"
+                                        >
+                                            Implement Fix
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -521,15 +655,36 @@ export const AiLeakHomepage: React.FC = () => {
 
                     {/* Section 2: ROAS & Conversion Lift */}
                     <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-                        <div ref={chartRef} className="rounded-[1.75rem] border border-slate-200/80 bg-white p-6 shadow-2xl shadow-slate-200/50 lg:order-first">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                                <div>
-                                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Campaign Performance</div>
-                                    <div className="text-lg font-extrabold text-slate-900 mt-1">Return on Ad Spend (ROAS)</div>
+                        <div ref={chartRef} className="rounded-[1.75rem] border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(15,23,42,0.08)] lg:order-first overflow-hidden">
+                            {/* Stats summary bar — clean analytics tool style */}
+                            <div className="grid grid-cols-3 border-b border-slate-100 divide-x divide-slate-100">
+                                <div className="px-4 py-3.5">
+                                    <div className="text-[9px] font-semibold text-slate-400">Before</div>
+                                    <div className="text-sm font-bold text-slate-800 mt-0.5">0.3x ROAS</div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">
-                                        +466% Lift
+                                <div className="px-4 py-3.5">
+                                    <div className="text-[9px] font-semibold text-slate-400">After</div>
+                                    <div className="text-sm font-bold text-slate-800 mt-0.5">1.7x ROAS</div>
+                                </div>
+                                <div className="px-4 py-3.5">
+                                    <div className="text-[9px] font-semibold text-slate-400">Change</div>
+                                    <div className="text-sm font-bold text-emerald-600 mt-0.5">+466%</div>
+                                </div>
+                            </div>
+                            <div className="p-6">
+                            <div className="flex items-center justify-between pb-4 mb-4">
+                                <div>
+                                    <div className="text-sm font-semibold text-slate-700">Return on Ad Spend</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">Mon — Sun · Last 7 days</div>
+                                </div>
+                                <div className="flex items-center gap-4 text-[10px]">
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="h-px w-6 bg-slate-300" style={{ borderTop: '2px dashed #cbd5e1' }} />
+                                        <span className="text-slate-400">Without fix</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="h-0.5 w-6 bg-emerald-500 rounded-full" />
+                                        <span className="text-slate-400">With Rejourney</span>
                                     </div>
                                 </div>
                             </div>
@@ -562,10 +717,9 @@ export const AiLeakHomepage: React.FC = () => {
                                 <div className="absolute left-[87.5%] top-0 bottom-6 w-px bg-slate-100/30" />
 
                                 {/* Rejourney Intervention Live Line & Tag */}
-                                <div className="absolute left-[50.0%] top-0 bottom-6 w-px border-l border-dashed border-blue-400/60 z-10 pointer-events-none" />
-                                <div className="absolute left-[50.0%] top-2 -translate-x-1/2 bg-blue-600 text-white text-[7px] font-extrabold uppercase px-1.5 py-0.5 rounded shadow-sm z-20 flex items-center gap-1 whitespace-nowrap select-none">
-                                    <Sparkles className="h-2 w-2" />
-                                    <span>Rejourney Active</span>
+                                <div className="absolute left-[50.0%] top-0 bottom-6 w-px border-l border-dashed border-slate-400/60 z-10 pointer-events-none" />
+                                <div className="absolute left-[50.0%] top-2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-semibold px-1.5 py-0.5 rounded shadow-sm z-20 whitespace-nowrap select-none tracking-wide">
+                                    Rejourney fix deployed
                                 </div>
 
                                 {/* SVG Curve */}
@@ -673,7 +827,7 @@ export const AiLeakHomepage: React.FC = () => {
                                     <span className="absolute left-[12.5%] -translate-x-1/2">Mon</span>
                                     <span className="absolute left-[25.0%] -translate-x-1/2">Tue</span>
                                     <span className="absolute left-[37.5%] -translate-x-1/2">Wed</span>
-                                    <span className="absolute left-[50.0%] -translate-x-1/2 text-blue-600 bg-blue-50/80 px-1.5 py-0.5 rounded font-extrabold border border-blue-100/50">Thu</span>
+                                    <span className="absolute left-[50.0%] -translate-x-1/2 text-slate-900 bg-slate-100/80 px-1.5 py-0.5 rounded font-extrabold border border-slate-200/60">Thu</span>
                                     <span className="absolute left-[62.5%] -translate-x-1/2">Fri</span>
                                     <span className="absolute left-[75.0%] -translate-x-1/2">Sat</span>
                                     <span className="absolute left-[87.5%] -translate-x-1/2">Sun</span>
@@ -681,15 +835,13 @@ export const AiLeakHomepage: React.FC = () => {
                             </div>
                             
                             {/* Annotations */}
-                            <div className="mt-6 grid grid-cols-2 gap-4 text-center border-t border-slate-100 pt-4">
-                                <div>
-                                    <div className="text-[10px] text-slate-400 font-bold uppercase">Before Rejourney</div>
-                                    <div className="text-xs font-semibold text-slate-500 mt-1">Friction &amp; checkout leaks</div>
+                            <div className="mt-5 border-t border-slate-100 pt-4 flex items-center justify-between">
+                                <div className="flex items-center gap-5 text-[10px] text-slate-500">
+                                    <span>Before: <span className="font-semibold text-slate-700">0.3x ROAS · $48k ad spend lost</span></span>
+                                    <span className="text-slate-200">|</span>
+                                    <span>After: <span className="font-semibold text-emerald-600">1.7x ROAS · +$31k recovered</span></span>
                                 </div>
-                                <div className="border-l border-slate-100">
-                                    <div className="text-[10px] text-slate-400 font-bold uppercase">After Rejourney</div>
-                                    <div className="text-xs font-semibold text-slate-700 mt-1">Healed funnels &amp; recovered spend</div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                         <div className="space-y-4">
@@ -701,6 +853,12 @@ export const AiLeakHomepage: React.FC = () => {
                     </div>
 
                     {/* Section 3: Passive Subscription Churn Recovery */}
+                    <style dangerouslySetInnerHTML={{ __html: `
+                        @keyframes fadeSlideIn {
+                            from { opacity: 0; transform: translateY(6px); }
+                            to   { opacity: 1; transform: translateY(0); }
+                        }
+                    `}} />
                     <div className="grid gap-12 lg:grid-cols-[0.42fr_0.58fr] lg:items-center">
                         <div className="space-y-4">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Subscription Churn Recovery</p>
@@ -708,144 +866,82 @@ export const AiLeakHomepage: React.FC = () => {
                                 Prevent Friction Churn and Ensure Renewals.
                             </h3>
                         </div>
-                        <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50/50 p-6 shadow-2xl shadow-slate-200/50 flex items-center justify-center relative overflow-visible">
-                            {/* Outer layout container to hold phone and floating card */}
-                            <div className="relative flex items-center justify-center w-full max-w-sm h-[480px]">
-                                
-                                {/* Phone Mockup */}
-                                <div className="w-[260px] h-[450px] bg-slate-900 border-[6px] border-slate-950 rounded-[2.5rem] p-2 shadow-2xl relative overflow-hidden flex flex-col z-10">
-                                    {/* Notch / Dynamic Island */}
-                                    <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-16 h-3.5 bg-slate-950 rounded-full z-30 flex items-center justify-center">
-                                        <div className="h-1 w-1 bg-slate-800 rounded-full ml-auto mr-2" />
-                                    </div>
-                                    
-                                    {/* Inner Phone Screen Content */}
-                                    <div className="bg-slate-50 rounded-[2rem] h-full w-full relative overflow-hidden flex flex-col border border-slate-950/20 select-none">
-                                        {/* App Header Status Bar */}
-                                        <div className="flex justify-between items-center px-5 pt-2 pb-1 text-[8px] font-bold text-slate-400 relative z-20">
-                                            <span className="w-10 text-left">9:41</span>
-                                            {/* Center spacer so the notch doesn't clash with content */}
-                                            <div className="w-16 h-3.5" />
-                                            <div className="w-10 flex justify-end items-center gap-1">
-                                                <div className="h-2 w-3 border border-slate-300 rounded-[2px]" />
-                                                <div className="h-1.5 w-2 bg-slate-400 rounded-[2px]" />
-                                            </div>
-                                        </div>
-                                        
-                                        {/* App Navigation Header */}
-                                        <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 bg-white">
-                                            <ChevronLeft className="h-4 w-4 text-slate-650 cursor-pointer" />
-                                            <span className="text-[10px] font-extrabold text-slate-800 tracking-wide">Peak Discoverer</span>
-                                            <div className="h-5 w-5 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-500">
-                                                JD
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Beach Image and App Details Card */}
-                                        <div className="flex-1 p-3 overflow-y-auto space-y-3 bg-slate-50/50">
-                                            {/* Beach Image */}
-                                            <div className="w-full h-32 rounded-xl overflow-hidden shadow-inner relative border border-slate-200/50">
-                                                <img 
-                                                    src={BEACH_CARD_IMAGE} 
-                                                    alt="Beach scenery" 
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            </div>
-                                            
-                                            {/* App Text Content */}
-                                            <div className="space-y-1 text-left">
-                                                <h4 className="text-[11px] font-extrabold text-slate-800">Maui Shore Explorer</h4>
-                                                <p className="text-[8.5px] text-slate-500 leading-normal">
-                                                    Unlock premium tide tracking, surf alerts, local hidden beaches, and offline snorkeling guidebooks.
-                                                </p>
-                                            </div>
-                                            
-                                            {/* Premium Pricing Tier Box */}
-                                            <div className="border border-blue-150 bg-blue-50/40 p-2 rounded-xl flex items-center justify-between">
-                                                <div className="text-left">
-                                                    <div className="text-[8px] font-bold text-blue-600 uppercase">RECOMMENDED</div>
-                                                    <div className="text-[10px] font-extrabold text-slate-800">Pro Explorer</div>
-                                                </div>
-                                                <span className="text-xs font-black text-slate-900">$9.99/mo</span>
-                                            </div>
-
-                                            {/* Action Upgrade Button with Rage Clicks */}
-                                            <div className="relative pt-2">
-                                                <button 
-                                                    type="button"
-                                                    className="w-full h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] flex items-center justify-center shadow-sm select-none cursor-pointer"
-                                                >
-                                                    Upgrade Subscription
-                                                </button>
-
-                                                {/* Concentric Rage Click Ripples (Concentric circles radiating outwards) */}
-                                                <div className="absolute left-[70%] top-[65%] pointer-events-none z-20">
-                                                    {/* Pulse circles */}
-                                                    <div className="absolute -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full border border-red-500 bg-red-500/20 animate-ping" />
-                                                    <div className="absolute -translate-x-1/2 -translate-y-1/2 h-12 w-12 rounded-full border border-red-400 bg-red-400/10 animate-ping [animation-delay:0.3s]" />
-                                                    <div className="absolute -translate-x-1/2 -translate-y-1/2 h-16 w-16 rounded-full border border-red-300 bg-red-300/5 animate-ping [animation-delay:0.6s]" />
-                                                    
-                                                    {/* Clicking cursor graphic */}
-                                                    <div className="absolute left-1 top-1 flex flex-col items-center">
-                                                        <svg className="h-5 w-5 text-red-700 filter drop-shadow-[0_2px_4px_rgba(239,68,68,0.4)]" viewBox="0 0 24 24" fill="currentColor">
-                                                            <path d="M4 3l16 12-7 1.5 6 6-3 1.5-6-6-6 1.5z" />
-                                                        </svg>
-                                                        
-                                                        {/* Floating Rage Click Badge */}
-                                                        <span className="mt-1 text-[7px] font-extrabold uppercase tracking-wide bg-red-650 text-white px-1.5 py-0.5 rounded shadow-sm border border-red-500 whitespace-nowrap animate-bounce">
-                                                            Rage Click x8
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden">
+                            {/* Card header */}
+                            <div className="flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                                    <span className="text-xs font-bold text-slate-700">Session Replay — Churn Event</span>
                                 </div>
-                                
-                                {/* Rejourney Floating Alert Intervention Card (Overlapping phone right side) */}
-                                <div className="absolute right-[-28px] bottom-[16%] w-60 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-[0_20px_40px_rgba(15,23,42,0.18)] p-4 space-y-3 z-20 text-left transition hover:scale-[1.02]">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-1.5">
-                                            <div className="relative flex h-2 w-2">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                                            </div>
-                                            <span className="text-[9px] font-bold uppercase tracking-wider text-red-700">
-                                                Friction Alert
-                                            </span>
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+                                    <Smartphone className="h-3 w-3" />
+                                    <span>iOS · 2m 14s</span>
+                                </div>
+                            </div>
+
+                            <div className="p-5 space-y-4">
+                                {/* Session event timeline — rows appear sequentially */}
+                                <div className="space-y-1.5">
+                                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-2">Session Timeline</div>
+                                    {[
+                                        { time: '0:04', event: 'App opened', type: 'neutral' },
+                                        { time: '0:22', event: 'Viewed Maui Shore Explorer', type: 'neutral' },
+                                        { time: '0:41', event: 'Tapped "Pro Explorer" pricing', type: 'neutral' },
+                                        { time: '0:55', event: 'Tapped "Upgrade Subscription"', type: 'warn' },
+                                        { time: '1:07', event: 'Tapped again — no response', type: 'error' },
+                                        { time: '1:12', event: 'Tapped 6 more times (8 total)', type: 'error' },
+                                        { time: '1:24', event: 'User closed app', type: 'error' },
+                                    ].map((ev, i) => (
+                                        <div
+                                            key={ev.time}
+                                            className="flex items-center gap-3 opacity-0"
+                                            style={{
+                                                animation: `fadeSlideIn 0.3s ease-out forwards`,
+                                                animationDelay: `${i * 0.18}s`,
+                                            }}
+                                        >
+                                            <span className="w-8 shrink-0 text-[9px] font-mono text-slate-400 text-right">{ev.time}</span>
+                                            <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${ev.type === 'error' ? 'bg-red-500' : ev.type === 'warn' ? 'bg-amber-400' : 'bg-slate-300'}`} />
+                                            <span className={`text-[11px] font-medium ${ev.type === 'error' ? 'text-red-600 font-semibold' : ev.type === 'warn' ? 'text-amber-700' : 'text-slate-500'}`}>{ev.event}</span>
                                         </div>
-                                        <span className="text-[9px] font-mono text-slate-400 font-bold">#RC-8042</span>
-                                    </div>
-                                    
-                                    <div className="space-y-1">
-                                        <h4 className="text-[11px] font-extrabold text-slate-900">Upgrade Button Unresponsive</h4>
-                                        <p className="text-[9px] text-slate-500 leading-normal">
-                                            8 quick clicks detected. Payment gateway failed to respond to the purchase call in under 12 seconds.
+                                    ))}
+                                </div>
+
+                                {/* Impact callout */}
+                                <div className="flex items-start gap-3 rounded-xl border border-red-200/70 bg-red-50/60 p-3.5">
+                                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 text-[10px] font-bold">!</div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-red-800">Payment gateway timeout — 12s avg</span>
+                                            <span className="text-[10px] font-bold text-red-500">#RC-8042</span>
+                                        </div>
+                                        <p className="mt-0.5 text-[10px] text-red-700/80 leading-relaxed">
+                                            Upgrade button unresponsive. Gateway failing silently on iOS 17.
                                         </p>
                                     </div>
-                                    
-                                    <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                                        <div>
-                                            <div className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Estimated Leak</div>
-                                            <div className="text-[11px] font-extrabold text-emerald-600 mt-0.5">+$1,440 LTV</div>
-                                        </div>
-                                        <Link 
-                                            to="/demo/general"
-                                            className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[9px] px-2.5 py-1.5 rounded-full shadow-sm shadow-blue-200 transition"
-                                        >
-                                            <Play className="h-1.5 w-1.5 fill-current" />
-                                            <span>Open Demo</span>
-                                        </Link>
-                                    </div>
                                 </div>
-                                
+
+                                {/* Bottom action row */}
+                                <div className="flex items-center justify-between rounded-xl bg-emerald-50/70 border border-emerald-100/80 px-4 py-3">
+                                    <div>
+                                        <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600/70">Est. LTV at risk / month</div>
+                                        <div className="text-xl font-extrabold text-emerald-700 mt-0.5">$1,440</div>
+                                    </div>
+                                    <Link
+                                        to="/demo/general"
+                                        className="inline-flex items-center gap-1.5 rounded-full bg-slate-950 hover:bg-slate-800 px-3.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition"
+                                    >
+                                        <Play className="h-2.5 w-2.5 fill-current" />
+                                        <span>Watch Replay</span>
+                                    </Link>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     {/* Section 4: Revenue Lift Verification (Release Markers) */}
                     <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-                        <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50/50 p-6 shadow-2xl shadow-slate-200/50 flex items-center justify-center lg:order-first w-full relative overflow-visible">
+                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-white/70 backdrop-blur-xl p-6 shadow-[0_20px_40px_rgba(15,23,42,0.08)] flex items-center justify-center lg:order-first w-full relative overflow-visible">
                             <SpinningGlobe />
                         </div>
                         <div className="space-y-4">
@@ -965,7 +1061,7 @@ export const AiLeakHomepage: React.FC = () => {
                         </div>
                         
                         {/* Right Column: Active Image Display */}
-                        <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2.5 shadow-2xl shadow-slate-200/70">
+                        <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/60 bg-white/70 backdrop-blur-xl p-2.5 shadow-[0_20px_40px_rgba(15,23,42,0.08)]">
                             {[
                                 { id: 'replay', image: SESSION_REPLAY_IMAGE, alt: 'User recording workbench' },
                                 { id: 'heatmaps', image: HEATMAPS_IMAGE, alt: 'Heatmaps attention mapping' },
@@ -990,6 +1086,63 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
+            {/* ── Success Story: Burst Creatine ── */}
+            <section className="landing-section relative z-10 overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10 border-t border-slate-200/50">
+                <div className="mx-auto max-w-5xl">
+
+                    {/* Case study card — dark background to visually separate from the page */}
+                    <div className="overflow-hidden rounded-3xl bg-slate-950 px-8 py-14 sm:px-14 sm:py-16">
+
+                        {/* Top: logo circle + headline */}
+                        <div className="flex flex-col items-center text-center gap-5 mb-14">
+                            <div className="h-16 w-16 rounded-full overflow-hidden border-2 border-white/10 shadow-lg shrink-0">
+                                <img
+                                    src="/images/burst-creatine-logo-red.png"
+                                    alt="Burst Creatine"
+                                    className="h-full w-full object-cover"
+                                />
+                            </div>
+                            <div className="space-y-3">
+                                <h2 className="font-display text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-3xl">
+                                    Burst Creatine 103% Increase in Sales.
+                                </h2>
+                                <p className="max-w-lg mx-auto text-sm font-medium leading-relaxed text-slate-400">
+                                    Rejourney surfaced the exact UX friction points causing drop-off. Simple fixes, no guesswork.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Sankey diagrams — sit directly on the dark card, no nested panel */}
+                        <div className="grid gap-8 lg:grid-cols-2">
+                            <SankeyPanel
+                                title="Before Rejourney"
+                                addToCart={6810}
+                                checkout={2130}
+                                accent="#f87171"
+                                accentLight="rgba(248,113,113,0.22)"
+                                dropColor="#94a3b8"
+                                dropLight="rgba(148,163,184,0.14)"
+                            />
+                            <SankeyPanel
+                                title="After Rejourney"
+                                addToCart={6810}
+                                checkout={4319}
+                                accent="#34d399"
+                                accentLight="rgba(52,211,153,0.22)"
+                                dropColor="#94a3b8"
+                                dropLight="rgba(148,163,184,0.12)"
+                            />
+                        </div>
+
+                        {/* Result line */}
+                        <p className="mt-8 text-center text-sm font-medium text-slate-400">
+                        Same <span style={{ color: '#0081FB' }} className="font-semibold">Meta</span> Ads Budget. <span className="text-emerald-400 font-bold">+2,189 more checkouts</span> from fixing easy UX leaks.
+                        </p>
+
+                    </div>
+                </div>
+            </section>
+
             {/* Bottom Call-To-Action (CTA) */}
                 <section className="landing-section landing-sdk-section relative z-10 overflow-hidden bg-transparent px-5 py-24 sm:px-8 sm:py-28 lg:px-10">
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200/20 to-transparent" aria-hidden="true" />
@@ -997,8 +1150,8 @@ export const AiLeakHomepage: React.FC = () => {
                 <div className="relative z-10 mx-auto max-w-6xl">
                     {/* Header */}
                     <div className="mx-auto max-w-3xl text-center mb-16">
-                        <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight bg-gradient-to-br from-slate-950 via-blue-900 to-emerald-700 bg-clip-text text-transparent sm:text-5xl">
-                            Easy Installation. Fast Revenue Boost.
+                        <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-5xl">
+                            Easy Installation. Fix Revenue Leaks.
                         </h2>
                         <p className="mt-4 text-base font-medium leading-relaxed text-slate-500 sm:text-lg">
                             Integrate our lightweight SDK to automatically record user drop-offs and compile exact, high-fidelity context packets.
@@ -1006,7 +1159,7 @@ export const AiLeakHomepage: React.FC = () => {
                     </div>
 
                     {/* Interactive Playground Grid */}
-                    <div className="landing-sdk-playground grid items-center gap-8 rounded-3xl border border-slate-200/80 bg-white/45 p-6 shadow-xl ring-1 ring-slate-100/5 backdrop-blur-md sm:p-8 lg:grid-cols-[1fr_2fr]">
+                    <div className="landing-sdk-playground grid items-center gap-8 rounded-3xl border border-slate-200/60 bg-white/45 p-6 shadow-xl ring-1 ring-slate-100/5 backdrop-blur-xl sm:p-8 lg:grid-cols-[1fr_2fr]">
                         
                         {/* Left Column: Platform selectors */}
                         <div className="flex flex-col gap-3 justify-center">
@@ -1066,7 +1219,7 @@ export const AiLeakHomepage: React.FC = () => {
                                     title="Copy SDK setup code"
                                     onClick={() => void copyToClipboard(activeSdkSetup)}
                                     className={`flex shrink-0 items-center gap-1.5 rounded-md border border-slate-500 bg-slate-800 px-3 py-1.5 font-sans text-xs font-semibold text-white shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-700 ${
-                                        copied ? '!border-emerald-500/50 !bg-emerald-500/10 !text-emerald-400 hover:!bg-emerald-500/20' : ''
+                                        copied ? '!border-slate-400 !bg-slate-700 !text-white' : ''
                                     }`}
                                 >
                                     {copied ? (
@@ -1117,7 +1270,7 @@ export const AiLeakHomepage: React.FC = () => {
                         </Link>
                         <Link
                             to="/how-it-works"
-                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-slate-300/70 bg-white/50 px-8 text-base font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/75 hover:shadow-md active:translate-y-0 sm:w-auto"
+                            className="group inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-full border border-slate-300/80 bg-white/60 backdrop-blur-md px-8 text-base font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/80 hover:shadow-md active:translate-y-0 sm:w-auto"
                         >
                             How it Works
                             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />

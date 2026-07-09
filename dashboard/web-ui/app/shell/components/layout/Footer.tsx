@@ -8,7 +8,7 @@ export const Footer: React.FC = () => {
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).footer;
   const { showToast } = useToast();
-  const docsPath = getLocalizedPublicPath(locale, "/docs/shopify/getting-started");
+  const docsPath = getLocalizedPublicPath(locale, "/docs");
   const webDocsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
   const reactNativeDocsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
   const swiftDocsPath = getLocalizedPublicPath(locale, "/docs/swift/overview");
@@ -64,14 +64,12 @@ export const Footer: React.FC = () => {
     showToast(copy.copyEmailToast);
   };
 
-  const linkClass = "block text-sm font-semibold leading-normal text-slate-600 transition-all duration-200 hover:translate-x-0.5 hover:text-blue-700";
+  const linkClass = "block text-sm font-semibold leading-normal text-slate-600 transition-all duration-200 hover:translate-x-0.5 hover:text-slate-900";
   const headingClass = "text-xs font-extrabold tracking-wider uppercase text-slate-950";
   const sectionClass = "min-w-0 space-y-4";
 
   return (
-    <footer className="relative overflow-hidden border-t border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_42%,#f6fbf8_100%)] text-slate-600">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_12%,rgba(37,99,235,0.075),transparent_31%),radial-gradient(circle_at_86%_18%,rgba(16,185,129,0.08),transparent_29%),radial-gradient(circle_at_52%_100%,rgba(245,158,11,0.07),transparent_35%)]" aria-hidden="true" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200/70 to-transparent" aria-hidden="true" />
+    <footer className="relative overflow-hidden border-t border-slate-200/60 bg-[#f9f9fb] text-slate-600">
       <div className="relative mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
         <div className="grid gap-10 lg:grid-cols-[1.05fr_2fr] lg:gap-16">
           <div className="max-w-md">
@@ -91,7 +89,7 @@ export const Footer: React.FC = () => {
               </Link>
               <Link
                 to={pricingPath}
-                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-5 text-xs font-extrabold uppercase text-slate-800 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300/60 bg-white/60 backdrop-blur-md px-5 text-xs font-extrabold uppercase text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/80 hover:border-slate-400 hover:text-slate-900"
               >
                 {copy.pricing}
               </Link>

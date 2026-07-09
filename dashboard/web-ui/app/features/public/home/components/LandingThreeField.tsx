@@ -114,8 +114,8 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     ctx.clearRect(0, 0, 64, 64);
                     const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
                     gradient.addColorStop(0, 'rgba(255,255,255,1)');
-                    gradient.addColorStop(0.2, 'rgba(148,163,184,0.74)');
-                    gradient.addColorStop(0.5, 'rgba(16,185,129,0.18)');
+                    gradient.addColorStop(0.2, 'rgba(226,232,240,0.80)');
+                    gradient.addColorStop(0.5, 'rgba(203,213,225,0.25)');
                     gradient.addColorStop(1, 'rgba(0,0,0,0)');
                     ctx.fillStyle = gradient;
                     ctx.fillRect(0, 0, 64, 64);
@@ -128,20 +128,20 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const particleTexture = createParticleTexture();
 
             // Ambient background lighting
-            scene.add(new THREE.AmbientLight(0xf0f7ff, isHeroOrHowItWorks ? 2.85 : 1.85));
+            scene.add(new THREE.AmbientLight(0xfafafa, isHeroOrHowItWorks ? 3.0 : 2.2));
 
             // Floating neon point lights to illuminate the hero globe (only for heroes)
-            const cyanLight = new THREE.PointLight(0x2563eb, isHeroOrHowItWorks ? 8 : 0, 20);
+            const cyanLight = new THREE.PointLight(0xfafafa, 0, 20);
             scene.add(cyanLight);
 
-            const blueLight = new THREE.PointLight(0x10b981, isHeroOrHowItWorks ? 6 : 0, 18);
+            const blueLight = new THREE.PointLight(0xfafafa, 0, 18);
             scene.add(blueLight);
 
-            const azureLight = new THREE.PointLight(0xf59e0b, isHeroOrHowItWorks ? 4 : 0, 16);
+            const azureLight = new THREE.PointLight(0xfafafa, 0, 16);
             scene.add(azureLight);
 
             // Add a directional light for specular highlights
-            const dirLight = new THREE.DirectionalLight(0xffffff, isHeroOrHowItWorks ? 1.45 : 0);
+            const dirLight = new THREE.DirectionalLight(0xffffff, isHeroOrHowItWorks ? 0.6 : 0);
             dirLight.position.set(5, 5, 4);
             scene.add(dirLight);
 
@@ -155,7 +155,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const starColors = new Float32Array(starCount * 3);
             const starSizes = new Float32Array(starCount);
             const starStates: ParticleState[] = [];
-            const starPalette = [0x2563eb, 0x0ea5e9, 0x10b981, 0xf59e0b, 0xffffff];
+            const starPalette = [0xf8fafc, 0xf1f5f9, 0xe2e8f0, 0xcbd5e1, 0xffffff];
 
             for (let i = 0; i < starCount; i++) {
                 const x = (random() - 0.5) * 16.0;
@@ -179,7 +179,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     z,
                     drift: 0.02 + random() * 0.05,
                     phase: random() * Math.PI * 2,
-                    speed: 0.15 + random() * 0.25,
+                    speed: (0.15 + random() * 0.25) * 0.28,
                 });
             }
 
@@ -191,7 +191,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             const starMaterial = register(new THREE.ShaderMaterial({
                 uniforms: {
                     map: { value: particleTexture },
-                    opacity: { value: isHeroOrHowItWorks ? 0.34 : (isLandingPage ? (startsSmall ? 0.46 : 0.76) : 0.56) },
+                    opacity: { value: isHeroOrHowItWorks ? 0.28 : (isLandingPage ? (startsSmall ? 0.28 : 0.35) : 0.30) },
                 },
                 vertexShader: `
                     attribute float size;
@@ -256,7 +256,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     new THREE.TorusKnotGeometry(0.24, 0.06, 48, 6)
                 ];
 
-                const nodeColors = [0x2563eb, 0x0ea5e9, 0x10b981, 0xf59e0b];
+                const nodeColors = [0xcbd5e1, 0xe2e8f0, 0xcbd5e1, 0xe2e8f0];
 
                 // Create the node meshes
                 for (let i = 0; i < 4; i++) {
@@ -291,7 +291,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     const points = curve.getPoints(60);
                     const lineGeom = register(new THREE.BufferGeometry().setFromPoints(points));
                     const lineMat = register(new THREE.LineBasicMaterial({
-                        color: 0x2563eb,
+                        color: 0xcbd5e1,
                         transparent: true,
                         opacity: 0.18,
                         depthWrite: false,
@@ -303,7 +303,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
 
                 // Create flying data packets
                 const packetGeom = register(new THREE.SphereGeometry(0.06, 8, 8));
-                const packetColor = 0x10b981;
+                const packetColor = 0xf1f5f9;
                 
                 // We'll create 12 packets distributed across paths
                 for (let i = 0; i < 12; i++) {
@@ -328,7 +328,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             if (isHero) {
                 const globeGeometry = register(new THREE.SphereGeometry(2.25, 42, 24));
                 const globeSurfaceMaterial = register(new THREE.MeshPhysicalMaterial({
-                    color: 0x93c5fd,
+                    color: 0xe2e8f0,
                     metalness: 0.02,
                     roughness: 0.22,
                     clearcoat: 0.75,
@@ -341,10 +341,10 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 root.add(knotMesh);
 
                 const globeWireframeMat = register(new THREE.MeshBasicMaterial({
-                    color: 0x2563eb,
+                    color: 0xcbd5e1,
                     wireframe: true,
                     transparent: true,
-                    opacity: 0.28,
+                    opacity: 0.20,
                     blending: THREE.NormalBlending,
                     depthWrite: false,
                 }));
@@ -353,10 +353,10 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                 knotMesh.add(globeWireframe);
 
                 const ringMaterial = register(new THREE.MeshBasicMaterial({
-                    color: 0x10b981,
+                    color: 0xe2e8f0,
                     wireframe: true,
                     transparent: true,
-                    opacity: 0.26,
+                    opacity: 0.18,
                     blending: THREE.NormalBlending,
                     depthWrite: false,
                 }));
@@ -379,10 +379,10 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
             } else if (isAmbient) {
                 if (!isLandingPage) {
                     const ringMaterial = register(new THREE.MeshBasicMaterial({
-                        color: 0x3b82f6,
+                        color: 0xcbd5e1,
                         wireframe: true,
                         transparent: true,
-                        opacity: 0.22,
+                        opacity: 0.16,
                         blending: THREE.AdditiveBlending,
                         depthWrite: false,
                     }));
@@ -435,7 +435,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     addSparseMesh(
                         new THREE.Mesh(
                             register(new THREE.SphereGeometry(1.05, 26, 15)),
-                            createWireMaterial(0x38bdf8, 0.18),
+                            createWireMaterial(0xe2e8f0, 0.18),
                         ),
                         -5.35,
                         2.35,
@@ -445,7 +445,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     addSparseMesh(
                         new THREE.Mesh(
                             register(new THREE.IcosahedronGeometry(1.05, 1)),
-                            createWireMaterial(0x2563eb, 0.16),
+                            createWireMaterial(0xcbd5e1, 0.14),
                         ),
                         5.05,
                         1.15,
@@ -455,7 +455,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     addSparseMesh(
                         new THREE.Mesh(
                             register(new THREE.OctahedronGeometry(0.92, 1)),
-                            createWireMaterial(0x0f766e, 0.14),
+                            createWireMaterial(0xe2e8f0, 0.12),
                         ),
                         -1.75,
                         -2.25,
@@ -465,7 +465,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     addSparseMesh(
                         new THREE.Mesh(
                             register(new THREE.TorusKnotGeometry(0.72, 0.045, 96, 8)),
-                            createWireMaterial(0xf59e0b, 0.13),
+                            createWireMaterial(0xf1f5f9, 0.10),
                         ),
                         2.1,
                         2.95,
@@ -479,7 +479,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                     flowGroup.position.set(0, -0.15, -0.4);
                     root.add(flowGroup);
 
-                    const flowPalette = [0x0284c7, 0x2563eb, 0x0f766e, 0xf59e0b, 0x1d4ed8];
+                    const flowPalette = [0xe2e8f0, 0xcbd5e1, 0xf1f5f9, 0xe2e8f0, 0xf8fafc];
                     for (let i = 0; i < 11; i++) {
                         const points = [];
                         const phase = random() * Math.PI * 2;
@@ -499,7 +499,7 @@ export const LandingThreeField: React.FC<LandingThreeFieldProps> = ({
                         const material = register(new THREE.LineBasicMaterial({
                             color: flowPalette[i % flowPalette.length],
                             transparent: true,
-                            opacity: 0.11 + random() * 0.08,
+                            opacity: 0.08 + random() * 0.06,
                             blending: THREE.NormalBlending,
                             depthWrite: false,
                         }));

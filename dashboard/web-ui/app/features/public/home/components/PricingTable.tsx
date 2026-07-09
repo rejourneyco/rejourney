@@ -175,7 +175,7 @@ const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retent
 }) => {
     return (
         <>
-            <span className="font-bold text-indigo-700">{sessions}</span>
+            <span className="font-bold text-slate-900">{sessions}</span>
             {' '}journeys across{' '}
             <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
             {' '}
@@ -187,17 +187,17 @@ const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retent
 const aiLeakUpgradePositioning = (planName: string, sessions: string) => {
     switch (planName) {
         case 'free':
-            return { lead: `${sessions} conversion journeys`, detail: ' baseline for AI Leak Detection' };
+            return { lead: `${sessions} sessions`, detail: ' of AI Leak Detection coverage' };
         case 'starter':
-            return { lead: '5x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+            return { lead: '5x more AI Leak Detection coverage', detail: ' than Free' };
         case 'growth':
-            return { lead: '20x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+            return { lead: '20x more AI Leak Detection coverage', detail: ' than Free' };
         case 'pro':
-            return { lead: '70x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+            return { lead: '70x more AI Leak Detection coverage', detail: ' than Free' };
         case 'scale':
-            return { lead: '200x more', detail: ' conversion journeys for AI Leak Detection than Free' };
+            return { lead: '200x more AI Leak Detection coverage', detail: ' than Free' };
         default:
-            return { lead: `${sessions} conversion journeys`, detail: ' for AI leak scans' };
+            return { lead: `${sessions} sessions`, detail: ' of AI Leak Detection coverage' };
     }
 };
 
@@ -205,7 +205,7 @@ const AiLeakUpgradeLabel: React.FC<{ planName: string; sessions: string }> = ({ 
     const positioning = aiLeakUpgradePositioning(planName, sessions);
     return (
         <>
-            <span className="font-bold text-indigo-700">{positioning.lead}</span>
+            <span className="font-bold text-slate-900">{positioning.lead}</span>
             {positioning.detail}
         </>
     );
@@ -384,7 +384,7 @@ export const PricingTable: React.FC = () => {
     };
 
     return (
-        <section className="relative w-full border-t border-slate-200 bg-white text-slate-950 overflow-hidden">
+        <section className="relative w-full border-t border-slate-200/60 bg-[#f9f9fb] text-slate-950 overflow-hidden">
             {/* Custom 3D Metallic Ribbon & Light Ambient background */}
             <PricingThreeField seed={19} />
 
@@ -401,7 +401,7 @@ export const PricingTable: React.FC = () => {
                         </div>
 
                         <div className="flex justify-start lg:justify-end">
-                            <div className="border border-slate-200 bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-4 w-full sm:max-w-md lg:w-72">
+                            <div className="border border-slate-200/60 bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-4 w-full sm:max-w-md lg:w-72">
                                 <div>
                                     <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.contactEyebrow}</p>
                                     <h2 className="mt-1.5 text-lg font-bold leading-snug text-slate-900">{copy.contactHeading}</h2>
@@ -411,8 +411,8 @@ export const PricingTable: React.FC = () => {
                                     onClick={handleCopyEmail}
                                     className={`flex h-11 items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold shadow-sm transition-all duration-200 ${
                                         contactCopied
-                                            ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                            ? 'bg-slate-700 text-white hover:bg-slate-600'
+                                            : 'bg-slate-950 text-white hover:bg-slate-800'
                                     }`}
                                     aria-live="polite"
                                     style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -437,35 +437,24 @@ export const PricingTable: React.FC = () => {
                             const priceSuffix = isFree || isEnterprise ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
                             const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale' || isEnterprise);
 
-                            const cardClassName = isEnterprise
-                                ? 'border-purple-500/40 bg-gradient-to-b from-purple-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
-                                : isScale
-                                    ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-md hover:shadow-lg hover:-translate-y-1.5'
-                                    : isFeatured
-                                        ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-50/20 backdrop-blur-md shadow-md shadow-indigo-100/10 hover:shadow-lg hover:-translate-y-1.5'
-                                        : 'border-slate-200/80 bg-white/70 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
+                            const cardClassName = isFeatured
+                                ? 'border-slate-300/60 ring-1 ring-slate-300/40 bg-white/80 backdrop-blur-xl shadow-[0_8px_24px_rgba(15,23,42,0.07)] hover:shadow-[0_16px_36px_rgba(15,23,42,0.09)] hover:-translate-y-1.5'
+                                : 'border-slate-200/60 bg-white/70 backdrop-blur-xl shadow-[0_2px_12px_rgba(15,23,42,0.06)] hover:shadow-[0_16px_36px_rgba(15,23,42,0.09)] hover:-translate-y-1.5';
 
-                            const buttonClassName = isEnterprise
-                                ? 'bg-purple-600 text-white ring-1 ring-purple-500/20 shadow-purple-200/70 hover:bg-purple-700 focus:ring-purple-600 animate-pulse-subtle'
-                                : isScale
-                                    ? 'bg-blue-600 text-white ring-1 ring-blue-500/20 shadow-blue-200/70 hover:bg-blue-700 focus:ring-blue-600'
-                                    : isFeatured
-                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-600'
-                                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 focus:ring-indigo-600';
+                            const buttonClassName = 'bg-slate-950 text-white hover:bg-slate-800 focus:ring-slate-950';
 
                             return (
                                 <article
                                     key={`${plan.name}-${plan.priceCents}`}
                                     className={`relative flex min-h-[680px] flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:p-7 ${cardClassName}`}
                                 >
-                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-600" aria-hidden />}
-                                    {isEnterprise && <div className="absolute inset-x-0 top-0 h-1.5 bg-purple-600" aria-hidden />}
+                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-slate-950" aria-hidden />}
 
                                     <div>
                                         <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
                                             <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{plan.displayName}</h2>
                                             {isFeatured && (
-                                                <span className="bg-indigo-100 text-indigo-800 px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border border-indigo-200/50">
+                                                <span className="bg-slate-100 text-slate-800 px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border border-slate-200/60">
                                                     {copy.popular}
                                                 </span>
                                             )}
@@ -508,7 +497,7 @@ export const PricingTable: React.FC = () => {
                                         <PlanGroup title="Fix workflow">
                                             <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
                                                 <span className="inline-flex flex-wrap items-center gap-2">
-                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 shadow-sm">
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200/60 px-2.5 py-0.5 text-[11px] font-bold text-slate-700 shadow-sm">
                                                         + AI Leak Detection
                                                     </span>
                                                     <span>
@@ -598,8 +587,8 @@ export const PricingTable: React.FC = () => {
                                                 onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
                                                 className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
                                                     active
-                                                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
+                                                        ? 'border-slate-950 bg-slate-950 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950'
                                                 }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
@@ -650,8 +639,8 @@ export const PricingTable: React.FC = () => {
                                                 onClick={() => setConversionLiftPoints(preset.value)}
                                                 className={`h-11 flex-1 border px-2 text-xs font-bold transition shadow-sm ${
                                                     conversionLiftPoints === preset.value
-                                                        ? 'border-emerald-600 bg-emerald-600 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-950'
+                                                        ? 'border-slate-950 bg-slate-950 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950'
                                                 }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
@@ -669,7 +658,7 @@ export const PricingTable: React.FC = () => {
 
                         <div className="space-y-5">
                             <div className="grid overflow-hidden border border-slate-200 rounded-xl bg-white/75 backdrop-blur-md shadow-sm sm:grid-cols-3">
-                                <div className="border-b border-slate-100 bg-emerald-50/40 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
+                                <div className="border-b border-slate-100 bg-white/60 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
                                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Recovered/month</p>
                                     <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatCurrency(recoveredMonthlyRevenue)}</p>
                                     <p className="mt-2 text-xs font-normal text-slate-500">{formatInteger(recoveredConversions, locale.languageTag)} extra conversions modeled</p>
@@ -717,9 +706,9 @@ export const PricingTable: React.FC = () => {
                                             href={source.href}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="group text-sm font-medium leading-5 text-slate-600 hover:text-indigo-700"
+                                            className="group text-sm font-medium leading-5 text-slate-600 hover:text-slate-950"
                                         >
-                                            <span className="font-bold text-slate-900 group-hover:text-indigo-700">{source.label}:</span>{' '}
+                                            <span className="font-bold text-slate-900 group-hover:text-slate-950">{source.label}:</span>{' '}
                                             {source.stat}
                                         </a>
                                     ))}
@@ -734,7 +723,7 @@ export const PricingTable: React.FC = () => {
 
                     <div className="relative grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
                         <div className="max-w-2xl">
-                            <p className="mb-4 inline-flex rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 text-[11px] font-bold uppercase tracking-wider">FAQ</p>
+                            <p className="mb-4 inline-flex rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-[11px] font-bold uppercase tracking-wider border border-slate-200/60">FAQ</p>
                             <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
                                 Everything included, clarified.
                             </h2>
@@ -749,7 +738,7 @@ export const PricingTable: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setOpenFaqIndex(openFaqIndex === index ? null : index)}
-                                        className="flex w-full select-none items-center justify-between gap-6 px-5 py-5 text-left transition-colors hover:bg-slate-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:px-6"
+                                        className="flex w-full select-none items-center justify-between gap-6 px-5 py-5 text-left transition-colors hover:bg-slate-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 sm:px-6"
                                         style={{ WebkitTapHighlightColor: 'transparent' }}
                                         aria-expanded={openFaqIndex === index}
                                     >
@@ -787,7 +776,7 @@ export const PricingTable: React.FC = () => {
                             href="https://github.com/rejourneyco/rejourney"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-755 rounded-full shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 hover:border-slate-350"
+                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-slate-300/60 bg-white/60 backdrop-blur-md px-5 text-sm font-semibold text-slate-700 rounded-full shadow-sm transition-all hover:bg-white/80 hover:border-slate-400 hover:text-slate-900"
                         >
                             <Github className="h-4 w-4" aria-hidden />
                             {copy.viewSource}
