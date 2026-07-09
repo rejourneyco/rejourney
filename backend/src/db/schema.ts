@@ -796,6 +796,7 @@ export const researchExtractionJobs = pgTable(
     (table) => [
         uniqueIndex('research_extraction_jobs_session_lake_unique').on(table.sessionId, table.lakeType),
         index('research_extraction_jobs_claim_idx').on(table.lakeType, table.status, table.nextRetryAt, table.dueAt, table.sessionId),
+        index('research_extraction_jobs_fair_claim_idx').on(table.lakeType, table.status, table.projectId, table.dueAt, table.createdAt),
         index('research_extraction_jobs_project_status_idx').on(table.projectId, table.lakeType, table.status, table.dueAt),
     ],
 );

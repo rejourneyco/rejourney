@@ -501,14 +501,23 @@ def load_sample_from_s3(client, bucket: str, manifest_key: str, source_lake: str
     return sample
 
 
-def date_allowed(manifest_key: str, explicit_date: str | None, min_date: str | None) -> bool:
+def date_allowed(
+    manifest_key: str,
+    explicit_date: str | None,
+    min_date: str | None,
+    max_date: str | None = None,
+) -> bool:
     date = manifest_date(manifest_key)
     if not date:
         return False
     if explicit_date:
         return date == explicit_date
     if min_date:
-        return date >= min_date
+        if date < min_date:
+            return False
+    if max_date:
+        if date > max_date:
+            return False
     return True
 
 
@@ -517,15 +526,27 @@ def manifest_date(manifest_key: str) -> str | None:
     return match.group(1) if match else None
 
 
-def eligible_manifest_keys_by_date(keys: Iterable[str], explicit_date: str | None, min_date: str | None) -> dict[str, list[str]]:
+def eligible_manifest_keys_by_date(
+    keys: Iterable[str],
+    explicit_date: str | None,
+    min_date: str | None,
+    max_date: str | None = None,
+) -> dict[str, list[str]]:
     by_date: dict[str, list[str]] = defaultdict(list)
     for key in keys:
-        if not key.endswith("/manifest.json") or not date_allowed(key, explicit_date, min_date):
+        if not key.endswith("/manifest.json") or not date_allowed(key, explicit_date, min_date, max_date):
             continue
         date = manifest_date(key)
         if date:
             by_date[date].append(key)
     return by_date
+
+
+def selected_compaction_dates(keys_by_date: dict[str, Any], max_dates: int) -> list[str]:
+    dates = sorted(keys_by_date)
+    if max_dates > 0:
+        return dates[:max_dates]
+    return dates
 
 
 def delete_prefix(client, bucket: str, prefix: str) -> None:
@@ -617,23 +638,38 @@ def main() -> None:
     raw_prefix = normalize_prefix(env("RESEARCH_LAKE_PREFIX", "v1") or "v1")
     curated_prefix = normalize_prefix(env("RESEARCH_LAKE_CURATED_PREFIX", "v1_curated") or "v1_curated")
     explicit_date = env("RESEARCH_LAKE_COMPACTOR_DATE")
+    explicit_date_start = env("RESEARCH_LAKE_COMPACTOR_DATE_START")
+    explicit_date_end = env("RESEARCH_LAKE_COMPACTOR_DATE_END")
     # Raw partitions use the session date, not the export date. Retention-time
     # exports can therefore land today under date partitions weeks earlier.
     lookback_days = int(env("RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS", "120") or "120")
     max_samples = int(env("RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES", "5000") or "5000")
+    max_dates = int(env("RESEARCH_LAKE_COMPACTOR_MAX_DATES", "0") or "0")
     chunk_rows = max(1, int(env("RESEARCH_LAKE_COMPACTOR_CHUNK_ROWS", "10000") or "10000"))
     min_date = None
-    if not explicit_date and lookback_days > 0:
+    max_date = explicit_date_end
+    if explicit_date:
+        min_date = None
+        max_date = None
+    elif explicit_date_start:
+        min_date = explicit_date_start
+    elif lookback_days > 0:
         min_date = (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=lookback_days)).isoformat()
 
     client = s3_client()
     keys_by_date: dict[str, dict[str, list[str]]] = defaultdict(lambda: {source_lake: [] for source_lake in RAW_LAKES})
     discovered_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
     skipped_dates: dict[str, dict[str, int]] = {}
+    deferred_dates: list[str] = []
 
     for source_lake in RAW_LAKES:
         prefix = f"{raw_prefix}/lake={source_lake}/"
-        lake_keys_by_date = eligible_manifest_keys_by_date(list_keys(client, bucket, prefix), explicit_date, min_date)
+        lake_keys_by_date = eligible_manifest_keys_by_date(
+            list_keys(client, bucket, prefix),
+            explicit_date,
+            min_date,
+            max_date,
+        )
         for date, keys in lake_keys_by_date.items():
             keys_by_date[date][source_lake].extend(keys)
             discovered_by_lake[source_lake] += len(keys)
@@ -643,7 +679,11 @@ def main() -> None:
     total_row_groups = 0
     total_rows = 0
 
-    for date in sorted(keys_by_date):
+    dates_to_process = selected_compaction_dates(keys_by_date, max_dates)
+    selected_date_set = set(dates_to_process)
+    deferred_dates = [date for date in sorted(keys_by_date) if date not in selected_date_set]
+
+    for date in dates_to_process:
         oversized = {
             source_lake: len(keys)
             for source_lake, keys in keys_by_date[date].items()
@@ -670,12 +710,14 @@ def main() -> None:
         "chunk_rows": chunk_rows,
         "date_partitions_processed": processed_dates,
         "date_partitions_skipped": len(skipped_dates),
+        "date_partitions_deferred": len(deferred_dates),
         "samples_loaded": sum(loaded_by_lake.values()),
         "samples_discovered_by_lake": discovered_by_lake,
         "samples_loaded_by_lake": loaded_by_lake,
         "row_groups": total_row_groups,
         "rows": total_rows,
         "skipped_dates": skipped_dates,
+        "deferred_dates": deferred_dates,
         "curated_prefix": curated_prefix,
     }, sort_keys=True))
 

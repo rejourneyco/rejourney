@@ -265,6 +265,42 @@ def test_eligible_manifest_keys_are_grouped_by_complete_date_partition():
     ]
 
 
+def test_eligible_manifest_keys_support_date_ranges():
+    keys = [
+        "v1/lake=interaction/project_key=a/date=2026-06-10/sample_key=one/manifest.json",
+        "v1/lake=interaction/project_key=a/date=2026-06-11/sample_key=two/manifest.json",
+        "v1/lake=interaction/project_key=a/date=2026-06-12/sample_key=three/manifest.json",
+        "v1/lake=interaction/project_key=a/date=2026-06-13/sample_key=four/manifest.json",
+    ]
+
+    grouped = compactor.eligible_manifest_keys_by_date(
+        keys,
+        explicit_date=None,
+        min_date="2026-06-11",
+        max_date="2026-06-12",
+    )
+
+    assert sorted(grouped) == ["2026-06-11", "2026-06-12"]
+
+
+def test_selected_compaction_dates_can_limit_work_per_run():
+    keys_by_date = {
+        "2026-06-12": {},
+        "2026-06-10": {},
+        "2026-06-11": {},
+    }
+
+    assert compactor.selected_compaction_dates(keys_by_date, max_dates=2) == [
+        "2026-06-10",
+        "2026-06-11",
+    ]
+    assert compactor.selected_compaction_dates(keys_by_date, max_dates=0) == [
+        "2026-06-10",
+        "2026-06-11",
+        "2026-06-12",
+    ]
+
+
 def test_chunked_writer_splits_large_partitions_without_redeleting(monkeypatch):
     class FakeClient:
         def __init__(self):

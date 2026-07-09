@@ -2887,12 +2887,19 @@ function buildSeedResearchJobsSql(lakeType: ResearchLakeType): string {
         ? interactionSeedCandidatePredicateSql()
         : behavioralSeedCandidatePredicateSql();
     return `
-        WITH candidates AS (
+        WITH eligible AS (
             SELECT
                 s.id AS session_id,
                 s.project_id,
                 p.team_id,
-                s.started_at + (s.retention_days * INTERVAL '1 day') AS due_at
+                s.started_at + (s.retention_days * INTERVAL '1 day') AS due_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.project_id
+                    ORDER BY s.started_at + (s.retention_days * INTERVAL '1 day'), s.id
+                ) AS project_rank,
+                MIN(s.started_at + (s.retention_days * INTERVAL '1 day')) OVER (
+                    PARTITION BY s.project_id
+                ) AS project_oldest_due_at
             FROM sessions s
             INNER JOIN projects p ON p.id = s.project_id
             LEFT JOIN session_metrics sm ON sm.session_id = s.id
@@ -2906,7 +2913,11 @@ ${lanePredicate}
                   WHERE rej.session_id = s.id
                     AND rej.lake_type = $3
               )
-            ORDER BY due_at, s.id
+        ),
+        candidates AS (
+            SELECT session_id, project_id, team_id, due_at
+            FROM eligible
+            ORDER BY project_rank, project_oldest_due_at, project_id, due_at, session_id
             LIMIT $2
         )
         INSERT INTO research_extraction_jobs (session_id, project_id, team_id, due_at, lake_type)
@@ -2945,7 +2956,7 @@ async function recoverStaleProcessingJobs(): Promise<number> {
     return result.rowCount ?? 0;
 }
 
-function buildClaimResearchJobsSql(): string {
+function buildFifoClaimResearchJobsSql(): string {
     return `
         WITH candidates AS (
             SELECT id
@@ -2969,9 +2980,55 @@ function buildClaimResearchJobsSql(): string {
         `;
 }
 
+function buildFairClaimResearchJobsSql(): string {
+    return `
+        WITH ranked AS (
+            SELECT
+                id,
+                project_id,
+                due_at,
+                created_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY project_id
+                    ORDER BY due_at, created_at, id
+                ) AS project_rank,
+                MIN(due_at) OVER (
+                    PARTITION BY project_id
+                ) AS project_oldest_due_at
+            FROM research_extraction_jobs
+            WHERE status IN ('pending', 'failed')
+              AND lake_type = $2
+              AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+              AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
+        ),
+        candidates AS (
+            SELECT rej.id
+            FROM ranked
+            INNER JOIN research_extraction_jobs rej ON rej.id = ranked.id
+            ORDER BY ranked.project_rank, ranked.project_oldest_due_at, ranked.project_id, ranked.due_at, ranked.created_at, ranked.id
+            LIMIT $3
+            FOR UPDATE OF rej SKIP LOCKED
+        )
+        UPDATE research_extraction_jobs rej
+        SET
+            status = 'processing',
+            attempts = attempts + 1,
+            updated_at = NOW()
+        FROM candidates
+        WHERE rej.id = candidates.id
+        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts
+        `;
+}
+
+function buildClaimResearchJobsSql(lakeType: ResearchLakeType = 'interaction'): string {
+    return lakeType === 'interaction'
+        ? buildFairClaimResearchJobsSql()
+        : buildFifoClaimResearchJobsSql();
+}
+
 async function claimResearchJobs(lakeType: ResearchLakeType, limit: number): Promise<ResearchJobRow[]> {
     const result = await pool.query<ResearchJobRow>(
-        buildClaimResearchJobsSql(),
+        buildClaimResearchJobsSql(lakeType),
         [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, lakeType, limit],
     );
     return result.rows;
@@ -4489,6 +4546,8 @@ export const __researchLakeTestInternals = {
     buildRevenueOutcomeDocuments,
     buildSeedResearchJobsSql,
     buildClaimResearchJobsSql,
+    buildFairClaimResearchJobsSql,
+    buildFifoClaimResearchJobsSql,
     interactionSeedCandidatePredicateSql,
     behavioralSeedCandidatePredicateSql,
     funnelTransitionAliases: FUNNEL_TRANSITION_ALIASES,

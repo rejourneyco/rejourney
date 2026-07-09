@@ -1160,7 +1160,7 @@ export const BillingSettings: React.FC = () => {
                 ) : isEnterprise ? (
                   <a
                     href="mailto:contact@rejourney.co?subject=Enterprise%20Plan%20Inquiry"
-                    className="flex h-10 w-full items-center justify-center rounded-md bg-purple-650 text-white font-semibold shadow-sm hover:bg-purple-700 text-sm transition"
+                    className="flex h-10 w-full items-center justify-center rounded-md bg-slate-950 text-white font-semibold shadow-sm hover:bg-slate-800 text-sm transition"
                   >
                     Contact Sales
                   </a>

@@ -121,11 +121,14 @@ describe('research lake anonymized payload shape', () => {
     it('uses lane-specific seed SQL for visual interaction and behavioral outcomes jobs', () => {
         const interactionSql = __researchLakeTestInternals.buildSeedResearchJobsSql('interaction');
         const behavioralSql = __researchLakeTestInternals.buildSeedResearchJobsSql('behavioral_outcomes');
-        const claimSql = __researchLakeTestInternals.buildClaimResearchJobsSql();
+        const interactionClaimSql = __researchLakeTestInternals.buildClaimResearchJobsSql('interaction');
+        const behavioralClaimSql = __researchLakeTestInternals.buildClaimResearchJobsSql('behavioral_outcomes');
 
         expect(interactionSql).toContain("ra.kind IN ('screenshots', 'hierarchy', 'rrweb')");
         expect(interactionSql).toContain('rej.lake_type = $3');
         expect(interactionSql).toContain('ON CONFLICT (session_id, lake_type) DO NOTHING');
+        expect(interactionSql).toContain('PARTITION BY s.project_id');
+        expect(interactionSql).toContain('project_rank, project_oldest_due_at, project_id');
 
         expect(behavioralSql).toContain('COALESCE(s.observe_only, false) = true');
         expect(behavioralSql).toContain('COALESCE(s.replay_quota_billing_exhausted, false) = true');
@@ -133,8 +136,15 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralSql).toContain('jsonb_array_length(s.events) > 0');
 
         expect(__researchLakeTestInternals.researchLakeTypes).toEqual(['interaction', 'behavioral_outcomes']);
-        expect(claimSql).toContain("status IN ('pending', 'failed')");
-        expect(claimSql).toContain('lake_type = $2');
+        expect(interactionClaimSql).toContain("status IN ('pending', 'failed')");
+        expect(interactionClaimSql).toContain('lake_type = $2');
+        expect(interactionClaimSql).toContain('PARTITION BY project_id');
+        expect(interactionClaimSql).toContain('project_rank, ranked.project_oldest_due_at');
+        expect(interactionClaimSql).toContain('FOR UPDATE OF rej SKIP LOCKED');
+
+        expect(behavioralClaimSql).toContain("status IN ('pending', 'failed')");
+        expect(behavioralClaimSql).toContain('ORDER BY due_at, created_at, id');
+        expect(behavioralClaimSql).not.toContain('PARTITION BY project_id');
     });
 
     it('migration preserves interaction rows while replacing session-only uniqueness', () => {
@@ -148,6 +158,16 @@ describe('research lake anonymized payload shape', () => {
         expect(migrationSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "research_extraction_jobs_session_lake_unique"');
         expect(migrationSql).toContain('("session_id", "lake_type")');
         expect(migrationSql).toContain('("lake_type", "status", "next_retry_at", "due_at", "session_id")');
+    });
+
+    it('adds an index for fair project-rotating interaction claims', () => {
+        const migrationSql = readFileSync(
+            `${process.cwd()}/drizzle/20260709190000_research_lake_fair_claim_index/migration.sql`,
+            'utf8',
+        );
+
+        expect(migrationSql).toContain('CREATE INDEX IF NOT EXISTS "research_extraction_jobs_fair_claim_idx"');
+        expect(migrationSql).toContain('("lake_type", "status", "project_id", "due_at", "created_at")');
     });
 
     it('builds behavioral outcome rows without UI files or raw product identifiers', () => {
