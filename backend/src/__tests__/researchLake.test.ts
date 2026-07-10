@@ -138,7 +138,9 @@ describe('research lake anonymized payload shape', () => {
         expect(__researchLakeTestInternals.researchLakeTypes).toEqual(['interaction', 'behavioral_outcomes']);
         expect(interactionClaimSql).toContain("status IN ('pending', 'failed')");
         expect(interactionClaimSql).toContain('lake_type = $2');
-        expect(interactionClaimSql).toContain('PARTITION BY project_id');
+        expect(interactionClaimSql).toContain('CROSS JOIN LATERAL');
+        expect(interactionClaimSql).toContain('project_id = active_projects.project_id');
+        expect(interactionClaimSql).toContain('LIMIT $4');
         expect(interactionClaimSql).toContain('project_rank, ranked.project_oldest_due_at');
         expect(interactionClaimSql).toContain('FOR UPDATE OF rej SKIP LOCKED');
 

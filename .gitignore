@@ -58,7 +58,11 @@ local.properties
 /research_lake_report.pdf
 /scripts/repair_research_lake_report_pdf.py
 /scripts/generate_research_lake_report.py
+/scripts/generate_research_lake_integrated_report.py
+/scripts/__pycache__/generate_research_lake_integrated_report*.pyc
 /tmp/pdfs/
+/output/pdf/
+/dev_docs/research_lake_integrated_reference_source.txt
 
 # Editor
 .idea/

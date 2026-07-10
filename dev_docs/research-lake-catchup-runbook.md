@@ -19,6 +19,7 @@ change, old high-volume project backlogs could monopolize the worker.
    - `RESEARCH_LAKE_BATCH_SIZE`
    - `RESEARCH_LAKE_CONCURRENCY`
    - `RESEARCH_LAKE_MAX_RUNTIME_MS`
+   - `RESEARCH_LAKE_SEED_MULTIPLIER`
 5. Run manual worker jobs until pending interaction jobs are low and projects
    with recent replay sessions have either exports or clear reject reasons.
 6. Compact curated parquet in bounded date chunks instead of running the full
@@ -33,10 +34,13 @@ The compactor supports these optional controls:
 - `RESEARCH_LAKE_COMPACTOR_DATE_END`: last raw sample date to compact.
 - `RESEARCH_LAKE_COMPACTOR_MAX_DATES`: maximum number of date partitions to
   process in one run.
+- `RESEARCH_LAKE_COMPACTOR_DATE_ORDER`: `newest` keeps scheduled compaction
+  current; `oldest` is useful when walking a historical backlog.
 
-For catch-up, prefer recent or known-exported interaction dates first, then walk
-older dates in small batches. This avoids six-hour job deadline failures while
-still rewriting complete date partitions.
+The scheduled compactor is intentionally tuned for recent bounded dates so the
+lake stays current. For historical catch-up, run explicit `DATE_START` /
+`DATE_END` jobs over small date ranges. This avoids six-hour job deadline
+failures and OOMs while still rewriting complete date partitions.
 
 ## Sanity Checks
 

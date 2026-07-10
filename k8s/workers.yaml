@@ -638,7 +638,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  schedule: "*/10 * * * *"
+  schedule: "*/5 * * * *"
   startingDeadlineSeconds: 300
   suspend: false
   concurrencyPolicy: Forbid
@@ -789,20 +789,22 @@ spec:
                 - name: RESEARCH_LAKE_PREFIX
                   value: "v1"
                 - name: RESEARCH_LAKE_BATCH_SIZE
-                  value: "200"
+                  value: "300"
                 - name: RESEARCH_LAKE_CONCURRENCY
-                  value: "8"
+                  value: "10"
                 - name: RESEARCH_LAKE_MAX_RUNTIME_MS
                   value: "5400000"
                 - name: RESEARCH_LAKE_LOOKAHEAD_HOURS
                   value: "24"
+                - name: RESEARCH_LAKE_SEED_MULTIPLIER
+                  value: "60"
               resources:
                 requests:
-                  cpu: 500m
-                  memory: 512Mi
+                  cpu: 750m
+                  memory: 768Mi
                 limits:
-                  cpu: "3"
-                  memory: 3Gi
+                  cpu: "4"
+                  memory: 4Gi
 
 ---
 # Research Lake Compactor CronJob
@@ -815,7 +817,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  schedule: "17 */6 * * *"
+  schedule: "17 */2 * * *"
   startingDeadlineSeconds: 600
   suspend: false
   concurrencyPolicy: Forbid
@@ -883,9 +885,13 @@ spec:
                 - name: RESEARCH_LAKE_CURATED_PREFIX
                   value: "v1_curated"
                 - name: RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS
-                  value: "120"
+                  value: "21"
                 - name: RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES
-                  value: "100000"
+                  value: "50000"
+                - name: RESEARCH_LAKE_COMPACTOR_MAX_DATES
+                  value: "3"
+                - name: RESEARCH_LAKE_COMPACTOR_DATE_ORDER
+                  value: "newest"
                 - name: RESEARCH_LAKE_COMPACTOR_CHUNK_ROWS
                   value: "5000"
               resources:

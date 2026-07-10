@@ -545,9 +545,9 @@ export const AiLeakHomepage: React.FC = () => {
                             </h3>
                         </div>
                         {/* Outer card — phone left, single insight card right */}
-                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-[#f0f1f3] shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden flex items-stretch gap-0">
+                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-[#f0f1f3] shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden flex items-start sm:items-stretch gap-0">
                             {/* Phone — flush left, no padding needed */}
-                            <div className="flex-shrink-0 flex items-end pl-5 pb-0 pt-5">
+                            <div className="flex-shrink-0 self-stretch flex items-end pl-5 pb-0 pt-5">
                                 <div className="w-[190px] rounded-t-[2rem] bg-slate-950 p-[5px] pb-0 shadow-[0_-12px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/[0.06]">
                                     <div className="rounded-t-[1.65rem] overflow-hidden bg-white">
                                         {/* Status bar */}
@@ -607,8 +607,8 @@ export const AiLeakHomepage: React.FC = () => {
                             </div>
 
                             {/* Single insight card — fills remaining space */}
-                            <div className="flex-1 min-w-0 flex items-center p-4">
-                                <div className="w-full bg-white rounded-2xl border border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.10)] p-4 space-y-3">
+                            <div className="flex-1 min-w-0 flex items-center p-2.5 min-[390px]:p-4">
+                                <div className="w-full bg-white rounded-2xl border border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.10)] p-3 min-[390px]:p-4 space-y-2.5 min-[390px]:space-y-3">
                                     {/* Header */}
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-1.5">
@@ -623,9 +623,9 @@ export const AiLeakHomepage: React.FC = () => {
                                         <div className="mt-1 text-[9px] text-slate-500 leading-relaxed">42% of users tap the photo expecting it to open checkout. Non-interactive — they abandon.</div>
                                     </div>
                                     {/* Revenue at risk */}
-                                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                                    <div className="flex flex-col gap-0.5 rounded-lg bg-emerald-50 border border-emerald-100 px-2.5 py-2 min-[390px]:flex-row min-[390px]:items-center min-[390px]:justify-between min-[390px]:gap-2 min-[390px]:px-3">
                                         <span className="text-[7px] font-semibold uppercase text-emerald-600/70">Revenue at risk</span>
-                                        <span className="text-[11px] font-bold text-emerald-700">$3,136 / mo</span>
+                                        <span className="whitespace-nowrap text-[11px] font-bold text-emerald-700">$3,136 / mo</span>
                                     </div>
                                     {/* Divider + fix info */}
                                     <div className="flex items-center justify-between text-[8px] text-slate-400 border-t border-slate-100 pt-2.5">
@@ -636,16 +636,17 @@ export const AiLeakHomepage: React.FC = () => {
                                     <div className="space-y-1.5">
                                         <Link
                                             to="/demo/general"
-                                            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 h-7 text-[9px] font-bold text-white transition"
+                                            className="flex min-h-7 w-full items-center justify-center gap-1 rounded-xl bg-slate-950 px-1.5 text-[8px] font-bold leading-none text-white transition hover:bg-slate-800 min-[390px]:gap-1.5 min-[390px]:text-[9px]"
                                         >
                                             <Play className="h-2 w-2 fill-current" />
-                                            <span>Watch Session Replay</span>
+                                            <span className="whitespace-nowrap min-[390px]:hidden">Session Replay</span>
+                                            <span className="hidden whitespace-nowrap min-[390px]:inline">Watch Session Replay</span>
                                         </Link>
                                         <button
                                             type="button"
-                                            className="flex w-full items-center justify-center rounded-xl border border-slate-950/10 bg-white hover:bg-slate-50 h-7 text-[9px] font-bold text-slate-800 shadow-sm transition"
+                                            className="flex min-h-7 w-full items-center justify-center rounded-xl border border-slate-950/10 bg-white px-1.5 text-[8px] font-bold leading-none text-slate-800 shadow-sm transition hover:bg-slate-50 min-[390px]:text-[9px]"
                                         >
-                                            Implement Fix
+                                            <span className="whitespace-nowrap">Implement Fix</span>
                                         </button>
                                     </div>
                                 </div>

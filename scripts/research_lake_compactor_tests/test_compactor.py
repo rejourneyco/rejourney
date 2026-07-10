@@ -294,11 +294,79 @@ def test_selected_compaction_dates_can_limit_work_per_run():
         "2026-06-10",
         "2026-06-11",
     ]
+    assert compactor.selected_compaction_dates(keys_by_date, max_dates=2, date_order="newest") == [
+        "2026-06-11",
+        "2026-06-12",
+    ]
     assert compactor.selected_compaction_dates(keys_by_date, max_dates=0) == [
         "2026-06-10",
         "2026-06-11",
         "2026-06-12",
     ]
+
+
+def test_table_chunk_rows_caps_heavy_visual_tables():
+    assert compactor.table_chunk_rows("ui_frame_fact", 5000) == 250
+    assert compactor.table_chunk_rows("ui_skeleton_fact", 5000) == 2000
+    assert compactor.table_chunk_rows("event_fact", 5000) == 5000
+    assert compactor.table_chunk_rows("ui_frame_fact", 100) == 100
+
+
+def test_date_range_handles_inclusive_and_empty_ranges():
+    assert compactor.date_range("2026-06-10", "2026-06-12") == [
+        "2026-06-10",
+        "2026-06-11",
+        "2026-06-12",
+    ]
+    assert compactor.date_range("2026-06-12", "2026-06-10") == []
+
+
+def test_discover_manifest_keys_by_date_lists_exact_date_prefixes():
+    class FakeClient:
+        def list_objects_v2(self, **kwargs):
+            prefix = kwargs["Prefix"]
+            if kwargs.get("Delimiter") == "/":
+                if prefix == "v1/lake=interaction/":
+                    return {"CommonPrefixes": [{"Prefix": "v1/lake=interaction/project_key=a/"}]}
+                if prefix == "v1/lake=behavioral_outcomes/":
+                    return {"CommonPrefixes": [{"Prefix": "v1/lake=behavioral_outcomes/project_key=b/"}]}
+                if prefix == "v1/lake=revenue_outcomes/":
+                    return {"CommonPrefixes": []}
+            objects = {
+                "v1/lake=interaction/project_key=a/date=2026-06-10/": [
+                    "v1/lake=interaction/project_key=a/date=2026-06-10/sample_key=one/manifest.json",
+                    "v1/lake=interaction/project_key=a/date=2026-06-10/sample_key=one/ui_frames.jsonl.gz",
+                ],
+                "v1/lake=interaction/project_key=a/date=2026-06-11/": [
+                    "v1/lake=interaction/project_key=a/date=2026-06-11/sample_key=two/manifest.json",
+                ],
+                "v1/lake=behavioral_outcomes/project_key=b/date=2026-06-10/": [
+                    "v1/lake=behavioral_outcomes/project_key=b/date=2026-06-10/sample_key=three/manifest.json",
+                ],
+            }
+            return {"Contents": [{"Key": key} for key in objects.get(prefix, [])]}
+
+    keys_by_date, discovered_by_lake = compactor.discover_manifest_keys_by_date(
+        FakeClient(),
+        "bucket",
+        "v1",
+        ["2026-06-10", "2026-06-11"],
+    )
+
+    assert keys_by_date["2026-06-10"]["interaction"] == [
+        "v1/lake=interaction/project_key=a/date=2026-06-10/sample_key=one/manifest.json"
+    ]
+    assert keys_by_date["2026-06-11"]["interaction"] == [
+        "v1/lake=interaction/project_key=a/date=2026-06-11/sample_key=two/manifest.json"
+    ]
+    assert keys_by_date["2026-06-10"]["behavioral_outcomes"] == [
+        "v1/lake=behavioral_outcomes/project_key=b/date=2026-06-10/sample_key=three/manifest.json"
+    ]
+    assert discovered_by_lake == {
+        "interaction": 2,
+        "behavioral_outcomes": 1,
+        "revenue_outcomes": 0,
+    }
 
 
 def test_chunked_writer_splits_large_partitions_without_redeleting(monkeypatch):

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import gzip
 import io
 import json
@@ -15,6 +16,12 @@ from typing import Any, Iterable
 
 
 RAW_LAKES = ("interaction", "behavioral_outcomes", "revenue_outcomes")
+TABLE_CHUNK_ROW_LIMITS = {
+    # Raster feature-grid rows can contain 3 dense grid arrays. Keep these
+    # row groups intentionally small so catch-up compactions do not OOM.
+    "ui_frame_fact": 250,
+    "ui_skeleton_fact": 2000,
+}
 COMMON_SESSION_FIELDS = (
     "source_lake",
     "project_key",
@@ -462,6 +469,22 @@ def list_keys(client, bucket: str, prefix: str) -> Iterable[str]:
         token = response.get("NextContinuationToken")
 
 
+def list_common_prefixes(client, bucket: str, prefix: str) -> Iterable[str]:
+    token = None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix, "Delimiter": "/"}
+        if token:
+            kwargs["ContinuationToken"] = token
+        response = client.list_objects_v2(**kwargs)
+        for item in response.get("CommonPrefixes", []):
+            value = item.get("Prefix")
+            if value:
+                yield value
+        if not response.get("IsTruncated"):
+            return
+        token = response.get("NextContinuationToken")
+
+
 def get_object_bytes(client, bucket: str, key: str) -> bytes:
     return client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
@@ -542,11 +565,51 @@ def eligible_manifest_keys_by_date(
     return by_date
 
 
-def selected_compaction_dates(keys_by_date: dict[str, Any], max_dates: int) -> list[str]:
+def selected_compaction_dates(keys_by_date: dict[str, Any], max_dates: int, date_order: str = "oldest") -> list[str]:
     dates = sorted(keys_by_date)
     if max_dates > 0:
+        if date_order == "newest":
+            return dates[-max_dates:]
         return dates[:max_dates]
     return dates
+
+
+def table_chunk_rows(table: str, default_chunk_rows: int) -> int:
+    return max(1, min(default_chunk_rows, TABLE_CHUNK_ROW_LIMITS.get(table, default_chunk_rows)))
+
+
+def date_range(start_date: str, end_date: str) -> list[str]:
+    start = dt.date.fromisoformat(start_date)
+    end = dt.date.fromisoformat(end_date)
+    if end < start:
+        return []
+    days = (end - start).days
+    return [(start + dt.timedelta(days=offset)).isoformat() for offset in range(days + 1)]
+
+
+def discover_manifest_keys_by_date(
+    client,
+    bucket: str,
+    raw_prefix: str,
+    candidate_dates: Iterable[str],
+) -> tuple[dict[str, dict[str, list[str]]], dict[str, int]]:
+    keys_by_date: dict[str, dict[str, list[str]]] = defaultdict(lambda: {source_lake: [] for source_lake in RAW_LAKES})
+    discovered_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
+    dates = list(candidate_dates)
+
+    for source_lake in RAW_LAKES:
+        lake_prefix = f"{raw_prefix}/lake={source_lake}/"
+        project_prefixes = list(list_common_prefixes(client, bucket, lake_prefix))
+        for project_prefix in project_prefixes:
+            for date in dates:
+                date_prefix = f"{project_prefix}date={date}/"
+                for key in list_keys(client, bucket, date_prefix):
+                    if not key.endswith("/manifest.json"):
+                        continue
+                    keys_by_date[date][source_lake].append(key)
+                    discovered_by_lake[source_lake] += 1
+
+    return keys_by_date, discovered_by_lake
 
 
 def delete_prefix(client, bucket: str, prefix: str) -> None:
@@ -614,6 +677,7 @@ def write_manifest_keys_chunked_to_s3(
         part_counts[group_key] += 1
         total_rows += len(rows)
         buffers[group_key] = []
+        gc.collect()
 
     for source_lake in RAW_LAKES:
         for key in keys_by_lake.get(source_lake, []):
@@ -621,7 +685,7 @@ def write_manifest_keys_chunked_to_s3(
             grouped = group_rows_by_output(rows_from_sample(source_lake, sample))
             for group_key, rows in grouped.items():
                 buffers[group_key].extend(rows)
-                if len(buffers[group_key]) >= chunk_rows:
+                if len(buffers[group_key]) >= table_chunk_rows(group_key[1], chunk_rows):
                     flush(group_key)
 
     for group_key in list(buffers):
@@ -645,6 +709,9 @@ def main() -> None:
     lookback_days = int(env("RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS", "120") or "120")
     max_samples = int(env("RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES", "5000") or "5000")
     max_dates = int(env("RESEARCH_LAKE_COMPACTOR_MAX_DATES", "0") or "0")
+    date_order = (env("RESEARCH_LAKE_COMPACTOR_DATE_ORDER", "oldest") or "oldest").lower()
+    if date_order not in {"oldest", "newest"}:
+        raise SystemExit("RESEARCH_LAKE_COMPACTOR_DATE_ORDER must be 'oldest' or 'newest'")
     chunk_rows = max(1, int(env("RESEARCH_LAKE_COMPACTOR_CHUNK_ROWS", "10000") or "10000"))
     min_date = None
     max_date = explicit_date_end
@@ -657,29 +724,27 @@ def main() -> None:
         min_date = (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=lookback_days)).isoformat()
 
     client = s3_client()
-    keys_by_date: dict[str, dict[str, list[str]]] = defaultdict(lambda: {source_lake: [] for source_lake in RAW_LAKES})
-    discovered_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
     skipped_dates: dict[str, dict[str, int]] = {}
     deferred_dates: list[str] = []
+    if explicit_date:
+        candidate_dates = [explicit_date]
+    else:
+        end_date = max_date or dt.datetime.now(dt.timezone.utc).date().isoformat()
+        candidate_dates = date_range(min_date, end_date) if min_date else []
 
-    for source_lake in RAW_LAKES:
-        prefix = f"{raw_prefix}/lake={source_lake}/"
-        lake_keys_by_date = eligible_manifest_keys_by_date(
-            list_keys(client, bucket, prefix),
-            explicit_date,
-            min_date,
-            max_date,
-        )
-        for date, keys in lake_keys_by_date.items():
-            keys_by_date[date][source_lake].extend(keys)
-            discovered_by_lake[source_lake] += len(keys)
+    keys_by_date, discovered_by_lake = discover_manifest_keys_by_date(
+        client,
+        bucket,
+        raw_prefix,
+        candidate_dates,
+    )
 
     loaded_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
     processed_dates = 0
     total_row_groups = 0
     total_rows = 0
 
-    dates_to_process = selected_compaction_dates(keys_by_date, max_dates)
+    dates_to_process = selected_compaction_dates(keys_by_date, max_dates, date_order)
     selected_date_set = set(dates_to_process)
     deferred_dates = [date for date in sorted(keys_by_date) if date not in selected_date_set]
 
@@ -708,6 +773,7 @@ def main() -> None:
 
     print(json.dumps({
         "chunk_rows": chunk_rows,
+        "date_order": date_order,
         "date_partitions_processed": processed_dates,
         "date_partitions_skipped": len(skipped_dates),
         "date_partitions_deferred": len(deferred_dates),

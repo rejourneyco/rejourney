@@ -2982,24 +2982,47 @@ function buildFifoClaimResearchJobsSql(): string {
 
 function buildFairClaimResearchJobsSql(): string {
     return `
-        WITH ranked AS (
+        WITH active_projects AS (
             SELECT
-                id,
                 project_id,
-                due_at,
-                created_at,
-                ROW_NUMBER() OVER (
-                    PARTITION BY project_id
-                    ORDER BY due_at, created_at, id
-                ) AS project_rank,
-                MIN(due_at) OVER (
-                    PARTITION BY project_id
-                ) AS project_oldest_due_at
+                MIN(due_at) AS project_oldest_due_at
             FROM research_extraction_jobs
             WHERE status IN ('pending', 'failed')
               AND lake_type = $2
               AND (next_retry_at IS NULL OR next_retry_at <= NOW())
               AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
+            GROUP BY project_id
+        ),
+        ranked AS (
+            SELECT
+                per_project.id,
+                per_project.project_id,
+                per_project.due_at,
+                per_project.created_at,
+                per_project.project_rank,
+                active_projects.project_oldest_due_at
+            FROM active_projects
+            CROSS JOIN LATERAL (
+                SELECT
+                    limited.id,
+                    limited.project_id,
+                    limited.due_at,
+                    limited.created_at,
+                    ROW_NUMBER() OVER (
+                        ORDER BY limited.due_at, limited.created_at, limited.id
+                    ) AS project_rank
+                FROM (
+                    SELECT id, project_id, due_at, created_at
+                    FROM research_extraction_jobs
+                    WHERE status IN ('pending', 'failed')
+                      AND lake_type = $2
+                      AND project_id = active_projects.project_id
+                      AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+                      AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
+                    ORDER BY due_at, created_at, id
+                    LIMIT $4
+                ) limited
+            ) per_project
         ),
         candidates AS (
             SELECT rej.id
@@ -3027,9 +3050,13 @@ function buildClaimResearchJobsSql(lakeType: ResearchLakeType = 'interaction'): 
 }
 
 async function claimResearchJobs(lakeType: ResearchLakeType, limit: number): Promise<ResearchJobRow[]> {
+    const params: unknown[] = [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, lakeType, limit];
+    if (lakeType === 'interaction') {
+        params.push(Math.max(1, Math.min(500, limit)));
+    }
     const result = await pool.query<ResearchJobRow>(
         buildClaimResearchJobsSql(lakeType),
-        [config.RESEARCH_LAKE_LOOKAHEAD_HOURS, lakeType, limit],
+        params,
     );
     return result.rows;
 }
@@ -4460,9 +4487,10 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     }
 
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_BATCH_SIZE));
+    const seedMultiplier = Math.max(1, Math.trunc(config.RESEARCH_LAKE_SEED_MULTIPLIER));
     summary.recoveredStaleProcessing = await recoverStaleProcessingJobs();
     for (const lakeType of RESEARCH_LAKE_TYPES) {
-        summary.byLake[lakeType].seeded = await seedResearchJobs(lakeType, batchSize * 40);
+        summary.byLake[lakeType].seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
     }
     addLaneSummaryTotals(summary);
     const startedAt = Date.now();
@@ -4475,7 +4503,15 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
 
             const jobs = await claimResearchJobs(lakeType, batchSize);
             claimedThisRound += jobs.length;
-            if (jobs.length === 0) continue;
+            if (jobs.length === 0) {
+                const seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
+                summary.byLake[lakeType].seeded += seeded;
+                if (seeded === 0) continue;
+                const seededJobs = await claimResearchJobs(lakeType, batchSize);
+                claimedThisRound += seededJobs.length;
+                if (seededJobs.length === 0) continue;
+                jobs.push(...seededJobs);
+            }
 
             const concurrency = Math.max(1, Math.min(config.RESEARCH_LAKE_CONCURRENCY, jobs.length));
             let nextIndex = 0;
