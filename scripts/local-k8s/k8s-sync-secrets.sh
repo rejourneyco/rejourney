@@ -104,11 +104,19 @@ create_or_update_secret research-lake-secret \
     --from-literal=RESEARCH_LAKE_SECRET_ACCESS_KEY="${RESEARCH_LAKE_SECRET_ACCESS_KEY:-$S3_SECRET_ACCESS_KEY}" \
     --from-literal=RESEARCH_LAKE_HASH_SECRET="${RESEARCH_LAKE_HASH_SECRET:-$JWT_SECRET}"
 
+if [ "${SHARE_LINK_SECRET:-}" = "generate_with_openssl_rand_hex_32" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "generate_with_openssl_rand_base64_48" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "replace_with_openssl_rand_hex_32" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "replace_with_openssl_rand_base64_48" ]; then
+    SHARE_LINK_SECRET=""
+fi
+
 APP_SECRET_ARGS=(
     --from-literal=JWT_SECRET="$JWT_SECRET"
     --from-literal=JWT_SIGNING_KEY="$JWT_SIGNING_KEY"
     --from-literal=INGEST_HMAC_SECRET="$INGEST_HMAC_SECRET"
     --from-literal=STORAGE_ENCRYPTION_KEY="$STORAGE_ENCRYPTION_KEY"
+    --from-literal=SHARE_LINK_SECRET="${SHARE_LINK_SECRET:-$JWT_SECRET}"
     --from-literal=SELF_HOSTED_MODE=false
 )
 

@@ -263,6 +263,11 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: SHARE_LINK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SHARE_LINK_SECRET
             - name: SUPERWALL_API_KEY_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -723,6 +728,11 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: SHARE_LINK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SHARE_LINK_SECRET
             - name: SUPERWALL_API_KEY_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

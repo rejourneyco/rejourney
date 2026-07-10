@@ -174,6 +174,28 @@ fi
 if [ -z "$STORAGE_ENCRYPTION_KEY" ] || [ "$STORAGE_ENCRYPTION_KEY" = "generate_with_openssl_rand_hex_32" ]; then
     error "STORAGE_ENCRYPTION_KEY not set or still has placeholder value. Generate with: openssl rand -hex 32"
 fi
+if [ "${SHARE_LINK_SECRET:-}" = "generate_with_openssl_rand_hex_32" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "generate_with_openssl_rand_base64_48" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "replace_with_openssl_rand_hex_32" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "replace_with_openssl_rand_base64_48" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "CHANGE_ME_BASE64_48" ] \
+    || [ "${SHARE_LINK_SECRET:-}" = "CHANGE_ME_64_HEX" ]; then
+    SHARE_LINK_SECRET=""
+fi
+if [ -z "${SHARE_LINK_SECRET:-}" ]; then
+    EXISTING_SHARE_LINK_SECRET_B64="$(kubectl get secret app-secret -n "$NAMESPACE" -o jsonpath='{.data.SHARE_LINK_SECRET}' 2>/dev/null || true)"
+    EXISTING_SHARE_LINK_SECRET="$(
+        printf '%s' "$EXISTING_SHARE_LINK_SECRET_B64" \
+            | python3 -c 'import base64, sys; data=sys.stdin.read().strip(); print(base64.b64decode(data).decode() if data else "")' 2>/dev/null \
+            || true
+    )"
+    if [ -n "$EXISTING_SHARE_LINK_SECRET" ]; then
+        warn "SHARE_LINK_SECRET not set in env; preserving existing app-secret value"
+        SHARE_LINK_SECRET="$EXISTING_SHARE_LINK_SECRET"
+    else
+        error "SHARE_LINK_SECRET not set. Generate with: openssl rand -base64 48"
+    fi
+fi
 if [ -n "${SUPERWALL_API_KEY_ENCRYPTION_KEY:-}" ] && ! [[ "$SUPERWALL_API_KEY_ENCRYPTION_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
     error "SUPERWALL_API_KEY_ENCRYPTION_KEY must be 64 hex characters when set. Generate with: openssl rand -hex 32"
 fi
@@ -187,6 +209,7 @@ APP_SECRET_ARGS=(
     --from-literal=JWT_SIGNING_KEY="$JWT_SIGNING_KEY"
     --from-literal=INGEST_HMAC_SECRET="$INGEST_HMAC_SECRET"
     --from-literal=STORAGE_ENCRYPTION_KEY="$STORAGE_ENCRYPTION_KEY"
+    --from-literal=SHARE_LINK_SECRET="$SHARE_LINK_SECRET"
 )
 
 if [ -n "${SUPERWALL_API_KEY_ENCRYPTION_KEY:-}" ]; then
