@@ -4,7 +4,7 @@ Rejourney Team
 /* SITE */
 Last update: 2026/01/10
 Standards: HTML5, CSS3, JavaScript, React
-Software: Rejourney - Shopify, ecommerce, and app subscription revenue recovery
+Software: Rejourney - Revenue leak prediction for web and mobile apps
 
 /* CONTACT */
 contact@rejourney.co

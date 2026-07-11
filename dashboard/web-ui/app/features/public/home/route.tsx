@@ -22,7 +22,7 @@ import {
 const homeLocale = MARKETING_LOCALES.en;
 const canonicalUrl = getMarketingLocaleUrl(homeLocale);
 const socialPreviewImage = "https://rejourney.co/images/growth-engines.png?v=20260619";
-const socialPreviewAlt = "Rejourney Shopify and subscription revenue dashboard preview";
+const socialPreviewAlt = "Rejourney revenue leak prediction dashboard preview";
 const homeKeywords = homeLocale.keywords;
 
 export function loader({ request }: Route.LoaderArgs) {
@@ -123,7 +123,7 @@ export default function LandingPage() {
                                 name: "Rejourney",
                                 applicationCategory: "BusinessApplication",
                                 operatingSystem: "Web, iOS, Android",
-                                description: "Revenue recovery for Shopify, ecommerce, and app subscription teams. Rejourney shows checkout drop-off, failed billing, churn risk, and the replay-backed evidence behind each lost conversion.",
+                                description: "Revenue leak prediction for web and mobile apps. Rejourney connects replay, journey, error, heatmap, and revenue signals to predict checkout, onboarding, subscription, paywall, and churn leaks.",
                                 url: "https://rejourney.co/",
                                 offers: {
                                     "@type": "Offer",

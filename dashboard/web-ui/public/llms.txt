@@ -1,13 +1,13 @@
 # Rejourney
 
-> Rejourney is a revenue recovery platform for Shopify, ecommerce, and app subscription teams. It helps teams find checkout drop-off, failed billing, subscription churn risk, and replay-backed evidence for why buyers do not convert, renew, or finish payment.
+> Rejourney is a revenue leak prediction platform for web and mobile apps. It helps teams predict checkout, onboarding, subscription, paywall, payment-failure, and churn leaks by connecting replay, heatmaps, journey, stability, API, and revenue signals.
 
 ## Best Starting Points
 
-- [Home](https://rejourney.co/): Shopify, ecommerce, and app subscription revenue recovery overview for finding failed billing, checkout drop-off, churn, and revenue leaks.
-- [Pricing](https://rejourney.co/pricing): Fixed-price revenue recovery plans for Shopify checkout, ecommerce conversion, and app subscription teams.
+- [Home](https://rejourney.co/): Revenue leak prediction overview for web and mobile apps, including checkout analytics, onboarding drop-off, subscription analytics, churn risk, and failed flows.
+- [Pricing](https://rejourney.co/pricing): Fixed-price revenue leak prediction plans for checkout, onboarding, and subscription analytics teams.
 - [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for iOS, Expo, and React Native teams.
-- [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from captured sessions to replay-backed revenue recovery.
+- [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from captured sessions to replay-backed revenue leak prediction.
 - [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
 - [Self-Healing Software](https://rejourney.co/self-healing-software): Product and engineering workflow for turning replay, stability, API, device, and journey signals into fix-ready repair context.
 - [Stability Monitoring](https://rejourney.co/stability-monitoring): Stability workflow for crashes, errors, ANRs, API spikes, affected users, devices, releases, and replay evidence.
@@ -28,8 +28,8 @@
 
 ## Core Product Concepts
 
-- Shopify checkout, ecommerce conversion, and app subscription revenue recovery.
-- Replay-backed evidence for failed billing, subscription churn risk, checkout drop-off, rage taps, API errors, crashes, and confusing flows.
+- Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
+- Replay-backed evidence for checkout drop-off, onboarding drop-off, subscription churn risk, paywall issues, payment failures, rage taps, API errors, crashes, and confusing journeys.
 - Mobile session replay for iOS, Android, Expo, React Native, and Swift applications.
 - Touch heatmaps for mobile app screens, including rage tap and dead tap investigation.
 - Crash reporting, ANR monitoring, and stability signals for production mobile apps.
@@ -39,7 +39,7 @@
 - Self-healing software workflows that turn repeated production friction into replay-backed fix packets.
 - Mobile journeys and product analytics for understanding funnels and user flows.
 - Self-hosted observability deployment for teams that need data ownership.
-- Open-source revenue recovery alternative to usage-priced analytics platforms.
+- Open-source revenue leak prediction alternative to usage-priced analytics platforms.
 - Unlimited events, unlimited analytics data retention, unlimited team members, and unlimited projects for product analytics workflows.
 
 ## Engineering Articles By Search Intent

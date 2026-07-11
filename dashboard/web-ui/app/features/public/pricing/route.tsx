@@ -131,7 +131,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Starter",
-                                            serviceType: "E-Com and Subscription Revenue Boost",
+                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -143,7 +143,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Growth",
-                                            serviceType: "E-Com and Subscription Revenue Boost",
+                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -155,7 +155,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Pro",
-                                            serviceType: "E-Com and Subscription Revenue Boost",
+                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -167,7 +167,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Scale",
-                                            serviceType: "E-Com and Subscription Revenue Boost with Smart Capture",
+                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps with Smart Capture",
                                         },
                                     },
                                 ],

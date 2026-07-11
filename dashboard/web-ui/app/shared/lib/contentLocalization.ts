@@ -93,9 +93,9 @@ type ContentLocaleCopy = {
 };
 
 const englishContentCopy: ContentLocaleCopy = {
-  docsIndexTitle: "Shopify, Web & Mobile SDK Documentation - Rejourney",
+  docsIndexTitle: "Web & Mobile Revenue Leak Prediction Docs - Rejourney",
   docsIndexDescription:
-    "Install Rejourney for Shopify, ecommerce, web, React Native, Expo, and Swift apps with replay-backed checkout and subscription revenue recovery workflows.",
+    "Install Rejourney for web and mobile apps with SDK workflows for checkout, onboarding, and subscription analytics backed by replay evidence.",
   docsTitleSuffix: "Rejourney Documentation",
   docsSiteName: "Rejourney Documentation",
   docsBreadcrumb: "Docs",
@@ -117,7 +117,7 @@ const englishContentCopy: ContentLocaleCopy = {
   documentationNotFoundHeading: "Documentation Not Found",
   documentationNotFoundCopy: "The requested documentation page could not be found.",
   docDefaultDescription: (title) =>
-    `${title} documentation for Rejourney's Shopify, ecommerce, and app subscription revenue recovery platform.`,
+    `${title} documentation for Rejourney's revenue leak prediction platform for web and mobile apps.`,
   docKeywords: [
     "web SDK documentation",
     "browser session replay docs",
@@ -147,23 +147,30 @@ const englishContentCopy: ContentLocaleCopy = {
   viewGitHub: "View GitHub",
   readTime: (minutes) => `${minutes} min read`,
   pricing: {
-    metaTitle: "Rejourney Pricing: Revenue Recovery Plans",
+    metaTitle: "Rejourney Pricing: Revenue Leak Prediction",
     metaDescription:
-      "Rejourney pricing for Shopify, ecommerce checkout, and app subscription revenue recovery with replay-backed conversion evidence.",
+      "Rejourney pricing for checkout, onboarding, and subscription analytics with revenue leak prediction across web and mobile apps.",
     metaKeywords: [
-      "Shopify analytics pricing",
-      "ecommerce analytics pricing",
+      "revenue leak prediction pricing",
+      "revenue leak detection pricing",
       "checkout analytics pricing",
+      "checkout funnel analytics pricing",
+      "onboarding analytics pricing",
       "subscription analytics pricing",
-      "revenue recovery pricing",
       "subscription churn analytics pricing",
+      "paywall analytics pricing",
+      "payment failure analytics pricing",
+      "web app revenue leak pricing",
+      "mobile app revenue leak pricing",
+      "AI revenue leak analytics pricing",
       "session replay pricing",
+      "heatmap pricing",
       "self-hosted analytics pricing",
     ],
-    ogTitle: "Rejourney Pricing: Subscription & Checkout Revenue Recovery",
+    ogTitle: "Rejourney Pricing: Revenue Leak Prediction",
     ogDescription:
-      "Simple fixed pricing for Shopify checkout, ecommerce conversion, and app subscription revenue recovery.",
-    twitterTitle: "Rejourney Pricing: Revenue Recovery Plans",
+      "Simple fixed pricing for checkout, onboarding, and subscription revenue leak prediction across web and mobile apps.",
+    twitterTitle: "Rejourney Pricing: Revenue Leak Prediction",
     pageName: "Rejourney Pricing",
     ariaLabel: "Pricing",
     heading: "Pricing",

@@ -1,7 +1,7 @@
 {
   "name": "Rejourney",
   "short_name": "Rejourney",
-  "description": "Shopify, ecommerce, and app subscription revenue recovery",
+  "description": "Revenue leak prediction for web and mobile apps",
   "icons": [
     {
       "src": "/favicon.ico",

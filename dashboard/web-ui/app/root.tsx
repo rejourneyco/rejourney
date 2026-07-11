@@ -163,7 +163,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "Service",
                                     "@id": "https://rejourney.co/#service",
                                     "name": "Rejourney",
-                                    "serviceType": "E-Com and Subscription Revenue Boost",
+                                    "serviceType": "Revenue Leak Prediction for Web and Mobile Apps",
                                     "provider": { "@id": "https://rejourney.co/#organization" },
                                     "url": "https://rejourney.co/",
                                     "description": locale.metaDescription,

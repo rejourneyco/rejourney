@@ -78,7 +78,7 @@ export const Footer: React.FC = () => {
               <span className="font-mono text-xl font-extrabold uppercase tracking-tight text-slate-950">Rejourney</span>
             </Link>
             <p className="mt-5 text-sm font-medium leading-relaxed text-slate-600">
-              Revenue recovery for Shopify, ecommerce, and app subscription teams. Rejourney shows where checkout, billing, and renewal flows lose buyers.
+              Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link

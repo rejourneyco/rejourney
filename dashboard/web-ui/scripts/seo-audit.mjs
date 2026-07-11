@@ -113,7 +113,7 @@ function checkTitles() {
 
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
-  assertIncludes("app/features/public/home/route.tsx", "Shopify, ecommerce, and app subscription", "Home page metadata must stay aligned to Shopify, ecommerce, and app subscription buyers.");
+  assertIncludes("app/features/public/home/route.tsx", "Revenue leak prediction for web and mobile apps", "Home page metadata must stay aligned to revenue leak prediction for web and mobile apps.");
   assertIncludes("app/features/public/about/route.tsx", "noindex, follow", "About page should be noindexed so Google favors product/pricing sitelinks.");
   assertIncludes("app/root.tsx", "/mobile-session-replay", "Homepage sitelink schema should promote Mobile Session Replay.");
   assertIncludes("app/root.tsx", "/pricing", "Homepage sitelink schema should promote Pricing.");

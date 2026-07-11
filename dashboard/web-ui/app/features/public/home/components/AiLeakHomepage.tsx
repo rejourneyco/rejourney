@@ -476,7 +476,7 @@ export const AiLeakHomepage: React.FC = () => {
 
                     <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
                         <h1 className="landing-hero-title mx-auto max-w-6xl font-display text-[1.68rem] font-extrabold leading-[1.04] tracking-normal text-slate-950 min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[3.05rem] md:text-[3.65rem] lg:text-[4.45rem] xl:text-[5.35rem]">
-                            Boost Subscription and Checkout Revenue.
+                            Revenue Leak Prediction for Web and Mobile Apps
                         </h1>
                         <p className="landing-hero-subtitle mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
                             {homeCopy.hero.description}
