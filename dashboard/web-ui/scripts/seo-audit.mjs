@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const cwd = process.cwd();
@@ -91,6 +91,7 @@ function checkTitles() {
   const files = [
     "app/shared/lib/internationalMarketing.ts",
     "app/shared/lib/contentLocalization.ts",
+    "app/features/public/seo/seoPages.ts",
     "app/shared/data/engineeringArticles/architectureDeepDive.tsx",
     "app/shared/data/engineeringArticles/mapsPerformance.tsx",
     "app/shared/data/engineeringArticles/mobileSessionReplayCost.tsx",
@@ -114,6 +115,17 @@ function checkTitles() {
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
   assertIncludes("app/features/public/home/route.tsx", "Revenue leak prediction for web and mobile apps", "Home page metadata must stay aligned to revenue leak prediction for web and mobile apps.");
+  assertIncludes("app/shared/lib/contentLocalization.ts", 'heading: "Revenue Leak Prediction Pricing"', "Pricing H1 must stay aligned to revenue leak prediction.");
+  for (const title of [
+    "Sentry Session Replay Pricing & Alternative | Rejourney",
+    "Datadog Session Replay Pricing & Alternative | Rejourney",
+    "Amplitude Session Replay Pricing & Alternative | Rejourney",
+    "Mixpanel Session Replay Alternative | Rejourney",
+    "Pendo Session Replay Alternative | Rejourney",
+    "Smartlook Alternatives After Cisco EOL | Rejourney",
+  ]) {
+    assertIncludes("app/features/public/seo/seoPages.ts", `metaTitle: "${title}"`, `Search Console CTR title is missing: ${title}`);
+  }
   assertIncludes("app/features/public/about/route.tsx", "noindex, follow", "About page should be noindexed so Google favors product/pricing sitelinks.");
   assertIncludes("app/root.tsx", "/mobile-session-replay", "Homepage sitelink schema should promote Mobile Session Replay.");
   assertIncludes("app/root.tsx", "/pricing", "Homepage sitelink schema should promote Pricing.");
@@ -122,6 +134,10 @@ function checkOnPageAndLinks() {
   assertIncludes("app/shell/components/layout/Header.tsx", "API Endpoint Insights", "Header Platform menu must include API Endpoint Insights.");
   assertIncludes("app/shell/components/layout/Header.tsx", "Device Insights", "Header Platform menu must include Device Insights.");
   assertIncludes("app/shell/components/layout/Footer.tsx", "Replay & Analytics", "Footer must keep features organized into a Replay & Analytics group.");
+  assertIncludes("app/shell/components/layout/Footer.tsx", "Revenue Leak Guide", "Footer must promote the revenue leak guide instead of a commerce-specific resource.");
+  assertNotIncludes("app/shell/components/layout/Footer.tsx", '{ label: "Shopify"', "Footer must not position Shopify as a primary resource.");
+  assertNotIncludes("app/features/public/sitemap/route.tsx", 'slug === "shopify/getting-started"', "Sitemap must not give the Shopify setup guide elevated priority.");
+  assertIncludes("app/features/public/home/components/AiLeakHomepage.tsx", ">('nextjs')", "Homepage SDK selector should default to a general web platform rather than Shopify.");
   for (const path of [
     "/self-healing-software",
     "/stability-monitoring",
@@ -141,12 +157,29 @@ function checkOnPageAndLinks() {
   assertNotIncludes("app/features/public/legal/dpa/route.tsx", "ovhcloud.com/legal/data-processing-agreement", "DPA page must not link to the 403 OVHCloud DPA URL.");
 }
 
+function checkEditorialReadability() {
+  const articleDir = join(cwd, "app/shared/data/engineeringArticlesMarkdown");
+  const articles = readdirSync(articleDir).filter((name) => name.startsWith("2026-07-12-") && name.endsWith(".md"));
+
+  for (const article of articles) {
+    const source = readFileSync(join(articleDir, article), "utf8");
+    const body = source.split(/^---$/m).slice(2).join("---");
+    const bodyBullets = body.match(/^[-*] /gm)?.length ?? 0;
+
+    if (bodyBullets > 12) fail(`${article} has ${bodyBullets} body bullets; use connected prose for the main argument.`);
+    if (body.includes("## Where Rejourney fits")) fail(`${article} uses the repeated Where Rejourney fits template.`);
+    if (/\*\*[^*]+:\*\*/.test(body)) fail(`${article} uses inline-header list formatting associated with templated writing.`);
+    if (body.includes("The review should also include")) fail(`${article} repeats a canned transition instead of editorial prose.`);
+  }
+}
+
 checkStructuredData();
 checkRobotsAndSitemap();
 checkHreflangScopes();
 checkLocalizedDocsCoverage();
 checkTitles();
 checkOnPageAndLinks();
+checkEditorialReadability();
 
 if (failures.length > 0) {
   console.error("SEO audit failed:");

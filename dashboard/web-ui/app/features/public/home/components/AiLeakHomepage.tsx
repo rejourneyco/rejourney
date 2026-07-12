@@ -48,32 +48,19 @@ const MOUNTAIN_CARD_IMAGE = landingImage('/images/mountain_app_card.jpg');
 const BEACH_CARD_IMAGE = landingImage('/images/beach_app_card.jpg');
 
 const supportedPlatforms = [
-    { label: 'Shopify', icon: MarkShopify, color: '#95bf47' },
-    { label: 'Hydrogen', icon: MarkHydrogen, color: '#00a878' },
-    { label: 'Gatsby', icon: MarkGatsby, color: '#663399' },
+    { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a' },
     { label: 'React Native / Expo', icon: MarkReactNative, color: '#2563eb' },
     { label: 'Swift', icon: MarkSwift, color: '#f97316' },
-    { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a' },
     { label: 'Vue / Nuxt', icon: MarkVue, color: '#42b883' },
     { label: 'Angular', icon: MarkAngular, color: '#dd0031' },
     { label: 'SvelteKit', icon: MarkSvelte, color: '#ff3e00' },
     { label: 'Remix', icon: MarkRemix, color: '#0f172a' },
+    { label: 'Gatsby', icon: MarkGatsby, color: '#663399' },
+    { label: 'Shopify', icon: MarkShopify, color: '#95bf47' },
+    { label: 'Hydrogen', icon: MarkHydrogen, color: '#00a878' },
 ];
 
 const sdkPlatforms = [
-    {
-        id: 'shopify',
-        title: 'Shopify',
-        icon: MarkShopify,
-        brandColor: '#95bf47',
-        terminalCommands: ['npm install @rejourneyco/browser'],
-        subtitle: 'Bundle into theme asset',
-        fileName: 'src/rejourney-shopify.ts',
-        code: `import { Rejourney } from '@rejourneyco/browser';
-
-await Rejourney.init('pk_live_your_public_key');
-await Rejourney.start();`
-    },
     {
         id: 'reactnative',
         title: 'React Native / Expo',
@@ -147,6 +134,19 @@ struct MyApp: App {
 export default defineRejourneyNuxtPlugin({
   publicKey: 'pk_live_your_public_key',
 });`
+    },
+    {
+        id: 'shopify',
+        title: 'Shopify',
+        icon: MarkShopify,
+        brandColor: '#95bf47',
+        terminalCommands: ['npm install @rejourneyco/browser'],
+        subtitle: 'Bundle into theme asset',
+        fileName: 'src/rejourney-shopify.ts',
+        code: `import { Rejourney } from '@rejourneyco/browser';
+
+await Rejourney.init('pk_live_your_public_key');
+await Rejourney.start();`
     }
 ];
 
@@ -405,7 +405,7 @@ export const AiLeakHomepage: React.FC = () => {
     const homeCopy = getMarketingHomeCopy(location.pathname);
 
     // Bottom CTA Playground state
-    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'swift' | 'vue'>('shopify');
+    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'swift' | 'vue'>('nextjs');
     const [copied, setCopied] = useState(false);
 
     // Interactive Showcase Tabs state
@@ -1105,10 +1105,10 @@ export const AiLeakHomepage: React.FC = () => {
                             </div>
                             <div className="space-y-3">
                                 <h2 className="font-display text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-3xl">
-                                    Burst Creatine 103% Increase in Sales.
+                                    Burst Creatine Increased Sales by 103%.
                                 </h2>
                                 <p className="max-w-lg mx-auto text-sm font-medium leading-relaxed text-slate-400">
-                                    Rejourney surfaced the exact UX friction points causing drop-off. Simple fixes, no guesswork.
+                                    Rejourney surfaced the UX friction points causing drop-off. Simple fixes, no guesswork.
                                 </p>
                             </div>
                         </div>

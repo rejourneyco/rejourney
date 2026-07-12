@@ -98,9 +98,9 @@ const ROI_BENCHMARK_SOURCES = [
         stat: '70.22% average documented cart abandonment rate across 50 studies.',
     },
     {
-        label: 'Littledata Shopify benchmark',
-        href: 'https://www.littledata.io/ecommerce-conversion-rate',
-        stat: '1.4% average Shopify conversion rate; 3.2%+ is top 20%.',
+        label: 'Appcues onboarding metrics guide',
+        href: 'https://www.appcues.com/blog/user-onboarding-metrics-and-kpis',
+        stat: 'SaaS activation targets often fall between 25% and 50%; the product\'s own trend remains the most useful benchmark.',
     },
     {
         label: 'RevenueCat subscription app benchmarks',

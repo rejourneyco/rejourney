@@ -147,9 +147,9 @@ const englishContentCopy: ContentLocaleCopy = {
   viewGitHub: "View GitHub",
   readTime: (minutes) => `${minutes} min read`,
   pricing: {
-    metaTitle: "Rejourney Pricing: Revenue Leak Prediction",
+    metaTitle: "Revenue Leak Prediction Pricing | Rejourney",
     metaDescription:
-      "Rejourney pricing for checkout, onboarding, and subscription analytics with revenue leak prediction across web and mobile apps.",
+      "Rejourney pricing for checkout, onboarding, paywall, and subscription revenue-leak prediction across web and mobile apps, with fixed session-based plans.",
     metaKeywords: [
       "revenue leak prediction pricing",
       "revenue leak detection pricing",
@@ -167,13 +167,13 @@ const englishContentCopy: ContentLocaleCopy = {
       "heatmap pricing",
       "self-hosted analytics pricing",
     ],
-    ogTitle: "Rejourney Pricing: Revenue Leak Prediction",
+    ogTitle: "Revenue Leak Prediction Pricing | Rejourney",
     ogDescription:
       "Simple fixed pricing for checkout, onboarding, and subscription revenue leak prediction across web and mobile apps.",
-    twitterTitle: "Rejourney Pricing: Revenue Leak Prediction",
+    twitterTitle: "Revenue Leak Prediction Pricing | Rejourney",
     pageName: "Rejourney Pricing",
     ariaLabel: "Pricing",
-    heading: "Pricing",
+    heading: "Revenue Leak Prediction Pricing",
     intro:
       "Simple pricing based on captured sessions. Those sessions power revenue-leak detection, conversion drill-downs, heatmaps, journeys, and fix-ready context.",
     contactEyebrow: "Contact devs",

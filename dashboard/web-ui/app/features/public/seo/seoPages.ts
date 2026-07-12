@@ -115,9 +115,14 @@ const commonPricingBullets = [
 
 const commonRelated = [
   {
+    label: "Revenue leak guide",
+    href: "/engineering/2026-07-12/revenue-leak-detection",
+    description: "See how to find checkout, onboarding, paywall, and subscription leaks before they compound.",
+  },
+  {
     label: "Pricing",
     href: "/pricing",
-    description: "See Rejourney's fixed-price plans and included platform limits.",
+    description: "See fixed plans for revenue-leak prediction across web and mobile apps.",
   },
   {
     label: "Live demo",
@@ -199,7 +204,7 @@ const alternativePage = (config: {
   path: config.path,
   badge: config.badge,
   eyebrow: "Alternative comparison",
-  title: `Rejourney vs ${config.competitor}`,
+  title: `${config.competitor}: pricing, features, and alternative`,
   subtitle: config.subtitle,
   metaTitle: config.metaTitle,
   metaDescription: config.metaDescription,
@@ -1369,9 +1374,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Sentry is built for developer diagnostics. Rejourney is for teams that need replay to explain product behavior beyond exceptions.",
-    metaTitle: "Rejourney vs Sentry Session Replay",
+    metaTitle: "Sentry Session Replay Pricing & Alternative | Rejourney",
     metaDescription:
-      "Compare Rejourney and Sentry Session Replay for replay, product analytics, heatmaps, journeys, unlimited events, and mobile debugging.",
+      "See Sentry Session Replay pricing and limits from official sources, then compare Rejourney for journeys, heatmaps, mobile apps, and revenue-leak evidence.",
     keywords: ["sentry session replay", "sentry self hosted session replay", "session replay for sentry", "sentry alternatives"],
     image: "/images/anr-issues.png",
     imageAlt: "Rejourney crash and ANR replay context as a Sentry Session Replay alternative",
@@ -1435,6 +1440,11 @@ export const SEO_PAGES: SeoPage[] = [
       "Sentry documents event-volume billing across several data categories, including replays. Rejourney is positioned for replay and analytics teams that want simple included limits across events, retention, projects, and seats.",
     faq: [
       {
+        question: "How much does Sentry Session Replay cost?",
+        answer:
+          "Sentry's published plans include 50 replays per month, then document separate reserved and pay-as-you-go replay rates. Check the linked Sentry pricing sources for current billing details before buying.",
+      },
+      {
         question: "Is Rejourney a Sentry alternative?",
         answer:
           "Rejourney can replace or complement Sentry when your priority is replay-led product analytics, mobile UX investigation, heatmaps, journeys, and crash context.",
@@ -1457,9 +1467,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Datadog makes sense inside a broad observability stack. Rejourney is for product teams that want session evidence without adopting the whole stack.",
-    metaTitle: "Rejourney vs Datadog Session Replay",
+    metaTitle: "Datadog Session Replay Pricing & Alternative | Rejourney",
     metaDescription:
-      "Compare Rejourney and Datadog Session Replay for product analytics, mobile replay, unlimited events, retention, projects, and teams.",
+      "See Datadog Session Replay pricing and limits, then compare Rejourney for product journeys, mobile apps, API context, and revenue-leak evidence.",
     keywords: ["datadog session replay", "datadog rum session replay", "datadog alternatives", "session replay tools"],
     image: "/images/geo-analytics.png",
     imageAlt: "Rejourney geo analytics and replay context as a Datadog alternative",
@@ -1545,9 +1555,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Amplitude is strong when analytics is the center. Rejourney is for teams that need the replay behind the metric.",
-    metaTitle: "Rejourney vs Amplitude Session Replay",
+    metaTitle: "Amplitude Session Replay Pricing & Alternative | Rejourney",
     metaDescription:
-      "Compare Rejourney and Amplitude Session Replay for replay-first analytics, mobile context, unlimited events, retention, projects, and seats.",
+      "See Amplitude Session Replay pricing and plan limits, then compare Rejourney for mobile context, journeys, heatmaps, and revenue-leak evidence.",
     keywords: ["amplitude session replay", "amplitude session replay pricing", "amplitude alternatives", "product analytics session replay"],
     image: "/images/growth-engines.png",
     imageAlt: "Rejourney growth analytics as an Amplitude session replay alternative",
@@ -1611,6 +1621,11 @@ export const SEO_PAGES: SeoPage[] = [
       "Amplitude publishes MTU/event-volume plan limits and Session Replay session allowances by plan. Rejourney is evaluated as a replay-first analytics workspace with broad included limits for events, retention, projects, and seats.",
     faq: [
       {
+        question: "How much does Amplitude Session Replay cost?",
+        answer:
+          "Amplitude publishes replay allowances by plan: 10,000 monthly sessions on Starter and Plus, 20,000 on Growth, and 50,000 on Enterprise, with add-ons available on higher tiers. Verify current limits on Amplitude's linked pricing page.",
+      },
+      {
         question: "Is Rejourney an Amplitude alternative?",
         answer:
           "Yes, when your main goal is replay-first analytics, user journey investigation, heatmaps, mobile context, and team-wide access.",
@@ -1633,9 +1648,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Mixpanel is built around event analytics. Rejourney is for teams that need replay, journeys, heatmaps, crashes, and API context beside the event trail.",
-    metaTitle: "Rejourney vs Mixpanel Session Replay",
+    metaTitle: "Mixpanel Session Replay Alternative | Rejourney",
     metaDescription:
-      "Compare Rejourney and Mixpanel Session Replay for replay-first product analytics, mobile replay, unlimited events, retention, projects, and teams.",
+      "Compare Mixpanel Session Replay with Rejourney for journeys, heatmaps, mobile apps, crash and API context, plus revenue-leak evidence behind the event.",
     keywords: ["mixpanel session replay", "mixpanel alternatives", "product analytics session replay", "session replay software"],
     image: "/images/readme-user-journeys.png",
     imageAlt: "Rejourney journey analytics as a Mixpanel session replay alternative",
@@ -1698,6 +1713,16 @@ export const SEO_PAGES: SeoPage[] = [
       "Mixpanel publishes event-volume and session-replay allowances by plan. Rejourney is positioned for teams that want replay-first workflows and included limits across events, history, projects, and team access.",
     faq: [
       {
+        question: "Does Mixpanel Session Replay include heatmaps?",
+        answer:
+          "Mixpanel's current product materials include heatmaps and session replay inside its analytics platform. Rejourney differs by keeping journeys, mobile replay, crashes, ANRs, and API context beside the behavioral evidence.",
+      },
+      {
+        question: "Is Rejourney an open-source Mixpanel alternative?",
+        answer:
+          "Rejourney provides source visibility and a self-hosting path for teams that want more control, while focusing the workflow on replay-backed product and revenue-leak investigation rather than event dashboards alone.",
+      },
+      {
         question: "Is Rejourney a Mixpanel alternative?",
         answer:
           "Rejourney is an alternative when replay, mobile context, heatmaps, journeys, and debugging evidence are as important as event analytics.",
@@ -1720,9 +1745,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Pendo is built for product adoption and in-app guidance. Rejourney is for teams that need replay evidence before deciding what to guide, redesign, or fix.",
-    metaTitle: "Rejourney vs Pendo Session Replay",
+    metaTitle: "Pendo Session Replay Alternative | Rejourney",
     metaDescription:
-      "Compare Rejourney and Pendo Session Replay for replay-first analytics, mobile UX, unlimited team members, projects, events, and retention.",
+      "Compare Pendo Session Replay with Rejourney for onboarding friction, product analytics, mobile apps, technical context, and revenue-leak evidence.",
     keywords: ["pendo session replay", "pendo alternatives", "product adoption analytics", "session replay tools"],
     image: "/images/readme-general-demo.png",
     imageAlt: "Rejourney issue detection inbox with ranked leak signals",
@@ -1785,6 +1810,21 @@ export const SEO_PAGES: SeoPage[] = [
       "Pendo publishes bundle and MAU-based pricing guidance, with some capabilities included or available as add-ons by bundle. Rejourney is evaluated as a replay-first analytics and observability workspace with broad included limits.",
     faq: [
       {
+        question: "How does Pendo Session Replay connect to product analytics?",
+        answer:
+          "Pendo connects replay to its analytics and product-adoption suite. Rejourney connects replay to journeys, heatmaps, conversion signals, crashes, ANRs, and API context so teams can investigate both behavioral and technical causes of a leak.",
+      },
+      {
+        question: "How does Pendo Session Replay identify user friction?",
+        answer:
+          "Replay can expose hesitation, repeated actions, and failed paths. Rejourney adds ranked leak signals and technical context so teams can move from a friction pattern to the affected onboarding, paywall, checkout, or subscription step.",
+      },
+      {
+        question: "What privacy controls matter for Pendo Session Replay alternatives?",
+        answer:
+          "Evaluate masking, capture controls, access, retention, and deployment requirements. Rejourney includes privacy masking controls and a self-hosting path for teams that need tighter ownership of replay data.",
+      },
+      {
         question: "Is Rejourney a Pendo alternative?",
         answer:
           "Rejourney is an alternative when the team wants replay, heatmaps, journeys, crashes, and analytics more than in-app guidance workflows.",
@@ -1807,9 +1847,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Smartlook is entering Cisco end-of-sale and end-of-life. Rejourney is for teams that still need replay, heatmaps, journeys, mobile evidence, and technical context in one focused workflow.",
-    metaTitle: "Smartlook Alternatives: Rejourney vs Smartlook",
+    metaTitle: "Smartlook Alternatives After Cisco EOL | Rejourney",
     metaDescription:
-      "Compare Rejourney and Smartlook alternatives before Cisco ends Smartlook. Review session replay, heatmaps, funnels, mobile replay, crash context, pricing, and migration risk.",
+      "Compare Smartlook alternatives after Cisco end of sale. See migration dates, replay, heatmaps, mobile apps, crash context, and Rejourney evidence.",
     keywords: ["smartlook alternatives", "smartlook alternative", "smartlook replacement", "smartlook end of life", "smartlook pricing", "session replay tools", "mobile session replay", "heatmap analytics"],
     image: "/images/engineering/smartlook-alternatives-replay-detail.png",
     imageAlt: "Rejourney replay workbench showing mobile session replay, API calls, timeline events, and session context",

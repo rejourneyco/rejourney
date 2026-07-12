@@ -7,9 +7,9 @@
   <img src="dashboard/web-ui/public/images/landing-replay-theater.png" alt="Rejourney Issue Detection" width="100%" />
 
   <p>
-    <strong>AI Funnel Leak Detection and Conversion Acceleration</strong>
+    <strong>AI Revenue Leak Detection and Conversion Acceleration</strong>
     <br />
-    Fix Funnel and Conversion Leaks with Rejourney.
+    Fix Revenue and Conversion Leaks with Rejourney.
   </p>
   
   <p>

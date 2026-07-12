@@ -92,7 +92,7 @@ export async function loader() {
 
     const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, `/docs/${slug}`),
-        priority: slug === "shopify/getting-started" || slug === "web/getting-started" ? "0.9" : slug === "reactnative/overview" ? "0.8" : "0.6",
+        priority: slug === "web/getting-started" ? "0.9" : slug === "reactnative/overview" ? "0.85" : slug === "swift/overview" ? "0.8" : "0.6",
         changefreq: "weekly",
         alternates: getLocalizedAlternateLinksForPath(`/docs/${slug}`),
     }));

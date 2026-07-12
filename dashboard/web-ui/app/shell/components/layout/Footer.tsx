@@ -47,7 +47,7 @@ export const Footer: React.FC = () => {
   ];
   const resourceLinks = [
     { label: copy.docs, href: docsPath },
-    { label: "Shopify", href: docsPath },
+    { label: "Revenue Leak Guide", href: "/engineering/2026-07-12/revenue-leak-detection" },
     { label: "Web SDK", href: webDocsPath },
     { label: "React Native SDK", href: reactNativeDocsPath },
     { label: "iOS SDK", href: swiftDocsPath },

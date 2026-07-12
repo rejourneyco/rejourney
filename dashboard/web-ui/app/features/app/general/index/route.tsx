@@ -1549,7 +1549,7 @@ function RevenueEventSelectField({
     const options = useMemo(() => dedupeRevenueEventOptions(events), [events]);
     const hasCurrentCustomValue = Boolean(normalizedValue) && !options.some((event) => event.name === normalizedValue);
     const currentValueLabel = normalizedValue === DEFAULT_CUSTOM_REVENUE_CONFIG.revenueEventName
-        ? `${normalizedValue} (AI default)`
+        ? `${normalizedValue} (Default)`
         : `${normalizedValue} (custom)`;
 
     return (
