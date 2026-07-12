@@ -264,9 +264,11 @@ export const GithubSetup: React.FC = () => {
                         <Github className="h-5 w-5 text-[#3c4043]" />
                     </span>
                     <div>
-                        <h1 className="text-lg font-semibold text-[#202124]">Connect GitHub</h1>
+                        <h1 className="text-lg font-semibold text-[#202124]">
+                            Connect GitHub <span className="font-medium text-[#6f7785]">(optional)</span>
+                        </h1>
                         <p className="text-sm font-medium text-[#5f6368]">
-                            Pick the repo and the folders Rejourney may read to locate issues.
+                            Add exact source locations and code-specific fix plans. Leak detection and evidence context work without this connection.
                         </p>
                     </div>
                 </div>

@@ -743,44 +743,6 @@ function LeakRow({
     );
 }
 
-function GithubNotLinked({
-    suspended,
-    setupHref,
-}: {
-    suspended: boolean;
-    setupHref: string;
-}) {
-    return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-white px-6 py-16 text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#f1f3f4]">
-                <Github className="h-8 w-8 text-[#3c4043]" />
-            </span>
-            <h2 className="text-lg font-semibold text-[#202124]">
-                {suspended ? 'GitHub access needs attention' : 'No GitHub repository connected'}
-            </h2>
-            <p className="max-w-sm text-sm font-medium leading-6 text-[#5f6368]">
-                {suspended
-                    ? 'Reconnect GitHub to resume detecting leaks for this project.'
-                    : 'Leak signals will appear here after a GitHub repository is connected and scans find issues.'}
-            </p>
-            <Link
-                to={setupHref}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#1a73e8] bg-[#1a73e8] px-4 text-sm font-semibold !text-white shadow-sm transition-colors hover:border-[#1558b0] hover:bg-[#1558b0] hover:!text-white focus:outline-none focus:ring-2 focus:ring-blue-100"
-                style={{ color: '#ffffff' }}
-            >
-                <Github className="h-4 w-4 text-white" aria-hidden />
-                <span className="text-white">{suspended ? 'Review GitHub access' : 'Connect GitHub repository'}</span>
-            </Link>
-            <Link
-                to="/ai-funnel-leak-detection"
-                className="text-xs font-semibold text-[#1a73e8] hover:text-[#1558b0] hover:underline"
-            >
-                Learn more
-            </Link>
-        </div>
-    );
-}
-
 function NoIssuesDetectedState() {
     const timing = useMemo(() => getLeakScanTiming(), []);
 
@@ -844,10 +806,12 @@ function GithubRepositorySettings({
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
                         <Github className="h-4 w-4 text-[#3c4043]" />
-                        <h3 className="text-sm font-semibold text-[#202124]">GitHub repository</h3>
+                        <h3 className="text-sm font-semibold text-[#202124]">
+                            GitHub repository <span className="font-medium text-[#6f7785]">(optional)</span>
+                        </h3>
                     </div>
                     <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
-                        Rejourney uses this repo to map leak signals back to source code.
+                        Add exact source locations and code-specific fix plans to future leak context.
                     </p>
                 </div>
                 <span className={`inline-flex h-7 shrink-0 items-center self-start rounded-md border px-2.5 text-xs font-semibold ${stateClassName}`}>
@@ -883,7 +847,7 @@ function GithubRepositorySettings({
                                 </>
                             ) : (
                                 <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
-                                    Connect a repository before leak scans can find source locations.
+                                    Leak detection and evidence context continue without a repository.
                                 </p>
                             )}
                         </div>
@@ -1279,7 +1243,6 @@ export const Leaks: React.FC = () => {
     const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
     const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(() => readGithubLinkStatusCache(projectId));
     const [linkLoading, setLinkLoading] = useState(false);
-    const [linkHasLoaded, setLinkHasLoaded] = useState(() => Boolean(readGithubLinkStatusCache(projectId)));
     const [installBusy, setInstallBusy] = useState(false);
     const [installError, setInstallError] = useState<string | null>(null);
     const copiedResetTimerRef = useRef<number | null>(null);
@@ -1290,14 +1253,6 @@ export const Leaks: React.FC = () => {
         () => projectHasRecentData(selectedProject),
         [selectedProject],
     );
-    const githubStatusKnown = Boolean(linkStatus) || linkHasLoaded;
-    const githubLinked = isDemoMode || Boolean(linkStatus?.linked && linkStatus.installationState === 'active');
-    const githubSuspended = Boolean(
-        linkStatus?.linked &&
-            linkStatus.installationState !== 'active' &&
-            linkStatus.installationState !== 'none',
-    );
-
     const clearCopiedFeedback = useCallback(() => {
         if (copiedResetTimerRef.current !== null) {
             window.clearTimeout(copiedResetTimerRef.current);
@@ -1335,7 +1290,7 @@ export const Leaks: React.FC = () => {
     }, [isDemoMode, projectId]);
 
     const loadRunHistory = useCallback(async () => {
-        if (!projectId || (!isDemoMode && !githubLinked)) return;
+        if (!projectId) return;
         setRunHistoryLoading(true);
         setRunHistoryError(null);
         try {
@@ -1346,7 +1301,7 @@ export const Leaks: React.FC = () => {
         } finally {
             setRunHistoryLoading(false);
         }
-    }, [githubLinked, isDemoMode, projectId]);
+    }, [projectId]);
 
     useEffect(() => {
         if (!showLeakAlertSettings) return;
@@ -1359,13 +1314,13 @@ export const Leaks: React.FC = () => {
     }, [loadRunHistory, showRunHistory]);
 
     useEffect(() => {
-        if (!projectId || (!isDemoMode && !githubLinked)) {
+        if (!projectId) {
             setRunHistory(null);
             setRunHistoryError(null);
             return;
         }
         void loadRunHistory();
-    }, [githubLinked, isDemoMode, loadRunHistory, projectId]);
+    }, [loadRunHistory, projectId]);
 
     const toggleLeakScanAlerts = async (enabled: boolean) => {
         if (!projectId || isDemoMode) return;
@@ -1435,29 +1390,26 @@ export const Leaks: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        if (!showLeakAlertSettings) return;
         if (!projectId) {
             setLinkStatus(null);
-            setLinkHasLoaded(false);
             setLinkLoading(false);
             return;
         }
         let cancelled = false;
         const cachedStatus = readGithubLinkStatusCache(projectId);
         setLinkStatus(cachedStatus);
-        setLinkHasLoaded(Boolean(cachedStatus));
         setLinkLoading(true);
         getGithubLinkStatus(projectId)
             .then((status) => {
                 if (!cancelled) {
                     setLinkStatus(status);
-                    setLinkHasLoaded(true);
                     saveGithubLinkStatusCache(projectId, status);
                 }
             })
             .catch(() => {
                 if (!cancelled) {
                     setLinkStatus(cachedStatus);
-                    setLinkHasLoaded(true);
                 }
             })
             .finally(() => {
@@ -1466,7 +1418,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [projectId]);
+    }, [projectId, showLeakAlertSettings]);
 
     const startInstall = async () => {
         if (!projectId) return;
@@ -1488,11 +1440,11 @@ export const Leaks: React.FC = () => {
     }, [clearCopiedFeedback, selectedLeakId]);
 
     useEffect(() => {
-        if (!projectId || !githubLinked) {
+        if (!projectId) {
             setLeaks([]);
             setSelectedLeakId(null);
             setError(null);
-            setIsLoading(Boolean(projectId && !githubStatusKnown && linkLoading));
+            setIsLoading(false);
             return;
         }
 
@@ -1519,7 +1471,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [githubLinked, githubStatusKnown, linkLoading, projectId]);
+    }, [projectId]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1621,7 +1573,7 @@ export const Leaks: React.FC = () => {
             setSelectedLeak(updated);
             setLeaks((items) => items.map((item) => item.id === updated.id ? { ...item, ...updatedSummary } : item));
             setHandoffStatus(updated.contextStatus === 'ready'
-                ? 'Markdown context is ready.'
+                ? 'Context is ready.'
                 : 'Context generation started. Refresh this issue in a moment.');
         } catch (err) {
             setHandoffStatus(err instanceof Error ? err.message : 'Could not generate markdown context.');
@@ -1724,25 +1676,24 @@ export const Leaks: React.FC = () => {
             ? 'Budget guard paused analysis. The signal stays in this inbox until the next analysis window.'
             : activeLeak.contextStatus === 'ready'
                 ? ideConfig.handoffMode === 'copy'
-                    ? `Markdown context is ready. Copy it for the existing ${activeIdeMeta.label} window.`
+                    ? `Context is ready. Copy it for the existing ${activeIdeMeta.label} window.`
                     : activeIdeMeta.supportsPromptPrefill
-                    ? `Markdown context is ready. ${activeIdeMeta.label} opens with the handoff prefilled.`
-                    : `Markdown context is ready. ${activeIdeMeta.label} opens the repo after copying the handoff.`
+                    ? `Context is ready. ${activeIdeMeta.label} opens with the handoff prefilled.`
+                    : `Context is ready. ${activeIdeMeta.label} opens the repo after copying the handoff.`
                 : activeLeak.contextStatus === 'researching' || activeLeak.contextStatus === 'running'
                     ? 'Research is running. You can review the evidence now, then use the markdown handoff when it is ready.'
                     : activeLeak.contextStatus === 'failed'
-                        ? 'Markdown context generation failed. Generate it again when you want the IDE handoff.'
-                        : 'Markdown context has not been generated yet. Generate it to use the IDE handoff.';
+                        ? 'Context generation failed. Retry it when you want the IDE handoff.'
+                        : 'Context has not been generated yet. Generate it to use the IDE handoff.';
     const runHistoryCount = runHistory?.stats.total ?? runHistory?.runs.length ?? 0;
     const hasRunHistory = runHistoryCount > 0;
     const runHistoryKnown = Boolean(runHistory || runHistoryError);
     const showSetupEmptyState = Boolean(selectedProject?.id) && !isDemoMode && !isLoading && !selectedProjectHasRecentData && !hasRunHistory && runHistoryKnown && leaks.length === 0;
     const githubSetupHref = `${pathPrefix}/settings/${encodeURIComponent(projectId)}/github`;
     const hasSignalViewFilter = search.trim().length > 0 || affectedFilter !== 'all';
-    const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && githubLinked && leaks.length === 0 && !hasSignalViewFilter;
+    const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && leaks.length === 0 && !hasSignalViewFilter;
     const showFilteredEmptyState = !showSetupEmptyState && !showNoIssuesDetectedState && !isLoading && !error && filteredLeaks.length === 0;
-    const showGithubNotLinkedState = githubStatusKnown && !githubLinked;
-    const loadingSignalsLabel = !githubStatusKnown && linkLoading ? 'Preparing signal inbox' : 'Loading signals';
+    const loadingSignalsLabel = 'Loading signals';
     const copyButtonClassName = copied
         ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-800 !bg-emerald-800 !text-white hover:!border-emerald-900 hover:!bg-emerald-900 ring-2 ring-emerald-200'
         : 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-700 !bg-emerald-700 !text-white hover:!border-emerald-800 hover:!bg-emerald-800 disabled:!border-[#dadce0] disabled:!bg-slate-100 disabled:!text-slate-400';
@@ -1809,12 +1760,6 @@ export const Leaks: React.FC = () => {
                 </div>
             </div>
 
-            {showGithubNotLinkedState ? (
-                <GithubNotLinked
-                    suspended={githubSuspended}
-                    setupHref={githubSetupHref}
-                />
-            ) : (
             <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                 <div className={`grid min-h-0 min-w-0 w-full flex-1 bg-white shadow-none ${activeLeak ? 'lg:grid-cols-[360px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
                     <section className={`flex min-h-[420px] min-w-0 flex-col bg-white sm:min-h-[560px] lg:min-h-0 ${activeLeak ? 'hidden lg:flex lg:border-r lg:border-[#dadce0]' : ''}`}>
@@ -1972,7 +1917,7 @@ export const Leaks: React.FC = () => {
                                             disabled={isGeneratingContext}
                                             className={copyButtonClassName}
                                         >
-                                            {copied ? 'Copied to clipboard' : 'Copy .md Fix'}
+                                            {copied ? 'Copied to clipboard' : 'Copy context'}
                                         </PaneButton>
                                     ) : (
                                         <PaneButton
@@ -1981,7 +1926,11 @@ export const Leaks: React.FC = () => {
                                             disabled={!canGenerateContext || isGeneratingContext}
                                             className="w-full sm:w-auto"
                                         >
-                                            {isGeneratingContext ? 'Generating...' : 'Generate .md Fix'}
+                                            {isGeneratingContext
+                                                ? 'Generating...'
+                                                : activeLeak.contextStatus === 'failed'
+                                                    ? 'Retry context'
+                                                    : 'Generate context'}
                                         </PaneButton>
                                     )}
                                     <PaneButton
@@ -2090,7 +2039,7 @@ export const Leaks: React.FC = () => {
                                                             disabled={isGeneratingContext}
                                                             className={copyButtonClassName}
                                                         >
-                                                            {copied ? 'Copied to clipboard' : 'Copy .md'}
+                                                            {copied ? 'Copied to clipboard' : 'Copy context'}
                                                         </PaneButton>
                                                     ) : (
                                                         <PaneButton
@@ -2098,7 +2047,11 @@ export const Leaks: React.FC = () => {
                                                             onClick={() => void generateContext()}
                                                             disabled={!canGenerateContext || isGeneratingContext}
                                                         >
-                                                            {isGeneratingContext ? 'Generating...' : 'Generate .md'}
+                                                            {isGeneratingContext
+                                                                ? 'Generating...'
+                                                                : activeLeak.contextStatus === 'failed'
+                                                                    ? 'Retry context'
+                                                                    : 'Generate context'}
                                                         </PaneButton>
                                                     )}
                                                     <PaneButton
@@ -2130,7 +2083,6 @@ export const Leaks: React.FC = () => {
                     )}
                 </div>
             </div>
-            )}
 
             {copied && (
                 <div
