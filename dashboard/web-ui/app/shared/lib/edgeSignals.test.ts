@@ -92,6 +92,26 @@ describe('edge signals', () => {
     });
   });
 
+  it('sends the Google Ads signup conversion only once per page lifecycle', async () => {
+    const gtag = vi.fn();
+    setTestWindow({
+      ENV: {
+        VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
+        VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
+      },
+      gtag,
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    await Promise.all([
+      trackAccountActivationSignal('otp'),
+      trackAccountActivationSignal('otp'),
+    ]);
+
+    expect(gtag).toHaveBeenCalledTimes(1);
+  });
+
   it('sends the Reddit signup conversion when the pixel is bootstrapped', async () => {
     const rdt = vi.fn();
     setTestWindow({
@@ -106,24 +126,32 @@ describe('edge signals', () => {
     expect(rdt).toHaveBeenCalledWith('track', 'SignUp');
   });
 
-  it('falls back to a dashboard page view for URL-based Google Ads conversion actions', async () => {
+  it('does not send a Google Ads conversion when the conversion label is missing', async () => {
     const gtag = vi.fn();
     setTestWindow({
       ENV: {
         VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
       },
       gtag,
-      location: { origin: 'https://rejourney.co' },
       setTimeout,
       zaraz: { track: vi.fn().mockResolvedValue(undefined) },
     });
 
     await trackAccountActivationSignal('github');
 
-    expect(gtag).toHaveBeenCalledWith('config', 'AW-18175283670', {
-      page_location: 'https://rejourney.co/dashboard/',
-      page_path: '/dashboard/',
-      page_title: 'Rejourney Dashboard',
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it('does not fail account activation when gtag is unavailable', async () => {
+    setTestWindow({
+      ENV: {
+        VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
+        VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
+      },
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
     });
+
+    await expect(trackAccountActivationSignal('github')).resolves.toBeUndefined();
   });
 });

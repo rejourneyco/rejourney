@@ -7,7 +7,7 @@ import type {
     WebAttentionHeatmapResponse,
 } from '~/shared/api/client';
 import { demoReplayFixture as mobileReplayFixture } from './demoReplayDataFrankfurt';
-import { demoReplayFixture as webReplayFixture } from './demoReplayDataWeb';
+import { demoReplayFixture as webReplayFixture } from './demoReplayDataVideo';
 
 type DemoReplayFixture = typeof webReplayFixture | typeof mobileReplayFixture;
 type DemoReplayEvent = Record<string, unknown> & {
@@ -32,8 +32,19 @@ type DemoHeatmapScreen = HeatmapOverviewScreen & {
     platform: 'web' | 'ios' | 'android';
 };
 
-const WEB_DEMO_ROUTE = webReplayFixture.webLandingRoute || '/docs/web/getting-started';
-const MOBILE_DEMO_SCREEN = 'Community';
+const WEB_DEMO_ROUTE = '/products/creatine-gummies';
+const WEB_DEMO_FRAME = webReplayFixture.screenshotFrames.find((frame) => frame.file === 'frame_0022.jpg')
+    ?? webReplayFixture.screenshotFrames[0];
+const WEB_DEMO_SCREENSHOT_URL = WEB_DEMO_FRAME
+    ? `/demo/${webReplayFixture.sessionId}/frames/${WEB_DEMO_FRAME.file}`
+    : null;
+// The recording's navigation event calls this screen "Community", but its captured
+// UI is the Discover feed. Keep the displayed route and the selected source frame
+// aligned so the demo never presents a loading state or a misleading route label.
+const MOBILE_DEMO_SCREEN = 'Discover';
+const MOBILE_DEMO_EVENT_SCREEN = 'Community';
+const MOBILE_DEMO_FRAME = mobileReplayFixture.screenshotFrames.find((frame) => frame.file === '1779280301380_0029.jpg')
+    ?? mobileReplayFixture.screenshotFrames[0];
 
 const READ_BAND_ROWS = [
     { frac: 0.06, weight: 0.95 },
@@ -60,12 +71,15 @@ function sortedEvents(fixture: DemoReplayFixture): DemoReplayEvent[] {
 }
 
 function getWebDimensions(events = sortedEvents(webReplayFixture)) {
+    const rrwebViewport = (webReplayFixture as unknown as {
+        rrwebReplay?: { viewport?: { width?: number; height?: number } };
+    }).rrwebReplay?.viewport;
     const viewportWidth = positiveNumber(events.find((event) => positiveNumber(event.viewportWidth))?.viewportWidth)
-        ?? positiveNumber(webReplayFixture.rrwebReplay?.viewport?.width)
+        ?? positiveNumber(rrwebViewport?.width)
         ?? positiveNumber(webReplayFixture.deviceInfo.screenWidth)
         ?? 1280;
     const viewportHeight = positiveNumber(events.find((event) => positiveNumber(event.viewportHeight))?.viewportHeight)
-        ?? positiveNumber(webReplayFixture.rrwebReplay?.viewport?.height)
+        ?? positiveNumber(rrwebViewport?.height)
         ?? positiveNumber(webReplayFixture.deviceInfo.screenHeight)
         ?? 900;
     const pageWidth = Math.max(
@@ -140,12 +154,14 @@ function buildWebTouchHotspots(): HeatmapHotspot[] {
     const events = sortedEvents(webReplayFixture);
     const { pageWidth, pageHeight } = getWebDimensions(events);
     const points = events
-        .filter((event) => event.type === 'tap' || event.type === 'rage_tap')
+        .filter((event) => event.type === 'tap' || event.type === 'touch' || event.type === 'rage_tap')
         .map((event) => {
             const x = positiveNumber(event.x);
             const y = positiveNumber(event.y);
             if (!x || !y) return null;
-            const isRageTap = event.type === 'rage_tap' || event.frustrationKind === 'rage_tap';
+            const isRageTap = event.type === 'rage_tap'
+                || event.frustrationKind === 'rage_tap'
+                || event.gestureType === 'dead_tap';
             const scrollX = Number(event.scrollX || 0);
             const scrollY = Number(event.scrollY || 0);
             return {
@@ -204,11 +220,13 @@ function buildWebAttentionHotspots(): { hotspots: HeatmapHotspot[]; dwellByDepth
             }
         }
 
-        if (event.type === 'tap' || event.type === 'rage_tap') {
+        if (event.type === 'tap' || event.type === 'touch' || event.type === 'rage_tap') {
             const x = positiveNumber(event.x);
             const y = positiveNumber(event.y);
             if (x && y) {
-                const isRageTap = event.type === 'rage_tap' || event.frustrationKind === 'rage_tap';
+                const isRageTap = event.type === 'rage_tap'
+                    || event.frustrationKind === 'rage_tap'
+                    || event.gestureType === 'dead_tap';
                 points.push({
                     x: (x + scrollX) / dimensions.pageWidth,
                     y: (y + scrollY) / dimensions.pageHeight,
@@ -299,34 +317,35 @@ function buildMobileTouchHotspots(screenName: string): HeatmapHotspot[] {
 function buildWebDemoScreen(): DemoHeatmapScreen {
     const dimensions = getWebDimensions();
     const touchHotspots = buildWebTouchHotspots();
-    const rageTaps = touchHotspots.filter((hotspot) => hotspot.isRageTap).length;
 
     return {
         name: WEB_DEMO_ROUTE,
-        visits: 1,
-        rageTaps,
-        errors: 0,
-        exitRate: 0,
+        visits: 6842,
+        rageTaps: 93,
+        errors: 41,
+        exitRate: 18.4,
         frictionScore: 92,
-        screenshotUrl: null,
+        screenshotUrl: WEB_DEMO_SCREENSHOT_URL,
         sessionIds: [webReplayFixture.sessionId],
-        screenFirstSeenMs: webReplayFixture.startTime,
+        screenFirstSeenMs: WEB_DEMO_FRAME?.timestamp ?? webReplayFixture.startTime,
         touchHotspots,
         pageWidth: dimensions.pageWidth,
         pageHeight: dimensions.pageHeight,
         viewportWidth: dimensions.viewportWidth,
         viewportHeight: dimensions.viewportHeight,
-        rangeVisits: 1,
-        rangeRageTaps: rageTaps,
-        rangeErrors: 0,
-        rangeExitRate: 0,
+        rangeVisits: 2471,
+        rangeUniqueVisitors: 1836,
+        rangeInteractions: 6842,
+        rangeRageTaps: 93,
+        rangeErrors: 41,
+        rangeExitRate: 18.4,
         rangeFrictionScore: 92,
         rangeImpactScore: 140,
-        rangeRageTapRatePer100: rageTaps * 100,
-        rangeErrorRatePer100: 0,
-        rangeIncidentRatePer100: rageTaps * 100,
-        rangeEstimatedAffectedSessions: 1,
-        primarySignal: rageTaps > 0 ? 'rage_taps' : 'mixed',
+        rangeRageTapRatePer100: 3.8,
+        rangeErrorRatePer100: 1.7,
+        rangeIncidentRatePer100: 23.9,
+        rangeEstimatedAffectedSessions: 455,
+        primarySignal: 'exits',
         confidence: 'high',
         priority: 'critical',
         evidenceSessionId: webReplayFixture.sessionId,
@@ -335,20 +354,18 @@ function buildWebDemoScreen(): DemoHeatmapScreen {
 }
 
 function buildMobileDemoScreen(): DemoHeatmapScreen {
-    const navigationEvent = findNavigationEvent(mobileReplayFixture, MOBILE_DEMO_SCREEN);
-    const timestamp = Number(navigationEvent?.timestamp || mobileReplayFixture.startTime);
-    const frame = findFrameAt(mobileReplayFixture, timestamp);
-    const touchHotspots = buildMobileTouchHotspots(MOBILE_DEMO_SCREEN);
-    const rageTaps = touchHotspots.filter((hotspot) => hotspot.isRageTap).length;
+    const navigationEvent = findNavigationEvent(mobileReplayFixture, MOBILE_DEMO_EVENT_SCREEN);
+    const timestamp = Number(MOBILE_DEMO_FRAME?.timestamp || navigationEvent?.timestamp || mobileReplayFixture.startTime);
+    const touchHotspots = buildMobileTouchHotspots(MOBILE_DEMO_EVENT_SCREEN);
 
     return {
         name: MOBILE_DEMO_SCREEN,
-        visits: 1,
-        rageTaps,
-        errors: 0,
-        exitRate: 0,
+        visits: 5128,
+        rageTaps: 48,
+        errors: 17,
+        exitRate: 11.2,
         frictionScore: 68,
-        screenshotUrl: frame ? `/demo/${mobileReplayFixture.sessionId}/frames/${frame.file}` : null,
+        screenshotUrl: MOBILE_DEMO_FRAME ? `/demo/${mobileReplayFixture.sessionId}/frames/${MOBILE_DEMO_FRAME.file}` : null,
         sessionIds: [mobileReplayFixture.sessionId],
         screenFirstSeenMs: timestamp,
         touchHotspots,
@@ -356,17 +373,19 @@ function buildMobileDemoScreen(): DemoHeatmapScreen {
         pageHeight: mobileReplayFixture.deviceInfo.screenHeight,
         viewportWidth: mobileReplayFixture.deviceInfo.screenWidth,
         viewportHeight: mobileReplayFixture.deviceInfo.screenHeight,
-        rangeVisits: 1,
-        rangeRageTaps: rageTaps,
-        rangeErrors: 0,
-        rangeExitRate: 0,
+        rangeVisits: 1830,
+        rangeUniqueVisitors: 1294,
+        rangeInteractions: 5128,
+        rangeRageTaps: 48,
+        rangeErrors: 17,
+        rangeExitRate: 11.2,
         rangeFrictionScore: 68,
         rangeImpactScore: 88,
-        rangeRageTapRatePer100: rageTaps * 100,
-        rangeErrorRatePer100: 0,
-        rangeIncidentRatePer100: rageTaps * 100,
-        rangeEstimatedAffectedSessions: 1,
-        primarySignal: rageTaps > 0 ? 'rage_taps' : 'mixed',
+        rangeRageTapRatePer100: 2.6,
+        rangeErrorRatePer100: 0.9,
+        rangeIncidentRatePer100: 14.7,
+        rangeEstimatedAffectedSessions: 205,
+        primarySignal: 'exits',
         confidence: 'high',
         priority: 'high',
         evidenceSessionId: mobileReplayFixture.sessionId,
@@ -430,7 +449,7 @@ export function buildDemoHeatmapOverview(): HeatmapOverviewResponse {
 
 export function getDemoWebAttentionHeatmap(screenName?: string | null): WebAttentionHeatmapResponse {
     const normalized = (screenName || WEB_DEMO_ROUTE).trim();
-    const isWebDemoRoute = normalized === WEB_DEMO_ROUTE || normalized === 'Docs / Web / Getting Started';
+    const isWebDemoRoute = normalized === WEB_DEMO_ROUTE || normalized === 'Product Detail';
     const dimensions = getWebDimensions();
     if (!isWebDemoRoute) {
         return {
@@ -454,7 +473,7 @@ export function getDemoWebAttentionHeatmap(screenName?: string | null): WebAtten
         dwellByDepth: attention.dwellByDepth,
         sampledSessions: 1,
         avgSessionDurationMs: Math.max(0, webReplayFixture.endTime - webReplayFixture.startTime),
-        eventCount: webReplayFixture.rrwebReplay?.eventCount || sortedEvents(webReplayFixture).length,
+        eventCount: sortedEvents(webReplayFixture).length,
         generatedAt: new Date().toISOString(),
         confidence: 'high',
         pageWidth: dimensions.pageWidth,

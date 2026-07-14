@@ -6,7 +6,7 @@ date: "2026-07-12"
 dateModified: "2026-07-12"
 readTime: "10 min read"
 image: "/images/engineering/churn-mobile-heatmap.png"
-imageAlt: "Rejourney mobile touch heatmap showing interaction density on an app conversion screen"
+imageAlt: "Rejourney heatmap workspace showing a product page with interaction density"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
@@ -42,7 +42,7 @@ eligible user → paywall exposure → offer understood → trial or purchase in
 
 Each transition can leak for a different reason, and each requires different evidence.
 
-![Rejourney mobile touch heatmap showing interaction density on an app screen](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 ## Define paywall eligibility before paywall views
 

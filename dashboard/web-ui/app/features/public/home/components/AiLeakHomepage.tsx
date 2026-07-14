@@ -491,10 +491,13 @@ export const AiLeakHomepage: React.FC = () => {
                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                             </Link>
                             <Link
-                                to="/how-it-works"
-                                className="inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center rounded-full border border-slate-300/80 bg-white/60 backdrop-blur-md px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/80 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                                to="/demo"
+                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-full border border-slate-300/80 bg-white/60 px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/80 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
                             >
-                                How It Works
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-white transition-transform duration-300 group-hover:scale-110">
+                                    <Play className="ml-px h-3 w-3 fill-current" aria-hidden="true" />
+                                </span>
+                                Live Demo
                             </Link>
                         </div>
                         <div className="landing-platforms mx-auto mt-14 flex w-full max-w-6xl flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-8">

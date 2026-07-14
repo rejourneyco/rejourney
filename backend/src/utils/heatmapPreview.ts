@@ -5,6 +5,15 @@ export type HeatmapPreviewEventEntry = {
     artifactStartMs?: number | null;
 };
 
+export function hasCompatibleHeatmapVisualArtifact(
+    platform: string | null | undefined,
+    artifactKinds: Iterable<string>,
+): boolean {
+    const kinds = new Set(artifactKinds);
+    const isWebReplay = platform === 'web' || kinds.has('rrweb');
+    return isWebReplay ? kinds.has('rrweb') : kinds.has('screenshots');
+}
+
 type FindHeatmapPreviewTimestampParams = {
     events: HeatmapPreviewEventEntry[];
     normalizedScreenName: string;

@@ -19,6 +19,7 @@ import { buildRetentionCohortRows } from '../services/retentionCohorts.js';
 import {
     buildHeatmapScreenshotUrl,
     findHeatmapPreviewTimestampInEvents,
+    hasCompatibleHeatmapVisualArtifact,
     type HeatmapPreviewEventEntry,
 } from '../utils/heatmapPreview.js';
 import { queryDailyApiCallsFromClickHouse } from '../services/apiEndpointStatsClickHouse.js';
@@ -103,7 +104,7 @@ function buildSessionPlatformCondition(platform?: string): SQL | undefined {
 type HeatmapPreviewEvidence = {
     sessionId: string;
     screenFirstSeenMs: number;
-    screenshotUrl: string;
+    screenshotUrl: string | null;
 };
 
 function parseMaybeGzippedArtifactJson(data: Buffer, s3ObjectKey?: string | null): any {
@@ -166,6 +167,7 @@ async function resolveHeatmapPreviewEvidenceByScreen(
                 startedAt: sessions.startedAt,
                 endedAt: sessions.endedAt,
                 lastIngestActivityAt: sessions.lastIngestActivityAt,
+                platform: sessions.platform,
             })
             .from(sessions)
             .where(and(
@@ -174,14 +176,17 @@ async function resolveHeatmapPreviewEvidenceByScreen(
                 eq(sessions.recordingDeleted, false),
             )),
         db
-            .select({ sessionId: recordingArtifacts.sessionId })
+            .select({
+                sessionId: recordingArtifacts.sessionId,
+                kind: recordingArtifacts.kind,
+            })
             .from(recordingArtifacts)
             .where(and(
                 inArray(recordingArtifacts.sessionId, allCandidateSessionIds),
-                eq(recordingArtifacts.kind, 'screenshots'),
+                inArray(recordingArtifacts.kind, ['screenshots', 'rrweb']),
                 eq(recordingArtifacts.status, 'ready'),
             ))
-            .groupBy(recordingArtifacts.sessionId),
+            .groupBy(recordingArtifacts.sessionId, recordingArtifacts.kind),
         db
             .select({
                 id: recordingArtifacts.id,
@@ -202,7 +207,12 @@ async function resolveHeatmapPreviewEvidenceByScreen(
     ]);
 
     const sessionById = new Map(sessionRows.map((row) => [row.sessionId, row]));
-    const sessionsWithScreenshots = new Set(screenshotRows.map((row) => row.sessionId));
+    const visualArtifactKindsBySession = new Map<string, Set<string>>();
+    for (const row of screenshotRows) {
+        const kinds = visualArtifactKindsBySession.get(row.sessionId) ?? new Set<string>();
+        kinds.add(row.kind);
+        visualArtifactKindsBySession.set(row.sessionId, kinds);
+    }
     const eventArtifactsBySession = new Map<string, typeof eventArtifactRows>();
     for (const artifact of eventArtifactRows) {
         const list = eventArtifactsBySession.get(artifact.sessionId) ?? [];
@@ -265,7 +275,11 @@ async function resolveHeatmapPreviewEvidenceByScreen(
     for (const [normalizedScreenName, candidateSessionIds] of normalizedCandidatesByScreen.entries()) {
         for (const sessionId of candidateSessionIds) {
             const session = sessionById.get(sessionId);
-            if (!session || !sessionsWithScreenshots.has(sessionId)) continue;
+            if (!session) continue;
+
+            const visualArtifactKinds = visualArtifactKindsBySession.get(sessionId) ?? new Set<string>();
+            const isWebReplay = session.platform === 'web' || visualArtifactKinds.has('rrweb');
+            if (!hasCompatibleHeatmapVisualArtifact(session.platform, visualArtifactKinds)) continue;
 
             const artifacts = eventArtifactsBySession.get(sessionId) ?? [];
             if (artifacts.length === 0) continue;
@@ -287,15 +301,17 @@ async function resolveHeatmapPreviewEvidenceByScreen(
             });
             if (!screenFirstSeenMs) continue;
 
-            const screenshotUrl = buildHeatmapScreenshotUrl(sessionId, screenFirstSeenMs, { requireTimestamp: true });
-            if (screenshotUrl) {
-                evidenceByScreen.set(normalizedScreenName, {
-                    sessionId,
-                    screenFirstSeenMs,
-                    screenshotUrl,
-                });
-                break;
-            }
+            const screenshotUrl = isWebReplay
+                ? null
+                : buildHeatmapScreenshotUrl(sessionId, screenFirstSeenMs, { requireTimestamp: true });
+            if (!isWebReplay && !screenshotUrl) continue;
+
+            evidenceByScreen.set(normalizedScreenName, {
+                sessionId,
+                screenFirstSeenMs,
+                screenshotUrl,
+            });
+            break;
         }
     }
 
@@ -377,7 +393,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v6`;
+        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v8`;
 
         // For realtime, use shorter cache TTL
         if (!isRealtime) {
@@ -405,6 +421,10 @@ router.get(
         const sessionData = await db
             .select({
                 id: sessions.id,
+                deviceId: sessions.deviceId,
+                anonymousHash: sessions.anonymousHash,
+                anonymousDisplayId: sessions.anonymousDisplayId,
+                userDisplayId: sessions.userDisplayId,
                 metrics: sessionMetrics
             })
             .from(sessions)
@@ -419,17 +439,27 @@ router.get(
             errors: number;
             exits: number;
             sessionIds: string[];
+            visitorKeys: Set<string>;
         }> = {};
 
         for (const s of sessionData) {
             const screensVisited = normalizeHeatmapScreenPath(s.metrics?.screensVisited || []);
             const lastScreen = screensVisited[screensVisited.length - 1];
+            const visitorKey = s.userDisplayId || s.anonymousHash || s.anonymousDisplayId || s.deviceId || s.id;
 
             for (const screen of screensVisited) {
                 if (!screenStats[screen]) {
-                    screenStats[screen] = { visits: 0, approxRageTaps: 0, errors: 0, exits: 0, sessionIds: [] };
+                    screenStats[screen] = {
+                        visits: 0,
+                        approxRageTaps: 0,
+                        errors: 0,
+                        exits: 0,
+                        sessionIds: [],
+                        visitorKeys: new Set<string>(),
+                    };
                 }
                 screenStats[screen].visits++;
+                screenStats[screen].visitorKeys.add(visitorKey);
 
                 // Error/rage are tracked per session. Use proportional distribution as fallback,
                 // but prefer real per-screen rage from touch heatmap rows below.
@@ -476,12 +506,13 @@ router.get(
                 .select({
                     id: recordingArtifacts.id,
                     sessionId: recordingArtifacts.sessionId,
+                    kind: recordingArtifacts.kind,
                 })
                 .from(recordingArtifacts)
                 .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
-                    eq(recordingArtifacts.kind, 'screenshots'),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'rrweb']),
                     eq(recordingArtifacts.status, 'ready'),
                     eq(sessions.recordingDeleted, false)
                 ))
@@ -494,7 +525,9 @@ router.get(
 
         // Map session IDs to their frame artifact ID
         const sessionFrameMap = new Map<string, string>();
+        const sessionsWithScreenshotArtifacts = new Set<string>();
         for (const artifact of frameArtifacts) {
+            if (artifact.kind === 'screenshots') sessionsWithScreenshotArtifacts.add(artifact.sessionId);
             // Just take the first one found for each session
             if (!sessionFrameMap.has(artifact.sessionId)) {
                 sessionFrameMap.set(artifact.sessionId, artifact.id);
@@ -577,18 +610,20 @@ router.get(
                 .select({
                     id: recordingArtifacts.id,
                     sessionId: recordingArtifacts.sessionId,
+                    kind: recordingArtifacts.kind,
                 })
                 .from(recordingArtifacts)
                 .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
                 .where(and(
                     inArray(recordingArtifacts.sessionId, missingSampleSessionIds),
-                    eq(recordingArtifacts.kind, 'screenshots'),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'rrweb']),
                     eq(recordingArtifacts.status, 'ready'),
                     eq(sessions.recordingDeleted, false)
                 ))
                 .limit(missingSampleSessionIds.length);
 
             for (const artifact of sampleFrameArtifacts) {
+                if (artifact.kind === 'screenshots') sessionsWithScreenshotArtifacts.add(artifact.sessionId);
                 if (!sessionFrameMap.has(artifact.sessionId)) {
                     sessionFrameMap.set(artifact.sessionId, artifact.id);
                 }
@@ -635,6 +670,8 @@ router.get(
                 return {
                     name,
                     visits,
+                    uniqueVisitors: stats.visitorKeys.size,
+                    interactions: touchCount,
                     rageTaps,
                     errors: stats.errors,
                     exitRate: Number(exitRate.toFixed(1)),
@@ -704,7 +741,7 @@ router.get(
 
             if (previewEvidence) {
                 screenshotUrl = previewEvidence.screenshotUrl;
-            } else if (heatmap?.sampleSessionId && heatmap.screenFirstSeenMs && sessionFrameMap.has(heatmap.sampleSessionId)) {
+            } else if (heatmap?.sampleSessionId && heatmap.screenFirstSeenMs && sessionsWithScreenshotArtifacts.has(heatmap.sampleSessionId)) {
                 screenshotUrl = buildHeatmapScreenshotUrl(heatmap.sampleSessionId, heatmap.screenFirstSeenMs, { requireTimestamp: true });
                 if (screenshotUrl) {
                     evidenceSessionId = heatmap.sampleSessionId;
@@ -717,13 +754,16 @@ router.get(
                 ? bucketsToHotspots(heatmap.touchBuckets, heatmap.rageTapBuckets)
                 : [];
 
+            const availableSessionIds = screen.sessionIds.filter((sessionId) => sessionFrameMap.has(sessionId));
             const sessionIds = evidenceSessionId
-                ? [evidenceSessionId, ...screen.sessionIds.filter((sessionId) => sessionId !== evidenceSessionId)]
-                : screen.sessionIds;
+                ? [evidenceSessionId, ...availableSessionIds.filter((sessionId) => sessionId !== evidenceSessionId)]
+                : availableSessionIds;
 
             return {
                 name: screen.name,
                 visits: screen.visits,
+                uniqueVisitors: screen.uniqueVisitors,
+                interactions: screen.interactions,
                 rageTaps: screen.rageTaps,
                 errors: screen.errors,
                 exitRate: screen.exitRate,
@@ -784,7 +824,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:alltime-heatmap:${productRollupSourceKey()}:${projectIds.sort().join(',')}:v6`;
+        const cacheKey = `insights:alltime-heatmap:${productRollupSourceKey()}:${projectIds.sort().join(',')}:v7`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -875,7 +915,7 @@ router.get(
                 .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
-                    eq(recordingArtifacts.kind, 'screenshots'),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'rrweb']),
                     eq(recordingArtifacts.status, 'ready'),
                     eq(sessions.recordingDeleted, false)
                 ))
@@ -889,8 +929,10 @@ router.get(
 
         // Map session IDs to their frame artifact availability
         const sessionFrameMap = new Map<string, boolean>();
+        const sessionsWithScreenshotArtifacts = new Set<string>();
         for (const artifact of sampleFrameArtifacts) {
             sessionFrameMap.set(artifact.sessionId, true);
+            if (artifact.kind === 'screenshots') sessionsWithScreenshotArtifacts.add(artifact.sessionId);
         }
 
         logger.info({
@@ -902,20 +944,23 @@ router.get(
         const screenNames = Array.from(screenHeatmapMap.keys());
         const screenSessionMap = new Map<string, string[]>();
 
-        // Query recent sessions that have screenshot artifacts and visited these screens
+        // Query recent sessions that have a visual replay artifact and visited these screens.
+        // Browser replays use rrweb; native replays use screenshot archives.
         if (screenNames.length > 0) {
-            // Find recent sessions with ready screenshot artifacts for these projects
+            // Find recent sessions with ready visual artifacts for these projects.
             // Note: screensVisited is on sessionMetrics, not sessions
-            const recentSessionsWithScreenshots = await db
-                .select({
+            const recentSessionsWithVisualReplay = await db
+                .selectDistinct({
                     sessionId: sessions.id,
                     screensVisited: sessionMetrics.screensVisited,
+                    createdAt: sessions.createdAt,
+                    artifactKind: recordingArtifacts.kind,
                 })
                 .from(sessions)
                 .innerJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
                 .innerJoin(recordingArtifacts, and(
                     eq(recordingArtifacts.sessionId, sessions.id),
-                    eq(recordingArtifacts.kind, 'screenshots'),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'rrweb']),
                     eq(recordingArtifacts.status, 'ready')
                 ))
                 .where(and(
@@ -926,7 +971,7 @@ router.get(
                 .limit(500);
 
             // Map each screen to sessions that visited it (with valid screenshots)
-            for (const row of recentSessionsWithScreenshots) {
+            for (const row of recentSessionsWithVisualReplay) {
                 const visited = normalizeHeatmapScreenPath(row.screensVisited || []);
                 for (const screen of visited) {
                     if (screenNames.includes(screen)) {
@@ -939,6 +984,7 @@ router.get(
                         }
                         // Also mark as available
                         sessionFrameMap.set(row.sessionId, true);
+                        if (row.artifactKind === 'screenshots') sessionsWithScreenshotArtifacts.add(row.sessionId);
                     }
                 }
             }
@@ -1000,7 +1046,7 @@ router.get(
                 if (previewEvidence) {
                     screenshotUrl = previewEvidence.screenshotUrl;
                     screenshotSource = 'screenEvent';
-                } else if (data.sampleSessionId && data.screenFirstSeenMs && sessionFrameMap.has(data.sampleSessionId)) {
+                } else if (data.sampleSessionId && data.screenFirstSeenMs && sessionsWithScreenshotArtifacts.has(data.sampleSessionId)) {
                     screenshotUrl = buildHeatmapScreenshotUrl(data.sampleSessionId, data.screenFirstSeenMs, { requireTimestamp: true });
                     screenshotSource = 'sampleSession';
                     if (screenshotUrl) {

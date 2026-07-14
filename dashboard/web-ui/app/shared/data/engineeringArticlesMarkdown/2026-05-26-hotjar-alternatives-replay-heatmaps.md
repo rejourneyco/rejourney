@@ -6,7 +6,7 @@ date: "2026-05-26"
 dateModified: "2026-05-26"
 readTime: "9 min read"
 image: "/images/engineering/churn-mobile-heatmap.png"
-imageAlt: "Mobile app heatmap showing concentrated taps and attention across the right side of a coffee app screen"
+imageAlt: "Rejourney heatmap workspace showing a product page with interaction density"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
@@ -46,7 +46,7 @@ A heatmap can show you that users are clicking a non-interactive image, and a re
 
 For product and development teams, the best alternative is a workflow that connects visual user behavior with actual technical telemetry.
 
-![Mobile app heatmap showing concentrated taps and attention across the right side of a coffee app screen](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 ## Where traditional heatmaps fall short
 

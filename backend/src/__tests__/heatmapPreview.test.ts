@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildHeatmapScreenshotUrl,
     findHeatmapPreviewTimestampInEvents,
+    hasCompatibleHeatmapVisualArtifact,
 } from '../utils/heatmapPreview.js';
 
 describe('heatmapPreview', () => {
@@ -23,6 +24,16 @@ describe('heatmapPreview', () => {
 
     it('returns null for empty session ids', () => {
         expect(buildHeatmapScreenshotUrl('', 1770000000123)).toBeNull();
+    });
+
+    it('accepts rrweb as the visual evidence source for browser heatmaps', () => {
+        expect(hasCompatibleHeatmapVisualArtifact('web', ['events', 'rrweb'])).toBe(true);
+        expect(hasCompatibleHeatmapVisualArtifact('web', ['events', 'screenshots'])).toBe(false);
+    });
+
+    it('continues to require screenshot archives for native heatmaps', () => {
+        expect(hasCompatibleHeatmapVisualArtifact('ios', ['events', 'screenshots'])).toBe(true);
+        expect(hasCompatibleHeatmapVisualArtifact('android', ['events'])).toBe(false);
     });
 
     it('uses interactions inherited from the current screen context for previews', () => {

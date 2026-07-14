@@ -127,7 +127,7 @@ The important part is not "Manila has latency." The important part is whether th
 
 Churn is often caused by a mismatch between product design and user intent. Heatmaps make that mismatch visible.
 
-![Mobile app heatmap showing concentrated taps and attention across the right side of a coffee app screen](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 In this example, the heatmap concentrates around the right side of the mobile screen and the lower navigation area. If retention drops after this kind of session, the question is not simply "did the user click?" The better questions are:
 

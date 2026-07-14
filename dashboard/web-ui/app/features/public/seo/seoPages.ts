@@ -883,7 +883,7 @@ export const SEO_PAGES: SeoPage[] = [
       "Mobile session replay for iOS, React Native, and Expo with heatmaps, journeys, ANR detection, crash context, and lightweight SDKs.",
     keywords: ["mobile session replay", "mobile app session replay", "React Native session replay", "iOS session replay"],
     image: "/images/heatmaps.png",
-    imageAlt: "Rejourney mobile heatmaps and replay analytics dashboard",
+    imageAlt: "Rejourney heatmap workspace with replay and behavioral insights",
     proofPoints: ["React Native + Expo", "Native iOS", "Heatmaps + ANRs"],
     whyTitle: "Mobile replay has to understand the app behind the pixels",
     whyParagraphs: [
@@ -989,7 +989,7 @@ export const SEO_PAGES: SeoPage[] = [
       "session replay heatmaps",
     ],
     image: "/images/engineering/heatmaps-attention-docs.png",
-    imageAlt: "Rejourney web attention map over the Web SDK documentation page",
+    imageAlt: "Rejourney heatmap workspace showing a product page with interaction density",
     proofPoints: ["Web attention maps", "Mobile touch maps", "Replay context"],
     whyTitle: "A heatmap is useful only when it tells you something surprising",
     whyParagraphs: [
@@ -1943,7 +1943,7 @@ export const SEO_PAGES: SeoPage[] = [
       "Compare Rejourney and Hotjar alternatives for heatmaps, session replay, user journeys, mobile analytics, unlimited events, retention, projects, and teams.",
     keywords: ["hotjar alternatives", "hotjar competitors", "alternative hotjar", "hotjar alternative", "session replay tools", "behavior analytics tools", "heatmap analytics"],
     image: "/images/engineering/churn-mobile-heatmap.png",
-    imageAlt: "Mobile app heatmap showing concentrated taps and attention across a coffee app screen",
+    imageAlt: "Rejourney heatmap workspace showing a product page with interaction density",
     proofPoints: ["Heatmaps + replay", "Journeys + analytics", "Mobile + stability context"],
     whyParagraphs: [
       "Hotjar frames Observe around heatmaps and recordings, with Ask and Engage for surveys, feedback, user interviews, and user tests. That is useful when a website team wants classic qualitative UX research tools.",

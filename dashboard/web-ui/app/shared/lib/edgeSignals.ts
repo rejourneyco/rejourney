@@ -6,6 +6,7 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    __rejourneyGoogleAdsSignupTracked?: boolean;
     rdt?: (...args: unknown[]) => void;
     zaraz?: {
       track?: (eventName: string, eventProperties?: EdgeSignalProperties) => Promise<unknown> | unknown;
@@ -44,14 +45,6 @@ function getRedditTrack(): RedditTrack | null {
   return typeof window.rdt === "function" ? window.rdt.bind(window) : null;
 }
 
-function getDashboardPageLocation(): string {
-  const origin = typeof window.location?.origin === "string" && window.location.origin
-    ? window.location.origin
-    : "https://rejourney.co";
-
-  return `${origin.replace(/\/$/, "")}/dashboard/`;
-}
-
 async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
   while (Date.now() < deadline) {
     const track = getZarazTrack();
@@ -64,6 +57,8 @@ async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
 }
 
 function trackGoogleAdsSignupConversion(): void {
+  if (window.__rejourneyGoogleAdsSignupTracked) return;
+
   const gtag = getGtagTrack();
   if (!gtag) return;
 
@@ -71,19 +66,11 @@ function trackGoogleAdsSignupConversion(): void {
   if (!conversionId) return;
 
   const signupConversionLabel = getGoogleAdsSignupConversionLabel();
-  if (signupConversionLabel) {
-    gtag("event", "conversion", {
-      send_to: `${conversionId}/${signupConversionLabel}`,
-    });
-    return;
-  }
+  if (!signupConversionLabel) return;
 
-  // Fallback for URL-based Google Ads conversion actions while the action label
-  // is not configured in the app. The explicit event above is the precise path.
-  gtag("config", conversionId, {
-    page_location: getDashboardPageLocation(),
-    page_path: "/dashboard/",
-    page_title: "Rejourney Dashboard",
+  window.__rejourneyGoogleAdsSignupTracked = true;
+  gtag("event", "conversion", {
+    send_to: `${conversionId}/${signupConversionLabel}`,
   });
 }
 

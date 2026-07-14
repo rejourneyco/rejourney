@@ -1,20 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Activity,
+    AlertTriangle,
     Check,
     ChevronLeft,
     ChevronRight,
     Eye,
+    Flame,
     Image as ImageIcon,
-    Layers3,
-    ListFilter,
     Loader2,
     Monitor,
     MousePointer2,
+    PlayCircle,
     RotateCcw,
     Smartphone,
     X,
 } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
@@ -42,6 +44,7 @@ import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { buildDemoHeatmapOverview } from '~/shared/data/demoHeatmapData';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
+import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { getAvailableHeatmapModes, getDefaultHeatmapMode } from './heatmapMode';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
@@ -151,12 +154,15 @@ function isGenericHeatmapThumbnailUrl(url: string): boolean {
     return /\/api\/session\/thumbnail\/[^/?#]+(?:[?#].*)?$/.test(url) && !/[?&]ts=\d+/.test(url);
 }
 
-function buildHeatmapImageUrlCandidates(screen: PreviewHeatmapScreen): string[] {
+function buildHeatmapImageUrlCandidates(
+    screen: PreviewHeatmapScreen,
+    options: { allowGenericSessionFallback?: boolean } = {},
+): string[] {
     const candidates: string[] = [];
     const seen = new Set<string>();
     const addCandidate = (url: string | null | undefined) => {
         if (!url) return;
-        if (isGenericHeatmapThumbnailUrl(url)) return;
+        if (isGenericHeatmapThumbnailUrl(url) && !options.allowGenericSessionFallback) return;
         const absoluteUrl = toAbsoluteHeatmapImageUrl(url);
         if (seen.has(absoluteUrl)) return;
         seen.add(absoluteUrl);
@@ -167,6 +173,12 @@ function buildHeatmapImageUrlCandidates(screen: PreviewHeatmapScreen): string[] 
     const timestamped = screen.screenshotUrl ? parseTimestampedHeatmapImageUrl(screen.screenshotUrl) : null;
     if (timestamped) {
         addCandidate(`/api/session/thumbnail/${timestamped.sessionId}?ts=${timestamped.timestamp}`);
+    }
+
+    if (options.allowGenericSessionFallback) {
+        for (const sessionId of getHeatmapEvidenceSessionIds(screen).slice(0, 4)) {
+            addCandidate(`/api/session/thumbnail/${encodeURIComponent(sessionId)}`);
+        }
     }
 
     return candidates;
@@ -331,23 +343,32 @@ function drawTouchHeatmap(
 
     const getHeatmapColor = (t: number): [number, number, number, number] => {
         if (t < 0.015) return [0, 0, 0, 0];
-        if (t < 0.2) {
-            const s = (t - 0.015) / 0.185;
-            const a = Math.round(110 + s * 75);
-            return [Math.round(34 + s * 69), Math.round(211 + s * 21), Math.round(238 + s * 11), a];
+        if (mode === 'attention') {
+            const s = Math.min(1, Math.max(0, (t - 0.015) / 0.985));
+            return [
+                Math.round(52 - s * 30),
+                Math.round(86 + s * 78),
+                Math.round(205 + s * 28),
+                Math.round(28 + s * 132),
+            ];
         }
-        if (t < 0.45) {
-            const s = (t - 0.2) / 0.25;
+        if (t < 0.18) {
+            const s = (t - 0.015) / 0.165;
+            const a = Math.round(45 + s * 90);
+            return [Math.round(56 + s * 9), Math.round(92 + s * 13), Math.round(214 + s * 11), a];
+        }
+        if (t < 0.42) {
+            const s = (t - 0.18) / 0.24;
+            const a = Math.round(135 + s * 55);
+            return [Math.round(65 - s * 41), Math.round(105 + s * 81), Math.round(225 - s * 41), a];
+        }
+        if (t < 0.7) {
+            const s = (t - 0.42) / 0.28;
             const a = Math.round(190 + s * 35);
-            return [Math.round(103 + s * 93), Math.round(232 - s * 51), Math.round(249 + s * 4), a];
+            return [Math.round(24 + s * 221), Math.round(186 + s * 10), Math.round(184 - s * 118), a];
         }
-        if (t < 0.75) {
-            const s = (t - 0.45) / 0.3;
-            const a = Math.round(225 + s * 20);
-            return [Math.round(196 + s * 53), Math.round(181 - s * 13), Math.round(253 - s * 41), a];
-        }
-        const s = (t - 0.75) / 0.25;
-        return [Math.round(249 + s * 2), Math.round(168 - s * 55), Math.round(212 - s * 79), 255];
+        const s = (t - 0.7) / 0.3;
+        return [Math.round(245 - s * 20), Math.round(196 - s * 127), Math.round(66 - s * 11), Math.round(225 + s * 25)];
     };
 
     for (let y = 0; y < h; y++) {
@@ -376,6 +397,7 @@ type HeatmapHotspot = ApiHeatmapHotspot;
 type SignalType = 'rage_taps' | 'errors' | 'exits' | 'mixed';
 type ConfidenceType = 'high' | 'medium' | 'low';
 type PriorityType = 'critical' | 'high' | 'watch';
+type HeatmapViewMode = HeatmapMode | 'rage';
 type HeatmapViewerMode = 'auto' | 'web' | 'mobile';
 type ResolvedHeatmapViewer = Exclude<HeatmapViewerMode, 'auto'>;
 type AttentionHoverState = {
@@ -403,6 +425,8 @@ interface PreviewHeatmapScreen {
 
 interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
     rangeVisits: number;
+    rangeUniqueVisitors: number;
+    rangeInteractions: number;
     rangeRageTaps: number;
     rangeErrors: number;
     rangeExitRate: number;
@@ -564,9 +588,10 @@ const formatAttentionHoverDuration = (ms: number, mode: ResolvedHeatmapViewer): 
     return formatDwellDuration(ms);
 };
 
-const formatHeatmapModeLabel = (mode: HeatmapMode, viewer: ResolvedHeatmapViewer): string => {
+const formatHeatmapModeLabel = (mode: HeatmapViewMode, viewer: ResolvedHeatmapViewer): string => {
+    if (mode === 'rage') return 'Rage map';
     if (viewer !== 'web') return mode === 'attention' ? 'Attention map' : 'Touch map';
-    return mode === 'attention' ? 'Attention map' : 'Touch map';
+    return mode === 'attention' ? 'Attention map' : 'Click map';
 };
 
 function getHeatmapRouteMinimumVisits(screens: Array<Pick<EnrichedHeatmapScreen, 'rangeVisits'>>): number {
@@ -656,56 +681,64 @@ const RrwebHeatmapPreview: React.FC<{
     frameDimensions: HeatmapFrameDimensions;
 }> = ({ screen, frameDimensions }) => {
     const [rrwebReplay, setRrwebReplay] = useState<ApiSessionReplayManifest['rrwebReplay'] | null>(null);
-    const [failed, setFailed] = useState(false);
-    const sessionId = getPreferredHeatmapSessionId(screen);
+    const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading');
+    const candidateSessionIds = useMemo(() => getHeatmapEvidenceSessionIds(screen).slice(0, 5), [
+        screen.evidenceSessionId,
+        screen.sessionIds,
+        screen.screenshotUrl,
+    ]);
+    const candidateSessionKey = candidateSessionIds.join('|');
 
     useEffect(() => {
-        if (!sessionId) {
+        if (candidateSessionIds.length === 0) {
             setRrwebReplay(null);
-            setFailed(false);
+            setLoadState('failed');
             return;
         }
 
         const abort = new AbortController();
         let cancelled = false;
         setRrwebReplay(null);
-        setFailed(false);
+        setLoadState('loading');
 
-        getSessionReplayManifest(sessionId, { frameUrlMode: 'signed', signal: abort.signal })
-            .then((manifest) => {
-                if (cancelled) return;
-                const rrweb = manifest.rrwebReplay;
-                const hasRrwebEvents = Boolean(
-                    rrweb
-                    && (
-                        (rrweb.eventCount || 0) > 0
-                        || (Array.isArray(rrweb.events) && rrweb.events.length > 0)
-                        || (Array.isArray(rrweb.segments) && rrweb.segments.length > 0)
-                    )
-                );
-                if (manifest.playbackMode === 'rrweb' && hasRrwebEvents) {
-                    setRrwebReplay(manifest.rrwebReplay);
-                    return;
+        (async () => {
+            for (const sessionId of candidateSessionIds) {
+                try {
+                    const manifest = await getSessionReplayManifest(sessionId, { frameUrlMode: 'signed', signal: abort.signal });
+                    if (cancelled) return;
+                    const rrweb = manifest.rrwebReplay;
+                    const hasRrwebEvents = Boolean(
+                        rrweb
+                        && (
+                            (rrweb.eventCount || 0) > 0
+                            || (Array.isArray(rrweb.events) && rrweb.events.length > 0)
+                            || (Array.isArray(rrweb.segments) && rrweb.segments.length > 0)
+                        )
+                    );
+                    if (manifest.playbackMode === 'rrweb' && hasRrwebEvents) {
+                        setRrwebReplay(rrweb);
+                        setLoadState('ready');
+                        return;
+                    }
+                } catch (error) {
+                    if (cancelled || (error as { name?: string } | null)?.name === 'AbortError') return;
+                    heatmapDebug('Failed rrweb candidate for heatmap preview', {
+                        screenName: screen.name,
+                        sessionId,
+                        error,
+                    });
                 }
-                setFailed(true);
-            })
-            .catch((error: unknown) => {
-                if (cancelled || (error as { name?: string } | null)?.name === 'AbortError') return;
-                heatmapDebug('Failed to load rrweb heatmap preview', {
-                    screenName: screen.name,
-                    sessionId,
-                    error,
-                });
-                setFailed(true);
-            });
+            }
+            if (!cancelled) setLoadState('failed');
+        })();
 
         return () => {
             cancelled = true;
             abort.abort();
         };
-    }, [screen.name, sessionId]);
+    }, [candidateSessionIds, candidateSessionKey, screen.name]);
 
-    const { events } = useRrwebReplayEvents(rrwebReplay);
+    const { events, isLoading: eventsLoading, progress } = useRrwebReplayEvents(rrwebReplay);
     const replayTiming = useMemo(() => {
         let first = Number.POSITIVE_INFINITY;
         let last = Number.NEGATIVE_INFINITY;
@@ -722,7 +755,33 @@ const RrwebHeatmapPreview: React.FC<{
         };
     }, [events]);
 
-    if (failed || !replayTiming || events.length === 0) return null;
+    if (loadState === 'loading' || (loadState === 'ready' && eventsLoading && events.length === 0)) {
+        return (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50/95 p-6 text-center">
+                <div>
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-cyan-600" />
+                    <p className="mt-3 text-xs font-black text-slate-800">Reconstructing this page</p>
+                    <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                        {progress.total > 0 ? `${progress.loaded} of ${progress.total} replay segments` : 'Loading DOM replay evidence'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (loadState === 'failed' || !replayTiming || events.length === 0) {
+        return (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 p-6 text-center">
+                <div className="max-w-xs">
+                    <AlertTriangle className="mx-auto h-7 w-7 text-amber-500" />
+                    <p className="mt-3 text-xs font-black text-slate-900">Page replay unavailable</p>
+                    <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-500">
+                        The interaction data is still valid. Choose another route, version, or time range for visual evidence.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     const targetTimestamp = Number(screen.screenFirstSeenMs);
     const currentTime = Number.isFinite(targetTimestamp) && targetTimestamp > 0
@@ -755,8 +814,9 @@ const HeatmapPreview: React.FC<{
     showLegend?: boolean;
     viewerMode?: HeatmapViewerMode;
     projectPlatforms?: string[];
-    heatmapMode?: HeatmapMode;
+    heatmapMode?: HeatmapViewMode;
     attentionData?: WebAttentionHeatmapResponse | null;
+    overlayOpacity?: number;
 }> = ({
     screen,
     compact = false,
@@ -766,6 +826,7 @@ const HeatmapPreview: React.FC<{
     projectPlatforms = [],
     heatmapMode = 'touch',
     attentionData = null,
+    overlayOpacity = 0.76,
 }) => {
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
@@ -780,7 +841,11 @@ const HeatmapPreview: React.FC<{
 
     const resolvedViewer = resolveHeatmapViewer(screen, viewerMode, projectPlatforms);
     const isWebViewer = resolvedViewer === 'web';
-    const previewScreen = heatmapMode === 'attention' && attentionData
+    // Attention dimensions are generated by the web replay pipeline. Applying an
+    // empty web response to a mobile screen was replacing its 393×852 capture with
+    // the web's 1920×1080 viewport and stretching the image into a tablet.
+    const useWebAttentionData = isWebViewer && heatmapMode === 'attention' && attentionData;
+    const previewScreen = useWebAttentionData
         ? {
             ...screen,
             pageWidth: attentionData.pageWidth ?? screen.pageWidth,
@@ -798,14 +863,13 @@ const HeatmapPreview: React.FC<{
         [frameDimensions.pageHeight, frameDimensions.viewportHeight, isWebViewer, tile],
     );
     const coverUrlCandidates = useMemo(
-        () => buildHeatmapImageUrlCandidates(screen),
-        [screen.screenshotUrl],
+        () => buildHeatmapImageUrlCandidates(screen, { allowGenericSessionFallback: !isWebViewer }),
+        [isWebViewer, screen.evidenceSessionId, screen.screenshotUrl, screen.sessionIds],
     );
     const coverUrlKey = coverUrlCandidates.join('|');
-    const hasScreenSpecificTimestamp = Number.isFinite(Number(screen.screenFirstSeenMs)) && Number(screen.screenFirstSeenMs) > 0;
     const shouldRenderRrwebPreview = isWebViewer
         && !tile
-        && hasScreenSpecificTimestamp
+        && coverUrlCandidates.length === 0
         && Boolean(getPreferredHeatmapSessionId(screen));
 
     useEffect(() => {
@@ -1058,8 +1122,10 @@ const HeatmapPreview: React.FC<{
         ? { height: `${frameDimensions.viewportPercent}%` }
         : undefined;
     const activeHotspots = heatmapMode === 'attention'
-        ? (attentionData?.hotspots || [])
-        : (screen.touchHotspots || []);
+        ? (isWebViewer ? (attentionData?.hotspots || []) : (screen.touchHotspots || []))
+        : heatmapMode === 'rage'
+            ? (screen.touchHotspots || []).filter((hotspot) => hotspot.isRageTap || hotspot.kind === 'rage')
+            : (screen.touchHotspots || []);
     const visibleHotspots = useMemo(() => {
         return activeHotspots;
     }, [activeHotspots]);
@@ -1071,7 +1137,8 @@ const HeatmapPreview: React.FC<{
         const overlay = overlayRef.current;
         if (!canvas || !overlay) return;
 
-        const draw = () => drawTouchHeatmap(canvas, overlay, visibleHotspots, heatmapMode, {
+        const renderMode: HeatmapMode = heatmapMode === 'rage' ? 'touch' : heatmapMode;
+        const draw = () => drawTouchHeatmap(canvas, overlay, visibleHotspots, renderMode, {
             fullWidthAttention: isWebViewer,
             fullScreenAttention: heatmapMode === 'attention' && !isWebViewer,
         });
@@ -1088,7 +1155,8 @@ const HeatmapPreview: React.FC<{
         [visibleHotspots, heatmapMode],
     );
 
-    const attentionInteractive = heatmapMode === 'attention'
+    const attentionInteractive = isWebViewer
+        && heatmapMode === 'attention'
         && !tile
         && (attentionData?.sampledSessions ?? 0) > 0
         && (
@@ -1193,20 +1261,20 @@ const HeatmapPreview: React.FC<{
     const frameClass = isWebViewer
         ? 'heatmap-browser-frame heatmap-web-document-frame overflow-hidden rounded-xl border-2 border-black bg-white shadow-neo'
         : isTabletViewer
-            ? 'heatmap-tablet-frame rounded-[24px] border-2 border-black bg-black p-2 shadow-neo'
-            : 'heatmap-phone-frame rounded-[28px] border-2 border-black bg-black p-3 shadow-neo';
+            ? 'heatmap-tablet-frame rounded-[24px] border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]'
+            : 'heatmap-phone-frame rounded-[28px] border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]';
     const screenClass = isWebViewer
         ? 'heatmap-browser-screen heatmap-web-document-screen relative overflow-hidden bg-white'
         : isTabletViewer
-            ? 'heatmap-tablet-screen relative overflow-hidden rounded-[18px] bg-slate-800'
-            : 'heatmap-phone-screen relative aspect-[9/19] overflow-hidden rounded-[24px] bg-slate-800';
+            ? 'heatmap-tablet-screen relative overflow-hidden rounded-[18px] bg-slate-100'
+            : 'heatmap-phone-screen relative overflow-hidden rounded-[23px] bg-slate-100';
     const tileScreenClass = isWebViewer
         ? 'heatmap-tile-screen heatmap-web-tile-screen heatmap-web-document-tile relative overflow-hidden rounded-lg border-2 border-black bg-white shadow-neo-sm'
-        : 'heatmap-tile-screen relative mx-auto aspect-[9/19] max-h-[500px] w-full max-w-[184px] overflow-hidden rounded-2xl border-2 border-black bg-slate-800 shadow-neo-sm';
-    const imageFitClass = 'object-fill';
+        : 'heatmap-tile-screen relative mx-auto max-h-[500px] w-full max-w-[184px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.1)]';
+    const imageFitClass = 'object-cover';
     const placeholderClass = isWebViewer
         ? 'bg-transparent'
-        : 'bg-[#111827]';
+        : 'bg-slate-100';
     const previewWrapperStyle = !isWebViewer
         ? ({ '--heatmap-frame-ratio': `${frameDimensions.pageWidth / Math.max(frameDimensions.pageHeight, 1)}` } as React.CSSProperties)
         : undefined;
@@ -1286,7 +1354,7 @@ const HeatmapPreview: React.FC<{
                     <canvas
                         ref={canvasRef}
                         className="absolute inset-0 h-full w-full"
-                        style={{ mixBlendMode: 'normal', opacity: 0.96 }}
+                        style={{ mixBlendMode: 'normal', opacity: overlayOpacity }}
                     />
                 )}
 
@@ -1389,9 +1457,18 @@ const HeatmapPreview: React.FC<{
 
             {showLegend && (
                 <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-slate-600">
-                    <span>Low intensity</span>
-                    <div className="mx-2 h-1.5 flex-1 border border-black bg-gradient-to-r from-[#67e8f9] via-[#c4b5fd] to-[#f472b6]" />
-                    <span>High intensity</span>
+                    <span>{heatmapMode === 'rage' ? 'Isolated friction' : 'Low intensity'}</span>
+                    <div
+                        className="mx-2 h-1.5 flex-1 rounded-full"
+                        style={{
+                            background: heatmapMode === 'rage'
+                                ? 'linear-gradient(90deg, #cbd5e1, #f59e0b, #dc2626)'
+                                : heatmapMode === 'attention'
+                                    ? 'linear-gradient(90deg, rgba(52, 86, 205, 0.35), #1664e8, #16a4e9)'
+                                    : 'linear-gradient(90deg, #4169e1, #18bab2 38%, #f5c442 68%, #e14539)',
+                        }}
+                    />
+                    <span>{heatmapMode === 'rage' ? 'Repeated friction' : 'High intensity'}</span>
                 </div>
             )}
         </div>
@@ -1485,13 +1562,16 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const { isDemoMode } = useDemoMode();
+    const navigate = useNavigate();
+    const pathPrefix = usePathPrefix();
 
     const [screens, setScreens] = useState<EnrichedHeatmapScreen[]>([]);
     const [screenIteration, setScreenIteration] = useState<HeatmapIterationSummary | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState('');
     const [partialError, setPartialError] = useState<string | null>(null);
-    const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('attention');
+    const [heatmapMode, setHeatmapMode] = useState<HeatmapViewMode>('attention');
+    const [overlayOpacity, setOverlayOpacity] = useState(0.44);
     const [attentionByScreen, setAttentionByScreen] = useState<Record<string, WebAttentionHeatmapResponse>>({});
     const [attentionLoadingFor, setAttentionLoadingFor] = useState<string | null>(null);
     const [attentionErrors, setAttentionErrors] = useState<Record<string, string>>({});
@@ -1516,7 +1596,13 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
         if (isDemoMode) {
             const overview = buildDemoHeatmapOverview();
-            setScreens(overview.screens as EnrichedHeatmapScreen[]);
+            const demoScreens = overview.screens as EnrichedHeatmapScreen[];
+            const filteredDemoScreens = !platform || platform === 'all'
+                ? demoScreens
+                : platform === 'mobile'
+                    ? demoScreens.filter((screen) => screen.platform === 'ios' || screen.platform === 'android')
+                    : demoScreens.filter((screen) => screen.platform === platform);
+            setScreens(filteredDemoScreens);
             setScreenIteration(overview.screenIteration || null);
             setLastUpdated(overview.lastUpdated);
             setPartialError(null);
@@ -1619,8 +1705,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     const sortedScreens = useMemo(() => (
         [...screens].sort((a, b) => {
-            if (b.rangeImpactScore !== a.rangeImpactScore) return b.rangeImpactScore - a.rangeImpactScore;
-            return b.rangeVisits - a.rangeVisits;
+            if (b.rangeVisits !== a.rangeVisits) return b.rangeVisits - a.rangeVisits;
+            return b.rangeInteractions - a.rangeInteractions;
         })
     ), [screens]);
 
@@ -1760,7 +1846,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         : selectedScreen;
     const activeScreen = displayedScreen ?? selectedScreen;
     const isVersionSnapshotSelected = Boolean(selectedVersionEntry);
-    const effectiveHeatmapMode: HeatmapMode = heatmapMode;
+    const effectiveHeatmapMode: HeatmapViewMode = heatmapMode;
     const attentionAppVersion = (() => {
         const raw = selectedVersionEntry?.version.appVersion ?? null;
         return raw && raw !== 'All versions' ? raw : null;
@@ -1776,20 +1862,18 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const selectedAttentionError = attentionKey ? attentionErrors[attentionKey] ?? null : null;
     const selectedAttentionLoading = Boolean(attentionKey && attentionLoadingFor === attentionKey);
     const selectedModeLabel = isVersionSnapshotSelected
-        ? effectiveHeatmapMode === 'attention'
-            ? `v${selectedVersionEntry?.version.appVersion} attention map`
-            : `v${selectedVersionEntry?.version.appVersion} touch map`
+        ? `v${selectedVersionEntry?.version.appVersion} ${formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer).toLowerCase()}`
         : formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer);
     const attentionStatus = effectiveHeatmapMode === 'attention'
         ? selectedAttentionLoading
             ? { state: 'loading' as const, label: 'Building attention' }
             : selectedAttentionError
                 ? { state: 'error' as const, label: selectedAttentionError }
-                : selectedAttention?.reason
+                : selectedAttention?.reason && !(isDemoMode && selectedViewer === 'mobile')
                     ? { state: 'muted' as const, label: selectedAttention.reason }
                     : null
         : null;
-    const availableHeatmapModes = getAvailableHeatmapModes(selectedViewer);
+    const availableHeatmapModes: HeatmapViewMode[] = [...getAvailableHeatmapModes(selectedViewer), 'rage'];
     const selectedBaseFrame = useMemo(
         () => baseFrameCandidates.find((candidate) => candidate.id === selectedBaseFrameId) || baseFrameCandidates[0] || null,
         [baseFrameCandidates, selectedBaseFrameId],
@@ -2006,6 +2090,15 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         timeRange,
     ]);
 
+    const replayEvidenceSessionId = activeScreen ? getPreferredHeatmapSessionId(activeScreen) : null;
+    const selectedRageHotspotCount = activeScreen?.touchHotspots?.filter((hotspot) => hotspot.isRageTap || hotspot.kind === 'rage').length ?? 0;
+    const hasVisualBase = Boolean(activeScreen?.screenshotUrl || activeScreen?.baseTemplate || replayEvidenceSessionId);
+    const selectedVisitors = selectedScreen?.rangeUniqueVisitors ?? selectedScreen?.rangeVisits ?? 0;
+    const selectedSessions = selectedScreen?.rangeVisits ?? 0;
+    const selectedInteractions = selectedScreen?.rangeInteractions ?? 0;
+    const interactionsPerSession = selectedSessions > 0 ? selectedInteractions / selectedSessions : 0;
+    const replaySampleCount = activeScreen ? getHeatmapEvidenceSessionIds(activeScreen).length : 0;
+
     if (!selectedProject?.id && !isDemoMode) {
         return (
             <section className={`dashboard-surface p-6 ${className}`.trim()}>
@@ -2051,165 +2144,186 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             )}
 
             {selectedScreen && activeScreen && (
-                <div className="heatmap-canvas-layout">
-                    <main className="heatmap-canvas-panel heatmap-primary-canvas" aria-label="Selected heatmap">
-                        <div className="heatmap-canvas-toolbar">
-                            <div className="min-w-0">
-                                <span className="heatmap-eyebrow">
-                                    {selectedViewer === 'web' ? <Monitor className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
-                                    {selectedModeLabel}
-                                </span>
-                                <h3 title={activeScreen.name}>{activeScreen.name}</h3>
-                            </div>
-                            <div className="flex min-w-0 items-center gap-2">
-                                {!isDemoMode && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setBaseFramePickerOpen(true)}
-                                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 shadow-sm transition hover:border-cyan-400 hover:text-cyan-700"
-                                    >
-                                        {activeBaseTemplate ? <Check className="h-4 w-4 text-emerald-600" /> : <ImageIcon className="h-4 w-4" />}
-                                        <span>Base frame</span>
-                                    </button>
-                                )}
-                                {attentionStatus && attentionStatus.state !== 'loading' && (
-                                    <div className={`heatmap-canvas-status heatmap-canvas-status-${attentionStatus.state}`} role={attentionStatus.state === 'error' ? 'status' : undefined}>
-                                        <span>{attentionStatus.label}</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        <div className={`heatmap-preview-stage heatmap-primary-stage ${selectedViewer === 'web' ? 'heatmap-web-scroll-stage' : ''}`}>
-                            <HeatmapPreview
-                                screen={activeScreen}
-                                compact={compact}
-                                showLegend
-                                viewerMode="auto"
-                                projectPlatforms={projectPlatforms}
-                                heatmapMode={effectiveHeatmapMode}
-                                attentionData={selectedAttention}
-                            />
-                            {attentionStatus?.state === 'loading' && (
-                                <div className="heatmap-stage-overlay" role="status" aria-live="polite">
-                                    <div className="heatmap-stage-overlay-card">
-                                        <Loader2 className="h-5 w-5 animate-spin" />
-                                        <span>{attentionStatus.label}</span>
-                                        <p>Sampling sessions and scoring attention…</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </main>
-
-                    <aside className="heatmap-side-panel" aria-label="Heatmap controls and context">
-                        <section className="heatmap-side-section">
-                            <div className="heatmap-side-title">
-                                <span className="heatmap-eyebrow">Map type</span>
-                            </div>
-                            {availableHeatmapModes.length > 1 && (
-                                <div className="heatmap-mode-control heatmap-side-mode-control" role="group" aria-label="Heatmap mode">
-                                    {availableHeatmapModes.map((mode) => (
-	                                        <button
-	                                            key={mode}
-	                                            type="button"
-	                                            onClick={() => setHeatmapMode(mode)}
-	                                            aria-pressed={effectiveHeatmapMode === mode}
-	                                            className={effectiveHeatmapMode === mode ? 'is-active' : ''}
-	                                        >
-                                            {mode === 'attention' ? <Eye className="h-4 w-4" /> : <MousePointer2 className="h-4 w-4" />}
-                                            {mode === 'attention' ? 'Attention' : 'Touch'}
-                                        </button>
+                <div className="heatmap-pro-studio">
+                    <header className="heatmap-pro-toolbar">
+                        <label className="heatmap-pro-route">
+                            <span>{selectedViewer === 'web' ? <Monitor className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}</span>
+                            <span className="heatmap-pro-route-select">
+                                <small>{selectedViewer === 'web' ? 'Page' : 'Screen'}</small>
+                                <select
+                                    aria-label={selectedViewer === 'web' ? 'Select page' : 'Select screen'}
+                                    value={selectedScreen.name}
+                                    onChange={(event) => {
+                                        setSelectedScreenName(event.target.value);
+                                        setSelectedVersionKey('current');
+                                    }}
+                                >
+                                    {sortedScreens.map((screen) => (
+                                        <option key={screen.name} value={screen.name}>{getDisplayRoute(screen.name)}</option>
                                     ))}
-                                </div>
-                            )}
-                            <p className="heatmap-side-note">
-                                {effectiveHeatmapMode === 'attention'
-                                    ? selectedViewer === 'web'
-                                        ? 'Where visitors looked and lingered, weighted by dwell time and read depth.'
-                                        : 'Where users looked and lingered, weighted by dwell, screen structure, scroll behavior, and touch intent.'
-                                    : selectedViewer === 'web'
-                                        ? 'Where visitors clicked and tapped across the page.'
-                                        : 'Where users tapped across this screen.'}
-                            </p>
-                            {selectedVersionEntry && (
-                                <p className="heatmap-side-note">
-                                    Scoped to v{selectedVersionEntry.version.appVersion} sessions.
-                                </p>
-                            )}
-                        </section>
+                                </select>
+                            </span>
+                        </label>
 
-                        <section className="heatmap-side-section">
-                            <div className="heatmap-side-heading">
-                                <span>
-                                    <ListFilter className="h-3.5 w-3.5" />
-                                    {selectedViewer === 'web' ? 'Routes' : 'Screens'}
-                                </span>
-                            </div>
-                            <div className="heatmap-rail-list heatmap-side-route-list">
-                                {sortedScreens.map((screen) => {
-                                    const selected = screen.name === selectedScreen.name;
-                                    const viewer = resolveHeatmapViewer(screen, 'auto', projectPlatforms);
-                                    const Icon = viewer === 'web' ? Monitor : Smartphone;
-                                    return (
-                                        <button
-                                            key={screen.name}
-                                            type="button"
-                                            aria-pressed={selected}
-                                            onClick={() => {
-                                                setSelectedScreenName(screen.name);
-                                                setSelectedVersionKey('current');
-                                            }}
-                                            className={`heatmap-route-row ${selected ? 'heatmap-route-row-active' : ''}`}
-                                        >
-                                            <span className="heatmap-route-icon" aria-hidden="true">
-                                                <Icon className="h-3.5 w-3.5" />
-                                            </span>
-                                            <span className="min-w-0 flex-1 text-left">
-                                                <span className="heatmap-route-name">{screen.name}</span>
-                                            </span>
-                                            {screen.rangeVisits > 0 && (
-                                                <span className="heatmap-route-meta" title={`${screen.rangeVisits.toLocaleString()} sessions`}>
-                                                    {formatCompactCount(screen.rangeVisits)}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </section>
+                        <div className="heatmap-pro-modes" role="group" aria-label="Heatmap mode">
+                            {availableHeatmapModes.map((mode) => (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    onClick={() => setHeatmapMode(mode)}
+                                    aria-pressed={effectiveHeatmapMode === mode}
+                                    className={effectiveHeatmapMode === mode ? 'is-active' : ''}
+                                >
+                                    {mode === 'attention' ? <Eye className="h-4 w-4" /> : mode === 'rage' ? <Flame className="h-4 w-4" /> : <MousePointer2 className="h-4 w-4" />}
+                                    {mode === 'attention' ? 'Attention' : mode === 'rage' ? 'Rage' : selectedViewer === 'web' ? 'Clicks' : 'Touches'}
+                                </button>
+                            ))}
+                        </div>
 
-                        <section className="heatmap-side-section">
-                            <div className="heatmap-side-heading">
-                                <span>
-                                    <Layers3 className="h-3.5 w-3.5" />
-                                    Versions
-                                </span>
-                            </div>
-                            <div className="heatmap-version-lane">
+                        <div className="heatmap-pro-toolbar-actions">
+                            <label className="heatmap-pro-intensity">
+                                <span>Overlay</span>
+                                <input
+                                    type="range"
+                                    min="0.2"
+                                    max="0.9"
+                                    step="0.05"
+                                    value={overlayOpacity}
+                                    onChange={(event) => setOverlayOpacity(Number(event.target.value))}
+                                />
+                                <strong>{Math.round(overlayOpacity * 100)}%</strong>
+                            </label>
+                            {replayEvidenceSessionId && (
                                 <button
                                     type="button"
-                                    aria-pressed={selectedVersionKey === 'current'}
-                                    className={`heatmap-version-row ${selectedVersionKey === 'current' ? 'heatmap-version-row-active' : ''}`}
-                                    onClick={() => setSelectedVersionKey('current')}
+                                    className="heatmap-pro-replay-button"
+                                    onClick={() => navigate(`${pathPrefix}/sessions/${replayEvidenceSessionId}`)}
                                 >
-                                    <span>Current aggregate</span>
-                                    <em>{formatHeatmapModeLabel(heatmapMode, selectedViewer)}</em>
+                                    <PlayCircle className="h-4 w-4" />
+                                    Replay
                                 </button>
-                                {selectedVersionOptions.map(({ key, version, screen }) => (
-                                    <button
-                                        key={`${key}:${screen.name}`}
-                                        type="button"
-                                        aria-pressed={selectedVersionKey === key}
-                                        className={`heatmap-version-row ${selectedVersionKey === key ? 'heatmap-version-row-active' : ''}`}
-                                        onClick={() => setSelectedVersionKey(key)}
-                                    >
-                                        <span>v{version.appVersion}</span>
-                                        <em>{formatHeatmapModeLabel(effectiveHeatmapMode, selectedViewer)}</em>
-                                    </button>
-                                ))}
+                            )}
+                        </div>
+                    </header>
+
+                    <div className="heatmap-pro-summary" aria-label="Heatmap summary">
+                        <div>
+                            <span>Visitors</span>
+                            <strong>{formatCompactCount(selectedVisitors)}</strong>
+                            <small>unique people</small>
+                        </div>
+                        <div>
+                            <span>Sessions</span>
+                            <strong>{formatCompactCount(selectedSessions)}</strong>
+                            <small>viewed this {selectedViewer === 'web' ? 'page' : 'screen'}</small>
+                        </div>
+                        <div>
+                            <span>{selectedViewer === 'web' ? 'Clicks' : 'Touches'}</span>
+                            <strong>{formatCompactCount(selectedInteractions)}</strong>
+                            <small>recorded interactions</small>
+                        </div>
+                        <div>
+                            <span>Per session</span>
+                            <strong>{interactionsPerSession.toFixed(1)}</strong>
+                            <small>interactions on average</small>
+                        </div>
+                        <div>
+                            <span>Rage {selectedViewer === 'web' ? 'clicks' : 'taps'}</span>
+                            <strong>{formatCompactCount(selectedScreen.rangeRageTaps)}</strong>
+                            <small>{selectedScreen.rangeRageTapRatePer100.toFixed(1)} per 100 sessions</small>
+                        </div>
+                    </div>
+
+                    <div className="heatmap-pro-body">
+                        <main className="heatmap-pro-canvas" aria-label="Selected heatmap">
+                            <div className="heatmap-pro-canvas-meta">
+                                <span>{selectedModeLabel}</span>
+                                <span>{formatCompactCount(effectiveHeatmapMode === 'rage' ? selectedScreen.rangeRageTaps : selectedInteractions)} {effectiveHeatmapMode === 'rage' ? 'rage interactions' : 'interactions'}</span>
+                                <span className={hasVisualBase ? 'is-ready' : 'is-warning'}>
+                                    {hasVisualBase ? <Check className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                                    {hasVisualBase ? 'Replay matched' : 'No visual match'}
+                                </span>
                             </div>
-                        </section>
-                    </aside>
+                            <div className={`heatmap-pro-stage ${selectedViewer === 'web' ? 'heatmap-web-scroll-stage' : ''}`}>
+                                <HeatmapPreview
+                                    screen={activeScreen}
+                                    compact={compact}
+                                    showLegend
+                                    viewerMode="auto"
+                                    projectPlatforms={projectPlatforms}
+                                    heatmapMode={effectiveHeatmapMode}
+                                    attentionData={selectedAttention}
+                                    overlayOpacity={overlayOpacity}
+                                />
+                                {attentionStatus?.state === 'loading' && (
+                                    <div className="heatmap-stage-overlay" role="status" aria-live="polite">
+                                        <div className="heatmap-stage-overlay-card">
+                                            <Loader2 className="h-5 w-5 animate-spin" />
+                                            <span>{attentionStatus.label}</span>
+                                        </div>
+                                    </div>
+                                )}
+                                {effectiveHeatmapMode === 'rage' && selectedRageHotspotCount === 0 && (
+                                    <div className="heatmap-empty-layer" role="status">
+                                        <Flame className="h-4 w-4" />
+                                        No rage interactions
+                                    </div>
+                                )}
+                            </div>
+                        </main>
+
+                        <aside className="heatmap-pro-inspector" aria-label="Heatmap insights">
+                            <div className="heatmap-pro-inspector-heading">
+                                <small>Page insights</small>
+                                <strong>Behavior signals</strong>
+                            </div>
+                            <dl className="heatmap-pro-signal-list">
+                                <div>
+                                    <span><Flame className="h-4 w-4" /></span>
+                                    <dt>Rage {selectedViewer === 'web' ? 'clicks' : 'taps'}<small>Repeated interactions</small></dt>
+                                    <dd>{formatCompactCount(selectedScreen.rangeRageTaps)}</dd>
+                                </div>
+                                <div>
+                                    <span><AlertTriangle className="h-4 w-4" /></span>
+                                    <dt>Errors<small>Sessions reporting errors</small></dt>
+                                    <dd>{formatCompactCount(selectedScreen.rangeErrors)}</dd>
+                                </div>
+                                <div>
+                                    <span><RotateCcw className="h-4 w-4" /></span>
+                                    <dt>Exit rate<small>Sessions ending here</small></dt>
+                                    <dd>{selectedScreen.rangeExitRate.toFixed(1)}%</dd>
+                                </div>
+                            </dl>
+                            <label className="heatmap-pro-version">
+                                <span>App / site version</span>
+                                <select value={selectedVersionKey} onChange={(event) => setSelectedVersionKey(event.target.value)}>
+                                    <option value="current">All versions</option>
+                                    {selectedVersionOptions.map(({ key, version }) => (
+                                        <option key={key} value={key}>v{version.appVersion}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <section className="heatmap-pro-evidence">
+                                <div>
+                                    <span className={hasVisualBase ? 'is-ready' : 'is-warning'} />
+                                    <p><strong>{hasVisualBase ? 'Replay available' : 'Interaction data only'}</strong><small>{hasVisualBase ? `${Math.max(1, replaySampleCount)} matching recording sample${replaySampleCount === 1 ? '' : 's'}` : 'Try another version or range'}</small></p>
+                                </div>
+                                {replayEvidenceSessionId && (
+                                    <button type="button" onClick={() => navigate(`${pathPrefix}/sessions/${replayEvidenceSessionId}`)}>
+                                        Watch matching session
+                                    </button>
+                                )}
+                                {!isDemoMode && selectedViewer !== 'web' && (
+                                    <button type="button" onClick={() => setBaseFramePickerOpen(true)}>
+                                        {activeBaseTemplate ? 'Change frame' : 'Choose frame'}
+                                    </button>
+                                )}
+                            </section>
+                            {attentionStatus && attentionStatus.state !== 'loading' && (
+                                <div className={`heatmap-pro-notice is-${attentionStatus.state}`} role="status">{attentionStatus.label}</div>
+                            )}
+                        </aside>
+                    </div>
                 </div>
             )}
 

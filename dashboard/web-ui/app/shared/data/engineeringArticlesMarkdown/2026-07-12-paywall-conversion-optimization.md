@@ -6,7 +6,7 @@ date: "2026-07-12"
 dateModified: "2026-07-12"
 readTime: "9 min read"
 image: "/images/engineering/churn-mobile-heatmap.png"
-imageAlt: "Rejourney mobile touch heatmap used to inspect interaction patterns on an app conversion screen"
+imageAlt: "Rejourney heatmap workspace showing a product page with interaction density"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
@@ -35,7 +35,7 @@ Paywall optimization advice tends to begin with the screen: shorten the copy, em
 
 Optimize the commercial transition that evidence says is failing. The screen is only one part of it.
 
-![Rejourney mobile touch heatmap used to inspect an app conversion screen](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 ## Choose the population before choosing the design
 

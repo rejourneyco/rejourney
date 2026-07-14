@@ -6,7 +6,7 @@ date: "2026-07-12"
 dateModified: "2026-07-12"
 readTime: "10 min read"
 image: "/images/engineering/churn-mobile-heatmap.png"
-imageAlt: "Rejourney mobile touch heatmap showing interaction density and user friction on an app screen"
+imageAlt: "Rejourney heatmap workspace showing a product page with interaction density"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
@@ -35,7 +35,7 @@ Cancellation is a precise churn signal and a late one. By the time the event app
 
 Subscription churn prediction tries to identify that change early enough for a useful response. The goal is not to declare that a customer will leave. It is to rank accounts or users whose recent evidence suggests value or reliability is deteriorating, then explain why the signal appeared.
 
-![Rejourney mobile touch heatmap showing concentrated interaction and friction](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 ## Define the churn outcome before building predictors
 

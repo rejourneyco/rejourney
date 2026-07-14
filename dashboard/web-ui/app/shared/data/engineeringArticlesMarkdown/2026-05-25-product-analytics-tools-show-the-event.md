@@ -167,7 +167,7 @@ Product analytics measures declared behavior. Heatmap analytics shows visual beh
 
 That matters because users do not interact with your event taxonomy. They interact with pixels, motion, layout, copy, disabled states, buttons, cards, and loading feedback.
 
-![Mobile app heatmap showing concentrated taps and attention across the right side of a coffee app screen](/images/engineering/churn-mobile-heatmap.png)
+![Rejourney heatmap workspace showing a product page with interaction density](/images/engineering/churn-mobile-heatmap.png)
 
 Heatmaps are especially useful when the product technically works, but the interface teaches the wrong action.
 
