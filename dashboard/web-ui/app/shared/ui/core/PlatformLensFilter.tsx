@@ -34,7 +34,7 @@ export const PlatformLensFilter: React.FC<PlatformLensFilterProps> = ({
             <div
                 role="group"
                 aria-label="Session platform"
-                className="grid w-full min-w-0 grid-cols-3 gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5 shadow-sm sm:w-auto"
+                className="grid w-full min-w-0 grid-cols-3 gap-1 overflow-hidden rounded-lg border border-[#d8dee8] bg-[#f3f6fa] p-[3px] sm:w-auto"
             >
                 {PLATFORM_LENS_OPTIONS.map((option) => {
                     const selected = value === option.value;
@@ -49,12 +49,12 @@ export const PlatformLensFilter: React.FC<PlatformLensFilterProps> = ({
                             aria-pressed={selected}
                             disabled={!available}
                             title={available ? option.title : `${option.label} is not configured for this project`}
-                            className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-[11px] font-semibold leading-none transition-all sm:min-w-[72px] sm:px-3
+                            className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-2.5 text-[11px] font-semibold leading-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17191d] focus-visible:ring-offset-2 focus-visible:ring-offset-white sm:min-w-[72px] sm:px-3
                             ${available
                                 ? selected
-                                    ? 'bg-[#2563eb] text-white shadow-sm'
-                                    : 'text-slate-600 hover:bg-white hover:text-slate-950'
-                                : 'cursor-not-allowed text-slate-300'
+                                    ? 'bg-[#17191d] text-white shadow-[0_1px_2px_rgba(23,25,29,0.2)]'
+                                    : 'text-[#687384] hover:text-[#17191d]'
+                                : 'cursor-not-allowed text-[#b4bbc5]'
                             }
                             `}
                         >

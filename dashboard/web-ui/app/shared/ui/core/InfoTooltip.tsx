@@ -4,6 +4,7 @@ type InfoTooltipProps = {
   content: string;
   align?: 'left' | 'center' | 'right';
   label?: string;
+  trigger?: React.ReactNode;
   className?: string;
 };
 
@@ -11,6 +12,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
   content,
   align = 'center',
   label = '?',
+  trigger,
   className,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -39,17 +41,29 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
-      <button
-        type="button"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-bold text-gray-700 transition hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-black"
-        aria-label="Show info"
-        aria-describedby={isVisible ? tooltipId : undefined}
-        onFocus={() => setIsVisible(true)}
-        onBlur={() => setIsVisible(false)}
-        onClick={() => setIsVisible((prev) => !prev)}
-      >
-        {label}
-      </button>
+      {trigger ? (
+        <span
+          tabIndex={0}
+          className="cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+          aria-describedby={isVisible ? tooltipId : undefined}
+          onFocus={() => setIsVisible(true)}
+          onBlur={() => setIsVisible(false)}
+        >
+          {trigger}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-bold text-gray-700 transition hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-black"
+          aria-label="Show info"
+          aria-describedby={isVisible ? tooltipId : undefined}
+          onFocus={() => setIsVisible(true)}
+          onBlur={() => setIsVisible(false)}
+          onClick={() => setIsVisible((prev) => !prev)}
+        >
+          {label}
+        </button>
+      )}
       <div
         id={tooltipId}
         role="tooltip"

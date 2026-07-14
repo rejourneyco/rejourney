@@ -161,6 +161,7 @@ export function TeamProvider({
   const [error, setError] = useState<string | null>(null);
   const latestRefreshRequestIdRef = useRef(0);
   const currentTeamIdRef = useRef<string | null>(null);
+  const hasCompletedInitialLoadRef = useRef(initialHydrated);
 
   useEffect(() => {
     currentTeamIdRef.current = currentTeam?.id ?? null;
@@ -205,7 +206,12 @@ export function TeamProvider({
     }
     const requestId = ++latestRefreshRequestIdRef.current;
     try {
-      setIsLoading(true);
+      // Retain the current workspace while later refreshes run. Consumers use
+      // this flag for full-page loaders, and showing one during a routine
+      // refresh makes the dashboard visibly jump.
+      if (!hasCompletedInitialLoadRef.current) {
+        setIsLoading(true);
+      }
       setError(null);
       const fetchedTeams = await getTeams();
       if (requestId !== latestRefreshRequestIdRef.current) {
@@ -245,6 +251,7 @@ export function TeamProvider({
       return [];
     } finally {
       if (requestId === latestRefreshRequestIdRef.current) {
+        hasCompletedInitialLoadRef.current = true;
         setIsLoading(false);
       }
     }

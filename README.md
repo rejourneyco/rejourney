@@ -4,9 +4,18 @@
 
 <h1 align="center">Rejourney</h1>
 
-<p align="center"><strong>Revenue-leak prediction for web and mobile products.</strong></p>
+<p align="center"><strong>Find and fix conversion issues before they cost you users.</strong></p>
 
-<p align="center"><a href="https://rejourney.co"><strong>Explore the website →</strong></a></p>
+<p align="center">
+  <a href="https://rejourney.co"><strong>Website</strong></a> ·
+  <a href="https://www.youtube.com/watch?v=Z95MDxBXMjk"><strong>Silly Demo (With Cats)</strong></a>
+</p>
+
+Rejourney is an open-source platform for finding problems in web and mobile
+user journeys before they become larger conversion, retention, or revenue
+problems. It combines session replay, the business events you define, and
+technical context such as request failures, crashes, and ANRs to surface
+patterns worth investigating.
 
 ![Replay Workbench showing a mobile recording, synchronized console, DOM, metadata, and event timeline](dashboard/web-ui/public/images/readme/session-replay-workbench.png)
 
@@ -30,47 +39,48 @@
   <a href="https://hydrogen.shopify.dev"><img src="https://img.shields.io/badge/Hydrogen-111827?style=flat-square&amp;logo=shopify&amp;logoColor=white" alt="Hydrogen" /></a>
 </p>
 
-Rejourney finds product failures that may be costing revenue. You define the
-business transition to protect: activation, checkout, purchase validation,
-entitlement, or renewal. Rejourney compares the current cohort with a healthy
-baseline and groups the evidence around the change.
+## How it works
+
+1. Install a Rejourney SDK in your web, Swift, or React Native app.
+2. Track the few product events that matter most to your business, such as a
+   completed signup, subscription purchase, or successful checkout. These are
+   your **critical conversion events**.
+3. Rejourney records the surrounding user journey and interaction data, then
+   connects it with the events and technical signals from that session.
+4. Similar sessions are grouped into cohorts. When a cohort shows a worrying
+   trend around a critical conversion event, Rejourney brings the replays and
+   evidence forward for analysis.
+5. The result is an issue report with the relevant context and a suggested fix
+   that your team can review and use in its development workflow. Connecting a
+   GitHub repository can add code context and a proposed code change.
 
 ![Ranked issue feed with affected sessions, error evidence, and issue context](dashboard/web-ui/public/images/issues-feed.png)
 
-## Session replay is the investigative surface
+## What Rejourney captures
 
-Session replay is central to the workflow. A conversion drop identifies a
-transition worth checking; the recording shows the path to that transition,
-what the user tried, whether the UI acknowledged it, and the errors or slow
-requests in the same session. Reviewers can compare affected sessions with
-successful sessions from the same release, device, route, or campaign.
+Rejourney relates the outcome you care about to what happened before it. The
+SDKs collect session, route or screen, interaction, and event context. That
+includes touches, scrolls, pans, repeated or rage taps, and the sequence of the
+user journey. When available, it also adds the technical evidence that makes an
+issue easier to diagnose: API response times and status codes, errors, crash
+traces, and ANRs.
 
-The result is a candidate leak with a cohort, a baseline, supporting signals,
-and sessions to inspect. It becomes a confirmed product or revenue problem only
-after the relevant application and business state have been checked.
+### Replays, journeys, and interaction patterns
 
-## Investigation toolbox
-
-The issue feed points to a cohort. These views are used to narrow down what
-changed and where to look next.
-
-### Journeys and interaction
-
-Journey maps show the routes through a flow. Heatmaps expose the interaction
-pattern on the screen: repeated taps, missed targets, or controls that receive
-little attention. Use both when the failure is visible in the interface but the
-cause is not yet clear.
+Session replay shows the actual path a person took through a flow. Journey maps
+and heatmaps make it easier to compare paths, spot loops, and see where people
+try to interact with an unresponsive or confusing part of the interface.
 
 ![Journey map used to compare user paths through a product flow](dashboard/web-ui/public/images/readme-user-journeys.png)
 
 ![Mobile interaction heatmap showing touch density on a product screen](dashboard/web-ui/public/images/engineering/churn-mobile-heatmap.png)
 
-### API, crash, and stability context
+### API, crashes, and stability context
 
-Endpoint views break down request volume, errors, latency, and status codes.
-Crash and ANR detail adds the app version, device, and thread context around a
-failure. This is where a problematic UI transition can be connected to a
-backend or runtime condition.
+Replay alone does not explain every problem. Endpoint views show latency,
+errors, and status-code breakdowns. Crash and ANR detail adds the app version,
+device, and runtime context around a failure, helping connect a broken flow to
+the technical condition behind it.
 
 ![API endpoint view showing request errors, latency, and status-code breakdown](dashboard/web-ui/public/images/engineering/product-tools-live-api-endpoints.png)
 
@@ -78,23 +88,19 @@ backend or runtime condition.
 
 ### Device and geographic cohorts
 
-Device views make version, operating-system, and hardware concentrations
-visible. Geographic views help separate a global regression from an issue tied
-to a region or network path.
+Filter a cohort by app version, operating system, device, geography, and other
+context to distinguish a broad regression from a problem limited to a release,
+device family, region, or network path.
 
 ![Device cohort view showing engagement and issue pressure by device](dashboard/web-ui/public/images/engineering/product-tools-live-devices.png)
 
 ![Geographic view showing regional session quality and performance context](dashboard/web-ui/public/images/geo-intelligence.png)
 
-## General analytics and revenue context
+## Analytics and revenue context
 
-The replay and investigation views sit alongside the project-level context that
-helps decide whether a change is isolated or broad. The overview combines
-version adoption, engagement mix, stability, time in product, retention, and
-cohorts. The events view shows the business events behind a flow and the users
-who generated them. When a revenue source is connected, the revenue view keeps
-transactions, refunds, subscribers, and the revenue trend in the same review.
-
+The replay and issue views sit alongside project-level analytics: version
+adoption, engagement, stability, retention, cohorts, custom events, and—when a
+revenue source is connected—transactions, refunds, subscribers, and trends.
 Open an image for the full-resolution capture.
 
 <table>
@@ -116,39 +122,11 @@ Open an image for the full-resolution capture.
   </tr>
 </table>
 
-## What Rejourney looks for
+## Track critical conversion events
 
-Revenue is an outcome, not a useful unit of diagnosis. Rejourney protects
-explicit business states such as:
-
-- signup and first-value activation;
-- checkout start, payment confirmation, and order creation;
-- trial start, subscription, renewal, and cancellation recovery; and
-- purchase validation and entitlement delivery in mobile apps.
-
-For each state, the analysis starts with an eligible population and asks whether
-failure has increased beyond a comparable healthy population. It uses leading
-signals: journey changes, repeated interaction, request failures, runtime
-errors, crashes/ANRs, and state contradictions. These signals rank the risk
-before a lagging aggregate may make it obvious.
-
-```text
-eligible session -> intended action -> request / product state
-                 -> visible confirmation -> protected business outcome
-```
-
-The lead time depends on the transition. A checkout confirmation failure can be
-actionable immediately. A retention risk may only be confirmed after the chosen
-return or renewal window. There is no universal revenue score or fixed lead
-time.
-
-## From an event to an investigation
-
-### Instrument the protected states
-
-The SDKs capture session, route/screen, interaction, and technical context.
-Add stable, domain-level events for the states that establish intent and a
-successful outcome. For example:
+Track stable, domain-level events for the actions that establish intent and a
+successful outcome. For example, a checkout flow might use `checkout_started`
+and `purchase_completed`:
 
 ```ts
 Rejourney.logEvent('checkout_started', {
@@ -165,120 +143,10 @@ Rejourney.logEvent('purchase_completed', {
 });
 ```
 
-Use internal user identifiers where identification is needed; do not send raw
-PII, payment credentials, secrets, or sensitive application payloads. The
-transaction/order identifiers and monetary fields above are optional event
-properties. They do not replace a financial ledger.
-
-### Compare each cohort with a baseline
-
-The basic population estimate is:
-
-```text
-excess failed intent = eligible attempts × (current failure rate - healthy failure rate)
-potential impact     = excess failed intent × historical completion value
-```
-
-The baseline must match the transition and context: release, platform, route or
-screen, device, region, campaign, experiment, and time window where relevant.
-Potential impact is an estimate, not booked or recovered revenue. Keep it
-separate from evidence confidence. High traffic alone does not justify a
-financial claim.
-
-### Read the evidence in context
-
-Candidate leaks are investigated with signal families that fail differently:
-
-| Signal family | Examples | What it establishes |
-| --- | --- | --- |
-| Journey and funnel | transition loss, loops, longer time to success | where intent stopped progressing |
-| Interaction and replay | repeated taps, dead clicks, form resubmits, pauses | what the user experienced |
-| Runtime and network | request failures/latency, exceptions, crashes, ANRs | technical conditions around the failure |
-| Business state | payment, order, subscription, entitlement, renewal events | whether the protected state actually occurred |
-
-An event drop identifies a cohort. Replay describes an experience. Payment or
-entitlement state can confirm that the protected outcome failed. An unexplained
-exit remains an investigation until more evidence appears.
-
-### Review the candidate
-
-A candidate records the protected transition, affected users and sessions,
-baseline and excess failure, first and last seen time, release and segment
-concentration, technical signals, and representative healthy and failed
-sessions. Product and engineering can then test a specific hypothesis.
-
-```mermaid
-flowchart LR
-  A[Web or mobile SDK] --> B[Session, journey, interaction, and runtime signals]
-  C[Domain events] --> D[Protected business-state transitions]
-  B --> E[Baseline and cohort comparison]
-  D --> E
-  E --> F[Ranked candidate leak]
-  F --> G[Replay, request, error, and state evidence]
-  G --> H[Human verification and fix]
-  H --> I[Compare the original transition after release]
-```
-
-## Web capture benchmark
-
-The checked-in benchmark measures web SDK capture overhead. It does not measure
-revenue-leak prediction accuracy. It compares the Rejourney browser SDK with PostHog on the
-same scripted flow in local Next.js, SvelteKit, and Nuxt fixtures. Both SDKs
-send to configured live project endpoints; browser measurements are collected
-through Playwright and Chrome DevTools Protocol.
-
-The published run used Chromium at `1365×768`, three iterations per
-framework/mode, and this shared flow: load, form edits, custom event, identity
-and metadata, request, route transition, synthetic error, missing resource,
-scroll, and an 85 ms controlled long task. It is a small sample and should be
-rerun before applying its results to another application.
-
-| Fixture | Rejourney upload | PostHog upload | Rejourney task time | PostHog task time | Rejourney script time | PostHog script time | Rejourney final heap | PostHog final heap |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Next.js | 21.29 KiB | 45.35 KiB | 417.96 ms | 449.91 ms | 160.46 ms | 185.06 ms | 15.81 MiB | 16.19 MiB |
-| SvelteKit | 8.38 KiB | 24.99 KiB | 268.72 ms | 304.03 ms | 19.35 ms | 42.02 ms | 6.63 MiB | 9.17 MiB |
-| Nuxt | 8.40 KiB | 26.57 KiB | 305.51 ms | 322.24 ms | 21.12 ms | 41.17 ms | 11.33 MiB | 15.44 MiB |
-
-`TaskDuration` is Chrome's main-thread busy-time proxy over the complete
-scripted visit, including the fixed flush wait. The figures are per-fixture
-medians from the published report. They are not a latency SLA.
-
-Evidence and methodology:
-
-- [benchmark README](benchmarks/web-analytics/README.md)
-- [published report](benchmarks/web-analytics/results/2026-05-19T03-47-21-774Z/benchmark-report.md)
-- [redacted raw results](benchmarks/web-analytics/results/2026-05-19T03-47-21-774Z/benchmark-results.json)
-- [benchmark runner](benchmarks/web-analytics/run-web-analytics-benchmark.mjs)
-
-## Mobile SDK measurements
-
-The mobile comparison records package footprint against Sentry at the versions
-below. Transfer size comes from Bundlephobia. It measures packages, not a
-complete mobile application.
-
-| Package | Version | Minified | Gzipped |
-| --- | ---: | ---: | ---: |
-| `@rejourneyco/react-native` | `1.0.17` | 39.7 kB | 13.2 kB |
-| `@sentry/react-native` | `8.7.0` | 403 kB | 135.3 kB |
-
-Sources: [`@rejourneyco/react-native` on Bundlephobia](https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17) and [`@sentry/react-native` on Bundlephobia](https://bundlephobia.com/package/@sentry/react-native@8.7.0).
-
-The recorded Rejourney capture measurement used an iPhone 15 Pro on iOS 26,
-Expo SDK 54, the React Native New Architecture, and a production app with
-Mapbox Metal and Firebase. The workload had 46 complex feed items, a Mapbox GL
-view, 124 API calls, 31 subcomponents, active gesture tracking, and privacy
-redaction.
-
-| Capture stage | Average | Maximum | Minimum | Execution context |
-| --- | ---: | ---: | ---: | --- |
-| UIKit + Metal capture | 12.4 ms | 28.2 ms | 8.1 ms | Main thread |
-| Async image processing | 42.5 ms | 88.0 ms | 32.4 ms | Background |
-| Tar + gzip compression | 14.2 ms | 32.5 ms | 9.6 ms | Background |
-| Upload handshake | 0.8 ms | 2.4 ms | 0.3 ms | Background |
-
-Only UIKit + Metal capture runs on the main thread. These numbers describe the
-recorded workload. They are not a general mobile-performance or Sentry-runtime
-comparison.
+Rejourney uses these events to compare journeys and outcomes across similar
+sessions. A reported pattern is a starting point for investigation, not proof
+of causality: review the representative replays and your authoritative product
+or payment state before shipping a fix.
 
 ## Quick integration
 
@@ -297,9 +165,8 @@ await Rejourney.start();
 
 Call `start()` after consent when your site requires it. Add the application
 domain to **Allowed Domains** in Project Settings; web recording does not start
-until it is allowed. The browser SDK documentation covers framework-specific
-entry points, route naming, identity, and privacy-sensitive settings:
-[web getting started](docs/web/getting-started.md).
+until it is allowed. See [web getting started](docs/web/getting-started.md) for
+framework-specific entry points, route naming, identity, and privacy settings.
 
 ### React Native
 
@@ -316,8 +183,7 @@ Rejourney.start();
 
 React Native requires native code and does not run in Expo Go. See
 [React Native getting started](docs/react-native/getting-started.md) for
-navigation tracking, session controls, event naming, and mobile privacy
-settings.
+navigation tracking, session controls, event naming, and privacy settings.
 
 ### Swift
 
@@ -350,25 +216,71 @@ struct MyApp: App {
 See [iOS getting started](docs/ios/getting-started.md) for screen tracking,
 identity, event capture, and recording controls.
 
-## Limits, privacy, and verification
+## Privacy and data handling
 
-- A ranked signal does not establish causality. Inspect representative sessions
-  and the authoritative business state before treating it as a revenue leak.
-- Define an outcome, require enough volume, and choose a comparable baseline.
-  An abandonment, error, or replay anomaly can have other explanations.
-- Re-check the original cohort after releases, pricing changes, experiments,
-  seasonal shifts, or instrumentation changes.
-- Payments, subscriptions, entitlements, and booked revenue remain in the
-  commercial system of record.
-- Configure consent, capture controls, sampling, allowed domains, and masking.
-  Do not send PII, credentials, payment data, or secrets in events or logs.
+Privacy is a core consideration when recording user sessions. Configure consent,
+capture controls, sampling, allowed domains, and masking for your product. Do
+not send PII, credentials, payment data, secrets, or sensitive application
+payloads in events or logs.
+
+Rejourney is designed for short recording retention periods—commonly seven
+days. After the retention window, recordings are quantized, fingerprints are
+anonymized, and the retained data is aggregated into general dashboard
+analytics. Make sure your configuration and policies meet the privacy and GDPR
+requirements that apply to your users.
+
+## Performance measurements
+
+The checked-in web benchmark compares the Rejourney browser SDK with PostHog on
+the same scripted flow in local Next.js, SvelteKit, and Nuxt fixtures. It
+measures SDK capture overhead, not issue-detection accuracy or a latency SLA.
+
+| Fixture | Rejourney upload | PostHog upload | Rejourney task time | PostHog task time | Rejourney script time | PostHog script time | Rejourney final heap | PostHog final heap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Next.js | 21.29 KiB | 45.35 KiB | 417.96 ms | 449.91 ms | 160.46 ms | 185.06 ms | 15.81 MiB | 16.19 MiB |
+| SvelteKit | 8.38 KiB | 24.99 KiB | 268.72 ms | 304.03 ms | 19.35 ms | 42.02 ms | 6.63 MiB | 9.17 MiB |
+| Nuxt | 8.40 KiB | 26.57 KiB | 305.51 ms | 322.24 ms | 21.12 ms | 41.17 ms | 11.33 MiB | 15.44 MiB |
+
+The published run used Chromium at `1365×768`, three iterations per
+framework/mode, and a shared flow that included navigation, form edits, events,
+requests, errors, scrolling, and a controlled long task. Rerun it before
+applying these results to a different application.
+
+- [Benchmark README](benchmarks/web-analytics/README.md)
+- [Published report](benchmarks/web-analytics/results/2026-05-19T03-47-21-774Z/benchmark-report.md)
+- [Redacted raw results](benchmarks/web-analytics/results/2026-05-19T03-47-21-774Z/benchmark-results.json)
+- [Benchmark runner](benchmarks/web-analytics/run-web-analytics-benchmark.mjs)
+
+The mobile comparison records package footprint against Sentry. It measures
+packages rather than a complete mobile application.
+
+| Package | Version | Minified | Gzipped |
+| --- | ---: | ---: | ---: |
+| `@rejourneyco/react-native` | `1.0.17` | 39.7 kB | 13.2 kB |
+| `@sentry/react-native` | `8.7.0` | 403 kB | 135.3 kB |
+
+Sources: [`@rejourneyco/react-native` on Bundlephobia](https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17) and [`@sentry/react-native` on Bundlephobia](https://bundlephobia.com/package/@sentry/react-native@8.7.0).
+
+The recorded Rejourney capture measurement used an iPhone 15 Pro on iOS 26,
+Expo SDK 54, the React Native New Architecture, and a production app with
+Mapbox Metal and Firebase.
+
+| Capture stage | Average | Maximum | Minimum | Execution context |
+| --- | ---: | ---: | ---: | --- |
+| UIKit + Metal capture | 12.4 ms | 28.2 ms | 8.1 ms | Main thread |
+| Async image processing | 42.5 ms | 88.0 ms | 32.4 ms | Background |
+| Tar + gzip compression | 14.2 ms | 32.5 ms | 9.6 ms | Background |
+| Upload handshake | 0.8 ms | 2.4 ms | 0.3 ms | Background |
+
+Only UIKit + Metal capture runs on the main thread. These measurements describe
+the recorded workload; they are not a general mobile-performance comparison.
 
 ## Development and deployment
 
 For a local development environment, start with
 [local Kubernetes development](local-k8s/README.md). For single-node
-self-hosting, use the checked-in [self-hosted guide](docs/selfhosted/README.md).
-Architecture and deployment references are available in
+self-hosting, use the [self-hosted guide](docs/selfhosted/README.md).
+Architecture and deployment references are in
 [the architecture documentation](docs/architecture/).
 
 ## License

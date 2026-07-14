@@ -18,7 +18,6 @@ export const Heatmaps: React.FC = () => {
                 <div className="heatmap-pro-page-title">
                     <span><ScanSearch className="h-4 w-4" /></span>
                     <div>
-                        <small>Product intelligence</small>
                         <h1>Heatmaps</h1>
                     </div>
                 </div>

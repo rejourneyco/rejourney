@@ -399,31 +399,33 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                     const deltaLabel = card.delta?.label ?? comparisonLabel;
 
                     return (
-                        <div key={card.id} className="dashboard-keep-neo dashboard-kpi-card min-w-0 p-2 transition-all hover:-translate-y-0.5 sm:p-3">
+                        <div key={card.id} className="dashboard-analytics-card dashboard-kpi-card min-w-0">
                             <div
-                                className="dashboard-kpi-accent mb-1.5 h-0.5 border-2 border-black sm:mb-2 sm:h-1"
+                                className="dashboard-kpi-accent"
                                 style={{ backgroundColor: KPI_CARD_ACCENTS[index % KPI_CARD_ACCENTS.length] }}
                             />
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="dashboard-label min-w-0 break-words text-slate-700">
-                                    {card.label}
-                                </div>
-                                <InfoTooltip content={card.info} align="right" />
+                            <div className="dashboard-kpi-header">
+                                <InfoTooltip
+                                    content={card.info}
+                                    align="left"
+                                    className="min-w-0"
+                                    trigger={<span className="dashboard-label block break-words">{card.label}</span>}
+                                />
                             </div>
 
-                            <div className="mt-1 break-words text-[1.25rem] font-extrabold leading-[1.05] text-black sm:mt-1.5 sm:text-2xl">
+                            <div className="dashboard-kpi-value break-words">
                                 {card.value}
                             </div>
 
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 sm:mt-1.5">
-                                <span className={`dashboard-kpi-delta inline-flex border-2 border-black bg-white px-1.5 py-px text-[10px] font-bold uppercase shadow-neo-sm sm:px-2 sm:py-0.5 sm:text-[11px] ${getTrendToneClass(trendState)}`}>
+                            <div className="dashboard-kpi-comparison">
+                                <span className={`dashboard-kpi-delta ${getTrendToneClass(trendState)}`}>
                                     {card.delta ? formatDelta(card.delta) : 'N/A'}
                                 </span>
-                                <span className="text-[10px] font-bold uppercase text-slate-600">{deltaLabel}</span>
+                                <span className="dashboard-kpi-comparison-label">{deltaLabel}</span>
                             </div>
 
                             {showDetails && card.detail && (
-                                <div className="mt-1 text-xs leading-relaxed text-slate-500">{card.detail}</div>
+                                <div className="dashboard-kpi-detail">{card.detail}</div>
                             )}
                         </div>
                     );

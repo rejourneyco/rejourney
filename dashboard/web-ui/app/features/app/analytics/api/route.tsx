@@ -37,7 +37,7 @@ import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 
 type EndpointSortKey =
     | 'endpoint'
@@ -1028,7 +1028,9 @@ export const ApiAnalytics: React.FC = () => {
         ];
     }, [trends, timeRange, endpointStats, endpointRisks]);
 
-    if (isLoading && selectedProject?.id && !endpointStats) {
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost && selectedProject?.id && !endpointStats) {
         return <DashboardGhostLoader variant="api" />;
     }
 

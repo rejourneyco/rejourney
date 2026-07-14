@@ -12,7 +12,7 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { getGeoOverview, getSessionsPaginated, type ApiLatencyByLocationResponse, type GeoIssuesSummary } from '~/shared/api/client';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
 // @ts-ignore: react-map-gl typing can fail under current tsconfig
@@ -1999,7 +1999,9 @@ export const Geo: React.FC = () => {
         if (canOpenReplay) navigate(`${pathPrefix}/sessions/${session.id}`);
     };
 
-    if (isLoading && selectedProject?.id) {
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost && selectedProject?.id) {
         return <DashboardGhostLoader variant="map" />;
     }
 

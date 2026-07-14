@@ -43,7 +43,7 @@ import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/device
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
@@ -1454,7 +1454,9 @@ export const Stability: React.FC = () => {
     );
   };
 
-  if ((isLoading && allRows.length === 0) || projectsLoading) {
+  const shouldShowInitialGhost = useInitialDashboardLoad(isLoading || projectsLoading);
+
+  if (shouldShowInitialGhost) {
     return <DashboardGhostLoader variant="list" />;
   }
 

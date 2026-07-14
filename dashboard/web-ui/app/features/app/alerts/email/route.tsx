@@ -27,7 +27,7 @@ import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardMa
 import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
 import { Modal } from '~/shared/ui/core/Modal';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
@@ -833,7 +833,9 @@ export const AlertEmails: React.FC = () => {
         });
     }, [rules]);
 
-    if (isLoading) {
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost) {
         return <DashboardGhostLoader variant="alerts" />;
     }
 

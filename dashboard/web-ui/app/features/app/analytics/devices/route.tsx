@@ -24,7 +24,7 @@ import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 
 type DeviceBaseRow = DeviceSummary['devices'][number];
@@ -153,13 +153,13 @@ const getMetricToneClass = (tone: RankingCardProps['tone']): string => {
 };
 
 const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail, accentClassName }) => (
-    <div className="devices-summary-card dashboard-keep-neo dashboard-kpi-card min-w-0 p-2.5 transition-all hover:-translate-y-0.5 sm:p-4">
-        <div className={`devices-card-accent dashboard-kpi-accent mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5 ${accentClassName}`} />
-        <div className="min-w-0">
-            <div className="dashboard-label break-words text-slate-700">{label}</div>
-            <div className="mt-1.5 break-words text-[1.35rem] font-extrabold leading-none text-black sm:mt-2 sm:text-3xl">{value}</div>
+    <div className="devices-summary-card dashboard-analytics-card dashboard-kpi-card min-w-0">
+        <div className={`devices-card-accent dashboard-kpi-accent ${accentClassName}`} />
+        <div className="dashboard-kpi-header">
+            <div className="dashboard-label break-words">{label}</div>
         </div>
-        <div className="mt-2 text-[11px] font-semibold uppercase leading-4 text-slate-500">
+        <div className="dashboard-kpi-value break-words">{value}</div>
+        <div className="dashboard-kpi-detail">
             {detail}
         </div>
     </div>
@@ -221,17 +221,17 @@ const TechnicalMetricCard: React.FC<{
     value: string;
     accentClassName: string;
 }> = ({ label, row, value, accentClassName }) => (
-    <div className="devices-tech-card dashboard-kpi-card p-2.5 transition-all hover:-translate-y-0.5 sm:p-4">
-        <div className={`devices-card-accent dashboard-kpi-accent mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5 ${accentClassName}`} />
-        <div className="min-w-0">
-            <div className="dashboard-label text-slate-700">{label}</div>
-            <div className="mt-1.5 truncate text-base font-extrabold text-black" title={row?.model || ''}>
-                {row ? row.displayName : 'No data'}
-            </div>
+    <div className="devices-tech-card dashboard-analytics-card dashboard-kpi-card">
+        <div className={`devices-card-accent dashboard-kpi-accent ${accentClassName}`} />
+        <div className="dashboard-kpi-header">
+            <div className="dashboard-label">{label}</div>
         </div>
-        <div className="mt-3 flex items-end justify-between gap-3">
-            <div className="text-2xl font-black text-black">{value}</div>
-            <div className="text-right text-[11px] font-semibold uppercase leading-4 text-slate-500">
+        <div className="dashboard-kpi-device-name" title={row?.model || ''}>
+            {row ? row.displayName : 'No data'}
+        </div>
+        <div className="dashboard-kpi-comparison">
+            <div className="dashboard-kpi-value">{value}</div>
+            <div className="dashboard-kpi-comparison-label">
                 {row ? `${formatCompact(row.count)} sessions` : 'No sessions'}
             </div>
         </div>
@@ -573,7 +573,9 @@ export const Devices: React.FC = () => {
         };
     }, [deviceRows]);
 
-    if (isLoading && selectedProject?.id && !data) {
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost && selectedProject?.id && !data) {
         return <DashboardGhostLoader variant="analytics" />;
     }
 

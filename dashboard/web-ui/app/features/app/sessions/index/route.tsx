@@ -47,7 +47,7 @@ import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/device
 import { hasSuccessfulRecordingFromSession } from '~/shared/lib/replayAvailability';
 import { getWebNetworkDisplay, getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
 import { formatWebReferralLabel, getWebReferral, getWebUtmAttribution, getAbsoluteUrl } from '~/shared/lib/webAttributionMetadata';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { BrowserBrandIcon } from '~/shared/ui/core/BrowserBrandIcon';
 import { MobilePlatformBrandIcon } from '~/shared/ui/core/MobilePlatformBrandIcon';
@@ -725,7 +725,9 @@ export const RecordingsList: React.FC = () => {
     setShowQueryBuilder(false);
   }, [clearQueryGroups]);
 
-  if (isLoading && sessions.length === 0 && (selectedProjectId || isContextLoading)) {
+  const shouldShowInitialGhost = useInitialDashboardLoad(isLoading || isContextLoading);
+
+  if (shouldShowInitialGhost && (selectedProjectId || isContextLoading)) {
     return <DashboardGhostLoader variant="list" />;
   }
 

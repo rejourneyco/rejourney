@@ -3,6 +3,7 @@ import {
     Activity,
     AlertTriangle,
     Check,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     Eye,
@@ -11,7 +12,6 @@ import {
     Loader2,
     Monitor,
     MousePointer2,
-    PlayCircle,
     RotateCcw,
     Smartphone,
     X,
@@ -1553,6 +1553,26 @@ interface TouchHeatmapSectionProps {
     className?: string;
 }
 
+const HeatmapIndexingLoader: React.FC<{ progress: number }> = ({ progress }) => {
+    const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
+
+    return (
+        <div className="heatmap-indexing-loader" role="status" aria-live="polite">
+            <p>Indexing heatmap…</p>
+            <div
+                className="heatmap-indexing-progress"
+                role="progressbar"
+                aria-label="Heatmap indexing progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={safeProgress}
+            >
+                <span style={{ width: `${Math.max(4, safeProgress)}%` }} />
+            </div>
+        </div>
+    );
+};
+
 export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     timeRange = '30d',
     platform,
@@ -1568,6 +1588,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const [screens, setScreens] = useState<EnrichedHeatmapScreen[]>([]);
     const [screenIteration, setScreenIteration] = useState<HeatmapIterationSummary | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [indexingProgress, setIndexingProgress] = useState(10);
     const [lastUpdated, setLastUpdated] = useState('');
     const [partialError, setPartialError] = useState<string | null>(null);
     const [heatmapMode, setHeatmapMode] = useState<HeatmapViewMode>('attention');
@@ -1587,6 +1608,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const attentionByScreenRef = useRef(attentionByScreen);
     attentionByScreenRef.current = attentionByScreen;
     const attentionInFlightRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (!isLoading) return;
+        const timer = window.setInterval(() => {
+            setIndexingProgress((current) => current < 30 ? Math.min(30, current + 2) : current);
+        }, 450);
+        return () => window.clearInterval(timer);
+    }, [isLoading]);
 
     useEffect(() => {
         setAttentionByScreen({});
@@ -1622,12 +1651,15 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         let cancelled = false;
         setIsLoading(true);
         setPartialError(null);
+        setIndexingProgress(10);
 
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
         getHeatmapsOverview(selectedProject.id, range, platform)
             .then(async (overview) => {
                 if (cancelled) return;
+
+                setIndexingProgress(42);
 
                 heatmapDebug('Touch heatmap overview fetched', {
                     projectId: selectedProject.id,
@@ -1645,10 +1677,21 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
                 const screensNeedingHotspots = mergedScreens.filter((screen) => (screen.touchHotspots?.length ?? 0) === 0);
                 if (screensNeedingHotspots.length > 0) {
+                    setIndexingProgress(56);
+                    let completedDetails = 0;
                     const results = await mapWithConcurrency(
                         screensNeedingHotspots,
                         HEATMAP_DETAIL_FETCH_CONCURRENCY,
-                        (screen) => getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform),
+                        async (screen) => {
+                            try {
+                                return await getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform);
+                            } finally {
+                                completedDetails += 1;
+                                if (!cancelled) {
+                                    setIndexingProgress(56 + Math.round((completedDetails / screensNeedingHotspots.length) * 32));
+                                }
+                            }
+                        },
                     );
                     if (cancelled) return;
 
@@ -1673,6 +1716,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     }
                 }
 
+                setIndexingProgress(94);
                 setScreens(mergedScreens);
                 setScreenIteration(overview.screenIteration || null);
                 setLastUpdated(overview.lastUpdated || '');
@@ -1695,7 +1739,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 if (!cancelled) setPartialError('Heatmap data unavailable.');
             })
             .finally(() => {
-                if (!cancelled) setIsLoading(false);
+                if (!cancelled) {
+                    setIndexingProgress(100);
+                    setIsLoading(false);
+                }
             });
 
         return () => {
@@ -2109,12 +2156,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     if (isLoading) {
         return (
-            <section className={`dashboard-surface p-6 ${className}`.trim()}>
-                <div className="flex items-center gap-3 text-sm font-black text-slate-900">
-                    <MousePointer2 className="h-4 w-4 animate-pulse text-[#1a73e8]" />
-                    Building interaction heatmaps...
-                </div>
-                <div className="mt-4 h-72 animate-pulse dashboard-inner-surface" />
+            <section className={`heatmap-indexing-shell ${className}`.trim()}>
+                <HeatmapIndexingLoader progress={indexingProgress} />
             </section>
         );
     }
@@ -2149,60 +2192,55 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         <label className="heatmap-pro-route">
                             <span>{selectedViewer === 'web' ? <Monitor className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}</span>
                             <span className="heatmap-pro-route-select">
-                                <small>{selectedViewer === 'web' ? 'Page' : 'Screen'}</small>
-                                <select
-                                    aria-label={selectedViewer === 'web' ? 'Select page' : 'Select screen'}
-                                    value={selectedScreen.name}
-                                    onChange={(event) => {
-                                        setSelectedScreenName(event.target.value);
-                                        setSelectedVersionKey('current');
-                                    }}
-                                >
-                                    {sortedScreens.map((screen) => (
-                                        <option key={screen.name} value={screen.name}>{getDisplayRoute(screen.name)}</option>
-                                    ))}
-                                </select>
+                                <small>Switch {selectedViewer === 'web' ? 'page' : 'screen'} · {sortedScreens.length} available</small>
+                                <span className="heatmap-pro-route-picker">
+                                    <select
+                                        aria-label={selectedViewer === 'web' ? 'Switch page' : 'Switch screen'}
+                                        value={selectedScreen.name}
+                                        onChange={(event) => {
+                                            setSelectedScreenName(event.target.value);
+                                            setSelectedVersionKey('current');
+                                        }}
+                                    >
+                                        {sortedScreens.map((screen) => (
+                                            <option key={screen.name} value={screen.name}>{getDisplayRoute(screen.name)}</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="h-4 w-4" aria-hidden />
+                                </span>
                             </span>
                         </label>
 
-                        <div className="heatmap-pro-modes" role="group" aria-label="Heatmap mode">
-                            {availableHeatmapModes.map((mode) => (
-                                <button
-                                    key={mode}
-                                    type="button"
-                                    onClick={() => setHeatmapMode(mode)}
-                                    aria-pressed={effectiveHeatmapMode === mode}
-                                    className={effectiveHeatmapMode === mode ? 'is-active' : ''}
-                                >
-                                    {mode === 'attention' ? <Eye className="h-4 w-4" /> : mode === 'rage' ? <Flame className="h-4 w-4" /> : <MousePointer2 className="h-4 w-4" />}
-                                    {mode === 'attention' ? 'Attention' : mode === 'rage' ? 'Rage' : selectedViewer === 'web' ? 'Clicks' : 'Touches'}
-                                </button>
-                            ))}
-                        </div>
+                        <label className="heatmap-pro-intensity">
+                            <span className="heatmap-pro-control-label">Overlay opacity</span>
+                            <input
+                                type="range"
+                                min="0.2"
+                                max="0.9"
+                                step="0.05"
+                                value={overlayOpacity}
+                                onChange={(event) => setOverlayOpacity(Number(event.target.value))}
+                                aria-valuetext={`${Math.round(overlayOpacity * 100)}% opacity`}
+                            />
+                            <strong>{Math.round(overlayOpacity * 100)}%</strong>
+                        </label>
 
-                        <div className="heatmap-pro-toolbar-actions">
-                            <label className="heatmap-pro-intensity">
-                                <span>Overlay</span>
-                                <input
-                                    type="range"
-                                    min="0.2"
-                                    max="0.9"
-                                    step="0.05"
-                                    value={overlayOpacity}
-                                    onChange={(event) => setOverlayOpacity(Number(event.target.value))}
-                                />
-                                <strong>{Math.round(overlayOpacity * 100)}%</strong>
-                            </label>
-                            {replayEvidenceSessionId && (
-                                <button
-                                    type="button"
-                                    className="heatmap-pro-replay-button"
-                                    onClick={() => navigate(`${pathPrefix}/sessions/${replayEvidenceSessionId}`)}
-                                >
-                                    <PlayCircle className="h-4 w-4" />
-                                    Replay
-                                </button>
-                            )}
+                        <div className="heatmap-pro-control-group heatmap-pro-mode-selector">
+                            <span className="heatmap-pro-control-label">Heatmap</span>
+                            <div className="heatmap-pro-modes" role="group" aria-label="Heatmap mode">
+                                {availableHeatmapModes.map((mode) => (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        onClick={() => setHeatmapMode(mode)}
+                                        aria-pressed={effectiveHeatmapMode === mode}
+                                        className={effectiveHeatmapMode === mode ? 'is-active' : ''}
+                                    >
+                                        {mode === 'attention' ? <Eye className="h-4 w-4" /> : mode === 'rage' ? <Flame className="h-4 w-4" /> : <MousePointer2 className="h-4 w-4" />}
+                                        {mode === 'attention' ? 'Attention' : mode === 'rage' ? 'Rage' : selectedViewer === 'web' ? 'Clicks' : 'Touches'}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </header>
 

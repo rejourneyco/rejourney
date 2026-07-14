@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     BookOpen,
     ChevronDown,
@@ -8,6 +9,7 @@ import {
     ExternalLink,
     Globe2,
     Info,
+    Maximize2,
     Pencil,
     Plus,
     RefreshCw,
@@ -68,7 +70,7 @@ import {
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
@@ -481,18 +483,110 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
     accentClassName?: string;
-}> = ({ title, action, children, className = '', accentClassName = 'bg-[#67e8f9]' }) => (
-    <div className={`rejourney-general-card flex h-full min-w-0 flex-col overflow-hidden border border-[#dadce0] bg-white shadow-none ${className}`}>
-        <div className={`h-1 ${accentClassName}`} />
-        <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-[#e8eaed] pb-3">
-                <h3 className="min-w-0 break-words text-[15px] font-medium text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">{title}</h3>
-                {action ? <div className="flex flex-wrap items-center gap-1.5">{action}</div> : null}
+    expandable?: boolean;
+}> = ({ title, action, children, className = '', accentClassName = 'bg-[#67e8f9]', expandable = true }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const titleId = React.useId();
+    const expandedDialogId = `${titleId}-expanded`;
+
+    useEffect(() => {
+        if (!isExpanded) return;
+
+        const previousBodyOverflow = document.body.style.overflow;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setIsExpanded(false);
+            }
+        };
+
+        document.body.style.overflow = 'hidden';
+        document.addEventListener('keydown', handleKeyDown);
+        window.requestAnimationFrame(() => dialogRef.current?.focus());
+
+        return () => {
+            document.body.style.overflow = previousBodyOverflow;
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isExpanded]);
+
+    const expandButton = expandable ? (
+        <button
+            type="button"
+            onClick={() => setIsExpanded(true)}
+            aria-label={`Expand ${title}`}
+            aria-expanded={isExpanded}
+            aria-controls={expandedDialogId}
+            title={`Expand ${title}`}
+            className="inline-flex h-7 w-7 items-center justify-center text-slate-400 transition-colors duration-150 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+        >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+    ) : null;
+
+    return (
+        <>
+            <div className={`rejourney-general-card flex h-full min-w-0 flex-col overflow-hidden border border-[#dadce0] bg-white shadow-none ${className}`}>
+                <div className={`h-1 ${accentClassName}`} />
+                <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-[#e8eaed] pb-3">
+                        <h3 className="min-w-0 break-words text-[15px] font-medium text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">{title}</h3>
+                        {(action || expandButton) ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {action}
+                                {expandButton}
+                            </div>
+                        ) : null}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+                </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
-        </div>
-    </div>
-);
+
+            {isExpanded && typeof document !== 'undefined' && createPortal(
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) setIsExpanded(false);
+                    }}
+                >
+                    <div
+                        id={expandedDialogId}
+                        ref={dialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={`${titleId}-title`}
+                        tabIndex={-1}
+                        className="flex h-[min(92dvh,900px)] w-full max-w-6xl min-h-0 flex-col overflow-hidden rounded-2xl border border-white/15 bg-white shadow-[0_32px_96px_rgba(0,0,0,0.45)] outline-none"
+                    >
+                        <div className={`h-1.5 shrink-0 ${accentClassName}`} />
+                        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-slate-50/85 px-5 py-4 backdrop-blur-sm sm:px-6">
+                            <div className="min-w-0">
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Expanded view</p>
+                                <h2 id={`${titleId}-title`} className="truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">{title}</h2>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                {action ? <div className="hidden items-center gap-1.5 sm:flex">{action}</div> : null}
+                                <button
+                                    type="button"
+                                    onClick={() => setIsExpanded(false)}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                                >
+                                    <X className="h-3.5 w-3.5" aria-hidden />
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                        <div className="general-card-expanded-content min-h-0 flex flex-1 flex-col overflow-auto p-5 sm:p-7">
+                            {children}
+                        </div>
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </>
+    );
+};
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 type GeneralSectionKey = 'trends' | 'observability' | 'deepMetrics' | 'engagement' | 'geo' | 'retention';
@@ -542,7 +636,7 @@ const GA4CardGhost: React.FC<{
     minHeight = '240px',
     rows = 4,
 }) => (
-    <GA4Card title={title} className={className} accentClassName={accentClassName}>
+    <GA4Card title={title} className={className} accentClassName={accentClassName} expandable={false}>
         <div className="flex flex-1 flex-col justify-between gap-4" style={{ minHeight }} aria-busy="true">
             <div className="space-y-3">
                 {Array.from({ length: rows }).map((_, index) => (
@@ -3892,7 +3986,9 @@ export const GeneralOverview: React.FC = () => {
         && areAllOverviewSectionsPending
         && (isRevenueLoading || isAnyAnalyticsCardLoading);
 
-    if (showFullGeneralGhost) {
+    const shouldShowInitialGeneralGhost = useInitialDashboardLoad(showFullGeneralGhost);
+
+    if (shouldShowInitialGeneralGhost) {
         return <DashboardGhostLoader variant="general" />;
     }
 

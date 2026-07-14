@@ -31,7 +31,7 @@ import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 
 const formatCompact = (value: number): string => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -156,7 +156,9 @@ export const CrashesList: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  if ((isLoading && crashGroups.length === 0) || projectsLoading) {
+  const shouldShowInitialGhost = useInitialDashboardLoad(isLoading || projectsLoading);
+
+  if (shouldShowInitialGhost) {
     return <DashboardGhostLoader variant="list" />;
   }
 

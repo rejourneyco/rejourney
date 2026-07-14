@@ -204,6 +204,9 @@ export function SessionDataProvider({
   const bootstrapConsumedRef = useRef(false);
   const lastVisibilityProjectRefreshAtRef = useRef(0);
   const lastHiddenAtRef = useRef<number | null>(null);
+  const hasCompletedInitialProjectLoadRef = useRef(
+    demoMode.isDemoMode || initialProjectsTeamId !== undefined,
+  );
 
   const applyProjectsForTeam = useCallback((
     fetchedProjects: ApiProject[],
@@ -231,6 +234,7 @@ export function SessionDataProvider({
     setProjectsReady(true);
     setProjectsError(null);
     setProjectsLoading(false);
+    hasCompletedInitialProjectLoadRef.current = true;
 
     if (typeof window !== 'undefined') {
       const storageKey = selectedProjectStorageKey(teamId);
@@ -253,7 +257,7 @@ export function SessionDataProvider({
     const requestId = ++latestRequestIdRef.current;
     const isStale = () => latestRequestIdRef.current !== requestId;
 
-    if (!options.silent) {
+    if (!options.silent && !hasCompletedInitialProjectLoadRef.current) {
       setProjectsLoading(true);
     }
     setProjectsError(null);
@@ -271,6 +275,7 @@ export function SessionDataProvider({
       setProjectsLoading(false);
       setProjectsReady(true);
       setProjectsError('Network Error. Please Reconnect.');
+      hasCompletedInitialProjectLoadRef.current = true;
     }
   }, [applyProjectsForTeam, currentTeam?.id, demoMode.isDemoMode, isAuthenticated]);
 
@@ -306,6 +311,7 @@ export function SessionDataProvider({
       setProjectsLoading(false);
       setProjectsReady(true);
       setProjectsError(null);
+      hasCompletedInitialProjectLoadRef.current = true;
       return;
     }
 
@@ -315,6 +321,7 @@ export function SessionDataProvider({
 
     if (teamChanged) {
       lastTeamIdRef.current = teamId;
+      hasCompletedInitialProjectLoadRef.current = false;
       setProjects([]);
       setSelectedProjectState(null);
       setProjectsLoading(Boolean(teamId));
@@ -327,6 +334,7 @@ export function SessionDataProvider({
       setSelectedProjectState(null);
       setProjectsLoading(false);
       setProjectsReady(true);
+      hasCompletedInitialProjectLoadRef.current = true;
       return;
     }
 
@@ -478,7 +486,9 @@ export function SessionDataProvider({
     projectsLoading,
     projectsReady,
     projectsError,
-    refreshSessions: (options?: { silent?: boolean }) => refreshProjects({ force: true, silent: options?.silent }),
+    // Page routes receive a separate manual-refresh signal. Refreshing this
+    // lightweight project list should not blank their already-rendered data.
+    refreshSessions: (options?: { silent?: boolean }) => refreshProjects({ force: true, silent: options?.silent ?? true }),
     getSession,
     dashboardStats,
   };

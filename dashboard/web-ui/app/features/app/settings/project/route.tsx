@@ -11,7 +11,7 @@ import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { Input } from '~/shared/ui/core/Input';
 import { Modal } from '~/shared/ui/core/Modal';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { InfoTooltip } from '~/shared/ui/core/InfoTooltip';
@@ -1064,7 +1064,9 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     }
   };
 
-  if (loading) {
+  const shouldShowInitialGhost = useInitialDashboardLoad(loading);
+
+  if (shouldShowInitialGhost) {
     return <DashboardGhostLoader variant="settings" />;
   }
 

@@ -14,6 +14,24 @@ interface DashboardGhostLoaderProps {
   variant?: DashboardGhostLoaderVariant;
 }
 
+/**
+ * Full-page skeletons are useful while a route has never rendered data, but
+ * are disruptive when a background refresh starts. Keep this state local to
+ * the mounted route so a project change (which remounts the route) still gets
+ * an appropriate initial loading state.
+ */
+export function useInitialDashboardLoad(isLoading: boolean): boolean {
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = React.useState(!isLoading);
+
+  React.useEffect(() => {
+    if (!isLoading) {
+      setHasCompletedInitialLoad(true);
+    }
+  }, [isLoading]);
+
+  return isLoading && !hasCompletedInitialLoad;
+}
+
 const GhostBlock: React.FC<{ className?: string }> = ({ className }) => (
   <div
     aria-hidden="true"
@@ -221,11 +239,13 @@ export const GeneralGhostBody: React.FC = () => (
 );
 
 const KpiCardGhost: React.FC<{ accentColor: string }> = ({ accentColor }) => (
-  <div className="dashboard-keep-neo dashboard-kpi-card min-w-0 p-2.5 sm:p-4">
-    <div className="mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5" style={{ backgroundColor: accentColor }} />
-    <GhostBlock className="h-3 w-24 rounded-none" />
-    <GhostBlock className="mt-2 h-7 w-20 rounded-none sm:h-8" />
-    <div className="mt-1.5 flex items-center gap-2 sm:mt-2">
+  <div className="dashboard-analytics-card dashboard-kpi-card min-w-0">
+    <div className="dashboard-kpi-accent" style={{ backgroundColor: accentColor }} />
+    <div className="dashboard-kpi-header">
+      <GhostBlock className="h-3 w-24 rounded-none" />
+    </div>
+    <GhostBlock className="dashboard-kpi-value h-7 w-20 rounded-none sm:h-8" />
+    <div className="dashboard-kpi-comparison">
       <GhostBlock className="h-5 w-14 rounded-none" />
       <GhostBlock className="h-3 w-20 rounded-none" />
     </div>

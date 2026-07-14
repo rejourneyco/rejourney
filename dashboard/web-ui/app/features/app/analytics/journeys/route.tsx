@@ -21,7 +21,7 @@ import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/h
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { SankeyJourney, type SankeyEvidenceSession, type SankeyFlow } from '~/features/app/analytics/journeys/components/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
-import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import {
     getSessionCore,
     getJourneysOverview,
@@ -962,7 +962,9 @@ export const Journeys: React.FC = () => {
 
     const hasData = Boolean(data && totalSessions > 0);
 
-    if (isLoading && selectedProject?.id && !data) {
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost && selectedProject?.id && !data) {
         return <DashboardGhostLoader variant="analytics" />;
     }
 
