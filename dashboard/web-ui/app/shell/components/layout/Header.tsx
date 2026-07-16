@@ -104,7 +104,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
         className={
           variant === 'floating'
             ? "fixed inset-x-0 top-4 z-[100] mx-auto w-[92%] max-w-7xl rounded-none border border-black/25 bg-white px-4 py-2 shadow-neo transition-all duration-200 hover:shadow-neo-lg"
-            : "fixed inset-x-0 top-0 z-[100] w-full border-b border-slate-200/90 bg-white/95 px-4 py-1.5 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl transition-colors duration-200 sm:px-6"
+            : "relative z-[100] w-full border-b border-slate-200/90 bg-white/95 px-4 py-1.5 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl transition-colors duration-200 sm:fixed sm:inset-x-0 sm:top-0 sm:px-6"
         }
       >
         <div

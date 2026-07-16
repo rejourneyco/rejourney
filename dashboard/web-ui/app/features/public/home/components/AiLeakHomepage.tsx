@@ -493,7 +493,7 @@ export const AiLeakHomepage: React.FC = () => {
 
             <div className="relative z-10">
                 {/* Hero Section */}
-                <section className="landing-hero-section relative z-20 overflow-hidden bg-[#fdfbf7] px-5 pb-20 pt-32 text-center sm:px-8 sm:pb-24 sm:pt-36 lg:px-10 lg:pb-28 lg:pt-40 xl:pb-64">
+                <section className="landing-hero-section relative z-20 overflow-hidden bg-[#fdfbf7] px-5 pb-20 pt-16 text-center sm:px-8 sm:pb-24 sm:pt-36 lg:px-10 lg:pb-28 lg:pt-40 xl:pb-64">
 
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
@@ -596,10 +596,10 @@ export const AiLeakHomepage: React.FC = () => {
                             </h3>
                         </div>
                         {/* Outer card — phone left, single insight card right */}
-                        <div className="flex items-start gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f0f1f3] shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:items-stretch">
-                            {/* Phone — flush left, no padding needed */}
-                            <div className="flex-shrink-0 self-stretch flex items-end pl-5 pb-0 pt-5">
-                                <div className="w-[190px] rounded-t-[2rem] bg-slate-950 p-[5px] pb-0 shadow-[0_-12px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/[0.06]">
+                        <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#f0f1f3] shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:flex-row sm:items-stretch">
+                            {/* Stack this visual on narrow screens so the insight card remains readable. */}
+                            <div className="flex w-full items-end justify-center px-5 pt-5 sm:w-auto sm:flex-shrink-0 sm:self-stretch sm:justify-start sm:pl-5 sm:pb-0">
+                                <div className="w-[170px] rounded-t-[2rem] bg-slate-950 p-[5px] pb-0 shadow-[0_-12px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/[0.06] sm:w-[190px]">
                                     <div className="rounded-t-[1.65rem] overflow-hidden bg-white">
                                         {/* Status bar */}
                                         <div className="relative flex items-center justify-between bg-white px-3 pt-2 pb-1.5">
@@ -623,7 +623,7 @@ export const AiLeakHomepage: React.FC = () => {
                                             <img
                                                 src={MOUNTAIN_CARD_IMAGE}
                                                 alt="Rainier Climber Pass marketplace listing"
-                                                className="w-full h-[140px] object-cover"
+                                                className="h-[125px] w-full object-cover sm:h-[140px]"
                                             />
                                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
                                                 <div className="h-10 w-10 rounded-full border-2 border-white/60 bg-white/20" />
@@ -658,8 +658,8 @@ export const AiLeakHomepage: React.FC = () => {
                             </div>
 
                             {/* Single insight card — fills remaining space */}
-                            <div className="flex-1 min-w-0 flex items-center p-2.5 min-[390px]:p-4">
-                                <div className="w-full bg-white rounded-2xl border border-slate-200 shadow-[0_8px_24px_rgba(15,23,42,0.10)] p-3 min-[390px]:p-4 space-y-2.5 min-[390px]:space-y-3">
+                            <div className="flex w-full items-center p-3 sm:min-w-0 sm:flex-1 sm:p-4">
+                                <div className="w-full rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-[0_8px_24px_rgba(15,23,42,0.10)]">
                                     {/* Header */}
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-1.5">
