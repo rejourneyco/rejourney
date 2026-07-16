@@ -1,18 +1,22 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Apple, Check, Globe, MonitorSmartphone, Smartphone } from 'lucide-react';
+import { AlertTriangle, Apple, Check, Globe, MonitorSmartphone } from 'lucide-react';
 import { createProject, updateProject, type ApiTeam } from '~/shared/api/client';
 import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import type { Project } from '~/shared/types';
 import { Button } from '~/shared/ui/core/Button';
 import { Input } from '~/shared/ui/core/Input';
 import { cn } from '~/shared/lib/cn';
-import { SETUP_PLATFORM_OPTIONS, type SetupPlatform } from './setupUtils';
+import {
+  hasUnsupportedNativeAndroid,
+  normalizeSetupIntegrations,
+  SETUP_PLATFORM_OPTIONS,
+  type SetupIntegration,
+} from './setupUtils';
 
-const platformIcons: Record<SetupPlatform, React.ElementType> = {
+const platformIcons: Record<SetupIntegration, React.ElementType> = {
   web: Globe,
   'react-native': MonitorSmartphone,
   ios: Apple,
-  android: Smartphone,
 };
 
 interface CreateProjectFormProps {
@@ -25,10 +29,18 @@ interface CreateProjectFormProps {
   onUpdated?: (project: Project) => void | Promise<void>;
 }
 
-function togglePlatform(platforms: SetupPlatform[], platform: SetupPlatform): SetupPlatform[] {
-  return platforms.includes(platform)
-    ? platforms.filter((current) => current !== platform)
-    : [...platforms, platform];
+function togglePlatform(platforms: SetupIntegration[], platform: SetupIntegration): SetupIntegration[] {
+  if (platforms.includes(platform)) {
+    return platforms.filter((current) => current !== platform);
+  }
+
+  if (platform === 'react-native') {
+    return [...platforms.filter((current) => current !== 'ios'), platform];
+  }
+  if (platform === 'ios') {
+    return [...platforms.filter((current) => current !== 'react-native'), platform];
+  }
+  return [...platforms, platform];
 }
 
 export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
@@ -41,8 +53,8 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   onUpdated,
 }) => {
   const [projectName, setProjectName] = useState(projectToEdit?.name ?? '');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<SetupPlatform[]>(
-    (projectToEdit?.platforms as SetupPlatform[]) ?? []
+  const [selectedPlatforms, setSelectedPlatforms] = useState<SetupIntegration[]>(
+    normalizeSetupIntegrations(projectToEdit?.platforms)
   );
   const [bundleId, setBundleId] = useState(projectToEdit?.bundleId ?? '');
   const [packageName, setPackageName] = useState(projectToEdit?.packageName ?? '');
@@ -61,7 +73,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   useEffect(() => {
     if (projectToEdit) {
       setProjectName(projectToEdit.name ?? '');
-      setSelectedPlatforms((projectToEdit.platforms as SetupPlatform[]) ?? []);
+      setSelectedPlatforms(normalizeSetupIntegrations(projectToEdit.platforms));
       setBundleId(projectToEdit.bundleId ?? '');
       setPackageName(projectToEdit.packageName ?? '');
       setWebAllowedDomains(projectToEdit.webAllowedDomains?.join(', ') ?? projectToEdit.webDomain ?? '');
@@ -83,14 +95,13 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const includesWeb = selectedPlatforms.includes('web');
   const includesReactNative = selectedPlatforms.includes('react-native');
   const includesIos = selectedPlatforms.includes('ios');
-  const includesAndroid = selectedPlatforms.includes('android');
+  const hasLegacyNativeAndroid = hasUnsupportedNativeAndroid(projectToEdit?.platforms) && !includesReactNative;
   const showIosIdentifier = includesIos || includesReactNative;
-  const showAndroidIdentifier = includesAndroid || includesReactNative;
+  const showAndroidIdentifier = includesReactNative;
   const webAllowedDomainsError = includesWeb ? getWebAllowedDomainsError(webAllowedDomains, true) : null;
-  const iosBundleIdError = bundleId.trim() ? getIosBundleIdError(bundleId.trim()) : null;
-  const androidPackageError = packageName.trim() ? getAndroidPackageError(packageName.trim()) : null;
+  const iosBundleIdError = showIosIdentifier && bundleId.trim() ? getIosBundleIdError(bundleId.trim()) : null;
+  const androidPackageError = showAndroidIdentifier && packageName.trim() ? getAndroidPackageError(packageName.trim()) : null;
   const missingRequiredIosId = includesIos && !bundleId.trim();
-  const missingRequiredAndroidPackage = includesAndroid && !packageName.trim();
   const missingReactNativeIdentifiers = includesReactNative && !bundleId.trim() && !packageName.trim();
 
   const projectNameIsEmpty = !projectName.trim();
@@ -99,7 +110,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const packageNameIsEmpty = !packageName.trim();
 
   const isIosRequired = includesIos || (includesReactNative && packageNameIsEmpty);
-  const isAndroidRequired = includesAndroid || (includesReactNative && bundleIdIsEmpty);
+  const isAndroidRequired = includesReactNative && bundleIdIsEmpty;
   const isIosFilled = !bundleIdIsEmpty;
   const isAndroidFilled = !packageNameIsEmpty;
 
@@ -131,8 +142,6 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
         : null;
   const visibleAndroidPackageError = missingReactNativeIdentifiers && submitAttempted
     ? 'iOS Bundle ID or Android Package Name is required'
-    : missingRequiredAndroidPackage && (touchedFields.packageName || submitAttempted)
-      ? 'Required for native Android projects'
     : touchedFields.packageName || submitAttempted
       ? androidPackageError
       : null;
@@ -140,7 +149,6 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const canSubmit = Boolean(projectName.trim())
     && selectedPlatforms.length > 0
     && !missingRequiredIosId
-    && !missingRequiredAndroidPackage
     && !missingReactNativeIdentifiers
     && !webAllowedDomainsError
     && !iosBundleIdError
@@ -153,8 +161,6 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       ? 'Choose at least one platform.'
       : missingRequiredIosId
         ? 'Add the iOS bundle ID, or deselect native iOS.'
-        : missingRequiredAndroidPackage
-          ? 'Add the Android package name, or deselect native Android.'
         : missingReactNativeIdentifiers
           ? 'Add an iOS bundle ID or Android package name for React Native.'
           : webAllowedDomainsError || iosBundleIdError || androidPackageError;
@@ -171,7 +177,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
           name: projectName.trim(),
           platforms: selectedPlatforms,
           bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || null) : null,
-          packageName: (includesAndroid || includesReactNative) ? (packageName.trim() || null) : null,
+          packageName: includesReactNative ? (packageName.trim() || null) : null,
           webDomain: includesWeb ? (parsedWebAllowedDomains[0] ?? null) : null,
           webAllowedDomains: includesWeb ? (parsedWebAllowedDomains ?? null) : null,
         });
@@ -181,8 +187,8 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       } else {
         const created = await createProject({
           name: projectName.trim(),
-          bundleId: bundleId.trim() || undefined,
-          packageName: packageName.trim() || undefined,
+          bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || undefined) : undefined,
+          packageName: includesReactNative ? (packageName.trim() || undefined) : undefined,
           webDomain: includesWeb ? parsedWebAllowedDomains[0] : undefined,
           webAllowedDomains: includesWeb ? parsedWebAllowedDomains : undefined,
           teamId: currentTeam?.id,
@@ -209,21 +215,77 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   };
 
   return (
-    <form id={formId} className="space-y-5" onSubmit={handleSubmit}>
+    <form id={formId} className="space-y-6" onSubmit={handleSubmit}>
       {createError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
           {createError}
         </div>
       )}
 
+      <div className={cn(
+        "space-y-3 rounded-lg border p-4 transition-[background-color,border-color,box-shadow]",
+        projectNameIsEmpty
+          ? "border-slate-900 bg-white shadow-[2px_2px_0_#0f172a] dark:border-slate-500 dark:bg-slate-900/40 dark:shadow-none"
+          : "border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+      )}>
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="setup-project-name" className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
+            <span className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-md text-xs font-black",
+              projectNameIsEmpty ? "bg-indigo-600 text-white" : "bg-emerald-500 text-white"
+            )}>
+              {projectNameIsEmpty ? '1' : <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+            </span>
+            Name your project
+          </label>
+          <span className={cn(
+            "text-[10px] font-bold uppercase tracking-wider",
+            projectNameIsEmpty ? "text-amber-750" : "text-emerald-650 dark:text-emerald-400"
+          )}>
+            {projectNameIsEmpty ? 'Required to continue' : 'Ready'}
+          </span>
+        </div>
+        <Input
+          id="setup-project-name"
+          placeholder="e.g. ShopFlow checkout"
+          value={projectName}
+          onChange={(event) => {
+            setProjectName(event.target.value);
+            setCreateError(null);
+          }}
+          aria-required="true"
+          autoFocus={!projectToEdit}
+          className={cn(
+            "h-12 rounded-lg bg-white text-base font-semibold shadow-sm transition-colors focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/20 dark:bg-slate-900",
+            projectNameIsEmpty
+              ? "border-indigo-400 placeholder:text-slate-500 dark:border-indigo-600"
+              : "border-slate-300 hover:border-slate-400 dark:border-slate-700"
+          )}
+        />
+        <p className="text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+          Start here. This is the name your team will see in dashboards and alerts.
+        </p>
+      </div>
+
       <div className="space-y-2">
         <div>
-          <label className="text-sm font-semibold text-slate-850 dark:text-slate-200">What are you adding?</label>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-850 dark:text-slate-200">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 text-xs font-black text-slate-650 dark:bg-slate-800 dark:text-slate-300">2</span>
+            Choose platforms
+          </div>
           <p className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
             Choose every app surface you want to connect now.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {hasLegacyNativeAndroid && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-850 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Native Android is not supported. Android apps are supported through the React Native SDK; choose React Native to keep the Android package name.
+            </span>
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {SETUP_PLATFORM_OPTIONS.map((platform) => {
             const Icon = platformIcons[platform.id];
             const selected = selectedPlatforms.includes(platform.id);
@@ -237,14 +299,14 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   setCreateError(null);
                 }}
                 className={cn(
-                  'flex min-h-[108px] items-start gap-3.5 rounded-xl border p-4 text-left transition-all duration-300 cursor-pointer hover:-translate-y-1 hover:shadow-lg',
+                  'flex min-h-[118px] cursor-pointer items-start gap-3 rounded-lg border p-4 text-left transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2',
                   selected
-                    ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/30 ring-2 ring-indigo-500/20 shadow-md shadow-indigo-500/5 scale-[1.01]'
-                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md'
+                    ? 'border-slate-900 bg-indigo-50/70 shadow-[2px_2px_0_#0f172a] dark:border-indigo-500 dark:bg-indigo-950/30 dark:shadow-none'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-850'
                 )}
               >
                 <span className={cn(
-                  'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors',
+                  'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors',
                   selected
                     ? 'border-indigo-500/25 bg-indigo-100/40 text-indigo-650 dark:bg-indigo-950/80 dark:text-indigo-350'
                     : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500'
@@ -271,8 +333,14 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       </div>
 
       {selectedPlatforms.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-5 space-y-4 shadow-md">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 dark:text-slate-550">Configure Identifiers</h4>
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-900/30 sm:p-5">
+          <div>
+            <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-200 text-xs font-black text-slate-700 dark:bg-slate-800 dark:text-slate-300">3</span>
+              App identifiers
+            </h4>
+            <p className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">Only the identifiers required for your selected platforms are shown.</p>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             {includesWeb && (
               <div className={cn(
@@ -389,7 +457,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                     </span>
                   ) : isAndroidRequired ? (
                     <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                      {includesAndroid ? 'Required' : 'At least one required'}
+                      At least one required
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
@@ -417,37 +485,6 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
         </div>
       )}
 
-      <div className={cn(
-        "pl-4 border-l-2 py-2 space-y-2 transition-all duration-200 rounded-r-lg",
-        projectNameIsEmpty
-          ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
-          : "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
-      )}>
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
-            Project name <span className="text-red-500 font-bold">*</span>
-          </label>
-          {projectNameIsEmpty ? (
-            <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-              Required
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-              <Check className="h-3 w-3 inline" /> Filled
-            </span>
-          )}
-        </div>
-        <Input
-          placeholder="Consumer app, marketing site, checkout app"
-          value={projectName}
-          onChange={(event) => {
-            setProjectName(event.target.value);
-            setCreateError(null);
-          }}
-          className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-medium rounded-xl hover:border-slate-300 dark:hover:border-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
-        />
-      </div>
-
       <div className="flex flex-col-reverse gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:justify-end">
         {submitHint && (
           <p className="self-center text-xs font-semibold text-slate-500 dark:text-slate-400 sm:mr-auto">
@@ -459,7 +496,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
             type="button"
             variant="secondary"
             onClick={onCancel}
-            className="!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide"
+            className="!rounded-lg border border-slate-300 !bg-white !font-bold !text-slate-700 shadow-sm transition-colors hover:!bg-slate-50 dark:border-slate-700 dark:!bg-slate-900 dark:!text-slate-300"
           >
             Cancel
           </Button>
@@ -468,7 +505,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
           type="submit"
           variant="primary"
           disabled={!canSubmit}
-          className="!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-lg shadow-indigo-500/15 hover:shadow-indigo-500/25 font-bold tracking-wide hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 px-6 py-2.5"
+          className="!rounded-lg border border-indigo-700 !bg-indigo-600 px-6 py-2.5 font-bold tracking-wide !text-white shadow-[2px_2px_0_#312e81] transition-[background-color,box-shadow,transform] motion-safe:hover:-translate-y-0.5 hover:!bg-indigo-700 active:translate-y-0 active:shadow-none"
         >
           {isCreating ? (projectToEdit ? 'Saving...' : 'Creating...') : (projectToEdit ? 'Save Changes' : submitLabel)}
         </Button>

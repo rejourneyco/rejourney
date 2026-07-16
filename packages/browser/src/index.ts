@@ -8,6 +8,7 @@ export {
 export { DEFAULT_WEB_CONFIG } from './sdk/config.js';
 export { classifyWebClient } from './sdk/botDetection.js';
 export { scrubUrl } from './sdk/urlScrubber.js';
+export { createRejourneyReduxMiddleware } from './integrations/redux.js';
 export type {
   AcquisitionChannel,
   EventArtifactEnvelope,
@@ -25,3 +26,10 @@ export type {
   WebLinkClickContext,
   WebRecordingContext,
 } from './sdk/types.js';
+export type {
+  ReduxActionLike,
+  ReduxMiddleware,
+  ReduxMiddlewareApi,
+  ReduxStateCapture,
+  RejourneyReduxOptions,
+} from './integrations/redux.js';

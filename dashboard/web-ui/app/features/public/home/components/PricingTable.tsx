@@ -5,7 +5,7 @@ import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
 import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
-import { PricingThreeField } from './PricingThreeField';
+
 
 type PricingPlan = BillingPlan & {
     interval?: 'month' | 'year';
@@ -110,19 +110,19 @@ const ROI_BENCHMARK_SOURCES = [
 ];
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
-    <li className="flex gap-3 text-[13px] font-medium leading-6 text-slate-600">
-        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' || tone === 'warning' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+    <li className="flex gap-3 text-[13px] font-bold leading-6 text-slate-800">
+        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-none border border-black ${tone === 'minus' || tone === 'warning' ? 'bg-amber-100 text-amber-900' : 'bg-[#86efac] text-emerald-950 font-black'}`}>
             {tone === 'minus' || tone === 'warning'
-                ? <Minus className="h-3 w-3 stroke-[2.5px]" aria-hidden />
-                : <Check className="h-3 w-3 stroke-[2.5px]" aria-hidden />}
+                ? <Minus className="h-3 w-3 stroke-[3px]" aria-hidden />
+                : <Check className="h-3 w-3 stroke-[3px]" aria-hidden />}
         </span>
         <span>{children}</span>
     </li>
 );
 
 const PlanGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-    <div className="border-t border-slate-100 pt-5 first:border-t-0 first:pt-0">
-        <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+    <div className="border-t-2 border-black pt-5 first:border-t-0 first:pt-0">
+        <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-slate-800">{title}</p>
         <ul className="space-y-3">{children}</ul>
     </div>
 );
@@ -384,35 +384,34 @@ export const PricingTable: React.FC = () => {
     };
 
     return (
-        <section className="relative w-full border-t border-slate-200/60 bg-[#f9f9fb] text-slate-950 overflow-hidden">
-            {/* Custom 3D Metallic Ribbon & Light Ambient background */}
-            <PricingThreeField seed={19} />
+        <section className="relative w-full border-t-4 border-black bg-[#fdfbf7] text-slate-950 overflow-hidden">
+
 
             <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-5 pb-12 pt-36 sm:gap-16 sm:px-8 sm:pb-16 sm:pt-44 lg:gap-20 lg:px-10 lg:pb-20 lg:pt-48">
-                <div className="relative z-10 border-b border-slate-200 pb-8 sm:pb-10">
+                <div className="relative z-10 border-b border-black/20 pb-8 sm:pb-10">
                     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-end">
                         <div>
-                            <h1 className="break-words text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                            <h1 className="break-words text-4xl font-black uppercase tracking-tight text-slate-955 sm:text-5xl lg:text-6xl">
                                 {copy.heading}
                             </h1>
-                            <p className="mt-4 max-w-3xl text-base font-normal leading-7 text-slate-500 sm:text-lg">
+                            <p className="mt-4 max-w-3xl text-base font-bold leading-7 text-slate-750 sm:text-lg">
                                 {copy.intro}
                             </p>
                         </div>
 
                         <div className="flex justify-start lg:justify-end">
-                            <div className="border border-slate-200/60 bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-4 w-full sm:max-w-md lg:w-72">
+                            <div className="border border-black/20 bg-white p-5 shadow-neo flex flex-col gap-4 w-full sm:max-w-md lg:w-72 rounded-none">
                                 <div>
-                                    <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.contactEyebrow}</p>
-                                    <h2 className="mt-1.5 text-lg font-bold leading-snug text-slate-900">{copy.contactHeading}</h2>
+                                    <p className="font-mono text-[10px] font-black uppercase tracking-wider text-slate-800">{copy.contactEyebrow}</p>
+                                    <h2 className="mt-1.5 text-lg font-black uppercase leading-snug text-slate-900">{copy.contactHeading}</h2>
                                 </div>
                                 <button
                                     type="button"
                                     onClick={handleCopyEmail}
-                                    className={`flex h-11 items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold shadow-sm transition-all duration-200 ${
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-none border border-black px-4 text-xs font-black uppercase shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none ${
                                         contactCopied
-                                            ? 'bg-slate-700 text-white hover:bg-slate-600'
-                                            : 'bg-slate-950 text-white hover:bg-slate-800'
+                                            ? 'bg-[#86efac] text-black'
+                                            : 'bg-black text-white hover:bg-slate-900'
                                     }`}
                                     aria-live="polite"
                                     style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -438,33 +437,29 @@ export const PricingTable: React.FC = () => {
                             const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale' || isEnterprise);
 
                             const cardClassName = isFeatured
-                                ? 'border-slate-300/60 ring-1 ring-slate-300/40 bg-white/80 backdrop-blur-xl shadow-[0_8px_24px_rgba(15,23,42,0.07)] hover:shadow-[0_16px_36px_rgba(15,23,42,0.09)] hover:-translate-y-1.5'
-                                : 'border-slate-200/60 bg-white/70 backdrop-blur-xl shadow-[0_2px_12px_rgba(15,23,42,0.06)] hover:shadow-[0_16px_36px_rgba(15,23,42,0.09)] hover:-translate-y-1.5';
-
-                            const buttonClassName = 'bg-slate-950 text-white hover:bg-slate-800 focus:ring-slate-950';
+                                ? 'border border-black bg-[#fef08a] shadow-neo hover:shadow-neo-lg hover:-translate-y-1.5'
+                                : 'border border-black bg-white shadow-neo-sm hover:shadow-neo hover:-translate-y-1.5';
 
                             return (
                                 <article
                                     key={`${plan.name}-${plan.priceCents}`}
-                                    className={`relative flex min-h-[680px] flex-col overflow-hidden border rounded-2xl p-6 transition-all duration-300 sm:p-7 ${cardClassName}`}
+                                    className={`relative flex min-h-[680px] flex-col overflow-hidden p-6 transition-all duration-300 sm:p-7 rounded-none ${cardClassName}`}
                                 >
-                                    {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-slate-950" aria-hidden />}
-
                                     <div>
                                         <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
-                                            <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{plan.displayName}</h2>
+                                            <h2 className="text-xl font-black uppercase tracking-tight text-slate-950 sm:text-2xl">{plan.displayName}</h2>
                                             {isFeatured && (
-                                                <span className="bg-slate-100 text-slate-800 px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border border-slate-200/60">
+                                                <span className="bg-white text-black px-2.5 py-0.5 text-[10px] font-black uppercase rounded-none border border-black shadow-neo-sm">
                                                     {copy.popular}
                                                 </span>
                                             )}
                                         </div>
 
-                                        <p className="mt-4 min-h-[72px] text-sm font-normal leading-6 text-slate-500">{description}</p>
+                                        <p className="mt-4 min-h-[72px] text-sm font-bold leading-6 text-slate-700">{description}</p>
 
                                         <div className="mt-6 flex flex-wrap items-end gap-x-2 gap-y-1">
-                                            <span className="text-3xl font-bold tracking-tight text-slate-950">{formatPlanPrice(plan.priceCents)}</span>
-                                            {priceSuffix && <span className="pb-0.5 text-sm font-medium text-slate-450">{priceSuffix}</span>}
+                                            <span className="text-3xl font-black tracking-tight text-slate-950">{formatPlanPrice(plan.priceCents)}</span>
+                                            {priceSuffix && <span className="pb-0.5 text-sm font-bold text-slate-500">{priceSuffix}</span>}
                                         </div>
                                     </div>
 
@@ -497,7 +492,7 @@ export const PricingTable: React.FC = () => {
                                         <PlanGroup title="Fix workflow">
                                             <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
                                                 <span className="inline-flex flex-wrap items-center gap-2">
-                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200/60 px-2.5 py-0.5 text-[11px] font-bold text-slate-700 shadow-sm">
+                                                    <span className="inline-flex items-center gap-1.5 rounded-none bg-white border border-black px-2.5 py-0.5 text-[11px] font-black text-slate-900 shadow-neo-sm">
                                                         + AI Leak Detection
                                                     </span>
                                                     <span>
@@ -530,7 +525,11 @@ export const PricingTable: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={handleCopyEmail}
-                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
+                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-black px-4 text-sm font-black uppercase transition-all shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none ${
+                                                    contactCopied
+                                                        ? 'bg-[#86efac] text-black'
+                                                        : 'bg-black text-white hover:bg-slate-900'
+                                                }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
                                                 {contactCopied ? copy.copied : 'Contact Sales'}
@@ -539,7 +538,11 @@ export const PricingTable: React.FC = () => {
                                         ) : (
                                             <Link
                                                 to="/login"
-                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm ${buttonClassName}`}
+                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-black px-4 text-sm font-black uppercase transition-all shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none ${
+                                                    isFeatured
+                                                        ? 'bg-[#86efac] text-black hover:bg-[#4ade80]'
+                                                        : 'bg-black text-white hover:bg-slate-900'
+                                                }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
                                                 {isFree ? copy.startFree : copy.getStarted}
@@ -553,18 +556,18 @@ export const PricingTable: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="relative z-10 border-t border-slate-200 pt-12 sm:pt-16 lg:pt-20">
-                    <div className="mb-8 border border-slate-200 bg-white/60 backdrop-blur-md px-6 py-5 text-left shadow-sm">
-                        <span className="block text-xl font-bold tracking-tight text-slate-950">{copy.comparisonTitle}</span>
-                        <span className="mt-1.5 block text-sm font-medium leading-normal text-slate-500">{copy.comparisonSubtitle}</span>
+                <div className="relative z-10 border-t border-black/20 pt-12 sm:pt-16 lg:pt-20">
+                    <div className="mb-8 border border-black/20 bg-white px-6 py-5 text-left shadow-neo-sm rounded-none">
+                        <span className="block text-xl font-black uppercase tracking-tight text-slate-955">{copy.comparisonTitle}</span>
+                        <span className="mt-1.5 block text-sm font-bold leading-normal text-slate-700">{copy.comparisonSubtitle}</span>
                     </div>
 
-                    <div className="grid gap-8 border border-slate-200 bg-white/60 backdrop-blur-md p-6 shadow-sm lg:grid-cols-[0.95fr_1.2fr]">
+                    <div className="grid gap-8 border border-black/20 bg-white p-6 shadow-neo rounded-none lg:grid-cols-[0.95fr_1.2fr]">
                         <div className="space-y-6">
                             <div>
                                 <div className="mb-3 flex items-end justify-between gap-4">
-                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{copy.sessionsPerMonthLabel}</span>
-                                    <span className="text-2xl font-bold text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
+                                    <span className="text-xs font-black uppercase tracking-wider text-slate-800">{copy.sessionsPerMonthLabel}</span>
+                                    <span className="text-2xl font-black text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
                                 </div>
                                 <input
                                     type="range"
@@ -585,10 +588,10 @@ export const PricingTable: React.FC = () => {
                                                 key={preset.label}
                                                 type="button"
                                                 onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
-                                                className={`h-9 rounded-md border px-3 text-sm font-semibold transition shadow-sm ${
+                                                className={`h-9 border border-black px-3 text-sm font-black uppercase transition shadow-neo-sm rounded-none ${
                                                     active
-                                                        ? 'border-slate-950 bg-slate-950 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950'
+                                                        ? 'bg-[#86efac] text-black'
+                                                        : 'bg-white text-slate-700 hover:text-black hover:-translate-y-0.5'
                                                 }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
@@ -601,8 +604,8 @@ export const PricingTable: React.FC = () => {
 
                             <div className="grid gap-4 sm:grid-cols-3">
                                 <label className="block">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current conversion</span>
-                                    <div className="mt-2 flex h-11 items-center border border-slate-200 bg-white px-3 shadow-sm">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Current conversion</span>
+                                    <div className="mt-2 flex h-11 items-center border border-black/25 bg-white px-3 shadow-neo-sm rounded-none">
                                         <input
                                             type="number"
                                             min={0}
@@ -616,8 +619,8 @@ export const PricingTable: React.FC = () => {
                                     </div>
                                 </label>
                                 <label className="block">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Value per conversion</span>
-                                    <div className="mt-2 flex h-11 items-center border border-slate-200 bg-white px-3 shadow-sm">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Value per conversion</span>
+                                    <div className="mt-2 flex h-11 items-center border border-black/25 bg-white px-3 shadow-neo-sm rounded-none">
                                         <span className="text-xs font-bold text-slate-400">$</span>
                                         <input
                                             type="number"
@@ -630,17 +633,17 @@ export const PricingTable: React.FC = () => {
                                     </div>
                                 </label>
                                 <div>
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lift from fixes</span>
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Lift from fixes</span>
                                     <div className="mt-2 flex flex-wrap gap-2">
                                         {ROI_LIFT_PRESETS.map((preset) => (
                                             <button
                                                 key={preset.label}
                                                 type="button"
                                                 onClick={() => setConversionLiftPoints(preset.value)}
-                                                className={`h-11 flex-1 border px-2 text-xs font-bold transition shadow-sm ${
+                                                className={`h-11 flex-1 border border-black px-2 text-xs font-black uppercase transition shadow-neo-sm rounded-none ${
                                                     conversionLiftPoints === preset.value
-                                                        ? 'border-slate-950 bg-slate-950 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-950'
+                                                        ? 'bg-[#67e8f9] text-black'
+                                                        : 'bg-white text-slate-700 hover:text-black hover:-translate-y-0.5'
                                                 }`}
                                                 style={{ WebkitTapHighlightColor: 'transparent' }}
                                             >
@@ -651,29 +654,29 @@ export const PricingTable: React.FC = () => {
                                 </div>
                             </div>
 
-                            <p className="text-xs font-medium leading-5 text-slate-500">
+                            <p className="text-xs font-bold leading-5 text-slate-600">
                                 Model: monthly journeys x conversion-rate lift x value per conversion. Use order value for stores, first-month value for subscriptions, or blended revenue per activated user for onboarding.
                             </p>
                         </div>
 
                         <div className="space-y-5">
-                            <div className="grid overflow-hidden border border-slate-200 rounded-xl bg-white/75 backdrop-blur-md shadow-sm sm:grid-cols-3">
-                                <div className="border-b border-slate-100 bg-white/60 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Recovered/month</p>
-                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatCurrency(recoveredMonthlyRevenue)}</p>
-                                    <p className="mt-2 text-xs font-normal text-slate-500">{formatInteger(recoveredConversions, locale.languageTag)} extra conversions modeled</p>
+                            <div className="grid overflow-hidden border border-black/20 rounded-none bg-white shadow-neo sm:grid-cols-3">
+                                <div className="border-b border-black/15 bg-white p-5 sm:border-b-0 sm:border-r sm:border-black/15 sm:p-6">
+                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Recovered/month</p>
+                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{formatCurrency(recoveredMonthlyRevenue)}</p>
+                                    <p className="mt-2 text-xs font-bold text-slate-500">{formatInteger(recoveredConversions, locale.languageTag)} extra conversions modeled</p>
                                 </div>
-                                <div className="border-b border-slate-100 p-5 sm:border-b-0 sm:border-r sm:border-slate-100 sm:p-6">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Rejourney plan</p>
-                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">{formatCurrency(rejourneyMonthlyPlan.price)}</p>
-                                    <p className="mt-2 text-xs font-normal text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
+                                <div className="border-b border-black/15 p-5 sm:border-b-0 sm:border-r sm:border-black/15 sm:p-6">
+                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Rejourney plan</p>
+                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{formatCurrency(rejourneyMonthlyPlan.price)}</p>
+                                    <p className="mt-2 text-xs font-bold text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
                                 </div>
                                 <div className="p-5 sm:p-6">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Estimated ROI</p>
-                                    <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">
+                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Estimated ROI</p>
+                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">
                                         {roiPercent === null ? 'Free' : `${Math.round(roiPercent).toLocaleString()}%`}
                                     </p>
-                                    <p className="mt-2 text-xs font-normal text-slate-500">
+                                    <p className="mt-2 text-xs font-bold text-slate-500">
                                         {roiPercent === null
                                             ? 'No paid plan cost at this volume'
                                             : `${formatCurrency(netMonthlyUpside)} net after plan cost`}
@@ -682,23 +685,23 @@ export const PricingTable: React.FC = () => {
                             </div>
 
                             <div className="grid gap-3 sm:grid-cols-3">
-                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Baseline revenue</p>
-                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{formatCurrency(baselineRevenue)}</p>
+                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Baseline revenue</p>
+                                    <p className="mt-2 text-lg font-black text-slate-950">{formatCurrency(baselineRevenue)}</p>
                                 </div>
-                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Break even</p>
-                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{breakEvenConversions <= 0 ? '0' : breakEvenConversions.toFixed(1)}</p>
-                                    <p className="mt-1 text-xs font-medium text-slate-500">extra conversions/month</p>
+                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Break even</p>
+                                    <p className="mt-2 text-lg font-black text-slate-950">{breakEvenConversions <= 0 ? '0' : breakEvenConversions.toFixed(1)}</p>
+                                    <p className="mt-1 text-xs font-bold text-slate-500">extra conversions/month</p>
                                 </div>
-                                <div className="border border-slate-200 bg-white/70 p-4 shadow-sm">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Annualized upside</p>
-                                    <p className="mt-2 text-lg font-extrabold text-slate-950">{formatCurrency(Math.max(0, netMonthlyUpside) * 12)}</p>
+                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Annualized upside</p>
+                                    <p className="mt-2 text-lg font-black text-slate-950">{formatCurrency(Math.max(0, netMonthlyUpside) * 12)}</p>
                                 </div>
                             </div>
 
-                            <div className="border border-slate-200 bg-slate-50/70 p-4">
-                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Research benchmarks used</p>
+                             <div className="border border-black bg-white p-4 rounded-none shadow-neo-sm text-slate-850">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-900">Research benchmarks used</p>
                                 <div className="mt-3 grid gap-3">
                                     {ROI_BENCHMARK_SOURCES.map((source) => (
                                         <a
@@ -706,9 +709,9 @@ export const PricingTable: React.FC = () => {
                                             href={source.href}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="group text-sm font-medium leading-5 text-slate-600 hover:text-slate-950"
+                                            className="group text-sm font-bold leading-5 text-slate-700 hover:text-black"
                                         >
-                                            <span className="font-bold text-slate-900 group-hover:text-slate-950">{source.label}:</span>{' '}
+                                            <span className="font-black text-slate-950 group-hover:underline">{source.label}:</span>{' '}
                                             {source.stat}
                                         </a>
                                     ))}
@@ -718,65 +721,74 @@ export const PricingTable: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="relative z-10 -mx-5 overflow-hidden border-y border-slate-200 bg-slate-50/70 backdrop-blur-sm px-5 py-12 sm:-mx-8 sm:px-8 sm:py-16 lg:-mx-10 lg:px-10 lg:py-20">
-                    <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:radial-gradient(#0f172a_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
+                <div className="relative z-10 -mx-5 overflow-hidden border-y border-black/20 bg-white px-5 py-12 sm:-mx-8 sm:px-8 sm:py-16 lg:-mx-10 lg:px-10 lg:py-20">
+                    <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
 
                     <div className="relative grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
                         <div className="max-w-2xl">
-                            <p className="mb-4 inline-flex rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-[11px] font-bold uppercase tracking-wider border border-slate-200/60">FAQ</p>
-                            <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                            <p className="mb-4 inline-flex rounded-none bg-white text-black px-3 py-1 text-[11px] font-black uppercase tracking-wider border border-black shadow-neo-sm">FAQ</p>
+                            <h2 className="text-3xl font-black uppercase tracking-tight text-slate-950 sm:text-4xl">
                                 Everything included, clarified.
                             </h2>
-                            <p className="mt-5 text-base font-normal leading-relaxed text-slate-500">
+                            <p className="mt-5 text-base font-bold leading-relaxed text-slate-700">
                                 Replays are planned by volume. Analytics stays open, and Scale adds Smart Capture for teams that need precise replay selection.
                             </p>
                         </div>
 
-                        <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden bg-white/80 backdrop-blur-md shadow-sm">
-                            {PRICING_FAQS.map((faq, index) => (
-                                <div key={faq.question}>
-                                    <button
-                                        type="button"
-                                        onClick={() => setOpenFaqIndex(openFaqIndex === index ? null : index)}
-                                        className="flex w-full select-none items-center justify-between gap-6 px-5 py-5 text-left transition-colors hover:bg-slate-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 sm:px-6"
-                                        style={{ WebkitTapHighlightColor: 'transparent' }}
-                                        aria-expanded={openFaqIndex === index}
+                        <div className="flex flex-col gap-4">
+                            {PRICING_FAQS.map((faq, index) => {
+                                const isOpen = openFaqIndex === index;
+                                return (
+                                    <div 
+                                        key={faq.question}
+                                        className={`border border-black/25 p-5 rounded-none transition-all duration-200 ${
+                                            isOpen
+                                                ? 'bg-[#ecfeff] shadow-neo -translate-y-0.5'
+                                                : 'bg-white shadow-neo-sm hover:shadow-neo hover:-translate-y-0.5'
+                                        }`}
                                     >
-                                        <span className="text-base font-semibold leading-snug text-slate-900">
-                                            {faq.question}
-                                        </span>
-                                        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 p-1 text-slate-500 hover:text-slate-900 transition-colors">
-                                            {openFaqIndex === index
-                                                ? <Minus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />
-                                                : <Plus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />
-                                            }
-                                        </span>
-                                    </button>
-
-                                    {openFaqIndex === index && (
-                                        <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-5 sm:px-6">
-                                            <p className="max-w-3xl text-sm font-normal leading-relaxed text-slate-600">{faq.answer}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => setOpenFaqIndex(isOpen ? null : index)}
+                                            className="flex w-full items-start justify-between gap-6 text-left"
+                                            aria-expanded={isOpen}
+                                        >
+                                            <span className="text-base font-black uppercase tracking-tight leading-snug text-black">
+                                                {faq.question}
+                                            </span>
+                                            <span className="shrink-0 rounded-none border border-black bg-white p-1 text-black shadow-neo-sm">
+                                                {isOpen
+                                                    ? <Minus className="h-3.5 w-3.5 stroke-[3px]" aria-hidden />
+                                                    : <Plus className="h-3.5 w-3.5 stroke-[3px]" aria-hidden />
+                                                }
+                                            </span>
+                                        </button>
+                                        
+                                        {isOpen && (
+                                            <div className="border-t border-black/15 pt-4 mt-4">
+                                                <p className="max-w-3xl text-sm font-bold leading-relaxed text-slate-800">{faq.answer}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
 
 
-                <div className="border-t border-slate-200 pt-12 sm:pt-16 lg:pt-20">
-                    <div className="max-w-4xl border border-slate-200 bg-white/60 backdrop-blur-md rounded-2xl p-6 sm:p-8 shadow-sm hover:shadow-md transition-all duration-300">
-                        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.selfHostedEyebrow}</p>
-                        <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">{copy.selfHostedHeading}</h2>
-                        <p className="mt-4 text-[15px] font-normal leading-7 text-slate-500">
+                <div className="border-t border-black/20 pt-12 sm:pt-16 lg:pt-20">
+                    <div className="max-w-4xl border border-black/25 bg-white rounded-none p-6 sm:p-8 shadow-neo">
+                        <p className="font-mono text-[10px] font-black uppercase tracking-wider text-slate-800">{copy.selfHostedEyebrow}</p>
+                        <h2 className="mt-3 text-2xl font-black uppercase tracking-tight text-slate-950">{copy.selfHostedHeading}</h2>
+                        <p className="mt-4 text-[15px] font-bold leading-7 text-slate-700">
                             {copy.selfHostedCopy}
                         </p>
                         <a
                             href="https://github.com/rejourneyco/rejourney"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-slate-300/60 bg-white/60 backdrop-blur-md px-5 text-sm font-semibold text-slate-700 rounded-full shadow-sm transition-all hover:bg-white/80 hover:border-slate-400 hover:text-slate-900"
+                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-black bg-[#f9a8d4] px-5 text-sm font-black uppercase text-black rounded-none shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all"
                         >
                             <Github className="h-4 w-4" aria-hidden />
                             {copy.viewSource}

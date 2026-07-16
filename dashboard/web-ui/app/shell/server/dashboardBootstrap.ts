@@ -13,6 +13,13 @@ export interface DashboardShellBootstrapData {
   user: User;
 }
 
+export interface AuthBootstrapData {
+  __authBootstrap: true;
+  authServiceUnavailable: boolean;
+  error: string | null;
+  user: User | null;
+}
+
 interface ApiAuthResponse {
   user?: Record<string, unknown>;
 }
@@ -103,7 +110,7 @@ async function fetchBootstrapJson(request: Request, path: string): Promise<Respo
   );
 }
 
-async function fetchCurrentUser(request: Request): Promise<User | null> {
+export async function fetchCurrentUser(request: Request): Promise<User | null> {
   const response = await fetchBootstrapJson(request, "/api/auth/me");
   if (response.status === 401 || response.status === 403) {
     return null;
@@ -125,6 +132,27 @@ async function fetchCurrentUser(request: Request): Promise<User | null> {
   }
 
   return normalizeAuthUser(userData);
+}
+
+export async function loadAuthBootstrap(request: Request): Promise<AuthBootstrapData> {
+  try {
+    return {
+      __authBootstrap: true,
+      authServiceUnavailable: false,
+      error: null,
+      user: await fetchCurrentUser(request),
+    };
+  } catch (error) {
+    if (error instanceof BootstrapTransientError) {
+      return {
+        __authBootstrap: true,
+        authServiceUnavailable: true,
+        error: 'Authentication is temporarily unavailable. Please try again shortly.',
+        user: null,
+      };
+    }
+    throw error;
+  }
 }
 
 async function fetchTeams(request: Request): Promise<ApiTeam[]> {
@@ -186,10 +214,12 @@ export async function loadDashboardShellBootstrap(request: Request): Promise<Das
   }
 
   const cookieHeader = request.headers.get("cookie");
-  const teams = await fetchTeams(request);
+  const [teams, allProjects] = await Promise.all([
+    fetchTeams(request),
+    fetchProjects(request),
+  ]);
   const preferredTeamId = readCookieValue(cookieHeader, SELECTED_TEAM_COOKIE);
   const currentTeamId = teams.find((team) => team.id === preferredTeamId)?.id ?? teams[0]?.id ?? null;
-  const allProjects = await fetchProjects(request);
   const projects = currentTeamId
     ? allProjects.filter((project) => !project.teamId || project.teamId === currentTeamId)
     : allProjects;
@@ -213,5 +243,14 @@ export function isDashboardShellBootstrapData(value: unknown): value is Dashboar
     && typeof value === "object"
     && "__shellBootstrap" in value
     && (value as DashboardShellBootstrapData).__shellBootstrap
+  );
+}
+
+export function isAuthBootstrapData(value: unknown): value is AuthBootstrapData {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && "__authBootstrap" in value
+    && (value as AuthBootstrapData).__authBootstrap
   );
 }

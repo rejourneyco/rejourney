@@ -86,6 +86,33 @@ export default function RootLayout({ children }) {
 
 ---
 
+#### Redux and Redux Toolkit
+
+Normal browser session replay works without Redux-specific setup. To inspect Redux actions and state changes alongside a replay, add the optional Rejourney middleware when configuring your store:
+
+```typescript
+import { configureStore } from '@reduxjs/toolkit';
+import { createRejourneyReduxMiddleware } from '@rejourneyco/browser/redux';
+
+export const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(
+      createRejourneyReduxMiddleware({
+        redactKeys: ['email'],
+      }),
+    ),
+});
+```
+
+No additional Rejourney package is required. The middleware is included with `@rejourneyco/browser` and works with Redux and Redux Toolkit. It records the action type and sanitized action payload, reducer duration, sequence number, and the previous and next state as synchronized replay timeline events.
+
+Redux state is application data, so review it before enabling state capture in production. Common secret-like keys are redacted by default and serialized transitions are capped at 64 KiB. Use `stateSanitizer`, `actionSanitizer`, `predicate`, `redactKeys`, or `captureState: 'after'` to enforce your privacy and volume policy.
+
+The middleware complements the normal SDK setup; initialize and start Rejourney once at the app root as shown above.
+
+---
+
 #### Vue
 
 ```javascript

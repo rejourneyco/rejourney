@@ -259,15 +259,25 @@ export function useAuth(): AuthContextValue {
 
 interface Props {
   children: React.ReactNode;
+  initialAuthServiceUnavailable?: boolean;
+  initialError?: string | null;
   initialHydrated?: boolean;
   initialUser?: User | null;
 }
 
-export function AuthProvider({ children, initialHydrated = false, initialUser = null }: Props) {
+export function AuthProvider({
+  children,
+  initialAuthServiceUnavailable = false,
+  initialError = null,
+  initialHydrated = false,
+  initialUser = null,
+}: Props) {
   const [user, setUser] = useState<User | null>(initialHydrated ? initialUser : null);
   const [isLoading, setIsLoading] = useState(!initialHydrated);
-  const [error, setError] = useState<string | null>(null);
-  const [authServiceUnavailable, setAuthServiceUnavailable] = useState(false);
+  const [error, setError] = useState<string | null>(initialHydrated ? initialError : null);
+  const [authServiceUnavailable, setAuthServiceUnavailable] = useState(
+    initialHydrated && initialAuthServiceUnavailable,
+  );
   
   // Track if refreshUser is currently running to prevent race conditions
   const refreshUserPromiseRef = useRef<Promise<User | null> | null>(null);
@@ -374,11 +384,11 @@ export function AuthProvider({ children, initialHydrated = false, initialUser = 
     startTransition(() => {
       setUser(initialUser);
       userRef.current = initialUser;
-      setError(null);
-      setAuthServiceUnavailable(false);
+      setError(initialError);
+      setAuthServiceUnavailable(initialAuthServiceUnavailable);
       setIsLoading(false);
     });
-  }, [initialHydrated, initialUser]);
+  }, [initialAuthServiceUnavailable, initialError, initialHydrated, initialUser]);
 
   // Check auth status on mount
   useEffect(() => {
@@ -447,11 +457,8 @@ export function AuthProvider({ children, initialHydrated = false, initialUser = 
         userRef.current = verifiedUser;
         setAuthServiceUnavailable(false);
 
-        // The OTP verification response already proves the session cookie was
-        // issued. Let the route transition start immediately; the dashboard
-        // loader will hydrate the full shell, and this refresh backfills any
-        // richer user fields without holding the user on the auth screen.
-        void refreshUser();
+        // The OTP verification response proves the session cookie was issued.
+        // The dashboard loader hydrates the complete user and workspace state.
         return { ok: true, accountActivated: Boolean(verifyData.accountActivated) };
       }
 

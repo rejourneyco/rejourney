@@ -1,6 +1,6 @@
 {
   "name": "@rejourneyco/browser",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Rejourney web analytics and session replay SDK",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,6 +51,10 @@
     "./react": {
       "types": "./dist/integrations/react.d.ts",
       "import": "./dist/integrations/react.js"
+    },
+    "./redux": {
+      "types": "./dist/integrations/redux.d.ts",
+      "import": "./dist/integrations/redux.js"
     },
     "./next": {
       "types": "./dist/integrations/next.d.ts",

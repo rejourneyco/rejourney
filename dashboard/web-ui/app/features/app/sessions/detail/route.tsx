@@ -68,6 +68,7 @@ import {
 } from '~/shared/lib/replayTimeCompression';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
+import ReduxReplayPanel, { getReduxActionType, isReduxReplayEvent } from './ReduxReplayPanel';
 
 // ============================================================================
 // Types
@@ -373,6 +374,7 @@ const EVENT_COLORS = {
     deviceInfo: '#64748b',
     log: '#2563eb',
     custom: '#8b5cf6',
+    redux: '#0891b2',
     default: '#6b7280',
 } as const;
 
@@ -460,6 +462,7 @@ const getEventColor = (event: SessionEvent): string => {
     if (type === 'app_background') return EVENT_COLORS.appBackground;
     if (type === 'navigation' || type === 'screen_view') return EVENT_COLORS.navigation;
     if (type === 'device_info') return EVENT_COLORS.deviceInfo;
+    if (isReduxReplayEvent(event)) return EVENT_COLORS.redux;
     if (type === 'custom') return EVENT_COLORS.custom;
 
     // Gesture-specific colors (check gestureType first, then fall back to type)
@@ -483,6 +486,7 @@ const getEventIcon = (event: SessionEvent) => {
     if (isRouteNavigationEvent(event)) return RouteIcon;
     if (isAppForegroundEvent(event) || type === 'app_background') return Play;
     if (type === 'device_info') return Smartphone;
+    if (isReduxReplayEvent(event)) return Database;
     if (type === 'custom') return Star;
     if (gestureType === 'dead_tap') return CircleX;
     if (gestureType === 'rage_tap') return Zap;
@@ -803,6 +807,7 @@ const getActivityEventTitle = (event: SessionEvent): string => {
     }
     if (marker) return `Fault ${marker}`;
     if (isLogEvent(event)) return `Console ${getLogLevel(event)}`;
+    if (isReduxReplayEvent(event)) return `Redux ${getReduxActionType(event)}`;
     if (type === 'custom') return event.name || 'Custom Event';
     if (type === 'navigation' || type === 'screen_view') return 'Navigation';
     if (type === 'app_foreground') return 'App Foreground';
@@ -997,6 +1002,11 @@ const getActivityEventDetail = (event: SessionEvent): string | null => {
 
     if (type === 'network_request') {
         return event.properties?.urlPath || event.properties?.url || null;
+    }
+
+    if (isReduxReplayEvent(event)) {
+        const duration = event.properties?.durationMs;
+        return `State transition${typeof duration === 'number' ? ` · reducer ${duration} ms` : ''}`;
     }
 
     if (type === 'custom') {
@@ -1349,7 +1359,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const [sessionLoadError, setSessionLoadError] = useState<SessionLoadErrorKind | null>(null);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
-    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'inspector' | 'metadata'>('timeline');
+    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'redux' | 'inspector' | 'metadata'>('timeline');
     const [revealAllLogs, setRevealAllLogs] = useState(false);
 
     // Replay player state
@@ -1993,6 +2003,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             [...crashEvents, ...anrEvents]
         );
     }, [events, networkEventsForTimeline, detectedRageTaps, crashEvents, anrEvents]);
+
+    const reduxEvents = useMemo(
+        () => allTimelineEvents.filter(isReduxReplayEvent),
+        [allTimelineEvents],
+    );
 
     const replayBaseTime = fullSession?.startTime || (session?.startedAt ? new Date(session.startedAt).getTime() : Date.now());
     const startTime = replayBaseTime;
@@ -3316,6 +3331,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             touches: 0,
             network: 0,
             logs: logEvents.length,
+            redux: reduxEvents.length,
             issues: 0,
         };
 
@@ -3347,9 +3363,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             { id: 'touches', label: 'Touches', count: counts.touches },
             { id: 'network', label: 'Network', count: counts.network },
             { id: 'logs', label: 'Logs', count: counts.logs },
+            { id: 'redux', label: 'Redux', count: counts.redux },
             { id: 'issues', label: 'Issues', count: counts.issues },
         ];
-    }, [allTimelineEvents, logEvents.length]);
+    }, [allTimelineEvents, logEvents.length, reduxEvents.length]);
 
     // Filter activity feed once per filter/search change, not on every playback tick.
     const filteredActivity = useMemo(() => {
@@ -3389,6 +3406,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 matchesFilter = type === 'network_request';
             } else if (activityFilter === 'logs') {
                 matchesFilter = isLogEvent(e);
+            } else if (activityFilter === 'redux') {
+                matchesFilter = isReduxReplayEvent(e);
             } else if (activityFilter === 'issues') {
                 matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || isFrustrationEvent(e);
             }
@@ -5511,6 +5530,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         <Code className="h-4 w-4" />
                                         DOM
                                     </button>
+                                    {reduxEvents.length > 0 ? (
+                                        <button
+                                            onClick={() => setActiveWorkbenchTab('redux')}
+                                            className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'redux' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                        >
+                                            <Database className="h-4 w-4" />
+                                            Redux
+                                        </button>
+                                    ) : null}
                                     <button
                                         onClick={() => setActiveWorkbenchTab('metadata')}
                                         className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'metadata' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
@@ -5777,6 +5805,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         )}
                                     </div>
                                 </div>
+                            )}
+                            {canShowWorkbenchTools && activeWorkbenchTab === 'redux' && (
+                                <ReduxReplayPanel
+                                    events={reduxEvents}
+                                    currentPlaybackTime={currentPlaybackTime}
+                                    toPlaybackSeconds={eventTimestampToPlaybackSeconds}
+                                    onSeek={handleSeekToTime}
+                                />
                             )}
                             {canShowWorkbenchTools && activeWorkbenchTab === 'inspector' && (
                                 <div className="absolute inset-0 flex flex-col bg-[#f8fafc]">

@@ -85,6 +85,22 @@ export function MarkNextJs(props: React.SVGProps<SVGSVGElement>) {
     );
 }
 
+export function MarkRedux(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
+            <path
+                d="M8.35 5.9a8.25 8.25 0 0 1 7.75-.2M5.55 15.15a8.25 8.25 0 0 1 .72-7.24m11.42.24a8.25 8.25 0 0 1 .83 7.22m-2.47 2.7a8.25 8.25 0 0 1-7.9.08"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+            />
+            <circle cx="12" cy="4.5" r="2.25" fill="currentColor" />
+            <circle cx="5.25" cy="16.25" r="2.25" fill="currentColor" />
+            <circle cx="18.75" cy="16.25" r="2.25" fill="currentColor" />
+        </svg>
+    );
+}
+
 export function MarkVue(props: React.SVGProps<SVGSVGElement>) {
     return (
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>

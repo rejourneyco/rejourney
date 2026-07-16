@@ -25,6 +25,7 @@ patterns worth investigating.
 
 <p align="center">
   <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js%20%2F%20React-111827?style=flat-square&amp;logo=nextdotjs&amp;logoColor=white" alt="Next.js and React" /></a>
+  <a href="https://rejourney.co/docs/web/getting-started#redux-and-redux-toolkit"><img src="https://img.shields.io/badge/Redux%20Toolkit-764abc?style=flat-square&amp;logo=redux&amp;logoColor=white" alt="Redux Toolkit replay" /></a>
   <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native%20%2F%20Expo-1e293b?style=flat-square&amp;logo=react&amp;logoColor=61DAFB" alt="React Native and Expo" /></a>
   <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-f97316?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift" /></a>
   <a href="https://nuxt.com"><img src="https://img.shields.io/badge/Vue%20%2F%20Nuxt-0f766e?style=flat-square&amp;logo=nuxt&amp;logoColor=white" alt="Vue and Nuxt" /></a>

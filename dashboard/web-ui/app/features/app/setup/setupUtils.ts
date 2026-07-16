@@ -1,10 +1,10 @@
 import type { Project } from '~/shared/types';
 
-export type SetupPlatform = 'web' | 'ios' | 'android' | 'react-native';
+export type SetupIntegration = 'web' | 'ios' | 'react-native';
 export const SETUP_GATE_TOAST = "You can't have a Chicken before the Egg...Finish Setup";
 
 export const SETUP_PLATFORM_OPTIONS: Array<{
-  id: SetupPlatform;
+  id: SetupIntegration;
   label: string;
   shortLabel: string;
   description: string;
@@ -27,13 +27,26 @@ export const SETUP_PLATFORM_OPTIONS: Array<{
     shortLabel: 'iOS',
     description: 'Swift or SwiftUI apps using the native package.',
   },
-  {
-    id: 'android',
-    label: 'Native Android',
-    shortLabel: 'Android',
-    description: 'Kotlin or Java apps using the Android SDK.',
-  },
 ];
+
+export function normalizeSetupIntegrations(platforms: readonly string[] | null | undefined): SetupIntegration[] {
+  const values = new Set(platforms ?? []);
+  const integrations: SetupIntegration[] = [];
+
+  if (values.has('web')) integrations.push('web');
+  if (values.has('react-native')) {
+    integrations.push('react-native');
+  } else if (values.has('ios')) {
+    integrations.push('ios');
+  }
+
+  return integrations;
+}
+
+export function hasUnsupportedNativeAndroid(platforms: readonly string[] | null | undefined): boolean {
+  const values = new Set(platforms ?? []);
+  return values.has('android') && !values.has('react-native');
+}
 
 export function formatSetupPlatform(platform: string): string {
   if (platform === 'ios') return 'iOS';
@@ -44,9 +57,11 @@ export function formatSetupPlatform(platform: string): string {
 }
 
 export function formatProjectPlatforms(project: Project | null | undefined): string {
-  const platforms = project?.platforms ?? [];
-  if (platforms.length === 0) return 'No platform selected';
-  return platforms.map(formatSetupPlatform).join(', ');
+  const labels = normalizeSetupIntegrations(project?.platforms).map(formatSetupPlatform);
+  if (hasUnsupportedNativeAndroid(project?.platforms)) {
+    labels.push('Native Android (unsupported)');
+  }
+  return labels.length > 0 ? labels.join(', ') : 'No platform selected';
 }
 
 export function projectHasRecentData(project: Project | null | undefined): boolean {

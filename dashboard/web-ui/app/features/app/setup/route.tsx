@@ -46,8 +46,8 @@ type TeammateInviteRecipient = {
   role: TeamInviteRole;
 };
 
-const setupCardClass = "relative overflow-hidden border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md hover:shadow-lg hover:border-indigo-500/30 transition-all duration-300 z-10";
-const setupActionButtonClass = "!text-xs !font-bold uppercase tracking-normal";
+const setupCardClass = "relative z-10 overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:border-slate-800/80 dark:bg-slate-950 sm:p-6";
+const setupActionButtonClass = "setup-wizard-action !text-xs !font-bold uppercase tracking-normal";
 const setupProjectFormId = 'setup-project-form';
 
 function isValidEmailAddress(value: string): boolean {
@@ -686,9 +686,9 @@ export const SetupRoute: React.FC = () => {
   }
 
   return (
-    <div className="relative min-h-full bg-[var(--dashboard-canvas)] pb-12 text-slate-700 dark:text-slate-350 overflow-x-hidden">
+    <div className="rejourney-setup-wizard relative min-h-full overflow-x-hidden bg-[#fdfbf7] pb-12 text-slate-700 dark:bg-slate-950 dark:text-slate-350">
       <div className="relative z-10">
-        <main className="mx-auto w-full max-w-[800px] space-y-6 px-4 py-5 pb-8 sm:px-6 sm:py-6 sm:pb-10">
+        <main className="mx-auto w-full max-w-[900px] space-y-5 px-4 py-5 pb-8 sm:px-6 sm:py-7 sm:pb-10">
           {isJoinedTeam && currentTeam && (
             <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 text-emerald-800 dark:text-emerald-300 shadow-sm">
               <div className="flex items-start gap-3">
@@ -706,71 +706,51 @@ export const SetupRoute: React.FC = () => {
           )}
 
           {/* Stepper tracker */}
-          <section className="bg-white dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center lg:gap-2">
+          <section aria-label="Setup progress" className="rounded-xl border border-slate-200 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-slate-950 sm:p-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {setupSteps.map((step, index) => {
-                const isLast = index === setupSteps.length - 1;
                 const isClickable = index <= highestAccessibleStepIndex;
                 return (
-                  <React.Fragment key={step.label}>
-                    <button
-                      type="button"
-                      disabled={!isClickable}
-                      onClick={() => setManualStep(index)}
+                  <button
+                    key={step.label}
+                    type="button"
+                    disabled={!isClickable}
+                    aria-current={step.active ? 'step' : undefined}
+                    onClick={() => setManualStep(index)}
+                    className={cn(
+                      "flex min-h-16 items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                      step.active
+                        ? "border-slate-900 bg-slate-50 shadow-[2px_2px_0_#0f172a] dark:border-slate-500 dark:bg-slate-900 dark:shadow-none"
+                        : "border-transparent bg-transparent",
+                      isClickable
+                        ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/70"
+                        : "cursor-not-allowed opacity-45"
+                    )}
+                  >
+                    <span
                       className={cn(
-                        "flex items-center gap-3 text-left focus:outline-none flex-1 transition-all",
-                        isClickable ? "cursor-pointer" : "cursor-not-allowed opacity-45"
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold',
+                        step.active
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : step.done
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-650 dark:bg-emerald-950/30 dark:text-emerald-400'
+                            : 'border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-950',
                       )}
                     >
-                      {/* Circle Indicator */}
-                      <div
-                        className={cn(
-                          'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold transition-all duration-300',
-                          step.done
-                            ? 'border-emerald-500 bg-emerald-500 text-white'
-                            : step.active
-                              ? 'border-indigo-650 bg-indigo-650 text-white shadow-md ring-4 ring-indigo-500/20 scale-105'
-                              : 'border-slate-200 bg-slate-55 text-slate-400 dark:border-slate-800 dark:bg-slate-900',
-                        )}
-                      >
-                        {step.done ? (
-                          <Check className="h-5 w-5" strokeWidth={3} />
-                        ) : (
-                          <span>{index + 1}</span>
-                        )}
-                      </div>
-
-                      {/* Step Info */}
-                      <div className="min-w-0">
-                        <div className={cn(
-                          'text-[10px] font-extrabold uppercase tracking-wider',
-                          step.active ? 'text-indigo-650 dark:text-indigo-400' : 'text-slate-450'
-                        )}>
-                          Step {index + 1}
-                        </div>
-                        <div className={cn(
-                          'text-sm font-bold',
-                          step.active
-                            ? 'text-slate-900 dark:text-white'
-                            : step.done
-                              ? 'text-slate-700 dark:text-slate-300'
-                              : 'text-slate-400'
-                        )}>
-                          {step.label}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Connecting Line (Only on Desktop) */}
-                    {!isLast && (
-                      <div className={cn(
-                        'hidden h-0.5 flex-1 rounded-full transition-all duration-500 lg:mx-4 lg:block',
-                        step.done
-                          ? 'bg-emerald-500'
-                          : 'bg-slate-100 dark:bg-slate-800'
-                      )} />
-                    )}
-                  </React.Fragment>
+                      {step.done && !step.active ? <Check className="h-4 w-4" strokeWidth={3} /> : index + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                        Step {index + 1}
+                      </span>
+                      <span className={cn(
+                        'mt-0.5 block truncate text-sm font-bold',
+                        step.active ? 'text-slate-950 dark:text-white' : 'text-slate-600 dark:text-slate-300'
+                      )}>
+                        {step.label}
+                      </span>
+                    </span>
+                  </button>
                 );
               })}
             </div>
@@ -1207,6 +1187,24 @@ export const SetupRoute: React.FC = () => {
                             </>
                           )}
                         </Button>
+
+                        <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">or</span>
+                          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+                        </div>
+
+                        <Link
+                          to="/docs"
+                          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-850"
+                        >
+                          <Code2 className="h-4 w-4 text-slate-500" />
+                          Read the setup docs
+                          <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+                        </Link>
+                        <p className="mt-2 text-center text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          Prefer a manual setup? Browse the Web, React Native, and Swift installation guides.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1369,7 +1367,7 @@ export const SetupRoute: React.FC = () => {
                       },
                       {
                         text: 'Install the Rejourney SDK',
-                        desc: 'Run npm install or install Swift/Android packages.',
+                        desc: 'Install the Web, React Native, or Swift package for this project.',
                         done: Boolean(activeProject?.publicKey)
                       },
                       {

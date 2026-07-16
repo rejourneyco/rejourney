@@ -27,7 +27,7 @@ import {
     getMarketingHomeCopy,
     MARKETING_LOCALES,
 } from "./shared/lib/internationalMarketing";
-import { isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
+import { isAuthBootstrapData, isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
 
 function renderGoogleAdsBootstrap(conversionId: string): string {
     return [
@@ -224,11 +224,16 @@ export default function App() {
     const shellBootstrap = matches
         .map((match) => match.data)
         .find((data) => isDashboardShellBootstrapData(data)) ?? null;
+    const publicAuthBootstrap = matches
+        .map((match) => match.data)
+        .find((data) => isAuthBootstrapData(data)) ?? null;
 
     return (
         <AuthProvider
-            initialUser={shellBootstrap?.user ?? null}
-            initialHydrated={!!shellBootstrap}
+            initialUser={shellBootstrap?.user ?? publicAuthBootstrap?.user ?? null}
+            initialHydrated={Boolean(shellBootstrap || publicAuthBootstrap)}
+            initialAuthServiceUnavailable={publicAuthBootstrap?.authServiceUnavailable ?? false}
+            initialError={publicAuthBootstrap?.error ?? null}
         >
             <TeamProvider
                 initialTeams={shellBootstrap?.teams ?? []}

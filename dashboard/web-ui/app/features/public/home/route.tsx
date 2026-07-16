@@ -87,7 +87,7 @@ export const meta: Route.MetaFunction = () => {
 
 export default function LandingPage() {
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-900 overflow-x-hidden" lang={homeLocale.languageTag} dir={homeLocale.dir}>
+        <div className="public-readable-scope min-h-screen w-full bg-[#fdfbf7] text-slate-900 overflow-x-hidden" lang={homeLocale.languageTag} dir={homeLocale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -141,7 +141,7 @@ export default function LandingPage() {
                     }),
                 }}
             />
-            <Header />
+            <Header variant="full" noSpacer />
             <main aria-label={homeLocale.mainAriaLabel} className="w-full">
                 <AiLeakHomepage />
             </main>

@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep fixed consent controls from covering the login card. The trailing
+   space disappears immediately after consent is resolved. */
+body:has([data-rejourney-consent-banner]) .rejourney-login-page {
+  --login-consent-space: 10.5rem;
+  min-height: calc(100svh - var(--login-consent-space));
+  margin-bottom: var(--login-consent-space);
+}
+
+body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
+  min-height: calc(100svh - var(--login-consent-space));
+}
+
+@media (min-width: 768px) {
+  body:has([data-rejourney-consent-banner]) .rejourney-login-page {
+    --login-consent-space: 5.75rem;
+  }
+}
+
+.rejourney-setup-wizard .setup-wizard-action {
+  border-radius: 0.5rem !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+}
+
+.rejourney-setup-wizard .setup-wizard-action:hover {
+  transform: translateY(-1px) !important;
+}
+
+.rejourney-setup-wizard .setup-wizard-action:active {
+  transform: translateY(0) !important;
+  box-shadow: none !important;
+}
+
 .web-rrweb-player .replayer-wrapper {
   background: #fff;
 }
@@ -774,52 +806,6 @@
 
   .animate-scale-in {
     animation: scale-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  @keyframes dashboard-auth-transition-in {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.98);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  @keyframes dashboard-auth-transition-progress {
-    0% {
-      transform: translateX(-100%);
-    }
-
-    55% {
-      transform: translateX(0);
-    }
-
-    100% {
-      transform: translateX(105%);
-    }
-  }
-
-  .dashboard-auth-transition {
-    animation: dashboard-auth-transition-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-
-  .dashboard-auth-transition-progress {
-    width: 70%;
-    animation: dashboard-auth-transition-progress 1.05s cubic-bezier(0.76, 0, 0.24, 1) infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .dashboard-auth-transition,
-    .dashboard-auth-transition-progress {
-      animation: none;
-    }
-
-    .dashboard-auth-transition-progress {
-      width: 100%;
-    }
   }
 
   /* Reveal Utilities (for Intersection Observer) */
@@ -4958,15 +4944,15 @@
 }
 
 .rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo-sm) {
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 1) !important;
+  box-shadow: 1.5px 1.5px 0 #0f172a !important;
 }
 
 .rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo) {
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 1) !important;
+  box-shadow: 3px 3px 0 #0f172a !important;
 }
 
 .rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo-lg) {
-  box-shadow: 8px 8px 0 rgba(0, 0, 0, 1) !important;
+  box-shadow: 5px 5px 0 #0f172a !important;
 }
 
 .rejourney-replay-workbench .replay-workbench-header {
@@ -6240,11 +6226,11 @@
 
   .dashboard-modern .shadow-neo,
   .dashboard-modern .shadow-neo-lg {
-    box-shadow: 4px 4px 0 rgba(0, 0, 0, 1);
+    box-shadow: 3px 3px 0 #0f172a;
   }
 
   .dashboard-modern .shadow-neo-sm {
-    box-shadow: 2px 2px 0 rgba(0, 0, 0, 1);
+    box-shadow: 1.5px 1.5px 0 #0f172a;
   }
 
   .dashboard-topbar {
@@ -6453,6 +6439,22 @@
   opacity: 0.62;
 }
 
+.landing-home .landing-hero-cat--purring img {
+  animation: landing-cat-purr 420ms ease-in-out 2;
+}
+
+@keyframes landing-cat-purr {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-5deg) scale(1.04); }
+  75% { transform: rotate(5deg) scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-home .landing-hero-cat--purring img {
+    animation: none;
+  }
+}
+
 @media (max-width: 640px) {
   .landing-home {
     background:
@@ -6476,9 +6478,9 @@
   }
 
   .landing-home .landing-hero-title {
-    max-width: min(23rem, calc(100vw - 2.5rem)) !important;
-    font-size: clamp(1.86rem, 8.4vw, 2.14rem) !important;
-    line-height: 1.02 !important;
+    max-width: 95% !important;
+    font-size: clamp(1.86rem, 8.4vw, 2.3rem) !important;
+    line-height: 1.15 !important;
     text-wrap: balance;
   }
 

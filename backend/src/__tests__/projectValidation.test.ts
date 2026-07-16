@@ -220,4 +220,30 @@ describe('Project Validation', () => {
             expect(updateProjectSchema.safeParse({ platforms: ['ios', 'web'] }).success).toBe(true);
         });
     });
+
+    describe('Supported project integrations', () => {
+        it('rejects Native Android as a standalone integration', () => {
+            const created = createProjectSchema.safeParse({
+                name: 'Android App',
+                platforms: ['android'],
+                packageName: 'com.example.app',
+            });
+            const updated = updateProjectSchema.safeParse({ platforms: ['android'] });
+
+            expect(created.success).toBe(false);
+            expect(updated.success).toBe(false);
+            if (!created.success) {
+                expect(created.error.issues[0]?.message).toContain('Android is supported through React Native');
+            }
+        });
+
+        it('accepts Android runtime markers when React Native is selected', () => {
+            expect(createProjectSchema.safeParse({
+                name: 'React Native App',
+                platforms: ['react-native', 'android'],
+                packageName: 'com.example.app',
+            }).success).toBe(true);
+            expect(updateProjectSchema.safeParse({ platforms: ['react-native', 'android'] }).success).toBe(true);
+        });
+    });
 });

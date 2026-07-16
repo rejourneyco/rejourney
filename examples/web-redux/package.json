@@ -1,0 +1,26 @@
+{
+  "name": "rejourney-redux-commerce-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 4173",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "2.11.2",
+    "@rejourneyco/browser": "file:../../packages/browser",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-redux": "9.2.0",
+    "react-router-dom": "6.30.4"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.28",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "5.9.3",
+    "vite": "latest"
+  }
+}

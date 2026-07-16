@@ -15,17 +15,19 @@ import {
     RefreshCw,
     X,
     ChevronLeft,
+    ChevronRight,
     Smartphone,
     ShoppingBag,
 } from 'lucide-react';
 import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
-import { LandingThreeField } from './LandingThreeField';
+
 import {
     MarkAngular,
     MarkGatsby,
     MarkHydrogen,
     MarkNextJs,
     MarkReactNative,
+    MarkRedux,
     MarkRemix,
     MarkShopify,
     MarkSvelte,
@@ -48,16 +50,17 @@ const MOUNTAIN_CARD_IMAGE = landingImage('/images/mountain_app_card.jpg');
 const BEACH_CARD_IMAGE = landingImage('/images/beach_app_card.jpg');
 
 const supportedPlatforms = [
-    { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a' },
-    { label: 'React Native / Expo', icon: MarkReactNative, color: '#2563eb' },
-    { label: 'Swift', icon: MarkSwift, color: '#f97316' },
-    { label: 'Vue / Nuxt', icon: MarkVue, color: '#42b883' },
-    { label: 'Angular', icon: MarkAngular, color: '#dd0031' },
-    { label: 'SvelteKit', icon: MarkSvelte, color: '#ff3e00' },
-    { label: 'Remix', icon: MarkRemix, color: '#0f172a' },
-    { label: 'Gatsby', icon: MarkGatsby, color: '#663399' },
-    { label: 'Shopify', icon: MarkShopify, color: '#95bf47' },
-    { label: 'Hydrogen', icon: MarkHydrogen, color: '#00a878' },
+    { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a', href: '/docs/web/getting-started#nextjs' },
+    { label: 'Redux Toolkit', icon: MarkRedux, color: '#764abc', href: '/docs/web/getting-started#redux-and-redux-toolkit' },
+    { label: 'React Native / Expo', icon: MarkReactNative, color: '#2563eb', href: '/docs/reactnative/overview' },
+    { label: 'Swift', icon: MarkSwift, color: '#f97316', href: '/docs/swift/overview' },
+    { label: 'Vue / Nuxt', icon: MarkVue, color: '#42b883', href: '/docs/web/getting-started#vue' },
+    { label: 'Angular', icon: MarkAngular, color: '#dd0031', href: '/docs/web/getting-started#angular' },
+    { label: 'SvelteKit', icon: MarkSvelte, color: '#ff3e00', href: '/docs/web/getting-started#svelte-sveltekit' },
+    { label: 'Remix', icon: MarkRemix, color: '#0f172a', href: '/docs/web/getting-started#remix' },
+    { label: 'Gatsby', icon: MarkGatsby, color: '#663399', href: '/docs/web/getting-started' },
+    { label: 'Shopify', icon: MarkShopify, color: '#95bf47', href: '/docs/shopify/getting-started' },
+    { label: 'Hydrogen', icon: MarkHydrogen, color: '#00a878', href: '/docs/web/getting-started' },
 ];
 
 const sdkPlatforms = [
@@ -93,6 +96,27 @@ export default function RootLayout({ children }) {
     </html>
   );
 }`
+    },
+    {
+        id: 'redux',
+        title: 'Redux Toolkit',
+        icon: MarkRedux,
+        brandColor: '#764abc',
+        terminalCommands: ['npm install @rejourneyco/browser'],
+        subtitle: 'Optional action + state replay',
+        fileName: 'store.ts',
+        code: `import { configureStore } from '@reduxjs/toolkit';
+import { createRejourneyReduxMiddleware } from '@rejourneyco/browser/redux';
+
+export const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(
+      createRejourneyReduxMiddleware({
+        redactKeys: ['email'],
+      }),
+    ),
+});`
     },
     {
         id: 'swift',
@@ -268,7 +292,7 @@ const SpinningGlobe: React.FC = () => {
  * splits into a Checkout ribbon and a Drop-off ribbon via smooth bezier curves,
  * exactly like a real Sankey/alluvial diagram.
  */
-const SankeyPanel: React.FC<{
+export const SankeyPanel: React.FC<{
     title: string;
     addToCart: number;
     checkout: number;
@@ -331,8 +355,7 @@ const SankeyPanel: React.FC<{
     return (
         <div className="flex-1 min-w-0">
             {/* SVG carries everything — title included — so both panels are
-                always the same height and pixel-aligned. overflow visible is
-                a no-op here since everything is inside the viewBox. */}
+                always the same height and pixel-aligned. */}
             <svg
                 viewBox={`0 0 ${W} ${H}`}
                 className="w-full"
@@ -345,9 +368,9 @@ const SankeyPanel: React.FC<{
                     y={16}
                     textAnchor="start"
                     dominantBaseline="middle"
-                    fill="#94a3b8"
+                    fill="#374151"
                     fontSize="11"
-                    fontWeight="700"
+                    fontWeight="900"
                     letterSpacing="0.1em"
                     fontFamily="system-ui, sans-serif"
                     style={{ textTransform: 'uppercase' }}
@@ -356,43 +379,43 @@ const SankeyPanel: React.FC<{
                 </text>
 
                 {/* ── Source bar ── */}
-                <rect x={sourceX} y={sourceTop} width={barW} height={sourceH} rx={5} fill="#60a5fa" />
+                <rect x={sourceX} y={sourceTop} width={barW} height={sourceH} rx={0} fill="#60a5fa" stroke="black" strokeWidth="1.5" />
 
                 {/* ── Checkout ribbon + bar ── */}
-                <path d={checkoutPath} fill={accentLight} />
-                <rect x={destX} y={checkoutTop} width={barW} height={checkoutH} rx={5} fill={accent} />
+                <path d={checkoutPath} fill={accentLight} stroke="black" strokeWidth="1.5" />
+                <rect x={destX} y={checkoutTop} width={barW} height={checkoutH} rx={0} fill={accent} stroke="black" strokeWidth="1.5" />
 
                 {/* ── Drop-off ribbon + bar ── */}
-                <path d={dropPath} fill={dropLight} />
-                <rect x={destX} y={dropTop} width={barW} height={dropH} rx={5} fill={dropColor} />
+                <path d={dropPath} fill={dropLight} stroke="black" strokeWidth="1.5" />
+                <rect x={destX} y={dropTop} width={barW} height={dropH} rx={0} fill={dropColor} stroke="black" strokeWidth="1.5" />
 
                 {/* ── Source label (left of source bar) ── */}
                 <text x={sourceX - 12} y={srcMid - 9} textAnchor="end" dominantBaseline="middle"
-                    fill="#e2e8f0" fontSize="15" fontWeight="700" fontFamily="system-ui, sans-serif">
+                    fill="black" fontSize="15" fontWeight="900" fontFamily="system-ui, sans-serif">
                     {addToCart.toLocaleString()}
                 </text>
                 <text x={sourceX - 12} y={srcMid + 9} textAnchor="end" dominantBaseline="middle"
-                    fill="#64748b" fontSize="11" fontFamily="system-ui, sans-serif">
+                    fill="#4b5563" fontSize="11" fontWeight="700" fontFamily="system-ui, sans-serif">
                     to Cart
                 </text>
 
                 {/* ── Checkout label (right of dest bar) ── */}
                 <text x={destX + barW + 12} y={checkoutMid - 9} textAnchor="start" dominantBaseline="middle"
-                    fill={accent} fontSize="17" fontWeight="700" fontFamily="system-ui, sans-serif">
+                    fill={accent === '#34d399' || accent === '#22c55e' ? '#15803d' : '#b91c1c'} fontSize="17" fontWeight="900" fontFamily="system-ui, sans-serif">
                     {checkout.toLocaleString()}
                 </text>
                 <text x={destX + barW + 12} y={checkoutMid + 9} textAnchor="start" dominantBaseline="middle"
-                    fill="#64748b" fontSize="11" fontFamily="system-ui, sans-serif">
+                    fill="#4b5563" fontSize="11" fontWeight="700" fontFamily="system-ui, sans-serif">
                     Checkout
                 </text>
 
                 {/* ── Drop-off label (right of dest bar) ── */}
                 <text x={destX + barW + 12} y={dropMid - 9} textAnchor="start" dominantBaseline="middle"
-                    fill="#94a3b8" fontSize="15" fontWeight="600" fontFamily="system-ui, sans-serif">
+                    fill="#4b5563" fontSize="15" fontWeight="900" fontFamily="system-ui, sans-serif">
                     {dropOff.toLocaleString()}
                 </text>
                 <text x={destX + barW + 12} y={dropMid + 9} textAnchor="start" dominantBaseline="middle"
-                    fill="#475569" fontSize="11" fontFamily="system-ui, sans-serif">
+                    fill="#6b7280" fontSize="11" fontWeight="700" fontFamily="system-ui, sans-serif">
                     Drop-off
                 </text>
             </svg>
@@ -405,11 +428,12 @@ export const AiLeakHomepage: React.FC = () => {
     const homeCopy = getMarketingHomeCopy(location.pathname);
 
     // Bottom CTA Playground state
-    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'swift' | 'vue'>('nextjs');
+    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'redux' | 'swift' | 'vue'>('nextjs');
     const [copied, setCopied] = useState(false);
+    const [catHasBeenPet, setCatHasBeenPet] = useState(false);
 
-    // Interactive Showcase Tabs state
     const [activeFeatureTab, setActiveFeatureTab] = useState<'replay' | 'heatmaps' | 'api' | 'stability' | 'geo'>('replay');
+    const [activeSuccessStory, setActiveSuccessStory] = useState<'burst' | 'merch'>('burst');
 
     const [chartInView, setChartInView] = useState(false);
     const chartRef = React.useRef<HTMLDivElement>(null);
@@ -465,42 +489,65 @@ export const AiLeakHomepage: React.FC = () => {
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
 
     return (
-        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[#f9f9fb] text-slate-900">
+        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[#fdfbf7] text-slate-900">
 
             <div className="relative z-10">
                 {/* Hero Section */}
-                <section className="landing-hero-section relative z-20 overflow-hidden px-5 pb-28 pt-36 text-center sm:px-8 sm:pb-40 sm:pt-44 lg:px-10 lg:pb-44 lg:pt-48">
-                    <LandingThreeField variant="landing-hero" seed={11} />
+                <section className="landing-hero-section relative z-20 overflow-hidden bg-[#fdfbf7] px-5 pb-20 pt-32 text-center sm:px-8 sm:pb-24 sm:pt-36 lg:px-10 lg:pb-28 lg:pt-40 xl:pb-64">
 
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
                     <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
-                        <h1 className="landing-hero-title mx-auto max-w-6xl font-display text-[1.68rem] font-extrabold leading-[1.04] tracking-normal text-slate-950 min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[3.05rem] md:text-[3.65rem] lg:text-[4.45rem] xl:text-[5.35rem]">
+                        <h1 className="landing-hero-title mx-auto max-w-5xl text-balance font-sans text-[1.68rem] font-black uppercase leading-[1.02] tracking-[-0.035em] text-slate-950 min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[2.85rem] md:text-[3.35rem] lg:text-[4rem] xl:text-[4.5rem]">
                             Revenue Leak Prediction for Web and Mobile Apps
                         </h1>
-                        <p className="landing-hero-subtitle mx-auto mt-8 max-w-3xl text-balance text-lg font-medium leading-relaxed text-slate-600 sm:text-xl md:text-2xl">
+                        <p className="landing-hero-subtitle mx-auto mt-6 max-w-2xl text-balance text-lg font-semibold leading-relaxed text-slate-650 sm:text-xl">
                             {homeCopy.hero.description}
                         </p>
                         {/* Action buttons matching style */}
-                        <div className="landing-hero-actions mt-9 flex w-full max-w-[20.5rem] flex-col items-center justify-center gap-3 sm:mt-11 sm:w-auto sm:max-w-none sm:flex-row">
+                        <div className="landing-hero-actions mt-8 flex w-full max-w-[20.5rem] flex-col items-center justify-center gap-3 sm:mt-9 sm:w-auto sm:max-w-none sm:flex-row">
                             <Link
                                 to={LOGIN_PATH}
-                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-full border border-slate-950 bg-slate-950 px-7 text-[0.95rem] font-bold text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] ring-1 ring-slate-950/10 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-800 hover:bg-slate-800 hover:shadow-[0_20px_44px_rgba(15,23,42,0.24)] active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-7 text-[0.95rem] font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none sm:w-auto sm:px-8"
                             >
                                 <span>Get Started $0</span>
                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                             </Link>
                             <Link
                                 to="/demo"
-                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-full border border-slate-300/80 bg-white/60 px-7 text-[0.95rem] font-bold text-slate-700 shadow-sm shadow-slate-200/40 ring-1 ring-slate-400/10 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white/80 hover:shadow-md active:translate-y-0 sm:min-h-[58px] sm:w-auto sm:px-8 sm:text-base"
+                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-7 text-[0.95rem] font-extrabold uppercase text-black shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-slate-400 hover:bg-[#ecfeff] hover:shadow-md active:translate-y-0 sm:w-auto sm:px-8"
                             >
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-white transition-transform duration-300 group-hover:scale-110">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-sm bg-slate-900 text-white transition-transform duration-300 group-hover:scale-105">
                                     <Play className="ml-px h-3 w-3 fill-current" aria-hidden="true" />
                                 </span>
                                 Live Demo
                             </Link>
                         </div>
-                        <div className="landing-platforms mx-auto mt-14 flex w-full max-w-6xl flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-8">
+                        <div className="landing-hero-cat mt-7 flex flex-col items-center xl:absolute xl:-bottom-60 xl:left-1/2 xl:mt-0 xl:-translate-x-1/2">
+                            <span
+                                className={`relative mb-4 max-w-[25rem] -rotate-1 rounded-xl border-2 border-slate-950 bg-[#fff19c] px-4 py-2 text-center text-xs font-black uppercase leading-tight tracking-tight text-slate-950 shadow-[4px_4px_0_#0f172a] transition-all duration-200 after:absolute after:-bottom-3 after:right-12 after:h-5 after:w-5 after:rotate-45 after:border-b-2 after:border-r-2 after:border-slate-950 after:bg-[#fff19c] after:content-[''] sm:text-sm ${catHasBeenPet ? 'scale-105 rotate-1' : ''}`}
+                                aria-live="polite"
+                            >
+                                {catHasBeenPet
+                                    ? 'Oh, and you see that sign up button? Go click that for me.'
+                                    : 'Purrfect. Keep exploring…'}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setCatHasBeenPet(true)}
+                                className={`group relative rounded-full p-1 transition-transform duration-200 motion-safe:hover:-translate-y-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${catHasBeenPet ? 'landing-hero-cat--purring' : ''}`}
+                                aria-label="Pet the Rejourney cat"
+                                aria-pressed={catHasBeenPet}
+                            >
+                                <img
+                                    src="/images/rejourney-cat.svg"
+                                    alt=""
+                                    className="h-20 w-20 drop-shadow-[0_10px_10px_rgba(15,23,42,0.16)] sm:h-24 sm:w-24 xl:h-36 xl:w-36"
+                                />
+                                <span className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-transparent transition group-hover:ring-emerald-300/70" aria-hidden="true" />
+                            </button>
+                        </div>
+                        <div className="landing-platforms mx-auto mt-12 flex w-full max-w-6xl flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-7">
                             <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.18em] text-slate-400">
                                 Supported platforms
                             </p>
@@ -515,13 +562,15 @@ export const AiLeakHomepage: React.FC = () => {
                                         {row.map((platform) => {
                                             const Icon = platform.icon;
                                             return (
-                                                <div
+                                                <Link
                                                     key={platform.label}
-                                                    className="inline-flex min-h-10 min-w-[9.5rem] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/70 px-4 text-sm font-extrabold text-slate-600 shadow-sm shadow-slate-200/60 ring-1 ring-white/60 backdrop-blur-sm"
+                                                    to={platform.href}
+                                                    aria-label={`${platform.label} setup documentation`}
+                                                    className="group inline-flex min-h-10 min-w-[9.5rem] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/70 px-4 text-sm font-extrabold text-slate-600 shadow-sm shadow-slate-200/60 ring-1 ring-white/60 backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-white hover:text-indigo-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
                                                 >
-                                                    <Icon className="h-4 w-4 shrink-0" style={{ color: platform.color }} />
+                                                    <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" style={{ color: platform.color }} />
                                                     <span className="whitespace-nowrap">{platform.label}</span>
-                                                </div>
+                                                </Link>
                                             );
                                         })}
                                     </div>
@@ -531,13 +580,12 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            <div className="landing-after-hero relative z-10 overflow-hidden bg-[#f9f9fb]">
-                <LandingThreeField variant="landing-sparse" seed={307} className="landing-after-hero-field" />
+            <div className="landing-after-hero relative z-10 overflow-hidden bg-[#fdfbf7]">
                 <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-slate-200/60 to-transparent" aria-hidden="true" />
 
             {/* Detailed product value sections for founders & revenue recovery */}
-            <section className="landing-section relative z-10 overflow-hidden bg-transparent px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
-                <div className="mx-auto max-w-7xl space-y-32">
+            <section className="landing-section relative z-10 overflow-hidden bg-[#fdfbf7] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
+                <div className="mx-auto max-w-6xl space-y-24 sm:space-y-28">
                     
                     {/* Section 1: Checkout Funnel Leak Detection */}
                     <div className="grid gap-12 lg:grid-cols-[0.42fr_0.58fr] lg:items-center">
@@ -548,7 +596,7 @@ export const AiLeakHomepage: React.FC = () => {
                             </h3>
                         </div>
                         {/* Outer card — phone left, single insight card right */}
-                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-[#f0f1f3] shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden flex items-start sm:items-stretch gap-0">
+                        <div className="flex items-start gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f0f1f3] shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:items-stretch">
                             {/* Phone — flush left, no padding needed */}
                             <div className="flex-shrink-0 self-stretch flex items-end pl-5 pb-0 pt-5">
                                 <div className="w-[190px] rounded-t-[2rem] bg-slate-950 p-[5px] pb-0 shadow-[0_-12px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/[0.06]">
@@ -659,7 +707,7 @@ export const AiLeakHomepage: React.FC = () => {
 
                     {/* Section 2: ROAS & Conversion Lift */}
                     <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-                        <div ref={chartRef} className="rounded-[1.75rem] border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(15,23,42,0.08)] lg:order-first overflow-hidden">
+                        <div ref={chartRef} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)] lg:order-first">
                             {/* Stats summary bar — clean analytics tool style */}
                             <div className="grid grid-cols-3 border-b border-slate-100 divide-x divide-slate-100">
                                 <div className="px-4 py-3.5">
@@ -870,7 +918,7 @@ export const AiLeakHomepage: React.FC = () => {
                                 Prevent Friction Churn and Ensure Renewals.
                             </h3>
                         </div>
-                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(15,23,42,0.08)] overflow-hidden">
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                             {/* Card header */}
                             <div className="flex items-center justify-between border-b border-slate-100 bg-white px-5 py-3.5">
                                 <div className="flex items-center gap-2.5">
@@ -945,7 +993,7 @@ export const AiLeakHomepage: React.FC = () => {
 
                     {/* Section 4: Revenue Lift Verification (Release Markers) */}
                     <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-                        <div className="rounded-[1.75rem] border border-slate-200/60 bg-white/70 backdrop-blur-xl p-6 shadow-[0_20px_40px_rgba(15,23,42,0.08)] flex items-center justify-center lg:order-first w-full relative overflow-visible">
+                        <div className="relative flex w-full items-center justify-center overflow-visible rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.06)] lg:order-first">
                             <SpinningGlobe />
                         </div>
                         <div className="space-y-4">
@@ -960,21 +1008,24 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Interactive Features tab section */}
-            <section className="landing-section relative z-10 overflow-hidden bg-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10 border-t border-slate-200/50">
-                <div className="mx-auto max-w-7xl">
-                    <div className="grid gap-12 lg:grid-cols-[0.45fr_0.55fr] lg:items-center">
+            <section className="landing-section relative z-10 overflow-hidden border-t border-slate-200/70 bg-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
+                <div className="mx-auto max-w-[1440px]">
+                    <div className="grid gap-8 lg:grid-cols-[minmax(320px,0.36fr)_minmax(0,0.64fr)] lg:items-center xl:gap-10">
                         
                         {/* Left Column: Headline and Tabs */}
-                        <div className="space-y-8">
-                            <div className="space-y-4">
-                                <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight text-slate-950">
-                                    Full Toolbox For Teams
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Product toolkit</p>
+                                <h2 className="mt-2 font-display text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-4xl">
+                                    Full toolbox for teams
                                 </h2>
-
+                                <p className="mt-3 max-w-lg text-sm font-medium leading-6 text-slate-600 sm:text-base">
+                                    Move from user evidence to a fix without switching between disconnected tools.
+                                </p>
                             </div>
                             
                             {/* Vertical Tabs stack */}
-                            <div className="flex flex-col gap-3">
+                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
                                 {[
                                     {
                                         id: 'replay',
@@ -1029,24 +1080,24 @@ export const AiLeakHomepage: React.FC = () => {
                                         <button
                                             key={tab.id}
                                             onClick={() => setActiveFeatureTab(tab.id as 'replay' | 'heatmaps' | 'api' | 'stability' | 'geo')}
-                                            className={`w-full flex flex-col items-start gap-2.5 rounded-2xl p-5 text-left transition-all duration-300 border ${
+                                            className={`flex w-full flex-col items-start gap-2.5 border-l-2 px-4 py-3.5 text-left transition-colors duration-200 ${
                                                 isActive
-                                                    ? 'bg-white border-slate-200/80 shadow-lg shadow-slate-100/40 text-slate-950'
-                                                    : 'bg-transparent border-transparent text-slate-650 hover:text-slate-950 hover:bg-white/30'
+                                                    ? 'border-l-indigo-500 bg-slate-50 text-slate-950'
+                                                    : 'border-l-transparent bg-white text-slate-600 hover:bg-slate-50/70 hover:text-slate-950'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className={`h-8 w-8 rounded-lg flex items-center justify-center border shrink-0 transition-colors ${
+                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors ${
                                                     isActive ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-slate-50 border-slate-100 text-slate-500'
                                                 }`}>
                                                     <Icon className="h-4 w-4" />
                                                 </div>
-                                                <span className="font-bold text-base">{tab.title}</span>
+                                                <span className="text-sm font-bold sm:text-base">{tab.title}</span>
                                             </div>
                                             
                                             {isActive && (
-                                                <div className="pl-11 pr-2 space-y-3">
-                                                    <p className="text-sm font-medium leading-relaxed text-slate-600">
+                                                <div className="space-y-2.5 pl-11 pr-2">
+                                                    <p className="text-sm font-normal leading-6 text-slate-600">
                                                         {tab.description}
                                                     </p>
                                                     <Link
@@ -1065,7 +1116,7 @@ export const AiLeakHomepage: React.FC = () => {
                         </div>
                         
                         {/* Right Column: Active Image Display */}
-                        <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/60 bg-white/70 backdrop-blur-xl p-2.5 shadow-[0_20px_40px_rgba(15,23,42,0.08)]">
+                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                             {[
                                 { id: 'replay', image: SESSION_REPLAY_IMAGE, alt: 'User recording workbench' },
                                 { id: 'heatmaps', image: HEATMAPS_IMAGE, alt: 'Heatmaps attention mapping' },
@@ -1080,7 +1131,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         key={item.id}
                                         src={item.image}
                                         alt={item.alt}
-                                        className="w-full rounded-[1.35rem] object-cover"
+                                        className="w-full rounded-lg object-cover"
                                     />
                                 );
                             })}
@@ -1090,59 +1141,133 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            {/* ── Success Story: Burst Creatine ── */}
-            <section className="landing-section relative z-10 overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10 border-t border-slate-200/50">
+            {/* ── Customer success gallery ── */}
+            <section className="landing-section relative z-10 overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10 border-t border-black/15 bg-[#fdfbf7]">
                 <div className="mx-auto max-w-5xl">
+                    <div className="mb-8 flex flex-col items-center justify-between gap-4 sm:flex-row">
+                        <div>
+                            <p className="text-center text-xs font-black uppercase tracking-[0.18em] text-slate-500 sm:text-left">Customer success</p>
+                            <h2 className="mt-2 text-center font-sans text-3xl font-black uppercase tracking-tight text-slate-955 sm:text-left">One story at a time.</h2>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                                className="flex h-10 w-10 items-center justify-center rounded-none border border-black bg-white text-black shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
+                                aria-label="Previous story"
+                            >
+                                <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                                className="flex h-10 w-10 items-center justify-center rounded-none border border-black bg-white text-black shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
+                                aria-label="Next story"
+                            >
+                                <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
+                            </button>
+                        </div>
+                    </div>
 
-                    {/* Case study card — dark background to visually separate from the page */}
-                    <div className="overflow-hidden rounded-3xl bg-slate-950 px-8 py-14 sm:px-14 sm:py-16">
+                    {/* Case study card — yellow background to match styling */}
+                    <div className="overflow-hidden rounded-2xl border border-amber-200/80 bg-[#fff8c5] px-6 py-10 text-black shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:px-10 sm:py-12">
+                        {activeSuccessStory === 'burst' ? (
+                            <div>
+                                {/* Top: logo circle + headline */}
+                                <div className="flex flex-col items-center text-center gap-5 mb-14">
+                                    <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                        <img
+                                            src="/images/burst-creatine-logo-red.png"
+                                            alt="Burst Creatine"
+                                            className="h-full w-full object-cover"
+                                        />
+                                    </div>
+                                    <div className="space-y-3">
+                                        <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-950 sm:text-3xl">
+                                            Burst Creatine Increased Sales by 103%.
+                                        </h3>
+                                        <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                            Rejourney surfaced the UX friction points causing drop-off. Simple fixes, no guesswork.
+                                        </p>
+                                    </div>
+                                </div>
 
-                        {/* Top: logo circle + headline */}
-                        <div className="flex flex-col items-center text-center gap-5 mb-14">
-                            <div className="h-16 w-16 rounded-full overflow-hidden border-2 border-white/10 shadow-lg shrink-0">
-                                <img
-                                    src="/images/burst-creatine-logo-red.png"
-                                    alt="Burst Creatine"
-                                    className="h-full w-full object-cover"
-                                />
-                            </div>
-                            <div className="space-y-3">
-                                <h2 className="font-display text-2xl font-extrabold leading-tight tracking-tight text-white sm:text-3xl">
-                                    Burst Creatine Increased Sales by 103%.
-                                </h2>
-                                <p className="max-w-lg mx-auto text-sm font-medium leading-relaxed text-slate-400">
-                                    Rejourney surfaced the UX friction points causing drop-off. Simple fixes, no guesswork.
+                                {/* Sankey diagrams */}
+                                <div className="grid gap-8 lg:grid-cols-2">
+                                    <SankeyPanel
+                                        title="Before Rejourney"
+                                        addToCart={6810}
+                                        checkout={2130}
+                                        accent="#f87171"
+                                        accentLight="rgba(248,113,113,0.22)"
+                                        dropColor="#94a3b8"
+                                        dropLight="rgba(148,163,184,0.14)"
+                                    />
+                                    <SankeyPanel
+                                        title="After Rejourney"
+                                        addToCart={6810}
+                                        checkout={4319}
+                                        accent="#34d399"
+                                        accentLight="rgba(52,211,153,0.22)"
+                                        dropColor="#94a3b8"
+                                        dropLight="rgba(148,163,184,0.12)"
+                                    />
+                                </div>
+
+                                {/* Result line */}
+                                <p className="mt-8 text-center text-sm font-bold text-slate-800">
+                                    Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
                                 </p>
                             </div>
-                        </div>
+                        ) : (
+                            <div>
+                                {/* Top: logo circle + headline */}
+                                <div className="flex flex-col items-center text-center gap-5 mb-14">
+                                    <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                        <img
+                                            src="/images/customer-onboarding-logo.png"
+                                            alt="Campus Merch Live"
+                                            className="h-full w-full object-cover"
+                                        />
+                                    </div>
+                                    <div className="space-y-3">
+                                        <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-950 sm:text-3xl">
+                                            Campus Merch Live Increased Onboarding to 93%.
+                                        </h3>
+                                        <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                            Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
+                                        </p>
+                                    </div>
+                                </div>
 
-                        {/* Sankey diagrams — sit directly on the dark card, no nested panel */}
-                        <div className="grid gap-8 lg:grid-cols-2">
-                            <SankeyPanel
-                                title="Before Rejourney"
-                                addToCart={6810}
-                                checkout={2130}
-                                accent="#f87171"
-                                accentLight="rgba(248,113,113,0.22)"
-                                dropColor="#94a3b8"
-                                dropLight="rgba(148,163,184,0.14)"
-                            />
-                            <SankeyPanel
-                                title="After Rejourney"
-                                addToCart={6810}
-                                checkout={4319}
-                                accent="#34d399"
-                                accentLight="rgba(52,211,153,0.22)"
-                                dropColor="#94a3b8"
-                                dropLight="rgba(148,163,184,0.12)"
-                            />
-                        </div>
+                                {/* Sankey diagrams */}
+                                <div className="grid gap-8 lg:grid-cols-2">
+                                    <SankeyPanel
+                                        title="Before Rejourney"
+                                        addToCart={4500}
+                                        checkout={3555}
+                                        accent="#f87171"
+                                        accentLight="rgba(248,113,113,0.22)"
+                                        dropColor="#94a3b8"
+                                        dropLight="rgba(148,163,184,0.14)"
+                                    />
+                                    <SankeyPanel
+                                        title="After Rejourney"
+                                        addToCart={4500}
+                                        checkout={4185}
+                                        accent="#34d399"
+                                        accentLight="rgba(52,211,153,0.22)"
+                                        dropColor="#94a3b8"
+                                        dropLight="rgba(148,163,184,0.12)"
+                                    />
+                                </div>
 
-                        {/* Result line */}
-                        <p className="mt-8 text-center text-sm font-medium text-slate-400">
-                        Same <span style={{ color: '#0081FB' }} className="font-semibold">Meta</span> Ads Budget. <span className="text-emerald-400 font-bold">+2,189 more checkouts</span> from fixing easy UX leaks.
-                        </p>
-
+                                {/* Result line */}
+                                <p className="mt-8 text-center text-sm font-bold text-slate-800">
+                                    Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </section>
@@ -1176,7 +1301,7 @@ export const AiLeakHomepage: React.FC = () => {
                                     <button
                                         key={platform.id}
                                         onClick={() => {
-                                            setActiveSdkPlatform(platform.id as 'shopify' | 'nextjs' | 'reactnative' | 'swift' | 'vue');
+                                            setActiveSdkPlatform(platform.id as 'shopify' | 'nextjs' | 'reactnative' | 'redux' | 'swift' | 'vue');
                                             setCopied(false);
                                         }}
                                         className={`w-full flex items-center gap-4 rounded-xl p-4 text-left border transition-all duration-300 ${

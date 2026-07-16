@@ -49,54 +49,56 @@ export const FaqSection: React.FC = () => {
     };
 
     return (
-        <section className="landing-section landing-faq-section relative z-10 overflow-hidden border-t border-transparent bg-transparent px-6 py-24 sm:px-8 sm:py-32 lg:px-12">
+        <section className="landing-section landing-faq-section relative z-10 overflow-hidden border-t border-slate-200/70 bg-transparent px-6 py-20 sm:px-8 sm:py-24 lg:px-12">
             <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_17%_21%,rgba(37,99,235,0.015),transparent_31%),radial-gradient(circle_at_82%_18%,rgba(16,185,129,0.015),transparent_32%),radial-gradient(circle_at_52%_86%,rgba(245,158,11,0.01),transparent_34%)]" aria-hidden="true" />
-            <div className="relative z-10 mx-auto max-w-7xl">
-                <div className="grid gap-12 lg:grid-cols-[1.1fr_1.9fr] lg:items-start">
+            <div className="relative z-10 mx-auto max-w-6xl">
+                <div className="grid gap-10 lg:grid-cols-[0.8fr_1.4fr] lg:items-start">
                     
                     {/* Left Header Column - Clean Typography Hierarchy */}
-                    <div className="lg:sticky lg:top-28 space-y-5 text-left">
+                    <div className="space-y-5 text-left lg:sticky lg:top-24">
                         <div className="space-y-3">
 
-                            <h2 className="font-display text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl leading-[1.1]">
+                            <h2 className="font-display text-3xl font-extrabold leading-[1.1] tracking-tight text-slate-900 sm:text-4xl">
                                 Frequently Asked Questions
                             </h2>
 
                         </div>
 
                         {/* Minimalist support link instead of card */}
-                        <div className="pt-2 text-sm text-slate-500 flex items-center gap-2">
-                            <MessageSquare className="h-4 w-4 text-blue-500 shrink-0" />
+                        <div className="flex items-center gap-2 pt-1 text-sm font-medium text-slate-600">
+                            <MessageSquare className="h-4 w-4 text-blue-600 shrink-0" />
                             <span>
                                 Have specialized requirements?{' '}
-                                <button onClick={handleCopyEmail} className="text-blue-600 font-bold hover:underline transition select-none">
+                                <button onClick={handleCopyEmail} className="select-none font-bold text-blue-600 transition hover:underline">
                                     {copiedEmail ? 'Email copied!' : 'Contact engineering'}
                                 </button>
                             </span>
                         </div>
                     </div>
 
-                    {/* Right Column - Clean separated lines, no boxes/pills */}
-                    <div className="divide-y divide-slate-100 border-t border-b border-slate-100">
+                    {/* Right Column - quiet dashboard-style disclosure rows */}
+                    <div className="flex flex-col gap-2.5">
                         {faqs.map((faq, index) => {
                             const isOpen = openIndex === index;
                             return (
                                 <div 
                                     key={index}
-                                    className="py-6 sm:py-7 transition-all duration-300"
+                                    className={`rounded-xl border p-4 transition-colors duration-200 sm:p-5 ${
+                                        isOpen
+                                            ? 'border-indigo-200 bg-indigo-50/35 shadow-sm'
+                                            : 'border-slate-200 bg-white shadow-sm hover:border-slate-300'
+                                    }`}
                                 >
                                     <button
                                         onClick={() => toggleFaq(index)}
                                         className="flex w-full items-start justify-between gap-6 text-left"
                                         aria-expanded={isOpen}
                                     >
-                                        <span className={`text-lg sm:text-xl font-bold tracking-tight transition-colors duration-250 leading-snug ${
-                                            isOpen ? 'text-blue-600' : 'text-slate-900 hover:text-blue-600'
-                                        }`}>
+                                        <span className="text-base font-bold leading-snug text-slate-900 sm:text-[1.05rem]">
                                             {faq.question}
                                         </span>
-                                        <ChevronDown className={`h-6 w-6 shrink-0 mt-0.5 text-slate-400 transition-all duration-300 ${
-                                            isOpen ? 'rotate-180 text-blue-600' : ''
+                                        <ChevronDown className={`mt-0.5 h-5 w-5 shrink-0 text-slate-500 transition-transform duration-200 ${
+                                            isOpen ? 'rotate-180' : ''
                                         }`} />
                                     </button>
                                     
@@ -106,8 +108,8 @@ export const FaqSection: React.FC = () => {
                                             isOpen ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0'
                                         }`}
                                     >
-                                        <div className="overflow-hidden">
-                                            <p className="text-[15px] sm:text-base font-medium leading-relaxed text-slate-600 pr-6">
+                                        <div className="mt-1 overflow-hidden border-t border-slate-200 pt-4">
+                                            <p className="pr-4 text-sm font-medium leading-6 text-slate-600 sm:text-[15px]">
                                                 {faq.answer}
                                             </p>
                                         </div>

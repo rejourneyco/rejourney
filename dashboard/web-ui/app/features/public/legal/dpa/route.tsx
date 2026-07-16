@@ -24,7 +24,7 @@ export default function DPA() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Data Processing Agreement</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: July 16, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -52,7 +52,7 @@ export default function DPA() {
 
                             <h3 className="text-base font-semibold mt-6 mb-2">4. Sub-processors</h3>
                             <p>
-                                Controller grants a general authorization for Processor to engage Sub-processors. Processor will provide Controller with at least 14 days' prior written notice (via email or dashboard notification) before adding or replacing any Sub-processor. Controller may object in writing within 14 days of such notice. Current Sub-processors are listed below:
+                                Controller grants a general authorization for Processor to engage Sub-processors. Processor will provide Controller with at least 14 days' prior written notice (via email or dashboard notification) before adding or replacing any Sub-processor. Controller may object in writing within 14 days of such notice. Current and announced Sub-processors are listed below. The Microsoft entry is announced on July 16, 2026 and will not process Customer Personal Data before its effective date of July 30, 2026.
                             </p>
                             <div className="overflow-x-auto my-4">
                                 <table className="min-w-full border border-input text-xs">
@@ -82,6 +82,12 @@ export default function DPA() {
                                             <td className="px-4 py-2 border-b border-input">Object Storage</td>
                                             <td className="px-4 py-2 border-b border-input">United States</td>
                                             <td className="px-4 py-2 border-b border-input">DPA</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="px-4 py-2 border-b border-input">Microsoft Azure OpenAI Service (GPT-5.5 deployment)</td>
+                                            <td className="px-4 py-2 border-b border-input">AI-assisted revenue-leak prediction using data-minimized, pseudonymized diagnostic and analytics signals</td>
+                                            <td className="px-4 py-2 border-b border-input">Customer-selected Azure region; EEA Customer Personal Data is processed in an EU/EFTA regional deployment</td>
+                                            <td className="px-4 py-2 border-b border-input">EU Data Boundary where configured; otherwise Microsoft DPA and EU SCCs, where applicable</td>
                                         </tr>
                                         <tr>
                                             <td className="px-4 py-2 border-b border-input">ZeptoMail (Zoho)</td>
@@ -120,6 +126,7 @@ export default function DPA() {
                             <p>Categories of data subjects: End-users of the Controller's mobile applications.</p>
                             <p>Categories of personal data: IP addresses, device identifiers, approximate geolocation (country, region, city), session recordings, and interaction metadata.</p>
                             <p>Nature and purpose of processing: Providing session replay, analytics, diagnostics, security, support, and related Service functionality; improving the Service; and creating anonymized or aggregated outputs for research, benchmarking, and public trend reporting as authorized in Section 2.</p>
+                            <p className="mt-4"><strong>AI-assisted revenue-leak prediction:</strong> Starting July 30, 2026, Processor may use Microsoft Azure OpenAI Service with a GPT-5.5 deployment to analyze data-minimized, pseudonymized diagnostic and analytics signals and generate revenue-leak predictions and related explanations. Processor will not send raw session recordings, screenshots, direct identifiers, payment-card data, authentication credentials, or special-category Personal Data to that service. Prompts and outputs are used only to provide this functionality and are not used to train or improve foundation models. For EEA Customer Personal Data, Processor will use a regional deployment in an EU/EFTA Azure region and will not use Global or DataZone deployments unless Controller provides documented instructions permitting the applicable processing geography.</p>
                             <p>Sensitive data: None. <strong>Controller is responsible for ensuring that no sensitive data is transmitted to Processor by utilizing the provided masking and redaction tools.</strong></p>
 
                             <h2 className="text-xl font-bold mb-4 mt-8">Annex II: Technical and Organizational Measures</h2>

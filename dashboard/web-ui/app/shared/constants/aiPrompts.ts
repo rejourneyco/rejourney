@@ -35,6 +35,23 @@ Next.js:
 import { RejourneyNext } from '@rejourneyco/browser/next';
 <RejourneyNext publicKey="PUBLIC_KEY_HERE" />
 
+Redux / Redux Toolkit (optional action and state replay):
+If the app uses Redux, preserve its existing middleware and append the Rejourney middleware when configuring the store:
+import { configureStore } from '@reduxjs/toolkit';
+import { createRejourneyReduxMiddleware } from '@rejourneyco/browser/redux';
+
+export const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(
+      createRejourneyReduxMiddleware({
+        redactKeys: ['email'],
+      }),
+    ),
+});
+
+The Redux middleware complements the normal Web SDK setup; it does not initialize or start recording. Review Redux state before production use. Use stateSanitizer, actionSanitizer, predicate, redactKeys, or captureState: 'after' to prevent sensitive or unnecessarily large state from entering replay events.
+
 Also check for Vue, Nuxt, SvelteKit, Remix, Gatsby, Astro, and Angular integrations if the app uses those frameworks.
 
 ROUTE TRACKING:
@@ -787,13 +804,28 @@ function formatPromptPlatform(platform: string): string {
   return platform;
 }
 
+function formatPromptPlatforms(platforms: readonly string[]): string {
+  const values = new Set(platforms);
+  const integrations: string[] = [];
+  if (values.has('web')) integrations.push(formatPromptPlatform('web'));
+  if (values.has('react-native')) {
+    integrations.push(formatPromptPlatform('react-native'));
+  } else if (values.has('ios')) {
+    integrations.push(formatPromptPlatform('ios'));
+  }
+  if (values.has('android') && !values.has('react-native')) {
+    integrations.push('Native Android (unsupported; Android requires React Native)');
+  }
+  return integrations.join(', ');
+}
+
 function buildProjectContextBlock(project: ProjectForPrompt, key: string): string {
   const contextLines = [
     'PROJECT CONTEXT FROM REJOURNEY DASHBOARD:',
     project?.teamName ? `- Team: ${project.teamName}` : null,
     project?.name ? `- Project: ${project.name}` : null,
     `- Public key: ${key}`,
-    project?.platforms?.length ? `- Selected platforms: ${project.platforms.map(formatPromptPlatform).join(', ')}` : null,
+    project?.platforms?.length ? `- Selected platforms: ${formatPromptPlatforms(project.platforms)}` : null,
     project?.webAllowedDomains?.length
       ? `- Web allowed domains: ${project.webAllowedDomains.join(', ')}`
       : project?.webDomain
@@ -913,7 +945,7 @@ export function getAIPromptIdsForProject(project: ProjectForPrompt): AIPromptId[
   const promptIds: AIPromptId[] = [];
   const hasWeb = platforms.includes('web') || Boolean(project?.webDomain || project?.webAllowedDomains?.length);
   const hasReactNative = platforms.includes('react-native');
-  const hasSwift = platforms.includes('ios');
+  const hasSwift = platforms.includes('ios') && !hasReactNative;
 
   if (hasWeb) {
     if (projectLooksLikeShopify(project)) {

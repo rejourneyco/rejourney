@@ -1,5 +1,18 @@
 # @rejourneyco/browser Release Notes
 
+## 0.5.0 - 2026-07-16
+
+### Added
+
+- Redux and Redux Toolkit replay middleware with action, previous-state, and next-state capture synchronized to the session timeline.
+- Default secret-key redaction, bounded serialization, payload size limits, predicates, and action/state sanitizer hooks for Redux capture.
+
+### Compatibility
+
+- No breaking changes to the existing browser SDK setup. Redux replay is opt-in middleware and does not change normal session recording.
+- The middleware is dependency-free at runtime and is structurally compatible with Redux 4/5 and Redux Toolkit 1/2.
+- The `./redux` subpath exports the middleware and its TypeScript types; the root package also exports the middleware for consumers that prefer a single entry point.
+
 ## 0.4.0 - 2026-06-02
 
 ### Added

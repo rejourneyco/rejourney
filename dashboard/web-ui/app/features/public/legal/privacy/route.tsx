@@ -24,7 +24,7 @@ export default function PrivacyPolicy() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Privacy Policy</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: July 16, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -115,6 +115,12 @@ export default function PrivacyPolicy() {
                                             <td className="px-4 py-2 border-b border-input">Object Storage</td>
                                             <td className="px-4 py-2 border-b border-input">United States</td>
                                             <td className="px-4 py-2 border-b border-input">DPA</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="px-4 py-2 border-b border-input">Microsoft Azure OpenAI Service (GPT-5.5 deployment; effective July 30, 2026)</td>
+                                            <td className="px-4 py-2 border-b border-input">AI-assisted revenue-leak prediction using data-minimized, pseudonymized diagnostic and analytics signals</td>
+                                            <td className="px-4 py-2 border-b border-input">Customer-selected Azure region; EEA Customer Personal Data is processed in an EU/EFTA regional deployment</td>
+                                            <td className="px-4 py-2 border-b border-input">EU Data Boundary where configured; otherwise Microsoft DPA and EU SCCs, where applicable</td>
                                         </tr>
                                         <tr>
                                             <td className="px-4 py-2 border-b border-input">ZeptoMail (Zoho)</td>

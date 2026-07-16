@@ -23,6 +23,7 @@ import {
 import {
     MarkShopify,
     MarkReactNative,
+    MarkRedux,
     MarkSwift,
     MarkNextJs,
     MarkVue,
@@ -133,10 +134,19 @@ const PLATFORM_GROUPS: PlatformGroup[] = [
             {
                 name: "Next.js / React",
                 description: "React apps with SPA, SSR, or full-stack routing.",
-                href: "/docs/web/getting-started",
+                href: "/docs/web/getting-started#nextjs",
                 Icon: MarkNextJs,
                 iconColor: "#0f172a",
                 iconBg: "#f1f5f9",
+            },
+            {
+                name: "Redux / Redux Toolkit",
+                description: "Replay actions with synchronized before-and-after state.",
+                href: "/docs/web/getting-started#redux-and-redux-toolkit",
+                Icon: MarkRedux,
+                iconColor: "#764abc",
+                iconBg: "#f5f0ff",
+                badge: "State replay",
             },
             {
                 name: "Vue / Nuxt",

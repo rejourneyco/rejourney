@@ -23,9 +23,17 @@ interface ProjectCreatedModalProps {
 
 function getProjectPlatformLabel(project: Project): string {
   if (project.platforms.length === 0) return 'No platform selected';
-  const labels = project.platforms.map((platform) => (
-    platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : platform === 'react-native' ? 'React Native' : 'Web'
-  ));
+  const platforms = new Set(project.platforms);
+  const labels: string[] = [];
+  if (platforms.has('web')) labels.push('Web');
+  if (platforms.has('react-native')) {
+    labels.push('React Native');
+  } else if (platforms.has('ios')) {
+    labels.push('iOS');
+  }
+  if (platforms.has('android') && !platforms.has('react-native')) {
+    labels.push('Native Android (unsupported)');
+  }
   if (labels.length === 1) return `${labels[0]} app`;
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
 

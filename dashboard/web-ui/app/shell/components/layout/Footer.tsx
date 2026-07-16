@@ -64,36 +64,45 @@ export const Footer: React.FC = () => {
     showToast(copy.copyEmailToast);
   };
 
-  const linkClass = "block text-sm font-semibold leading-normal text-slate-600 transition-all duration-200 hover:translate-x-0.5 hover:text-slate-900";
-  const headingClass = "text-xs font-extrabold tracking-wider uppercase text-slate-950";
+  const linkClass = "block text-sm font-bold leading-normal text-slate-700 transition-all duration-150 hover:underline hover:text-black";
+  const headingClass = "text-xs font-black tracking-wider uppercase text-slate-905";
   const sectionClass = "min-w-0 space-y-4";
 
+  const cleanPath = location.pathname.replace(/\/$/, "");
+  const isBrutalistPage = cleanPath === "" || 
+                          cleanPath.endsWith("/pricing") || 
+                          cleanPath.endsWith("/login") || 
+                          cleanPath === "/en" || 
+                          cleanPath === "/es" || 
+                          cleanPath === "/fr";
+
   return (
-    <footer className="relative overflow-hidden border-t border-slate-200/60 bg-[#f9f9fb] text-slate-600">
-      <div className="relative mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
-        <div className="grid gap-10 lg:grid-cols-[1.05fr_2fr] lg:gap-16">
-          <div className="max-w-md">
-            <Link to="/" className="inline-flex items-center gap-3 transition hover:opacity-80">
-              <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="h-10 w-10 object-contain" />
-              <span className="font-mono text-xl font-extrabold uppercase tracking-tight text-slate-950">Rejourney</span>
-            </Link>
-            <p className="mt-5 text-sm font-medium leading-relaxed text-slate-600">
-              Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
-            </p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link
-                to="/demo"
-                className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-5 text-xs font-extrabold uppercase text-white shadow-lg shadow-slate-200/80 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800"
-              >
-                Demo
+    <div className={isBrutalistPage ? "" : "soft-border-scope"}>
+      <footer className="relative overflow-hidden border-t-4 border-black bg-[#f9f9fb] text-slate-755">
+        <div className="relative mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
+          <div className="grid gap-10 lg:grid-cols-[1.05fr_2fr] lg:gap-16">
+            <div className="max-w-md">
+              <Link to="/" className="inline-flex items-center gap-3 transition hover:opacity-80">
+                <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="h-10 w-10 object-contain" />
+                <span className="font-mono text-xl font-black uppercase tracking-tight text-slate-950">Rejourney</span>
               </Link>
-              <Link
-                to={pricingPath}
-                className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300/60 bg-white/60 backdrop-blur-md px-5 text-xs font-extrabold uppercase text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/80 hover:border-slate-400 hover:text-slate-900"
-              >
-                {copy.pricing}
-              </Link>
-            </div>
+              <p className="mt-5 text-sm font-bold leading-relaxed text-slate-700">
+                Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Link
+                  to="/demo"
+                  className="inline-flex min-h-10 items-center justify-center rounded-none border-2 border-black bg-black px-5 text-xs font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0 active:shadow-none"
+                >
+                  Demo
+                </Link>
+                <Link
+                  to={pricingPath}
+                  className="inline-flex min-h-10 items-center justify-center rounded-none border-2 border-black bg-white px-5 text-xs font-black uppercase text-slate-900 shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo active:translate-y-0 active:shadow-none"
+                >
+                  {copy.pricing}
+                </Link>
+              </div>
           </div>
 
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -171,10 +180,11 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-slate-200 pt-6 text-center text-sm font-semibold text-slate-500">
+        <div className="mt-12 border-t-2 border-black pt-6 text-center text-sm font-black text-slate-900">
           {copy.copyright}
         </div>
       </div>
     </footer>
+    </div>
   );
 };

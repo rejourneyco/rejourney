@@ -13,6 +13,7 @@ Web examples:
 - `web-next`: Next.js App Router with `@rejourneyco/browser/next` on `http://127.0.0.1:3100`
 - `web-sveltekit`: SvelteKit with `@rejourneyco/browser/svelte` on `http://127.0.0.1:3101`
 - `web-nuxt`: Nuxt client plugin with `@rejourneyco/browser/nuxt` on `http://127.0.0.1:3102`
+- `web-redux`: multi-page Redux Toolkit replay fixture with `@rejourneyco/browser/redux` on `http://127.0.0.1:4173`
 
 Swift examples:
 

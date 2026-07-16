@@ -128,33 +128,31 @@ export function RejourneyConsentBanner() {
 
     return (
         <aside
-            className={`fixed bottom-0 left-0 right-0 z-[90] w-full border-t border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.06)] transition-all duration-700 ease-out transform ${
+            data-rejourney-consent-banner
+            className={`fixed bottom-0 left-0 right-0 z-[90] w-full border-t-2 border-black bg-white shadow-neo transition-transform duration-500 ease-out ${
                 isMounted ? "translate-y-0" : "translate-y-full"
             }`}
         >
-            {/* Sleek top accent line */}
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-slate-200/80" />
-            
-            <div className="max-w-7xl mx-auto px-4 py-4 md:px-8 md:py-5 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-3 md:flex-row md:gap-5 md:px-8 md:py-4">
                 <div className="flex items-start md:items-center gap-4 w-full md:w-auto">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200/50 bg-white/60 text-slate-500 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-none border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
                         <Cookie className="h-5 w-5" aria-hidden="true" />
                     </div>
                     <div className="min-w-0">
-                        <h2 className="text-sm font-bold text-slate-900 tracking-tight leading-none md:leading-snug">
+                        <h2 className="text-sm font-black uppercase text-slate-950 tracking-tight leading-none md:leading-snug">
                             Optimize your experience
                         </h2>
-                        <p className="mt-1.5 text-xs font-semibold leading-relaxed text-slate-500 max-w-3xl">
+                        <p className="mt-1.5 text-xs font-bold leading-relaxed text-slate-700 max-w-3xl">
                             We use first-party cookies to measure page speed and bug fixes. Sessions are masked and secure.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between md:justify-end gap-4 w-full md:w-auto shrink-0 border-t border-slate-200/60 md:border-t-0 pt-3 md:pt-0">
+                <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-3 border-t border-black/20 pt-3 md:w-auto md:justify-end md:gap-4 md:border-t-0 md:pt-0">
                     <div className="flex items-center gap-3">
                         <a
                             href="/privacy-policy"
-                            className="text-xs font-bold text-slate-400 hover:text-slate-900 uppercase tracking-wider border-b border-dashed border-slate-300 hover:border-slate-400 transition-colors"
+                            className="text-xs font-black text-slate-900 hover:text-black uppercase tracking-wider border-b-2 border-black transition-colors"
                         >
                             Privacy policy
                         </a>
@@ -164,7 +162,7 @@ export function RejourneyConsentBanner() {
                         <button
                             type="button"
                             onClick={rejectAnalytics}
-                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white/60 backdrop-blur-md hover:bg-white/80 text-slate-700 hover:text-slate-900 border border-slate-200/80 hover:border-slate-400 hover:-translate-y-0.5 hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 text-xs font-bold tracking-wide uppercase px-4 py-2 shadow-sm"
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-none bg-white hover:bg-slate-50 text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all duration-200 text-xs font-black tracking-wide uppercase px-4 py-2 shadow-neo-sm"
                         >
                             <ShieldX className="h-4 w-4" aria-hidden="true" />
                             Essential Only
@@ -172,7 +170,7 @@ export function RejourneyConsentBanner() {
                         <button
                             type="button"
                             onClick={acceptAnalytics}
-                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-white shadow-md shadow-slate-900/10 hover:shadow-lg hover:shadow-slate-900/20 hover:-translate-y-0.5 hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 text-xs font-bold tracking-wide uppercase px-4 py-2"
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-none bg-[#86efac] hover:bg-[#4ade80] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all duration-200 text-xs font-black tracking-wide uppercase px-4 py-2 shadow-neo-sm"
                         >
                             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                             Allow Cookies

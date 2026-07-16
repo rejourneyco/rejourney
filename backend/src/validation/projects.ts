@@ -104,6 +104,13 @@ export const createProjectSchema = z.object({
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional().default(10),
     webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional().default(30),
 }).superRefine((data, ctx) => {
+    if (data.platforms?.includes('android') && !data.platforms.includes('react-native')) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['platforms'],
+            message: 'Android is supported through React Native. Select react-native instead of Native Android.',
+        });
+    }
     if (data.platforms?.includes('web')) {
         const domains = normalizeWebAllowedDomains([
             ...(data.webAllowedDomains ?? []),
@@ -135,6 +142,14 @@ export const updateProjectSchema = z.object({
     sampleRate: z.number().int().min(0).max(100).optional(),
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional(),
     webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional(),
+}).superRefine((data, ctx) => {
+    if (data.platforms?.includes('android') && !data.platforms.includes('react-native')) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['platforms'],
+            message: 'Android is supported through React Native. Select react-native instead of Native Android.',
+        });
+    }
 });
 
 export const projectIdParamSchema = z.object({

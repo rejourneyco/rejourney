@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    AI_INTEGRATION_PROMPT,
     SHOPIFY_AI_INTEGRATION_PROMPT,
     buildAIPromptUrl,
     buildProjectAIPromptById,
@@ -9,6 +10,12 @@ import {
 } from './aiPrompts';
 
 describe('buildProjectAIIntegrationPrompt', () => {
+  it('includes Redux Toolkit replay setup and privacy guidance in the web prompt', () => {
+    expect(AI_INTEGRATION_PROMPT).toContain("from '@rejourneyco/browser/redux'");
+    expect(AI_INTEGRATION_PROMPT).toContain('getDefaultMiddleware().concat(');
+    expect(AI_INTEGRATION_PROMPT).toContain("captureState: 'after'");
+  });
+
   it('includes dashboard project context before the integration instructions', () => {
     const prompt = buildProjectAIIntegrationPrompt({
       teamName: 'Growth Team',
@@ -24,7 +31,7 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(prompt).toContain('- Team: Growth Team');
     expect(prompt).toContain('- Project: Checkout App');
     expect(prompt).toContain('- Public key: pk_live_checkout_123');
-    expect(prompt).toContain('- Selected platforms: Web, iOS, Android, React Native');
+    expect(prompt).toContain('- Selected platforms: Web, React Native');
     expect(prompt).toContain('- Web allowed domains: checkout.example.com, *.example.com');
     expect(prompt).toContain('- iOS bundle ID: com.example.checkout');
     expect(prompt).toContain('- Android package name: com.example.checkout');
@@ -108,5 +115,12 @@ describe('buildProjectAIIntegrationPrompt', () => {
       platforms: ['web'],
       webAllowedDomains: ['store.myshopify.com'],
     })).toEqual(['shopify', 'web']);
+  });
+
+  it('does not treat React Native runtime markers as separate native SDK integrations', () => {
+    expect(getAIPromptIdsForProject({
+      publicKey: 'pk_live_mobile_123',
+      platforms: ['react-native', 'ios', 'android'],
+    })).toEqual(['react-native']);
   });
 });
