@@ -287,9 +287,9 @@ const SpinningGlobe: React.FC = () => {
 };
 
 /**
- * Sankey-style checkout funnel — Before vs After.
- * Each panel draws a left-to-right flow: the full-height source bar (Add to Cart)
- * splits into a Checkout ribbon and a Drop-off ribbon via smooth bezier curves,
+ * Sankey-style conversion funnel — Before vs After.
+ * Each panel draws a left-to-right flow from a source action to a completed action,
+ * then splits it into a completion ribbon and a Drop-off ribbon via smooth bezier curves,
  * exactly like a real Sankey/alluvial diagram.
  */
 export const SankeyPanel: React.FC<{
@@ -300,7 +300,19 @@ export const SankeyPanel: React.FC<{
     accentLight: string;
     dropColor: string;
     dropLight: string;
-}> = ({ title, addToCart, checkout, accent, accentLight, dropColor, dropLight }) => {
+    sourceLabel?: string;
+    completionLabel?: string;
+}> = ({
+    title,
+    addToCart,
+    checkout,
+    accent,
+    accentLight,
+    dropColor,
+    dropLight,
+    sourceLabel = 'to Cart',
+    completionLabel = 'Checkout',
+}) => {
     const dropOff = addToCart - checkout;
     const total = addToCart;
 
@@ -308,8 +320,8 @@ export const SankeyPanel: React.FC<{
     // W/H are the inner chart area. We add a left pad for the source
     // label and a right pad for dest labels — kept inside viewBox so
     // nothing ever clips.
-    const PAD_LEFT  = 72;   // room for "6,810 / to Cart"
-    const PAD_RIGHT = 80;   // room for "4,319 / Checkout"
+    const PAD_LEFT  = 72;   // room for source value and label
+    const PAD_RIGHT = 80;   // room for completed value and label
     const TITLE_H   = 32;   // space above chart for the panel title
     const CHART_H   = 200;
     const W = PAD_LEFT + 400 + PAD_RIGHT;   // total SVG width
@@ -396,7 +408,7 @@ export const SankeyPanel: React.FC<{
                 </text>
                 <text x={sourceX - 12} y={srcMid + 9} textAnchor="end" dominantBaseline="middle"
                     fill="#4b5563" fontSize="11" fontWeight="700" fontFamily="system-ui, sans-serif">
-                    to Cart
+                    {sourceLabel}
                 </text>
 
                 {/* ── Checkout label (right of dest bar) ── */}
@@ -406,7 +418,7 @@ export const SankeyPanel: React.FC<{
                 </text>
                 <text x={destX + barW + 12} y={checkoutMid + 9} textAnchor="start" dominantBaseline="middle"
                     fill="#4b5563" fontSize="11" fontWeight="700" fontFamily="system-ui, sans-serif">
-                    Checkout
+                    {completionLabel}
                 </text>
 
                 {/* ── Drop-off label (right of dest bar) ── */}
@@ -1250,6 +1262,8 @@ export const AiLeakHomepage: React.FC = () => {
                                         accentLight="rgba(248,113,113,0.22)"
                                         dropColor="#94a3b8"
                                         dropLight="rgba(148,163,184,0.14)"
+                                        sourceLabel="Signups"
+                                        completionLabel="Verified"
                                     />
                                     <SankeyPanel
                                         title="After Rejourney"
@@ -1259,6 +1273,8 @@ export const AiLeakHomepage: React.FC = () => {
                                         accentLight="rgba(52,211,153,0.22)"
                                         dropColor="#94a3b8"
                                         dropLight="rgba(148,163,184,0.12)"
+                                        sourceLabel="Signups"
+                                        completionLabel="Verified"
                                     />
                                 </div>
 
