@@ -28,6 +28,7 @@ import { startStatsAggregationJob, stopStatsAggregationJob } from './jobs/statsA
 import { startAlertWorker, stopAlertWorker } from './worker/alertWorker.js';
 import stripeWebhooksRoutes from './routes/stripeWebhooks.js';
 import { isOriginAllowedByList, splitOriginList } from './utils/domain.js';
+import { CORS_ALLOWED_HEADERS } from './config/cors.js';
 
 // Use createRequire for CJS modules
 const require = createRequire(import.meta.url);
@@ -36,21 +37,6 @@ const pinoHttp = require('pino-http');
 const app = express();
 let isShuttingDown = false;
 let server: Server | undefined;
-
-const CORS_ALLOWED_HEADERS = [
-    'Content-Type',
-    'Authorization',
-    'X-Rejourney-Key',
-    'X-Public-Key',
-    'X-Platform',
-    'X-API-Key',
-    'X-CSRF-Token',
-    'X-Device-Id',
-    'X-Upload-Token',
-    'X-Ingest-Token',
-    'Idempotency-Key',
-    'X-Session-Id',
-];
 
 function isPublicBrowserSdkCorsPath(path: string): boolean {
     return path === '/api/sdk/config' || path.startsWith('/api/ingest');
