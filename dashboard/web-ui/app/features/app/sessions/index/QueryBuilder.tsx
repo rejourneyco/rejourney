@@ -3,7 +3,7 @@ import {
   Plus, ChevronDown, Loader, AlertOctagon, Calendar, LayoutGrid, Zap,
   Tag, Users, Route, GitMerge, Trash2, MousePointerClick,
   Timer, UserPlus, CheckCircle, AlertCircle, Search,
-  MonitorSmartphone, Globe2, Megaphone, ScanEye,
+  MonitorSmartphone, Globe2, Megaphone, ScanEye, MapPin,
 } from 'lucide-react';
 import { buildSessionQueryFromPrompt, type SmartCaptureRule } from '~/shared/api/client';
 import {
@@ -12,12 +12,13 @@ import {
   type EventCondition, type MetadataCondition, type LifecycleCondition,
   type ConversionCondition, type PlatformCondition, type JourneyCondition,
   type ReferralCondition, type UtmCondition, type UtmField, type SmartCaptureCondition,
+  type LocationCondition,
   generateConditionId, generateGroupId,
   groupsBuildHumanSummary, UTM_FIELD_META_KEYS,
 } from './queryBuilderTypes';
 import {
   type AvailableFilters, IssueRow, DateRow, ScreenRow, EventRow,
-  MetadataRow, ReferralRow, UtmRow, LifecycleRow, PlatformRow, JourneyRow, ConversionRow, SmartCaptureRow,
+  MetadataRow, LocationRow, ReferralRow, UtmRow, LifecycleRow, PlatformRow, JourneyRow, ConversionRow, SmartCaptureRow,
 } from './ConditionRows';
 
 export type { AvailableFilters };
@@ -45,6 +46,7 @@ const ADD_MENU: { type: ConditionType; label: string; desc: string; icon: React.
   { type: 'event',     label: 'Event fired',       desc: 'Custom event with optional count',    icon: <Zap className="w-4 h-4" /> },
   { type: 'lifecycle', label: 'Lifecycle',         desc: 'First-time or returning users',       icon: <Users className="w-4 h-4" /> },
   { type: 'date',      label: 'Date / Time',       desc: 'When the session occurred',           icon: <Calendar className="w-4 h-4" /> },
+  { type: 'location',  label: 'Location',          desc: 'Country, city, or a precise match',    icon: <MapPin className="w-4 h-4" /> },
   { type: 'referral',  label: 'Referral',          desc: 'Web sessions by referrer/source',     icon: <Globe2 className="w-4 h-4" /> },
   { type: 'utm',       label: 'UTM',               desc: 'Web sessions by campaign tags',       icon: <Megaphone className="w-4 h-4" /> },
   { type: 'smart_capture', label: 'Smart Capture', desc: 'Captured by a custom rule',           icon: <ScanEye className="w-4 h-4" /> },
@@ -58,6 +60,7 @@ const BG: Record<ConditionType, string> = {
   screen: 'bg-violet-50 text-violet-700', journey: 'bg-teal-50 text-teal-700',
   issue: 'bg-rose-50 text-rose-700', event: 'bg-blue-50 text-blue-700',
   lifecycle: 'bg-pink-50 text-pink-700', date: 'bg-sky-50 text-sky-700',
+  location: 'bg-blue-50 text-blue-700',
   referral: 'bg-cyan-50 text-cyan-700', utm: 'bg-amber-50 text-amber-700',
   smart_capture: 'bg-cyan-50 text-cyan-700',
   metadata: 'bg-emerald-50 text-emerald-700', platform: 'bg-cyan-50 text-cyan-700',
@@ -129,6 +132,7 @@ function makeCondition(type: ConditionType, filters: AvailableFilters, init: Add
     case 'screen':    return { id, type, screenName: filters.screens[0] ?? '' };
     case 'event':     return { id, type, eventName: filters.events[0] ?? '' };
     case 'metadata':  return { id, type, metaKey: Object.keys(filters.metadata)[0] ?? '' };
+    case 'location':  return { id, type, mode: 'country' };
     case 'referral':  return { id, type, referralValue: filters.metadata.webReferral?.[0] ?? filters.metadata.webReferrerDomain?.[0] ?? filters.metadata.webAttributionSource?.[0] ?? '' };
     case 'utm': {
       const field = init.utmField ?? (Object.keys(UTM_FIELD_META_KEYS) as UtmField[])
@@ -162,6 +166,7 @@ function ConditionRow({ cond, onChange, onRemove, filters, loading, smartCapture
     case 'screen':     return <ScreenRow cond={cond} onChange={onChange as (c: ScreenCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'event':      return <EventRow cond={cond} onChange={onChange as (c: EventCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'metadata':   return <MetadataRow cond={cond} onChange={onChange as (c: MetadataCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
+    case 'location':   return <LocationRow cond={cond} onChange={onChange as (c: LocationCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'referral':   return <ReferralRow cond={cond} onChange={onChange as (c: ReferralCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'utm':        return <UtmRow cond={cond} onChange={onChange as (c: UtmCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'lifecycle':  return <LifecycleRow cond={cond} onChange={onChange as (c: LifecycleCondition) => void} onRemove={onRemove} />;
@@ -325,7 +330,7 @@ export function QueryBuilder({
                 {isLoadingFilters ? (
                   <span>Loading context</span>
                 ) : (
-                  <span>{availableFilters.screens.length} screens · {availableFilters.events.length} events · {Object.keys(availableFilters.metadata).length} keys</span>
+                  <span>{availableFilters.screens.length} screens · {availableFilters.events.length} events · {availableFilters.locations?.length ?? 0} locations</span>
                 )}
               </div>
             </div>
@@ -345,7 +350,7 @@ export function QueryBuilder({
               }}
               maxLength={500}
               rows={1}
-              placeholder="web sessions referred by www.google.com in the last 7 days"
+              placeholder="sessions in Austin, US with crashes in the last 7 days"
               className="min-h-10 flex-1 resize-none rounded-[8px] border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
             <button

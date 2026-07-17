@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link, useNavigate } from 'react-router';
+import { useParams, Link, useLocation, useNavigate } from 'react-router';
 import {
     ArrowLeft,
     ChevronRight,
@@ -1330,13 +1330,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const activeShareToken = shareToken || paramShareToken;
     const isPublicShare = Boolean(activeShareToken);
     const navigate = useNavigate();
+    const location = useLocation();
     const pathPrefix = usePathPrefix();
     const isDemoReplay = pathPrefix === '/demo';
     const { sessions: contextSessions, selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
+    const navigationState = location.state as { returnTo?: unknown; returnState?: unknown } | null;
+    const returnTo =
+        typeof navigationState?.returnTo === 'string' && navigationState.returnTo.startsWith(`${pathPrefix}/`)
+            ? navigationState.returnTo
+            : null;
+    const returnState =
+        navigationState?.returnState && typeof navigationState.returnState === 'object'
+            ? navigationState.returnState
+            : undefined;
 
     const handleBackClick = (e: React.MouseEvent) => {
         e.preventDefault();
+        if (returnTo) {
+            navigate(returnTo, { state: returnState });
+            return;
+        }
         // If we navigated here from within the app, go back to preserve state
         if (window.history.state && window.history.state.idx > 0) {
             navigate(-1);
@@ -4608,8 +4622,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                             <button
                                 onClick={handleBackClick}
                                 className="replay-header-icon-button flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white text-slate-900 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow"
-                                aria-label="Back to sessions"
-                                title="Back to sessions"
+                                aria-label={returnTo ? 'Back to Geographic Analysis' : 'Back to sessions'}
+                                title={returnTo ? 'Back to Geographic Analysis' : 'Back to sessions'}
                             >
                                 <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
                             </button>
@@ -4695,7 +4709,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                         {!isPublicShare ? (
                         <div className="replay-header-session-nav grid grid-cols-2 overflow-hidden border border-slate-200 bg-slate-50 shadow-sm">
                             <button
-                                onClick={() => previousSessionId && navigate(`${pathPrefix}/sessions/${previousSessionId}`)}
+                                onClick={() =>
+                                    previousSessionId &&
+                                    navigate(`${pathPrefix}/sessions/${previousSessionId}`, {
+                                        state: returnTo ? { returnTo, returnState } : undefined,
+                                    })
+                                }
                                 onMouseDown={(event) => event.preventDefault()}
                                 disabled={!previousSessionId}
                                 className={`replay-header-nav-button border-r border-slate-200 ${previousSessionId
@@ -4709,7 +4728,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 <span className="hidden md:inline">Prev</span>
                             </button>
                             <button
-                                onClick={() => nextSessionId && navigate(`${pathPrefix}/sessions/${nextSessionId}`)}
+                                onClick={() =>
+                                    nextSessionId &&
+                                    navigate(`${pathPrefix}/sessions/${nextSessionId}`, {
+                                        state: returnTo ? { returnTo, returnState } : undefined,
+                                    })
+                                }
                                 onMouseDown={(event) => event.preventDefault()}
                                 disabled={!nextSessionId}
                                 className={`replay-header-nav-button ${nextSessionId

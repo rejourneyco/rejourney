@@ -219,7 +219,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
       : 'Refresh dashboard data';
 
   return (
-    <div className="dashboard-topbar relative z-10 flex min-h-[44px] items-center gap-2 px-2 py-1.5 sm:px-3">
+    <div className="dashboard-topbar relative z-50 flex min-h-[44px] items-center gap-2 px-2 py-1.5 sm:px-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* Mobile Menu Button */}
         <button

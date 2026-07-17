@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { ChevronsLeft, ChevronsRight, Globe, GripVertical, Monitor, Play, ShieldAlert, Smartphone, X } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
@@ -15,6 +15,15 @@ import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
+import {
+    getGeoNavigationStorageKey,
+    geoNavigationStatesEqual,
+    normalizeGeoNavigationState,
+    parseStoredGeoNavigationState,
+    type GeoMarkerLocationState,
+    type GeoNavigationState,
+    type GeoViewportState,
+} from './geoNavigationState';
 // @ts-ignore: react-map-gl typing can fail under current tsconfig
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -1212,8 +1221,26 @@ export const Geo: React.FC = () => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const { isDemoMode } = useDemoMode();
+    const location = useLocation();
     const navigate = useNavigate();
     const pathPrefix = usePathPrefix();
+    const geoNavigationStorageKey = getGeoNavigationStorageKey(pathPrefix, selectedProject?.id);
+    const initialGeoNavigationStateRef = React.useRef<GeoNavigationState | null>(null);
+    if (initialGeoNavigationStateRef.current === null) {
+        const routeState = location.state && typeof location.state === 'object' ? location.state as { geoNavigation?: unknown } : null;
+        let storedState: GeoNavigationState | null = null;
+        if (typeof window !== 'undefined') {
+            try {
+                storedState = parseStoredGeoNavigationState(window.sessionStorage.getItem(geoNavigationStorageKey));
+            } catch {
+                // Session storage may be unavailable in privacy-restricted browser contexts.
+            }
+        }
+        initialGeoNavigationStateRef.current = routeState?.geoNavigation !== undefined
+            ? normalizeGeoNavigationState(routeState.geoNavigation)
+            : storedState ?? normalizeGeoNavigationState(null);
+    }
+    const initialGeoNavigationState = initialGeoNavigationStateRef.current;
     const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
     const mapRef = React.useRef<any>(null);
@@ -1231,16 +1258,21 @@ export const Geo: React.FC = () => {
     const [loadError, setLoadError] = useState<string | null>(null);
     const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
     const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
-    const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
+    const [selectedMarkerLocation, setSelectedMarkerLocation] = useState<GeoMarkerLocationState | null>(
+        initialGeoNavigationState.markerLocation,
+    );
+    const [selectedClusterId, setSelectedClusterId] = useState<string | null>(initialGeoNavigationState.clusterId);
     const [markerSessions, setMarkerSessions] = useState<GeoSessionRow[]>([]);
     const [markerSessionsState, setMarkerSessionsState] = useState<'idle' | 'loading' | 'error'>('idle');
     const [recentSessions, setRecentSessions] = useState<GeoSessionRow[]>([]);
     const [recentSessionsState, setRecentSessionsState] = useState<'idle' | 'loading' | 'error'>('idle');
-    const [selectedVisitor, setSelectedVisitor] = useState<GeoSessionRow | null>(null);
+    const [selectedVisitorId, setSelectedVisitorId] = useState<string | null>(initialGeoNavigationState.visitorId);
     const [visitorSessions, setVisitorSessions] = useState<GeoSessionRow[]>([]);
     const [visitorSessionsState, setVisitorSessionsState] = useState<'idle' | 'loading' | 'error'>('idle');
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-    const [mapZoom, setMapZoom] = useState(2.05);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(initialGeoNavigationState.activeSessionId);
+    const [mapZoom, setMapZoom] = useState(initialGeoNavigationState.viewport?.zoom ?? GEO_MAP_OVERVIEW_ZOOM);
+    const [mapViewport, setMapViewport] = useState<GeoViewportState | null>(initialGeoNavigationState.viewport);
+    const [isMapReady, setIsMapReady] = useState(false);
     const [geoSidebarWidth, setGeoSidebarWidth] = useState(getInitialGeoSidebarWidth);
     const [isGeoSidebarCollapsed, setIsGeoSidebarCollapsed] = useState(getInitialGeoSidebarCollapsed);
     const [isGeoMobileDrawerOpen, setIsGeoMobileDrawerOpen] = useState(false);
@@ -1248,6 +1280,9 @@ export const Geo: React.FC = () => {
     const mapZoomFrameRef = React.useRef<number | null>(null);
     const pendingMapZoomRef = React.useRef(mapZoom);
     const hoverClearTimeoutRef = React.useRef<number | null>(null);
+    const shouldRestoreMarkerFocusRef = React.useRef(
+        Boolean(initialGeoNavigationState.markerLocation && !initialGeoNavigationState.viewport),
+    );
 
     const scheduleMapZoom = React.useCallback((zoom: number) => {
         pendingMapZoomRef.current = zoom;
@@ -1313,9 +1348,11 @@ export const Geo: React.FC = () => {
         if (!map || typeof map.easeTo !== 'function') return;
 
         const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : zoom;
+        const targetZoom = Math.max(currentZoom, zoom);
+        setMapViewport({ latitude: marker.lat, longitude: marker.lng, zoom: targetZoom });
         map.easeTo({
             center: [marker.lng, marker.lat],
-            zoom: Math.max(currentZoom, zoom),
+            zoom: targetZoom,
             duration: 650,
             essential: true,
         });
@@ -1379,6 +1416,36 @@ export const Geo: React.FC = () => {
     useEffect(() => {
         window.localStorage.setItem(GEO_SIDEBAR_COLLAPSED_STORAGE_KEY, String(isGeoSidebarCollapsed));
     }, [isGeoSidebarCollapsed]);
+
+    const geoNavigationState = useMemo<GeoNavigationState>(
+        () => ({
+            markerLocation: selectedMarkerLocation,
+            clusterId: selectedClusterId,
+            visitorId: selectedVisitorId,
+            activeSessionId,
+            viewport: mapViewport,
+        }),
+        [activeSessionId, mapViewport, selectedClusterId, selectedMarkerLocation, selectedVisitorId],
+    );
+
+    useEffect(() => {
+        const routeState = location.state && typeof location.state === 'object' ? location.state as Record<string, unknown> : {};
+        const currentNavigationState = normalizeGeoNavigationState(routeState.geoNavigation);
+        if (geoNavigationStatesEqual(currentNavigationState, geoNavigationState)) return;
+
+        navigate(`${location.pathname}${location.search}${location.hash}`, {
+            replace: true,
+            state: { ...routeState, geoNavigation: geoNavigationState },
+        });
+    }, [geoNavigationState, location.hash, location.pathname, location.search, location.state, navigate]);
+
+    useEffect(() => {
+        try {
+            window.sessionStorage.setItem(geoNavigationStorageKey, JSON.stringify(geoNavigationState));
+        } catch {
+            // Session storage may be unavailable in privacy-restricted browser contexts.
+        }
+    }, [geoNavigationState, geoNavigationStorageKey]);
 
     useEffect(() => {
         return () => {
@@ -1641,7 +1708,25 @@ export const Geo: React.FC = () => {
         [selectedMarkerId, markers],
     );
 
+    const selectedVisitor = useMemo(() => {
+        if (!selectedVisitorId) return null;
+        return (
+            markerSessions.find((session) => session.id === selectedVisitorId) ||
+            recentSessions.find((session) => session.id === selectedVisitorId) ||
+            null
+        );
+    }, [markerSessions, recentSessions, selectedVisitorId]);
+
 	    const initialViewState = useMemo(() => {
+	        if (initialGeoNavigationState.viewport) {
+	            return {
+	                longitude: initialGeoNavigationState.viewport.longitude,
+	                latitude: initialGeoNavigationState.viewport.latitude,
+	                zoom: initialGeoNavigationState.viewport.zoom,
+	                pitch: 0,
+	                bearing: 0,
+	            };
+	        }
 	        const center = getWeightedMapCenter(markers);
 	        return {
 	            longitude: center.longitude,
@@ -1650,7 +1735,7 @@ export const Geo: React.FC = () => {
 	            pitch: 0,
 	            bearing: 0,
 	        };
-	    }, [markers]);
+	    }, [initialGeoNavigationState.viewport, markers]);
 
 	    const focusMapOnOverview = React.useCallback(() => {
 	        const map = getMapInstance(mapRef);
@@ -1695,10 +1780,39 @@ export const Geo: React.FC = () => {
 	    }, [initialViewState, markers]);
 
     useEffect(() => {
-        if (selectedMarkerId && !selectedMarker) {
-            setSelectedMarkerId(null);
+        if (isLoading) return;
+        if (selectedMarker) {
+            const nextLocation = { country: selectedMarker.country, city: selectedMarker.city };
+            if (
+                normalizeCountry(selectedMarkerLocation?.country) !== normalizeCountry(nextLocation.country) ||
+                normalizeCity(selectedMarkerLocation?.city) !== normalizeCity(nextLocation.city)
+            ) {
+                setSelectedMarkerLocation(nextLocation);
+            }
+            return;
         }
-    }, [selectedMarker, selectedMarkerId]);
+
+        if (selectedMarkerLocation) {
+            const restoredMarker = markers.find(
+                (marker) =>
+                    normalizeCountry(marker.country) === normalizeCountry(selectedMarkerLocation.country) &&
+                    normalizeCity(marker.city) === normalizeCity(selectedMarkerLocation.city),
+            );
+            if (restoredMarker) {
+                setSelectedMarkerId(restoredMarker.id);
+                return;
+            }
+            setSelectedMarkerLocation(null);
+        }
+
+        if (selectedMarkerId) setSelectedMarkerId(null);
+    }, [isLoading, markers, selectedMarker, selectedMarkerId, selectedMarkerLocation]);
+
+    useEffect(() => {
+        if (!isMapReady || !selectedMarker || !shouldRestoreMarkerFocusRef.current) return;
+        shouldRestoreMarkerFocusRef.current = false;
+        focusMapOnMarker(selectedMarker);
+    }, [focusMapOnMarker, isMapReady, selectedMarker]);
 
     useEffect(() => {
         if (!selectedProject?.id || !selectedMarker) {
@@ -1829,10 +1943,10 @@ export const Geo: React.FC = () => {
     );
 
     useEffect(() => {
-        if (selectedClusterId && !selectedCluster) {
+        if (!isLoading && selectedClusterId && !selectedCluster) {
             setSelectedClusterId(null);
         }
-    }, [selectedCluster, selectedClusterId]);
+    }, [isLoading, selectedCluster, selectedClusterId]);
 
     const totalSessions = useMemo(() => markers.reduce((sum, marker) => sum + marker.sessions, 0), [markers]);
     const selectedClusterSessions = useMemo(() => {
@@ -1953,28 +2067,31 @@ export const Geo: React.FC = () => {
 	            : `${markers.length.toLocaleString()} cities · ${formatCompactNumber(totalSessions)} sessions`;
 	    const clearGeographicSelection = () => {
 	        setSelectedMarkerId(null);
+	        setSelectedMarkerLocation(null);
 	        setSelectedClusterId(null);
-	        setSelectedVisitor(null);
+	        setSelectedVisitorId(null);
 	        setActiveSessionId(null);
 	        setHoveredMarkerId(null);
 	        setIsGeoMobileDrawerOpen(false);
 	        focusMapOnOverview();
 	    };
 	    const selectVisitor = (session: GeoSessionRow) => {
-	        setSelectedVisitor(session);
+	        setSelectedVisitorId(session.id);
 	        setActiveSessionId(session.id);
 	        setIsGeoMobileDrawerOpen(true);
         setSelectedClusterId(null);
         const marker = markerByLocation.get(getSessionLocationKey(session));
         if (marker) {
             setSelectedMarkerId(marker.id);
+            setSelectedMarkerLocation({ country: marker.country, city: marker.city });
         }
     };
 
     const selectLocation = (marker: GeoMarker) => {
         setSelectedMarkerId(marker.id);
+        setSelectedMarkerLocation({ country: marker.country, city: marker.city });
         setSelectedClusterId(null);
-        setSelectedVisitor(null);
+        setSelectedVisitorId(null);
         setActiveSessionId(null);
         setIsGeoMobileDrawerOpen(true);
         focusMapOnMarker(marker);
@@ -1987,17 +2104,21 @@ export const Geo: React.FC = () => {
         }
 
         setSelectedClusterId(cluster.id);
-        setSelectedVisitor(null);
+        setSelectedMarkerLocation(null);
+        setSelectedVisitorId(null);
         setActiveSessionId(null);
         setSelectedMarkerId(null);
         setIsGeoMobileDrawerOpen(true);
         focusMapOnCluster(cluster);
     };
 
-    const openReplay = (session: GeoSessionRow) => {
-        const canOpenReplay = session.canOpenReplay ?? session.hasSuccessfulRecording ?? true;
-        if (canOpenReplay) navigate(`${pathPrefix}/sessions/${session.id}`);
-    };
+    const geoReturnTo = `${location.pathname}${location.search}${location.hash}`;
+    const buildGeoReturnState = (sessionId: string) => ({
+        geoNavigation: {
+            ...geoNavigationState,
+            activeSessionId: sessionId,
+        },
+    });
 
     const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
 
@@ -2197,18 +2318,26 @@ export const Geo: React.FC = () => {
                                                                 {formatReferrer(session)}
                                                             </span>
                                                         </span>
-                                                        <button
-                                                            type="button"
-                                                            className={GEO_ICON_BUTTON_CLASS}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                openReplay(session);
-                                                            }}
-                                                            disabled={!canOpenReplay}
-                                                            aria-label={`Open replay for ${getVisitorDisplayName(session)}`}
-                                                        >
-                                                            <Play className="h-3.5 w-3.5" />
-                                                        </button>
+                                                        {canOpenReplay ? (
+                                                            <Link
+                                                                to={`${pathPrefix}/sessions/${session.id}`}
+                                                                state={{ returnTo: geoReturnTo, returnState: buildGeoReturnState(session.id) }}
+                                                                className={GEO_ICON_BUTTON_CLASS}
+                                                                onClick={(event) => event.stopPropagation()}
+                                                                aria-label={`Open replay for ${getVisitorDisplayName(session)}`}
+                                                                title="Open replay"
+                                                            >
+                                                                <Play className="h-3.5 w-3.5" />
+                                                            </Link>
+                                                        ) : (
+                                                            <span
+                                                                className={GEO_ICON_BUTTON_CLASS}
+                                                                aria-label={`Replay unavailable for ${getVisitorDisplayName(session)}`}
+                                                                aria-disabled="true"
+                                                            >
+                                                                <Play className="h-3.5 w-3.5" />
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -2218,12 +2347,16 @@ export const Geo: React.FC = () => {
                                                 const canOpenReplay = session.canOpenReplay ?? session.hasSuccessfulRecording ?? true;
 
                                                 return (
-                                                    <button
+                                                    <Link
                                                         key={session.id}
-                                                        type="button"
+                                                        to={`${pathPrefix}/sessions/${session.id}`}
+                                                        state={{ returnTo: geoReturnTo, returnState: buildGeoReturnState(session.id) }}
                                                         className={`grid w-full grid-cols-[minmax(0,1fr)_52px] items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left transition-colors last:border-b-0 sm:grid-cols-[minmax(0,1fr)_58px] sm:gap-3 sm:px-4 sm:py-3 ${isActive ? 'bg-[#f8fafc] shadow-[inset_3px_0_0_#111827]' : 'hover:bg-[#f8fafc]'} ${canOpenReplay ? '' : 'opacity-60'}`}
-                                                        onClick={() => openReplay(session)}
-                                                        disabled={!canOpenReplay}
+                                                        onClick={(event) => {
+                                                            if (!canOpenReplay) event.preventDefault();
+                                                        }}
+                                                        aria-disabled={!canOpenReplay}
+                                                        tabIndex={canOpenReplay ? 0 : -1}
                                                     >
                                                         <span className="min-w-0">
                                                             <span className="flex min-w-0 items-center gap-2">
@@ -2243,7 +2376,7 @@ export const Geo: React.FC = () => {
                                                             <Play className="h-3 w-3" />
                                                             Play
                                                         </span>
-                                                    </button>
+                                                    </Link>
                                                 );
                                             })}
                                     </div>
@@ -2304,9 +2437,16 @@ export const Geo: React.FC = () => {
                                 keyboard
                                 cursor="grab"
                                 onMove={(event: any) => scheduleMapZoom(event.viewState.zoom)}
+                                onMoveEnd={(event: any) => {
+                                    const { latitude, longitude, zoom } = event.viewState || {};
+                                    if (Number.isFinite(latitude) && Number.isFinite(longitude) && Number.isFinite(zoom)) {
+                                        setMapViewport({ latitude, longitude, zoom });
+                                    }
+                                }}
                                 onLoad={(event: any) => {
                                     mapRef.current = event.target;
                                     applyGeoMapConfig(event.target);
+                                    setIsMapReady(true);
                                 }}
                             >
                                 <NavigationControl position="bottom-right" showCompass={false} showZoom />

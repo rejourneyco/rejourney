@@ -59,7 +59,11 @@ replace_or_append "$ENV_FILE" "S3_ENDPOINT" "http://$LOCAL_IP:9000"
 replace_or_append "$ENV_FILE" "PUBLIC_DASHBOARD_URL" "http://localhost:$DASHBOARD_HOST_PORT"
 replace_or_append "$ENV_FILE" "PUBLIC_API_URL" "http://$LOCAL_IP:3000"
 replace_or_append "$ENV_FILE" "VITE_API_URL" "http://$LOCAL_IP:3000"
-replace_or_append "$ENV_FILE" "VITE_API_PROXY_TARGET" "http://$LOCAL_IP:3000"
+# The dashboard and API both run on the host in hybrid mode. Keep their
+# server-to-server traffic on loopback so auth does not break when the LAN IP
+# changes between local development sessions.
+replace_or_append "$ENV_FILE" "VITE_API_PROXY_TARGET" "http://127.0.0.1:3000"
+replace_or_append "$ENV_FILE" "API_URL" "http://127.0.0.1:3000"
 replace_or_append "$ENV_FILE" "PUBLIC_INGEST_URL" "http://$LOCAL_IP:3001"
 replace_or_append "$ENV_FILE" "DASHBOARD_ORIGIN" "http://localhost:$DASHBOARD_HOST_PORT"
 replace_or_append "$ENV_FILE" "ADDITIONAL_DASHBOARD_ORIGINS" "http://localhost:$DASHBOARD_HOST_PORT,http://127.0.0.1:$DASHBOARD_HOST_PORT,http://rejourney.localtest.me,http://rejourney.localtest.me:$DASHBOARD_HOST_PORT,http://$LOCAL_IP:$DASHBOARD_HOST_PORT"

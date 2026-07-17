@@ -381,10 +381,10 @@ function buildSessionArchiveBaseConditions(
     const normalizedGeoCountry = typeof geoCountry === 'string' ? geoCountry.trim() : '';
     const normalizedGeoCity = typeof geoCity === 'string' ? geoCity.trim() : '';
     if (normalizedGeoCountry) {
-        baseConditions.push(eq(sessions.geoCountry, normalizedGeoCountry));
+        userFilterConditions.push(eq(sessions.geoCountry, normalizedGeoCountry));
     }
     if (normalizedGeoCity) {
-        baseConditions.push(eq(sessions.geoCity, normalizedGeoCity));
+        userFilterConditions.push(eq(sessions.geoCity, normalizedGeoCity));
     }
 
     const metadataFilters = parseArchiveMetadataFilters(metaFilters);

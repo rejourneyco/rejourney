@@ -233,7 +233,7 @@ export const RecordingsList: React.FC = () => {
   const [rowsPerPage, setRowsPerPage] = useState(50);
 
   // Query builder
-  const [availableFilters, setAvailableFilters] = useState<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+  const [availableFilters, setAvailableFilters] = useState<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]>; locations: Array<{ country?: string; city?: string }> }>({ events: [], eventPropertyKeys: [], screens: [], metadata: {}, locations: [] });
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
   const [queryGroups, setQueryGroups] = useState<QueryGroup[]>(() => createEmptyQueryGroups());
   const [queryGroupsProjectId, setQueryGroupsProjectId] = useState<string | null>(null);
@@ -246,6 +246,25 @@ export const RecordingsList: React.FC = () => {
   const [isLoadingSmartCapture, setIsLoadingSmartCapture] = useState(false);
   const [isSmartCaptureModalOpen, setIsSmartCaptureModalOpen] = useState(false);
   const activeRequestIdRef = useRef(0);
+
+  const queryBuilderAvailableFilters = useMemo(() => {
+    if (!isDemoMode) return availableFilters;
+
+    const seenLocations = new Set<string>();
+    const locations = demoReplaySessions.flatMap((session) => {
+      if (!hasSuccessfulRecording(session)) return [];
+      const country = session.geoLocation?.country?.trim();
+      const city = session.geoLocation?.city?.trim();
+      if (!country && !city) return [];
+
+      const key = `${country ?? ''}\u0000${city ?? ''}`;
+      if (seenLocations.has(key)) return [];
+      seenLocations.add(key);
+      return [{ country, city }];
+    });
+
+    return { ...availableFilters, locations };
+  }, [availableFilters, demoReplaySessions, isDemoMode]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 350);
@@ -308,7 +327,9 @@ export const RecordingsList: React.FC = () => {
       const demoFilteredSessions = demoReplaySessions.filter((session) => (
         hasSuccessfulRecording(session) &&
         matchesSessionArchiveIssueFilter(session, issueFilter) &&
-        (!filterParams.platform || filterParams.platform === 'all' || session.platform === filterParams.platform)
+        (!filterParams.platform || filterParams.platform === 'all' || session.platform === filterParams.platform) &&
+        (!filterParams.geoCountry || session.geoLocation?.country === filterParams.geoCountry) &&
+        (!filterParams.geoCity || session.geoLocation?.city === filterParams.geoCity)
       ));
       if (requestId !== activeRequestIdRef.current) return;
       setSessions(demoFilteredSessions);
@@ -455,7 +476,7 @@ export const RecordingsList: React.FC = () => {
   const availableFiltersFetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedProjectId || !isProjectFromCurrentTeam) {
-      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {}, locations: [] });
       setQueryGroups(createEmptyQueryGroups());
       setQueryGroupsProjectId(null);
       prevProjectIdRef.current = undefined;
@@ -467,7 +488,7 @@ export const RecordingsList: React.FC = () => {
       const storedGroups = readStoredQueryGroups(selectedProjectId);
       setQueryGroups(storedGroups ?? createEmptyQueryGroups());
       setQueryGroupsProjectId(selectedProjectId);
-      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {}, locations: [] });
       availableFiltersFetchedRef.current = null;
     }
   }, [selectedProjectId, isProjectFromCurrentTeam]);
@@ -499,7 +520,7 @@ export const RecordingsList: React.FC = () => {
       .catch((err) => {
         if (!cancelled) {
           console.error('Failed to load available filters:', err);
-          setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+          setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {}, locations: [] });
           setIsLoadingFilters(false);
         }
       });
@@ -832,7 +853,7 @@ export const RecordingsList: React.FC = () => {
                 groups={queryGroups}
                 onGroupsChange={setQueryGroups}
                 onClearQueries={clearQueryGroups}
-                availableFilters={availableFilters}
+                availableFilters={queryBuilderAvailableFilters}
                 isLoadingFilters={isLoadingFilters}
                 projectId={selectedProjectId}
                 smartCaptureRules={smartCaptureConfig?.rules ?? []}
@@ -2239,7 +2260,7 @@ export const RecordingsList: React.FC = () => {
         pathPrefix={pathPrefix}
         config={smartCaptureConfig}
         isLoading={isLoadingSmartCapture}
-        availableFilters={availableFilters}
+        availableFilters={queryBuilderAvailableFilters}
         isLoadingFilters={isLoadingFilters}
         onConfigChange={setSmartCaptureConfig}
       />

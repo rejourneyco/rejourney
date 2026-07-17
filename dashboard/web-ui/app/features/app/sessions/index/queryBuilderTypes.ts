@@ -7,6 +7,7 @@ export type ConditionType =
   | 'screen'
   | 'event'
   | 'metadata'
+  | 'location'
   | 'referral'
   | 'utm'
   | 'lifecycle'
@@ -54,6 +55,14 @@ export type MetadataCondition = {
   type: 'metadata';
   metaKey: string;
   metaValue?: string;
+};
+
+export type LocationCondition = {
+  id: string;
+  type: 'location';
+  mode: 'country' | 'city' | 'both';
+  country?: string;
+  city?: string;
 };
 
 export type ReferralCondition = {
@@ -113,6 +122,7 @@ export type QueryCondition =
   | ScreenCondition
   | EventCondition
   | MetadataCondition
+  | LocationCondition
   | ReferralCondition
   | UtmCondition
   | LifecycleCondition
@@ -190,6 +200,10 @@ export function conditionsToArchiveQuery(
         break;
       case 'metadata':
         if (cond.metaKey) metadataFilters.push({ key: cond.metaKey, value: cond.metaValue });
+        break;
+      case 'location':
+        if (cond.mode !== 'city' && cond.country) result.geoCountry = cond.country;
+        if (cond.mode !== 'country' && cond.city) result.geoCity = cond.city;
         break;
       case 'referral':
         requiresWebPlatform = true;
@@ -338,6 +352,11 @@ export function buildHumanSummary(conditions: QueryCondition[], logic: 'AND' | '
         if (cond.metaValue) return `${cond.metaKey}=${cond.metaValue}`;
         return `has ${cond.metaKey}`;
       }
+      case 'location':
+        if (cond.mode === 'both' && cond.country && cond.city) return `in ${cond.city}, ${cond.country}`;
+        if (cond.mode === 'city' && cond.city) return `in city ${cond.city}`;
+        if (cond.country) return `in country ${cond.country}`;
+        return 'at any location';
       case 'referral':
         return cond.referralValue ? `web referral=${cond.referralValue}` : 'has web referral';
       case 'utm':
@@ -386,6 +405,10 @@ export function getConditionShortLabel(cond: QueryCondition): string {
       return cond.eventName || 'Event';
     case 'metadata':
       return cond.metaKey || 'Metadata';
+    case 'location':
+      if (cond.mode === 'both' && cond.city && cond.country) return `${cond.city}, ${cond.country}`;
+      if (cond.mode === 'city') return cond.city || 'City';
+      return cond.country || 'Country';
     case 'referral':
       return cond.referralValue || 'Referral';
     case 'utm':
@@ -412,6 +435,7 @@ export type PresetConditionTemplate =
   | { type: 'screen'; screenName: string; screenOutcome?: 'bounced' | 'continued' }
   | { type: 'event'; eventName: string; eventCountOp?: string; eventCountValue?: string; eventPropKey?: string; eventPropValue?: string }
   | { type: 'metadata'; metaKey: string; metaValue?: string }
+  | { type: 'location'; mode: 'country' | 'city' | 'both'; country?: string; city?: string }
   | { type: 'referral'; referralValue?: string }
   | { type: 'utm'; field: UtmField; value?: string }
   | { type: 'lifecycle'; preset: 'early_user' | 'returning_user' }
@@ -542,6 +566,14 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     pillBorder: 'border-emerald-200',
     pillText: 'text-emerald-800',
     menuBg: 'bg-emerald-50',
+  },
+  location: {
+    label: 'LOCATION',
+    description: 'Filter by country, city, or both',
+    pillBg: 'bg-blue-50',
+    pillBorder: 'border-blue-200',
+    pillText: 'text-blue-800',
+    menuBg: 'bg-blue-50',
   },
   referral: {
     label: 'REFERRAL',

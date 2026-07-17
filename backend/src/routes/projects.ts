@@ -193,6 +193,7 @@ type AvailableProjectFilters = {
     eventPropertyKeys: string[];
     screens: string[];
     metadata: Record<string, string[]>;
+    locations: Array<{ country?: string; city?: string }>;
 };
 
 type QueryBuilderProjectContext = {
@@ -240,6 +241,7 @@ type QueryBuilderCondition =
     | { id: string; type: 'screen'; screenName: string; screenOutcome?: 'bounced' | 'continued'; screenVisitCountOp?: CountOp; screenVisitCountValue?: string }
     | { id: string; type: 'event'; eventName: string; eventCountOp?: CountOp; eventCountValue?: string; eventPropKey?: string; eventPropValue?: string }
     | { id: string; type: 'metadata'; metaKey: string; metaValue?: string }
+    | { id: string; type: 'location'; mode: 'country' | 'city' | 'both'; country?: string; city?: string }
     | { id: string; type: 'referral'; referralValue?: string }
     | { id: string; type: 'utm'; field: QueryBuilderUtmField; value?: string }
     | { id: string; type: 'lifecycle'; preset: 'early_user' | 'returning_user'; sessionWindowSize?: number; returnedCountOp?: CountOp; returnedCountValue?: string }
@@ -397,6 +399,17 @@ function findMentionedMetadataValue(prompt: string, filters: AvailableProjectFil
     return prompt.match(/\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b/i)?.[1];
 }
 
+function availableLocationCountries(filters: AvailableProjectFilters): string[] {
+    return [...new Set(filters.locations.map((location) => location.country).filter((value): value is string => Boolean(value)))];
+}
+
+function availableLocationCities(filters: AvailableProjectFilters, country?: string): string[] {
+    return [...new Set(filters.locations
+        .filter((location) => !country || location.country === country)
+        .map((location) => location.city)
+        .filter((value): value is string => Boolean(value)))];
+}
+
 function inferSmartCaptureStatusFromPrompt(prompt: string): QueryBuilderSmartCaptureStatus | undefined {
     const normalized = prompt.toLowerCase();
     if (/\b(pending|waiting|buffered|decision window|not decided)\b/.test(normalized)) return 'pending';
@@ -483,6 +496,22 @@ function sanitizeQueryBuilderCondition(raw: any, filters: AvailableProjectFilter
             const knownValue = findAllowedValue(raw.metaValue, filters.metadata[metaKey] ?? []);
             const typedValue = normalizeString(raw.metaValue);
             return { id: randomUUID(), type: 'metadata', metaKey, metaValue: knownValue ?? (typedValue || undefined) };
+        }
+        case 'location': {
+            const requestedMode = normalizeString(raw.mode);
+            const country = findAllowedValue(raw.country, availableLocationCountries(filters)) ?? undefined;
+            const city = findAllowedValue(raw.city, availableLocationCities(filters, country)) ?? undefined;
+            const inferredMode = country && city ? 'both' : country ? 'country' : city ? 'city' : undefined;
+            const mode = requestedMode === 'country' || requestedMode === 'city' || requestedMode === 'both'
+                ? requestedMode
+                : inferredMode;
+            if (mode === 'country' && country) return { id: randomUUID(), type: 'location', mode, country };
+            if (mode === 'city' && city) return { id: randomUUID(), type: 'location', mode, city };
+            if (mode === 'both' && country && city) return { id: randomUUID(), type: 'location', mode, country, city };
+            if (inferredMode === 'country') return { id: randomUUID(), type: 'location', mode: inferredMode, country };
+            if (inferredMode === 'city') return { id: randomUUID(), type: 'location', mode: inferredMode, city };
+            if (inferredMode === 'both') return { id: randomUUID(), type: 'location', mode: inferredMode, country, city };
+            return null;
         }
         case 'referral': {
             const referralValue = findMetadataValueForKeys(raw.referralValue ?? raw.metaValue ?? raw.value, filters, REFERRAL_METADATA_KEYS);
@@ -587,6 +616,22 @@ function findMentionedAllowedValue(prompt: string, allowed: string[]): string | 
     return matches[0]?.candidate ?? null;
 }
 
+function findMentionedLocationValue(prompt: string, allowed: string[]): string | null {
+    const normalize = (value: string) => value
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    const normalizedPrompt = normalize(prompt);
+    return [...allowed]
+        .sort((a, b) => b.length - a.length)
+        .find((candidate) => {
+            const normalizedCandidate = normalize(candidate).trim();
+            if (!normalizedCandidate) return false;
+            const escaped = normalizedCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, 'i').test(normalizedPrompt);
+        }) ?? null;
+}
+
 function dedupeConditions(conditions: QueryBuilderCondition[]): QueryBuilderCondition[] {
     const byKey = new Map<string, QueryBuilderCondition>();
 
@@ -599,6 +644,8 @@ function dedupeConditions(conditions: QueryBuilderCondition[]): QueryBuilderCond
                     return `event:${condition.eventName.toLowerCase()}:${condition.eventPropKey ?? ''}:${condition.eventPropValue ?? ''}`;
                 case 'metadata':
                     return `metadata:${condition.metaKey.toLowerCase()}:${condition.metaValue ?? ''}`;
+                case 'location':
+                    return `location:${condition.mode}:${condition.country ?? ''}:${condition.city ?? ''}`;
                 case 'referral':
                     return `referral:${condition.referralValue ?? ''}`;
                 case 'utm':
@@ -668,6 +715,10 @@ function describeQueryBuilderCondition(condition: QueryBuilderCondition): string
             return condition.metaValue
                 ? `metadata ${condition.metaKey} is ${condition.metaValue}`
                 : `metadata includes ${condition.metaKey}`;
+        case 'location':
+            if (condition.mode === 'both') return `located in ${condition.city}, ${condition.country}`;
+            if (condition.mode === 'city') return `located in city ${condition.city}`;
+            return `located in country ${condition.country}`;
         case 'referral':
             return condition.referralValue
                 ? `web referrals from ${condition.referralValue}`
@@ -807,6 +858,23 @@ function enrichQueryBuilderGroups(groups: QueryBuilderGroup[], filters: Availabl
         });
     }
 
+    if (!conditionExists(next, 'location')) {
+        const hasLocationIntent = /\b(country|city|location|geo|located|sessions?\s+(?:in|from)|users?\s+(?:in|from)|visitors?\s+(?:in|from))\b/.test(normalizedPrompt);
+        if (hasLocationIntent) {
+            const country = findMentionedLocationValue(prompt, availableLocationCountries(filters)) ?? undefined;
+            const city = findMentionedLocationValue(prompt, availableLocationCities(filters, country)) ?? undefined;
+            if (country || city) {
+                next = addToFirstGroup(next, {
+                    id: randomUUID(),
+                    type: 'location',
+                    mode: country && city ? 'both' : country ? 'country' : 'city',
+                    country,
+                    city,
+                });
+            }
+        }
+    }
+
     if (!conditionExists(next, 'metadata')) {
         const metadataKeys = Object.keys(filters.metadata);
         const genericMetadataKeys = metadataKeys.filter((key) => {
@@ -869,6 +937,20 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
         LIMIT 500
     `);
 
+    const locationsQuery = await db.execute(sql`
+        SELECT DISTINCT
+            NULLIF(BTRIM(${sessions.geoCountry}), '') as country,
+            NULLIF(BTRIM(${sessions.geoCity}), '') as city
+        FROM ${sessions}
+        WHERE ${sessions.projectId} = ${projectId}
+          AND (
+              NULLIF(BTRIM(${sessions.geoCountry}), '') IS NOT NULL
+              OR NULLIF(BTRIM(${sessions.geoCity}), '') IS NOT NULL
+          )
+        ORDER BY country NULLS LAST, city NULLS LAST
+        LIMIT 1000
+    `);
+
     const availableEvents = Array.isArray(eventsQuery)
         ? eventsQuery.map((row: any) => row.event_name as string).filter(Boolean)
         : (eventsQuery as any).rows?.map((row: any) => row.event_name as string).filter(Boolean) || [];
@@ -878,6 +960,13 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
     const eventPropertyKeys = Array.isArray(eventPropsQuery)
         ? eventPropsQuery.map((row: any) => row.prop_key as string).filter(Boolean)
         : (eventPropsQuery as any).rows?.map((row: any) => row.prop_key as string).filter(Boolean) || [];
+    const locationRows = Array.isArray(locationsQuery) ? locationsQuery : (locationsQuery as any).rows || [];
+    const availableLocations = locationRows
+        .map((row: any) => ({
+            country: normalizeString(row.country) || undefined,
+            city: normalizeString(row.city) || undefined,
+        }))
+        .filter((location: { country?: string; city?: string }) => Boolean(location.country || location.city));
 
     const availableMetadata: Record<string, string[]> = {};
     const metaRows = Array.isArray(metadataQuery) ? metadataQuery : (metadataQuery as any).rows || [];
@@ -907,6 +996,7 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
         eventPropertyKeys,
         screens: availableScreens,
         metadata: availableMetadata,
+        locations: availableLocations,
     };
 }
 
@@ -1005,6 +1095,7 @@ function buildQueryBuilderPrompt(input: {
                     .slice(0, 100)
                     .map(([key, values]) => [key, values.slice(0, 50)])
             ),
+            locations: input.filters.locations.slice(0, 500),
             smartCaptureRules: input.project?.smartCaptureRules ?? [],
         },
         allowedConditionTypes: {
@@ -1016,6 +1107,7 @@ function buildQueryBuilderPrompt(input: {
             screen: 'screenName must come from screensOrPages',
             event: 'eventName must come from events',
             metadata: 'metaKey must come from metadataKeys',
+            location: 'mode is country, city, or both; country/city must come from locations, and both means an exact country + city pair',
             referral: 'web-only referral/referrer/source condition; referralValue should match observed webReferral/webReferrerDomain/webAttributionSource when possible',
             utm: 'web-only UTM condition with field one of source, medium, campaign, campaignId, term, content, sourcePlatform',
             journey: 'steps must come from screensOrPages in visit order',
@@ -1025,7 +1117,7 @@ function buildQueryBuilderPrompt(input: {
             'Return only query conditions that are supported by the allowed condition types.',
             'Use project setup only as context. Never add a platform condition unless the user explicitly says iOS, iPhone, iPad, Apple, Android, Pixel, Samsung, web, browser, website, or site.',
             'Every condition must be directly requested by the user. Do not add filters just because they are common, likely, or present in project setup.',
-            'Prefer the smallest accurate query. Do not duplicate the same screen, page, event, metadata, referral, UTM, platform, issue, lifecycle, conversion, journey, or Smart Capture condition.',
+            'Prefer the smallest accurate query. Do not duplicate the same screen, page, event, metadata, location, referral, UTM, platform, issue, lifecycle, conversion, journey, or Smart Capture condition.',
             'Use available app-specific screens/pages, events, metadata keys, and event properties exactly as provided.',
             'If the user says page, route, view, or screen, match it to screensOrPages.',
             'Infer intent from synonyms and paraphrases, not only exact words.',
@@ -1039,6 +1131,7 @@ function buildQueryBuilderPrompt(input: {
             'When user asks for referral, referrer, referer, or traffic source on web sessions, use the referral condition. It is web-only, so do not also add platform=web for the same intent.',
             'When user asks for UTM or campaign tags on web sessions, use the utm condition. It is web-only, so do not also add platform=web for the same intent.',
             'When user asks for Smart Capture, captured by a rule, kept/discarded by a rule, Notes rule labels, or a configured custom capture rule name, use smart_capture.',
+            'When the user names a country, city, or geographic location, use location. Use mode=both only when both a country and a city are requested.',
             'For custom Smart Capture rule names, prefer ruleId from smartCaptureRules. Use ruleName only when the request is a text search or no configured rule id matches.',
             'If the user asks for alternatives, represent them as multiple groups.',
             'If the request is too vague or impossible with the provided values, return an empty groups array and a concise explanation.',
@@ -1109,6 +1202,10 @@ function buildQueryBuilderPrompt(input: {
                 output: [
                     { type: 'utm', field: 'campaign', value: 'spring-launch' },
                 ],
+            },
+            {
+                input: 'sessions in Austin, US',
+                output: [{ type: 'location', mode: 'both', country: 'matching US country', city: 'matching Austin city' }],
             },
             {
                 input: 'sessions captured by the High friction Smart Capture rule',
@@ -2093,7 +2190,7 @@ router.post(
                     systemInstruction: {
                         parts: [
                             {
-                                text: 'You translate product analytics query requests into a small JSON object. Use project setup and observed screens/pages/events/metadata as context. Do not invent screen names, page names, event names, metadata keys, or event property keys.',
+                                text: 'You translate product analytics query requests into a small JSON object. Use project setup and observed screens/pages/events/metadata/locations as context. Do not invent screen names, page names, event names, metadata keys, event property keys, countries, or cities.',
                             },
                         ],
                     },
@@ -2146,6 +2243,8 @@ router.post(
                                                         eventPropValue: { type: 'string' },
                                                         metaKey: { type: 'string' },
                                                         metaValue: { type: 'string' },
+                                                        country: { type: 'string' },
+                                                        city: { type: 'string' },
                                                         referralValue: { type: 'string' },
                                                         field: { type: 'string' },
                                                         value: { type: 'string' },

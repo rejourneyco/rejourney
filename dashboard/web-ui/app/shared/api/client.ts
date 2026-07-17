@@ -1443,11 +1443,11 @@ export async function getProjects(): Promise<ApiProject[]> {
  */
 export async function getAvailableFilters(
     projectId: string,
-): Promise<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }> {
-    return fetchWithCache<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>(
+): Promise<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]>; locations: Array<{ country?: string; city?: string }> }> {
+    return fetchWithCache<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]>; locations: Array<{ country?: string; city?: string }> }>(
         `/api/projects/${projectId}/available-filters`,
         {},
-        `projects:available-filters:${projectId}`,
+        `projects:available-filters:v2:${projectId}`,
         300000,
     );
 }
