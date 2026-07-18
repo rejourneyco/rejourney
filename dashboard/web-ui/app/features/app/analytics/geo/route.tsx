@@ -7,6 +7,7 @@ import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { getGeoOverview, getSessionsPaginated, type ApiLatencyByLocationResponse, type GeoIssuesSummary } from '~/shared/api/client';
@@ -720,7 +721,7 @@ function getClusterAvatarItems(cluster: GeoMapCluster, sessionsByLocation: Map<s
         return {
             animal: getAnimalForSeed(seed),
             seed,
-            label: `${marker.city}, ${marker.country}`,
+            label: `${marker.city}, ${formatCountryDisplayName(marker.country, marker.countryCode) || marker.country}`,
             count: Math.max(marker.uniqueUsers, marker.sessions, 1),
             latestStartedMs: 0,
         };
@@ -2052,7 +2053,7 @@ export const Geo: React.FC = () => {
     const activeSidebarLoading = activeSidebarState === 'loading' && activeSidebarSessions.length === 0;
     const liveAnalytics = useMemo(() => getLiveGeoAnalytics(activeSidebarSessions, Date.now(), isDemoMode), [activeSidebarSessions, isDemoMode]);
     const scopeLabel = selectedMarker
-        ? `${selectedMarker.city}, ${selectedMarker.country}`
+        ? `${selectedMarker.city}, ${formatCountryDisplayName(selectedMarker.country, selectedMarker.countryCode) || selectedMarker.country}`
         : selectedCluster && selectedCluster.kind === 'cluster'
           ? `${selectedCluster.markers.length} nearby locations`
           : 'All locations';
@@ -2063,7 +2064,7 @@ export const Geo: React.FC = () => {
 	        : selectedMarker
 	          ? `${formatCompactNumber(selectedMarker.uniqueUsers)} users on the map · ${formatCompactNumber(selectedMarker.sessions)} sessions`
 	          : selectedCluster && selectedCluster.kind === 'cluster'
-	            ? `${formatCompactNumber(selectedCluster.uniqueUsers)} users · ${formatCompactNumber(selectedCluster.sessions)} sessions · ${selectedCluster.topMarker.country}`
+	            ? `${formatCompactNumber(selectedCluster.uniqueUsers)} users · ${formatCompactNumber(selectedCluster.sessions)} sessions · ${formatCountryDisplayName(selectedCluster.topMarker.country, selectedCluster.topMarker.countryCode) || selectedCluster.topMarker.country}`
 	            : `${markers.length.toLocaleString()} cities · ${formatCompactNumber(totalSessions)} sessions`;
 	    const clearGeographicSelection = () => {
 	        setSelectedMarkerId(null);
@@ -2474,7 +2475,7 @@ export const Geo: React.FC = () => {
                                                     pointerEvents: 'auto',
                                                     transform: isSelected ? 'scale(1.16)' : 'scale(1)',
                                                 }}
-                                                aria-label={`${cluster.kind === 'cluster' ? `${cluster.markers.length} locations` : `${cluster.topMarker.city}, ${cluster.topMarker.country}`}: ${cluster.uniqueUsers.toLocaleString()} users, ${cluster.sessions.toLocaleString()} sessions`}
+                                                aria-label={`${cluster.kind === 'cluster' ? `${cluster.markers.length} locations` : `${cluster.topMarker.city}, ${formatCountryDisplayName(cluster.topMarker.country, cluster.topMarker.countryCode) || cluster.topMarker.country}`}: ${cluster.uniqueUsers.toLocaleString()} users, ${cluster.sessions.toLocaleString()} sessions`}
                                                 onPointerDown={(event) => event.stopPropagation()}
                                                 onClick={(event) => {
                                                     event.stopPropagation();
@@ -2544,7 +2545,7 @@ export const Geo: React.FC = () => {
                                     >
                                         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 shadow-lg">
                                             <div className="mb-0.5 font-semibold text-slate-900">
-                                                {hoveredMarker.city}, {hoveredMarker.country}
+                                                {hoveredMarker.city}, {formatCountryDisplayName(hoveredMarker.country, hoveredMarker.countryCode) || hoveredMarker.country}
                                             </div>
                                             <div className="flex items-center gap-2 text-slate-600">
                                                 <span>{hoveredMarker.uniqueUsers.toLocaleString()} users</span>

@@ -14,6 +14,10 @@ export interface GeoDisplay {
 }
 
 const UNKNOWN_LOCATION_LABEL = 'Unknown location';
+const REGION_DISPLAY_NAMES = typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
+  ? new Intl.DisplayNames(['en'], { type: 'region' })
+  : null;
+let searchableCountryNames: Array<{ code: string; name: string }> | null = null;
 
 function cleanText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -25,7 +29,10 @@ function normalizeCountry(
   country: string | null,
   countryCode: string | null
 ): { country: string | null; countryCode: string | null } {
-  const normalizedCode = countryCode?.toUpperCase() ?? null;
+  const countryAsCode = country && /^[a-z]{2}$/i.test(country) ? country.toUpperCase() : null;
+  const normalizedCode = (countryCode?.toUpperCase() ?? countryAsCode) === 'UK'
+    ? 'GB'
+    : countryCode?.toUpperCase() ?? countryAsCode;
   const hasIsraelMention =
     normalizedCode === 'IL' ||
     normalizedCode === 'PS/IL' ||
@@ -38,10 +45,57 @@ function normalizeCountry(
     };
   }
 
+  const displayCountry = countryAsCode && normalizedCode
+    ? countryCodeToDisplayName(normalizedCode)
+    : country || (normalizedCode ? countryCodeToDisplayName(normalizedCode) : null);
+
   return {
-    country,
+    country: displayCountry,
     countryCode: normalizedCode,
   };
+}
+
+export function countryCodeToDisplayName(countryCode: string | null | undefined): string | null {
+  const normalizedCode = cleanText(countryCode)?.toUpperCase();
+  if (!normalizedCode) return null;
+  if (normalizedCode === 'PS/IL' || normalizedCode === 'IL') return 'Palestine / Israel';
+
+  const isoCode = normalizedCode === 'UK' ? 'GB' : normalizedCode;
+  if (!/^[A-Z]{2}$/.test(isoCode)) return normalizedCode;
+
+  const displayName = REGION_DISPLAY_NAMES?.of(isoCode);
+  return displayName && displayName !== isoCode ? displayName : normalizedCode;
+}
+
+export function formatCountryDisplayName(
+  country: string | null | undefined,
+  countryCode?: string | null,
+): string | null {
+  const normalized = normalizeCountry(cleanText(country), cleanText(countryCode));
+  return normalized.country;
+}
+
+export function findCountryCodesMatchingName(query: string): string[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery || !REGION_DISPLAY_NAMES) return [];
+
+  if (!searchableCountryNames) {
+    searchableCountryNames = [];
+    for (let first = 65; first <= 90; first += 1) {
+      for (let second = 65; second <= 90; second += 1) {
+        const code = String.fromCharCode(first, second);
+        const name = REGION_DISPLAY_NAMES.of(code);
+        if (name && name !== code && name !== 'Unknown Region') {
+          searchableCountryNames.push({ code, name: name.toLocaleLowerCase() });
+        }
+      }
+    }
+  }
+
+  return searchableCountryNames
+    .filter(({ code, name }) => code.toLocaleLowerCase().includes(normalizedQuery) || name.includes(normalizedQuery))
+    .map(({ code }) => code)
+    .slice(0, 20);
 }
 
 function getIsoCountryCodes(countryCode: string | null | undefined): string[] {

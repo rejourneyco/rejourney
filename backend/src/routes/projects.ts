@@ -948,7 +948,7 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
               OR NULLIF(BTRIM(${sessions.geoCity}), '') IS NOT NULL
           )
         ORDER BY country NULLS LAST, city NULLS LAST
-        LIMIT 1000
+        LIMIT 100
     `);
 
     const availableEvents = Array.isArray(eventsQuery)
@@ -998,6 +998,62 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
         metadata: availableMetadata,
         locations: availableLocations,
     };
+}
+
+async function loadAvailableProjectLocations(
+    projectId: string,
+    options: { kind: 'country' | 'city'; search: string; country: string; countryCodes: string[] }
+): Promise<Array<{ country?: string; city?: string }>> {
+    const searchPattern = `%${options.search}%`;
+
+    if (options.kind === 'country') {
+        const matchingCodeCondition = options.countryCodes.length > 0
+            ? sql`OR UPPER(NULLIF(BTRIM(${sessions.geoCountry}), '')) IN (${sql.join(options.countryCodes.map((code) => sql`${code}`), sql`, `)})`
+            : sql``;
+        const result = await db.execute(sql`
+            SELECT DISTINCT NULLIF(BTRIM(${sessions.geoCountry}), '') as country
+            FROM ${sessions}
+            WHERE ${sessions.projectId} = ${projectId}
+              AND NULLIF(BTRIM(${sessions.geoCountry}), '') IS NOT NULL
+              AND (
+                  ${options.search} = ''
+                  OR NULLIF(BTRIM(${sessions.geoCountry}), '') ILIKE ${searchPattern}
+                  ${matchingCodeCondition}
+              )
+            ORDER BY country
+            LIMIT 50
+        `);
+        const rows = Array.isArray(result) ? result : (result as any).rows || [];
+        return rows
+            .map((row: any) => ({ country: normalizeString(row.country) || undefined }))
+            .filter((location: { country?: string }) => Boolean(location.country));
+    }
+
+    const result = await db.execute(sql`
+        SELECT DISTINCT
+            NULLIF(BTRIM(${sessions.geoCountry}), '') as country,
+            NULLIF(BTRIM(${sessions.geoCity}), '') as city
+        FROM ${sessions}
+        WHERE ${sessions.projectId} = ${projectId}
+          AND NULLIF(BTRIM(${sessions.geoCity}), '') IS NOT NULL
+          AND (
+              ${options.country} = ''
+              OR NULLIF(BTRIM(${sessions.geoCountry}), '') = ${options.country}
+          )
+          AND (
+              ${options.search} = ''
+              OR NULLIF(BTRIM(${sessions.geoCity}), '') ILIKE ${searchPattern}
+          )
+        ORDER BY city, country NULLS LAST
+        LIMIT 50
+    `);
+    const rows = Array.isArray(result) ? result : (result as any).rows || [];
+    return rows
+        .map((row: any) => ({
+            country: normalizeString(row.country) || undefined,
+            city: normalizeString(row.city) || undefined,
+        }))
+        .filter((location: { city?: string }) => Boolean(location.city));
 }
 
 async function loadQueryBuilderProjectContext(projectId: string): Promise<QueryBuilderProjectContext | null> {
@@ -2324,6 +2380,29 @@ router.get(
     requireProjectAccess,
     asyncHandler(async (req, res) => {
         res.json(await loadAvailableProjectFilters(req.params.id));
+    })
+);
+
+/**
+ * Search country/city filter options without relying on the capped initial list.
+ * GET /api/projects/:id/available-locations?kind=country|city&search=&country=
+ */
+router.get(
+    '/:id/available-locations',
+    sessionAuth,
+    validate(projectIdParamSchema, 'params'),
+    requireProjectAccess,
+    asyncHandler(async (req, res) => {
+        const kind = req.query.kind === 'city' ? 'city' : 'country';
+        const search = normalizeString(req.query.search).slice(0, 100);
+        const country = normalizeString(req.query.country).slice(0, 100);
+        const countryCodes = normalizeString(req.query.countryCodes)
+            .split(',')
+            .map((code) => code.trim().toUpperCase())
+            .filter((code) => /^[A-Z]{2}$/.test(code))
+            .slice(0, 20);
+        const locations = await loadAvailableProjectLocations(req.params.id, { kind, search, country, countryCodes });
+        res.json({ locations });
     })
 );
 

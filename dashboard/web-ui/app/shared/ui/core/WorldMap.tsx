@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Badge } from './Badge';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 
 interface Location {
     lat: number;
@@ -192,7 +193,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({ locations, className }) => {
                             {/* Tooltip */}
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                                 <div className="bg-slate-900 text-white text-[10px] px-2 py-1 font-mono whitespace-nowrap border border-white shadow-[4px_4px_0_0_black]">
-                                    <div className="font-bold">{loc.city}, {loc.country}</div>
+                                    <div className="font-bold">{loc.city}, {formatCountryDisplayName(loc.country) || loc.country}</div>
                                     <div className="text-slate-400">{loc.count.toLocaleString()} sessions</div>
                                 </div>
                             </div>

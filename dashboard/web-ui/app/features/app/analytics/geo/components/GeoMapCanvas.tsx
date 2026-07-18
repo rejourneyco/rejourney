@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
@@ -72,6 +73,7 @@ export interface GeoMapMarker {
   id: string;
   city: string;
   country: string;
+  countryCode?: string | null;
   lat: number;
   lng: number;
   sessions: number;
@@ -276,7 +278,7 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
                       ? `0 0 0 3px rgba(255,255,255,0.86), 0 0 0 6px ${marker.style.ring}, 0 0 20px ${marker.style.ring}, 0 5px 14px rgba(2,6,23,0.32)`
                       : `0 0 0 2px rgba(255,255,255,0.78), 0 0 0 4px ${marker.style.ring}, 0 3px 10px rgba(2,6,23,0.22)`,
                   }}
-                  aria-label={`${marker.city}, ${marker.country}: ${marker.uniqueUsers.toLocaleString()} unique users, ${marker.sessions.toLocaleString()} sessions, ${formatLatency(marker.avgLatencyMs)} avg latency`}
+                  aria-label={`${marker.city}, ${formatCountryDisplayName(marker.country, marker.countryCode) || marker.country}: ${marker.uniqueUsers.toLocaleString()} unique users, ${marker.sessions.toLocaleString()} sessions, ${formatLatency(marker.avgLatencyMs)} avg latency`}
                   onMouseEnter={() => setHoveredMarkerId(marker.id)}
                   onMouseLeave={() => setHoveredMarkerId((prev) => (prev === marker.id ? null : prev))}
                 >
@@ -298,7 +300,7 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
             >
               <div className="border-2 border-black bg-white px-2.5 py-2 text-[11px] text-slate-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] backdrop-blur-[2px]">
                 <div className="mb-0.5 font-semibold text-slate-900">
-                  {hoveredMarker.city}, {hoveredMarker.country}
+                  {hoveredMarker.city}, {formatCountryDisplayName(hoveredMarker.country, hoveredMarker.countryCode) || hoveredMarker.country}
                 </div>
                 <div className="flex items-center gap-2 text-slate-600">
                   <span>{hoveredMarker.uniqueUsers.toLocaleString()} unique users</span>

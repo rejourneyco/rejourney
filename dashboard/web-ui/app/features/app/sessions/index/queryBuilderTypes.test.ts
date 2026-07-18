@@ -35,7 +35,7 @@ describe('session replay location query rules', () => {
       geoCountry: 'US',
       geoCity: 'Austin',
     });
-    expect(buildHumanSummary([condition])).toBe('Sessions where in Austin, US');
-    expect(getConditionShortLabel(condition)).toBe('Austin, US');
+    expect(buildHumanSummary([condition])).toBe('Sessions where in Austin, United States');
+    expect(getConditionShortLabel(condition)).toBe('Austin, United States');
   });
 });

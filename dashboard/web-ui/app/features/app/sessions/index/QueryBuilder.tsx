@@ -31,6 +31,11 @@ interface QueryBuilderProps {
   isLoadingFilters: boolean;
   projectId?: string;
   smartCaptureRules?: SmartCaptureRule[];
+  loadLocationOptions?: (
+    kind: 'country' | 'city',
+    search: string,
+    country?: string,
+  ) => Promise<Array<{ country?: string; city?: string }>>;
 }
 
 type AddRuleInit = {
@@ -155,10 +160,11 @@ function makeCondition(type: ConditionType, filters: AvailableFilters, init: Add
 
 // ── Condition row dispatcher ──────────────────────────────────────────────────
 
-function ConditionRow({ cond, onChange, onRemove, filters, loading, smartCaptureRules }: {
+function ConditionRow({ cond, onChange, onRemove, filters, loading, smartCaptureRules, loadLocationOptions }: {
   cond: QueryCondition; onChange: (c: QueryCondition) => void; onRemove: () => void;
   filters: AvailableFilters; loading: boolean;
   smartCaptureRules: SmartCaptureRule[];
+  loadLocationOptions?: QueryBuilderProps['loadLocationOptions'];
 }) {
   switch (cond.type) {
     case 'issue':      return <IssueRow cond={cond} onChange={onChange as (c: IssueCondition) => void} onRemove={onRemove} />;
@@ -166,7 +172,7 @@ function ConditionRow({ cond, onChange, onRemove, filters, loading, smartCapture
     case 'screen':     return <ScreenRow cond={cond} onChange={onChange as (c: ScreenCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'event':      return <EventRow cond={cond} onChange={onChange as (c: EventCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'metadata':   return <MetadataRow cond={cond} onChange={onChange as (c: MetadataCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
-    case 'location':   return <LocationRow cond={cond} onChange={onChange as (c: LocationCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
+    case 'location':   return <LocationRow cond={cond} onChange={onChange as (c: LocationCondition) => void} onRemove={onRemove} filters={filters} loading={loading} loadLocationOptions={loadLocationOptions} />;
     case 'referral':   return <ReferralRow cond={cond} onChange={onChange as (c: ReferralCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'utm':        return <UtmRow cond={cond} onChange={onChange as (c: UtmCondition) => void} onRemove={onRemove} filters={filters} loading={loading} />;
     case 'lifecycle':  return <LifecycleRow cond={cond} onChange={onChange as (c: LifecycleCondition) => void} onRemove={onRemove} />;
@@ -179,11 +185,12 @@ function ConditionRow({ cond, onChange, onRemove, filters, loading, smartCapture
 
 // ── Group card ────────────────────────────────────────────────────────────────
 
-function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters, loading, smartCaptureRules }: {
+function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters, loading, smartCaptureRules, loadLocationOptions }: {
   group: QueryGroup; groupIndex: number; totalGroups: number;
   onChange: (g: QueryGroup) => void; onRemove: () => void;
   filters: AvailableFilters; loading: boolean;
   smartCaptureRules: SmartCaptureRule[];
+  loadLocationOptions?: QueryBuilderProps['loadLocationOptions'];
 }) {
   const presentTypes = new Set(group.conditions.map((c) => c.type));
   const presentUtmFields = new Set(
@@ -238,7 +245,7 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
         )}
         {group.conditions.map((cond, idx) => (
           <React.Fragment key={cond.id}>
-            <ConditionRow cond={cond} onChange={(u) => updateCond(cond.id, u)} onRemove={() => removeCond(cond.id)} filters={filters} loading={loading} smartCaptureRules={smartCaptureRules} />
+            <ConditionRow cond={cond} onChange={(u) => updateCond(cond.id, u)} onRemove={() => removeCond(cond.id)} filters={filters} loading={loading} smartCaptureRules={smartCaptureRules} loadLocationOptions={loadLocationOptions} />
             {idx < group.conditions.length - 1 && (
               <div className="flex items-center gap-2 px-4">
                 <div className="h-px flex-1 bg-slate-200" />
@@ -269,6 +276,7 @@ export function QueryBuilder({
   isLoadingFilters,
   projectId,
   smartCaptureRules = [],
+  loadLocationOptions,
 }: QueryBuilderProps) {
   const [prompt, setPrompt] = useState('');
   const [isBuilding, setIsBuilding] = useState(false);
@@ -400,6 +408,7 @@ export function QueryBuilder({
               onRemove={() => removeGroup(group.id)}
               filters={availableFilters} loading={isLoadingFilters}
               smartCaptureRules={smartCaptureRules}
+              loadLocationOptions={loadLocationOptions}
             />
             {idx < groups.length - 1 && (
               <div className="flex items-center gap-3">

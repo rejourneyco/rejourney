@@ -5,6 +5,7 @@ import {
   MonitorSmartphone, Globe2, Megaphone, ScanEye, MapPin,
 } from 'lucide-react';
 import type { SmartCaptureRule } from '~/shared/api/client';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 import {
   type IssueCondition, type DateCondition, type ScreenCondition,
   type EventCondition, type MetadataCondition, type LifecycleCondition,
@@ -48,11 +49,14 @@ function Chip({
 }
 
 function SearchableChip({
-  value, onChange, options, placeholder, searchLabel, className = '',
+  value, onChange, options, placeholder, searchLabel, onSearchChange, loading = false, className = '',
 }: {
   value: string; onChange: (v: string) => void;
   options: { value: string; label: string }[];
-  placeholder: string; searchLabel: string; className?: string;
+  placeholder: string; searchLabel: string;
+  onSearchChange?: (query: string | null) => void;
+  loading?: boolean;
+  className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -63,7 +67,9 @@ function SearchableChip({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = React.useMemo(
     () => options.filter((option) => (
-      !normalizedQuery || option.label.toLocaleLowerCase().includes(normalizedQuery)
+      !normalizedQuery ||
+      option.label.toLocaleLowerCase().includes(normalizedQuery) ||
+      option.value.toLocaleLowerCase().includes(normalizedQuery)
     )),
     [normalizedQuery, options],
   );
@@ -74,11 +80,12 @@ function SearchableChip({
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false);
         setQuery('');
+        onSearchChange?.(null);
       }
     };
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [open]);
+  }, [onSearchChange, open]);
 
   React.useEffect(() => {
     setActiveIndex(0);
@@ -88,6 +95,7 @@ function SearchableChip({
     onChange(nextValue);
     setOpen(false);
     setQuery('');
+    onSearchChange?.(null);
   };
 
   return (
@@ -106,10 +114,12 @@ function SearchableChip({
           onFocus={() => {
             setOpen(true);
             setQuery('');
+            onSearchChange?.('');
           }}
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
+            onSearchChange?.(event.target.value);
           }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
@@ -126,9 +136,11 @@ function SearchableChip({
               event.preventDefault();
               setOpen(false);
               setQuery('');
+              onSearchChange?.(null);
             } else if (event.key === 'Tab') {
               setOpen(false);
               setQuery('');
+              onSearchChange?.(null);
             }
           }}
           className="w-full rounded-[6px] border border-slate-300 bg-white py-1.5 pl-3 pr-7 text-xs font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -142,6 +154,11 @@ function SearchableChip({
           aria-label={`${searchLabel} options`}
           className="absolute left-0 top-full z-[70] mt-1 max-h-56 w-full min-w-[190px] overflow-y-auto rounded-[7px] border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/10"
         >
+          {loading && (
+            <div className="px-3 py-2 text-center text-xs font-medium text-slate-500">
+              Searching…
+            </div>
+          )}
           {filteredOptions.length > 0 ? filteredOptions.map((option, index) => (
             <button
               key={option.value}
@@ -161,11 +178,11 @@ function SearchableChip({
             >
               {option.label}
             </button>
-          )) : (
+          )) : !loading ? (
             <div className="px-3 py-3 text-center text-xs font-medium text-slate-500">
               No matching {searchLabel.toLocaleLowerCase()}
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -404,12 +421,74 @@ const LOCATION_MODE_OPTIONS = [
   { value: 'both', label: 'Country + city' },
 ];
 
-export function LocationRow({ cond, onChange, onRemove, filters, loading }: {
-  cond: LocationCondition; onChange: (c: LocationCondition) => void; onRemove: () => void;
-  filters: AvailableFilters; loading: boolean;
+export function LocationRow({
+  cond,
+  onChange,
+  onRemove,
+  filters,
+  loading,
+  loadLocationOptions,
+}: {
+  cond: LocationCondition;
+  onChange: (c: LocationCondition) => void;
+  onRemove: () => void;
+  filters: AvailableFilters;
+  loading: boolean;
+  loadLocationOptions?: (
+    kind: 'country' | 'city',
+    search: string,
+    country?: string,
+  ) => Promise<Array<{ country?: string; city?: string }>>;
 }) {
-  const locations = filters.locations ?? [];
-  const countries = uniqueValues(locations.map((location) => location.country)).sort((a, b) => a.localeCompare(b));
+  const [activeSearch, setActiveSearch] = React.useState<{ kind: 'country' | 'city'; query: string } | null>(null);
+  const [remoteLocations, setRemoteLocations] = React.useState<Array<{ country?: string; city?: string }>>([]);
+  const [isSearching, setIsSearching] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!activeSearch || !loadLocationOptions) {
+      setRemoteLocations([]);
+      setIsSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      setIsSearching(true);
+      loadLocationOptions(
+        activeSearch.kind,
+        activeSearch.query.trim(),
+        activeSearch.kind === 'city' && cond.mode === 'both' ? cond.country : undefined,
+      )
+        .then((locations) => {
+          if (!cancelled) setRemoteLocations(locations);
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteLocations([]);
+        })
+        .finally(() => {
+          if (!cancelled) setIsSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [activeSearch, cond.country, cond.mode, loadLocationOptions]);
+
+  const locations = React.useMemo(() => {
+    const uniqueLocations = new Map<string, { country?: string; city?: string }>();
+    for (const location of [...(filters.locations ?? []), ...remoteLocations]) {
+      const country = location.country?.trim() || undefined;
+      const city = location.city?.trim() || undefined;
+      if (!country && !city) continue;
+      uniqueLocations.set(`${country ?? ''}\u0000${city ?? ''}`, { country, city });
+    }
+    return [...uniqueLocations.values()];
+  }, [filters.locations, remoteLocations]);
+  const countries = uniqueValues(locations.map((location) => location.country)).sort((a, b) => (
+    (formatCountryDisplayName(a) || a).localeCompare(formatCountryDisplayName(b) || b)
+  ));
   const allCities = uniqueValues(locations.map((location) => location.city)).sort((a, b) => a.localeCompare(b));
   const citiesForCountry = cond.country
     ? uniqueValues(locations
@@ -455,8 +534,11 @@ export function LocationRow({ cond, onChange, onRemove, filters, loading }: {
       }
     };
 
-    if (values.length > 0) {
-      const options = uniqueValues([...values, value]).map((option) => ({ value: option, label: option }));
+    if (values.length > 0 || loadLocationOptions) {
+      const options = uniqueValues([...values, value]).map((option) => ({
+        value: option,
+        label: isCountry ? (formatCountryDisplayName(option) || option) : option,
+      }));
       return (
         <SearchableChip
           value={value}
@@ -464,6 +546,8 @@ export function LocationRow({ cond, onChange, onRemove, filters, loading }: {
           options={options}
           placeholder={`Find ${kind}…`}
           searchLabel={isCountry ? 'Country' : 'City'}
+          onSearchChange={(query) => setActiveSearch(query === null ? null : { kind, query })}
+          loading={isSearching && activeSearch?.kind === kind}
         />
       );
     }

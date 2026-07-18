@@ -33,6 +33,7 @@ import {
   getSessionsArchiveTotalCount,
   getSessionsPaginated,
   getAvailableFilters,
+  getAvailableLocations,
   getProjectSmartCaptureConfig,
   type SessionArchiveSortKey,
   type SmartCaptureConfig,
@@ -42,7 +43,7 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useSafeTeam } from '~/shared/providers/TeamContext';
-import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
+import { findCountryCodesMatchingName, formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
 import { hasSuccessfulRecordingFromSession } from '~/shared/lib/replayAvailability';
 import { getWebNetworkDisplay, getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
@@ -277,6 +278,19 @@ export const RecordingsList: React.FC = () => {
   const selectedProjectId = selectedProject?.id;
   const selectedProjectTeamId = selectedProject?.teamId;
   const isProjectFromCurrentTeam = !selectedProjectId || !currentTeam?.id || selectedProjectTeamId === currentTeam.id;
+  const loadLocationOptions = useCallback((
+    kind: 'country' | 'city',
+    search: string,
+    country?: string,
+  ) => {
+    if (isDemoMode || !selectedProjectId) return Promise.resolve([]);
+    return getAvailableLocations(selectedProjectId, {
+      kind,
+      search,
+      country,
+      countryCodes: kind === 'country' ? findCountryCodesMatchingName(search) : undefined,
+    });
+  }, [isDemoMode, selectedProjectId]);
 
   useEffect(() => {
     if (!isDemoMode && (!selectedProjectId || !isProjectFromCurrentTeam)) {
@@ -857,6 +871,7 @@ export const RecordingsList: React.FC = () => {
                 isLoadingFilters={isLoadingFilters}
                 projectId={selectedProjectId}
                 smartCaptureRules={smartCaptureConfig?.rules ?? []}
+                loadLocationOptions={loadLocationOptions}
               />
             </div>
           </div>

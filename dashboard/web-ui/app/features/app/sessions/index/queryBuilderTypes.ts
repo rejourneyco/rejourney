@@ -1,4 +1,5 @@
 import type { SessionArchiveQuery } from '~/shared/api/client';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 import type { SessionArchiveIssueFilter } from './sessionArchiveFilters';
 
 export type ConditionType =
@@ -353,9 +354,9 @@ export function buildHumanSummary(conditions: QueryCondition[], logic: 'AND' | '
         return `has ${cond.metaKey}`;
       }
       case 'location':
-        if (cond.mode === 'both' && cond.country && cond.city) return `in ${cond.city}, ${cond.country}`;
+        if (cond.mode === 'both' && cond.country && cond.city) return `in ${cond.city}, ${formatCountryDisplayName(cond.country) || cond.country}`;
         if (cond.mode === 'city' && cond.city) return `in city ${cond.city}`;
-        if (cond.country) return `in country ${cond.country}`;
+        if (cond.country) return `in country ${formatCountryDisplayName(cond.country) || cond.country}`;
         return 'at any location';
       case 'referral':
         return cond.referralValue ? `web referral=${cond.referralValue}` : 'has web referral';
@@ -406,9 +407,9 @@ export function getConditionShortLabel(cond: QueryCondition): string {
     case 'metadata':
       return cond.metaKey || 'Metadata';
     case 'location':
-      if (cond.mode === 'both' && cond.city && cond.country) return `${cond.city}, ${cond.country}`;
+      if (cond.mode === 'both' && cond.city && cond.country) return `${cond.city}, ${formatCountryDisplayName(cond.country) || cond.country}`;
       if (cond.mode === 'city') return cond.city || 'City';
-      return cond.country || 'Country';
+      return formatCountryDisplayName(cond.country) || cond.country || 'Country';
     case 'referral':
       return cond.referralValue || 'Referral';
     case 'utm':

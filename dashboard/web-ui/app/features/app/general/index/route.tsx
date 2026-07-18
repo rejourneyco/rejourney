@@ -75,7 +75,7 @@ import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
-import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
+import { formatCountryDisplayName, formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
@@ -3404,7 +3404,7 @@ export const GeneralOverview: React.FC = () => {
             .sort((a, b) => b.count - a.count)
             .slice(0, 5)
             .map((country) => ({
-                country: country.country || 'Unknown',
+                country: formatCountryDisplayName(country.country) || 'Unknown',
                 count: country.count,
             }));
     }, [geoSummary]);

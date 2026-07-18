@@ -1447,9 +1447,27 @@ export async function getAvailableFilters(
     return fetchWithCache<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]>; locations: Array<{ country?: string; city?: string }> }>(
         `/api/projects/${projectId}/available-filters`,
         {},
-        `projects:available-filters:v2:${projectId}`,
+        `projects:available-filters:v3:${projectId}`,
         300000,
     );
+}
+
+export async function getAvailableLocations(
+    projectId: string,
+    options: { kind: 'country' | 'city'; search?: string; country?: string; countryCodes?: string[] },
+): Promise<Array<{ country?: string; city?: string }>> {
+    const params = new URLSearchParams({ kind: options.kind });
+    if (options.search) params.set('search', options.search);
+    if (options.country) params.set('country', options.country);
+    if (options.countryCodes?.length) params.set('countryCodes', options.countryCodes.join(','));
+    const query = params.toString();
+    const result = await fetchWithCache<{ locations: Array<{ country?: string; city?: string }> }>(
+        `/api/projects/${projectId}/available-locations?${query}`,
+        {},
+        `projects:available-locations:${projectId}:${query}`,
+        60000,
+    );
+    return result.locations;
 }
 
 export async function buildSessionQueryFromPrompt(projectId: string, prompt: string): Promise<{ groups: any[]; explanation: string }> {

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
 
 export interface GeoIssueMapRegion {
     id: string;
@@ -215,7 +216,11 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                     } ${isNearLeft ? 'left-0' : isNearRight ? 'right-0' : 'left-1/2 -translate-x-1/2'
                                     } ${isHovered ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'}`}
                             >
-                                <div className="mb-1 text-sm font-black tracking-tight">{region.city ? `${region.city}, ${region.country}` : region.country}</div>
+                                <div className="mb-1 text-sm font-black tracking-tight">
+                                    {region.city
+                                        ? `${region.city}, ${formatCountryDisplayName(region.country) || region.country}`
+                                        : formatCountryDisplayName(region.country) || region.country}
+                                </div>
                                 <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                                     {region.activeUsers.toLocaleString()} active users
                                 </div>
