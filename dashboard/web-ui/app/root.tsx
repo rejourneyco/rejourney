@@ -16,6 +16,7 @@ import {
     Scripts,
     ScrollRestoration,
     isRouteErrorResponse,
+    useLocation,
     useMatches,
 } from "react-router";
 import type { Route } from "./+types/root";
@@ -225,6 +226,7 @@ import { ToastProvider } from "./shared/providers/ToastContext";
 import { RejourneyConsentBanner } from "~/shared/compliance/RejourneyConsentBanner";
 
 export default function App() {
+    const location = useLocation();
     const matches = useMatches();
     const shellBootstrap = matches
         .map((match) => match.data)
@@ -232,6 +234,14 @@ export default function App() {
     const publicAuthBootstrap = matches
         .map((match) => match.data)
         .find((data) => isAuthBootstrapData(data)) ?? null;
+    const isDemoRoute = location.pathname === "/demo" || location.pathname.startsWith("/demo/");
+
+    const appContent = (
+        <ToastProvider>
+            <Outlet />
+            <RejourneyConsentBanner />
+        </ToastProvider>
+    );
 
     return (
         <AuthProvider
@@ -240,16 +250,15 @@ export default function App() {
             initialAuthServiceUnavailable={publicAuthBootstrap?.authServiceUnavailable ?? false}
             initialError={publicAuthBootstrap?.error ?? null}
         >
-            <TeamProvider
-                initialTeams={shellBootstrap?.teams ?? []}
-                initialCurrentTeamId={shellBootstrap?.currentTeamId ?? null}
-                initialHydrated={!!shellBootstrap}
-            >
-                <ToastProvider>
-                    <Outlet />
-                    <RejourneyConsentBanner />
-                </ToastProvider>
-            </TeamProvider>
+            {isDemoRoute ? appContent : (
+                <TeamProvider
+                    initialTeams={shellBootstrap?.teams ?? []}
+                    initialCurrentTeamId={shellBootstrap?.currentTeamId ?? null}
+                    initialHydrated={!!shellBootstrap}
+                >
+                    {appContent}
+                </TeamProvider>
+            )}
         </AuthProvider>
     );
 }

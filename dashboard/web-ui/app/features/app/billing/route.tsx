@@ -71,6 +71,7 @@ import {
   writePendingCheckoutRevenueContext,
 } from '~/features/app/billing/revenueTracking';
 import { trackRejourneyRevenueEvent } from '~/shared/compliance/rejourneyWebsiteTelemetry';
+import { getDemoBillingFixtures } from '~/features/app/billing/demoBillingData';
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: 'Validate the funnel before traffic ramps',
@@ -81,13 +82,30 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   enterprise: 'Custom captured-session volume & dedicated hardware',
 };
 
-const PLAN_ACCENT_COLORS: Record<string, string> = {
-  free: '#94a3b8',
-  starter: '#1a73e8',
-  growth: '#188038',
-  pro: '#9334e6',
-  scale: '#0f766e',
-  enterprise: '#8b5cf6',
+const PLAN_STEPS = [
+  { name: 'free', label: '5k', sessions: 5_000 },
+  { name: 'starter', label: '25k', sessions: 25_000 },
+  { name: 'growth', label: '100k', sessions: 100_000 },
+  { name: 'pro', label: '350k', sessions: 350_000 },
+  { name: 'scale', label: '1m', sessions: 1_000_000 },
+  { name: 'enterprise', label: '1m+', sessions: 10_000_000 },
+] as const;
+
+const getRevenueLeakPredictionLabel = (planName: string) => {
+  switch (planName) {
+    case 'free':
+      return <><strong>5,000 sessions</strong> of Revenue Leak Prediction</>;
+    case 'starter':
+      return <><strong>5x more</strong> Revenue Leak Prediction than Free</>;
+    case 'growth':
+      return <><strong>20x more</strong> Revenue Leak Prediction than Free</>;
+    case 'pro':
+      return <><strong>70x more</strong> Revenue Leak Prediction than Free</>;
+    case 'scale':
+      return <><strong>200x more</strong> Revenue Leak Prediction than Free</>;
+    default:
+      return <><strong>Custom</strong> Revenue Leak Prediction coverage</>;
+  }
 };
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
@@ -100,90 +118,6 @@ const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' 
     <span className="min-w-0 flex-1">{children}</span>
   </div>
 );
-
-const captureControlLabel = (hasHighIntentCapture: boolean) =>
-  hasHighIntentCapture
-    ? 'High-Intent Capture keeps revenue-critical journeys'
-    : 'Standard replay sampling, masking, and length controls';
-
-const retentionHighlightClass = (retention: string) => {
-  const days = Number.parseInt(retention, 10);
-  return Number.isFinite(days) && days >= 30 ? 'text-emerald-700' : 'text-amber-600';
-};
-
-const isShortRetention = (retention: string) => {
-  const days = Number.parseInt(retention, 10);
-  return Number.isFinite(days) && days < 30;
-};
-
-const isLowAiLeakCoverage = (planName: string) => planName === 'free' || planName === 'starter';
-
-const RetentionEvidenceLabel: React.FC<{ retention: string }> = ({ retention }) => (
-  <>
-    <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
-    {' '}of checkout, onboarding, and paywall history
-  </>
-);
-
-const fixWorkflowCoverageDetail = (planName: string) => {
-  switch (planName) {
-    case 'free':
-      return 'for short launch cohorts and first funnel checks';
-    case 'starter':
-      return 'for early traffic cohorts and first fix cycles';
-    case 'growth':
-      return 'for campaigns, experiments, and funnel comparisons';
-    case 'pro':
-      return 'for high-volume checkout, subscription, and onboarding fixes';
-    case 'scale':
-      return 'with high-intent capture control for noisy traffic';
-    default:
-      return 'for conversion-critical fixes';
-  }
-};
-
-const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retention: string }> = ({
-  planName,
-  sessions,
-  retention,
-}) => {
-  return (
-    <>
-      <span className="font-bold text-indigo-700">{sessions}</span>
-      {' '}journeys across{' '}
-      <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
-      {' '}
-      {fixWorkflowCoverageDetail(planName)}
-    </>
-  );
-};
-
-const aiLeakUpgradePositioning = (planName: string, sessions: string) => {
-  switch (planName) {
-    case 'free':
-      return { lead: `${sessions} conversion journeys`, detail: ' baseline for AI Leak Detection' };
-    case 'starter':
-      return { lead: '5x more', detail: ' conversion journeys for AI Leak Detection than Free' };
-    case 'growth':
-      return { lead: '20x more', detail: ' conversion journeys for AI Leak Detection than Free' };
-    case 'pro':
-      return { lead: '70x more', detail: ' conversion journeys for AI Leak Detection than Free' };
-    case 'scale':
-      return { lead: '200x more', detail: ' conversion journeys for AI Leak Detection than Free' };
-    default:
-      return { lead: `${sessions} conversion journeys`, detail: ' for AI leak scans' };
-  }
-};
-
-const AiLeakUpgradeLabel: React.FC<{ planName: string; sessions: string }> = ({ planName, sessions }) => {
-  const positioning = aiLeakUpgradePositioning(planName, sessions);
-  return (
-    <>
-      <span className="font-bold text-indigo-700">{positioning.lead}</span>
-      {positioning.detail}
-    </>
-  );
-};
 
 export const BillingSettings: React.FC = () => {
   const { isDemoMode } = useDemoMode();
@@ -208,6 +142,7 @@ export const BillingSettings: React.FC = () => {
   // UI state
   const [isLoadingPortal, setIsLoadingPortal] = useState(false);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
+  const [volumeIndex, setVolumeIndex] = useState(2);
 
   // Plan change modal state
   const [planChangeModal, setPlanChangeModal] = useState<{
@@ -227,7 +162,7 @@ export const BillingSettings: React.FC = () => {
   // Permissions
   const isOwner = currentTeam?.ownerUserId === user?.id;
   const currentMember = teamMembers.find(m => m.userId === user?.id);
-  const isBillingAdmin = isOwner || currentMember?.role === 'admin' || currentMember?.role === 'billing_admin';
+  const isBillingAdmin = isDemoMode || isOwner || currentMember?.role === 'admin' || currentMember?.role === 'billing_admin';
   const hasPaymentMethod = paymentMethods.length > 0;
 
   const resetPlanChangeModal = useCallback(() => {
@@ -245,9 +180,17 @@ export const BillingSettings: React.FC = () => {
   // Load billing data
   const loadTeamBilling = useCallback(async (): Promise<TeamPlanInfo | null> => {
     if (isDemoMode) {
+      const demoBilling = getDemoBillingFixtures();
       setBillingError(null);
+      setTeamUsage(demoBilling.usage);
+      setStripeStatus(demoBilling.stripeStatus);
+      setPaymentMethods(demoBilling.paymentMethods);
+      setTeamPlan(demoBilling.plan);
+      setSessionUsage(demoBilling.sessionUsage);
+      setAlertSettings(demoBilling.alertSettings);
+      setAvailablePlans(demoBilling.availablePlans);
       setIsLoadingBilling(false);
-      return null;
+      return demoBilling.plan;
     }
 
     if (!currentTeam) {
@@ -305,8 +248,21 @@ export const BillingSettings: React.FC = () => {
     loadTeamBilling();
   }, [loadTeamBilling]);
 
+  useEffect(() => {
+    if (!teamPlan?.planName || teamPlan.planName.toLowerCase() === 'free') {
+      setVolumeIndex(2);
+      return;
+    }
+    const subscribedPlanIndex = PLAN_STEPS.findIndex(
+      step => step.name === teamPlan.planName.toLowerCase(),
+    );
+    if (subscribedPlanIndex >= 0) {
+      setVolumeIndex(subscribedPlanIndex);
+    }
+  }, [teamPlan?.planName]);
+
   const refreshPlanPreview = useCallback(async () => {
-    if (!planChangeModal.isOpen || !planChangeModal.selectedPlan || !currentTeam) {
+    if (isDemoMode || !planChangeModal.isOpen || !planChangeModal.selectedPlan || !currentTeam) {
       return;
     }
 
@@ -319,7 +275,7 @@ export const BillingSettings: React.FC = () => {
     } catch (err) {
       console.error('Failed to refresh plan preview:', err);
     }
-  }, [currentTeam, planChangeModal.isOpen, planChangeModal.selectedPlan]);
+  }, [currentTeam, isDemoMode, planChangeModal.isOpen, planChangeModal.selectedPlan]);
 
   const syncCompletedCheckout = useCallback(async (sessionId: string) => {
     if (!currentTeam) {
@@ -346,6 +302,12 @@ export const BillingSettings: React.FC = () => {
     status: 'success' | 'canceled',
     sessionId?: string | null,
   ) => {
+    if (isDemoMode) {
+      await loadTeamBilling();
+      showToast('Checkout is disabled in the demo. Sample billing data was restored.');
+      return;
+    }
+
     if (status === 'success') {
       let checkoutSyncResult: Awaited<ReturnType<typeof completeCheckoutSession>> | null = null;
       if (sessionId && currentTeam) {
@@ -393,7 +355,7 @@ export const BillingSettings: React.FC = () => {
     setPlanChangeModal(prev => ({ ...prev, isConfirming: false }));
     clearPendingCheckoutRevenueContext(sessionId);
     showToast('Checkout canceled.');
-  }, [availablePlans, currentTeam, loadTeamBilling, resetPlanChangeModal, showToast, syncCompletedCheckout, teamPlan]);
+  }, [availablePlans, currentTeam, isDemoMode, loadTeamBilling, resetPlanChangeModal, showToast, syncCompletedCheckout, teamPlan]);
 
   // Listen for messages from Stripe return pages
   useEffect(() => {
@@ -458,6 +420,10 @@ export const BillingSettings: React.FC = () => {
 
     // Don't allow clicking on current plan
     if (teamPlan?.planName?.toLowerCase() === planName) return;
+    if (isDemoMode) {
+      showToast('Plan changes are disabled in the demo. This is sample billing data.');
+      return;
+    }
 
     setPlanChangeModal({
       isOpen: true,
@@ -486,6 +452,12 @@ export const BillingSettings: React.FC = () => {
 
   // Confirm the plan change
   const handleConfirmPlanChange = async () => {
+    if (isDemoMode) {
+      resetPlanChangeModal();
+      showToast('Plan changes are disabled in the demo.');
+      return;
+    }
+
     const selectedPlan = planChangeModal.selectedPlan;
     const preview = planChangeModal.preview;
     if (!currentTeam || !selectedPlan || !preview) return;
@@ -615,6 +587,10 @@ export const BillingSettings: React.FC = () => {
 
   const handleOpenBillingPortal = async () => {
     if (!currentTeam) return;
+    if (isDemoMode) {
+      showToast('Stripe Billing is disabled in the demo. This payment method is sample data.');
+      return;
+    }
     try {
       setIsLoadingPortal(true);
       setBillingError(null);
@@ -713,33 +689,6 @@ export const BillingSettings: React.FC = () => {
     );
   }
 
-  if (isDemoMode) {
-    return (
-      <SettingsLayout
-        className="rejourney-settings-page rejourney-billing-settings-page"
-        title="Billing"
-        description={`Demo billing preview for ${currentTeam.name}`}
-        icon={<CreditCard className="w-6 h-6" />}
-        iconColor="bg-[#f4f4f5]"
-      >
-        <NeoCard className="p-8 border-sky-600 bg-sky-50">
-          <div className="flex items-start gap-6">
-            <div className="w-16 h-16 bg-sky-600 flex items-center justify-center border-2 border-slate-900 shadow-[4px_4px_0_0_#000]">
-              <Info className="w-8 h-8 text-white" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-2xl font-semibold uppercase tracking-tight mb-2">Demo Billing</h2>
-              <p className="text-sm font-bold text-sky-900 mb-3">
-                Billing controls are disabled in demo mode.
-              </p>
-
-            </div>
-          </div>
-        </NeoCard>
-      </SettingsLayout>
-    );
-  }
-
   // Self-hosted mode
   if (stripeStatus?.selfHosted) {
     return (
@@ -793,6 +742,14 @@ export const BillingSettings: React.FC = () => {
     }] : [])
   ];
   const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
+  const currentPlanIndex = plansForDisplay.findIndex(plan => plan.name === currentPlanName);
+  const selectedPlanStep = PLAN_STEPS[volumeIndex];
+  const paidPreviewIndex = Math.min(4, Math.max(1, volumeIndex));
+  const plansForSliderDisplay = [
+    plansForDisplay.find(plan => plan.name === 'free'),
+    plansForDisplay.find(plan => plan.name === PLAN_STEPS[paidPreviewIndex].name),
+    plansForDisplay.find(plan => plan.name === 'enterprise'),
+  ].filter((plan): plan is BillingPlan => Boolean(plan));
   const currentPlanDisplay = teamPlan?.displayName || teamPlan?.planName || 'Free';
   const currentPlanPriceLabel = teamPlan?.priceCents ? `$${(teamPlan.priceCents / 100).toFixed(0)}/mo` : 'Free';
   const periodEndsLabel = alertSettings
@@ -820,6 +777,17 @@ export const BillingSettings: React.FC = () => {
     >
       <PricingThreeField seed={21} className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60" />
       <div className="relative z-10 space-y-6">
+      {isDemoMode && (
+        <div className="flex items-start gap-3 rounded-xl border border-sky-200/70 bg-sky-50/80 p-4 backdrop-blur-md">
+          <Info className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+          <div>
+            <div className="text-sm font-semibold text-sky-950">Demo billing preview</div>
+            <div className="mt-0.5 text-xs font-medium text-sky-800">
+              Usage, plan, and payment details are sample data. Billing actions are safely disabled.
+            </div>
+          </div>
+        </div>
+      )}
       {hasScheduledPlanChange && (
         <div className="rounded-xl border border-rose-200/60 bg-rose-50/75 backdrop-blur-md flex items-start gap-3 p-4">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
@@ -1018,169 +986,226 @@ export const BillingSettings: React.FC = () => {
         </div>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 relative z-10 mt-6">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Subscription Plans</h2>
-          <p className="mt-1 text-sm font-medium text-slate-500">Compare monthly revenue evidence volume and conversion history without leaving this screen.</p>
+      <section className="billing-glass-card relative z-10 mt-6 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/60 pb-5">
+          <div className="max-w-2xl">
+            <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Choose your evidence volume</h2>
+            <p className="mt-1.5 text-sm font-medium leading-6 text-slate-500">
+              Every plan includes the analytics toolkit. Choose based on monthly session replays, retention, and capture control.
+            </p>
+          </div>
+          <a
+            href="mailto:contact@rejourney.co"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-xs font-bold text-indigo-650 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50"
+          >
+            Need a custom plan?
+            <ArrowRight className="h-3.5 w-3.5" />
+          </a>
         </div>
-        <div className="text-xs font-semibold text-slate-500 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
-          Need more? <a href="mailto:contact@rejourney.co" className="font-bold text-indigo-600 hover:underline">Contact Sales</a>
-        </div>
-      </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 relative z-10 pb-12">
-        {plansForDisplay.map((plan) => {
-          const isCurrentPlan = currentPlanName === plan.name;
-          const currentPlanIndex = plansForDisplay.findIndex(p => p.name === currentPlanName);
-          const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
-          const isDowngrade = teamPlan && currentPlanIndex > planIndex;
-          const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
-          const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
-          const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
-          const price = plan.priceCents / 100;
-          const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale' || plan.name === 'enterprise');
-          const actionLabel = isSavingPlan
-            ? '...'
-            : isDowngrade
-              ? 'Downgrade'
-              : isNewPaidSubscription
-                ? 'Subscribe'
-                : 'Upgrade';
-
-          const planName = plan.name.toLowerCase().trim();
-          const isFeatured = planName === 'growth';
-          const isScale = planName === 'scale';
-          const isEnterprise = planName === 'enterprise';
-
-          const cardClassName = isCurrentPlan
-            ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/15 backdrop-blur-md shadow-md hover:-translate-y-1.5 hover:shadow-lg'
-            : isFreePlanDisabled || isScheduledPlan
-              ? 'border-slate-100 bg-slate-50/40 opacity-70 shadow-none'
-              : isEnterprise
-                ? 'border-purple-500/40 bg-gradient-to-b from-purple-50/50 via-indigo-50/50 to-white/70 shadow-sm hover:shadow-lg hover:-translate-y-1.5'
-                : isScale
-                  ? 'border-blue-500/40 bg-gradient-to-b from-blue-50/50 via-indigo-50/50 to-white/70 shadow-sm hover:shadow-lg hover:-translate-y-1.5'
-                  : isFeatured
-                    ? 'border-indigo-500 ring-1 ring-indigo-500/40 bg-indigo-50/10 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5'
-                    : 'border-slate-200/80 bg-white/75 backdrop-blur-md shadow-sm hover:shadow-lg hover:-translate-y-1.5';
-
-          return (
-            <div
-              key={plan.name}
-              className={`relative flex flex-col justify-between overflow-hidden border rounded-2xl p-5 transition-all duration-300 min-h-[660px] ${cardClassName}`}
-              style={{ '--plan-accent': PLAN_ACCENT_COLORS[plan.name] ?? '#1a73e8' } as React.CSSProperties}
-            >
-              {isFeatured && <div className="absolute inset-x-0 top-0 h-1.5 bg-indigo-650" aria-hidden />}
-              {isEnterprise && <div className="absolute inset-x-0 top-0 h-1.5 bg-purple-650" aria-hidden />}
-              
-              <div>
-                <div className="flex min-h-[2.5rem] items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-lg font-bold tracking-tight text-slate-950">{plan.displayName}</h3>
-                    <p className="mt-1 text-[11px] font-medium leading-4 text-slate-500">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
-                  </div>
-                  {isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
-                  {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
-                </div>
-
-                <div className="my-4 flex items-end gap-x-1">
-                  <span className="text-2xl font-bold tracking-tight text-slate-950">
-                    {isEnterprise ? 'Custom' : price === 0 ? 'Free' : `$${price}`}
-                  </span>
-                  {price > 0 && !isEnterprise && <span className="pb-0.5 text-xs font-semibold text-slate-500">/mo</span>}
-                </div>
-
-                <div className="mb-5 border-t border-slate-150/40 pt-4 space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue evidence</p>
-                    <PlanCheck>Boost Web & Mobile Conversion, Checkout, and Subscription</PlanCheck>
-                    <PlanCheck>
-                      {isEnterprise
-                        ? 'Custom session replays/mo'
-                        : `${plan.sessionLimit.toLocaleString()} session replays/mo included`}
-                    </PlanCheck>
-                    <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
-                      {isEnterprise
-                        ? 'Custom conversion history retention'
-                        : <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />}
-                    </PlanCheck>
-                    <PlanCheck tone={hasSmartCapture ? 'check' : 'minus'}>
-                      {isEnterprise
-                        ? 'Smart Capture custom rules included'
-                        : captureControlLabel(hasSmartCapture)}
-                    </PlanCheck>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Revenue analytics</p>
-                    <PlanCheck>Unlimited events, DAU & MAU</PlanCheck>
-                    <PlanCheck>Funnels, cohorts, revenue, and retention trends</PlanCheck>
-                    <PlanCheck>Checkout, onboarding, signup, and subscription drill-downs</PlanCheck>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fix workflow</p>
-                    <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
-                      {isEnterprise ? (
-                        <span>AI Leak Detection: Custom volume</span>
-                      ) : (
-                        <span>AI Leak Detection: <AiLeakUpgradeLabel planName={planName} sessions={plan.sessionLimit.toLocaleString()} /></span>
-                      )}
-                    </PlanCheck>
-                    <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
-                      {isEnterprise ? (
-                        <span>Custom volume of conversion-critical fixes</span>
-                      ) : (
-                        <FixWorkflowCoverage
-                          planName={planName}
-                          sessions={plan.sessionLimit.toLocaleString()}
-                          retention={plan.videoRetentionLabel}
-                        />
-                      )}
-                    </PlanCheck>
-                    <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
-                      {isLowAiLeakCoverage(planName) ? 'Limited ' : ''}AI Query Builder searches users, events, errors, devices, and metadata in that window
-                    </PlanCheck>
-                    <PlanCheck>Heatmaps, journeys, crash/API, device, and geo context</PlanCheck>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-auto pt-4 border-t border-slate-150/30">
-                {isCurrentPlan ? (
-                  <div className="rounded-md border border-blue-200 bg-blue-50/80 backdrop-blur-sm px-3 py-2 text-center text-sm font-semibold text-blue-700">
-                    Current plan
-                  </div>
-                ) : isScheduledPlan ? (
-                  <div className="rounded-md border border-rose-200 bg-rose-50/80 backdrop-blur-sm px-3 py-2 text-center text-sm font-semibold text-rose-700">
-                    Already scheduled
-                  </div>
-                ) : isEnterprise ? (
-                  <a
-                    href="mailto:contact@rejourney.co?subject=Enterprise%20Plan%20Inquiry"
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 border-2 border-black bg-black px-4 py-2 text-sm font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-800 hover:shadow-neo active:translate-y-0 active:shadow-none focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 focus:ring-offset-[#f8fafc]"
-                  >
-                    Contact Sales
-                  </a>
-                ) : isBillingAdmin ? (
-                  <NeoButton
-                    variant="primary"
-                    className="w-full shadow-sm"
-                    onClick={() => handlePlanClick(plan.name)}
-                    disabled={isSavingPlan || isFreePlanDisabled}
-                  >
-                    {actionLabel}
-                  </NeoButton>
-                ) : (
-                  <div className="rounded-md border border-slate-200 bg-slate-50/80 backdrop-blur-sm px-3 py-2 text-center text-xs font-semibold text-slate-500">
-                    Billing admin required
-                  </div>
-                )}
+        <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Monthly session replays</div>
+              <div className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+                {selectedPlanStep.name === 'enterprise'
+                  ? 'Custom volume'
+                  : selectedPlanStep.sessions.toLocaleString()}
               </div>
             </div>
-          );
-        })}
-      </div>
+            <div className="text-right">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Previewing</div>
+              <div className="mt-1 text-sm font-black uppercase text-indigo-650">{selectedPlanStep.name}</div>
+            </div>
+          </div>
+
+          <input
+            type="range"
+            min={0}
+            max={PLAN_STEPS.length - 1}
+            step={1}
+            value={volumeIndex}
+            onChange={event => setVolumeIndex(Number(event.target.value))}
+            className="pricing-range-slider mt-5"
+            style={{ '--slider-fill': `${(volumeIndex / (PLAN_STEPS.length - 1)) * 100}%` } as React.CSSProperties}
+            aria-label="Preview a billing plan by monthly session replay volume"
+          />
+
+          <div className="mt-3 flex justify-between px-1">
+            {PLAN_STEPS.map((step, index) => (
+              <button
+                key={step.name}
+                type="button"
+                onClick={() => setVolumeIndex(index)}
+                className={`text-[10px] font-bold uppercase transition-colors ${
+                  volumeIndex === index ? 'text-indigo-650' : 'text-slate-400 hover:text-slate-650'
+                }`}
+                aria-label={`Preview ${step.name} plan`}
+                aria-pressed={volumeIndex === index}
+              >
+                {step.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-4 text-center text-xs font-medium text-slate-500">
+            Your subscribed plan is selected automatically whenever you return.
+          </p>
+        </div>
+
+        <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-3">
+          {plansForSliderDisplay.map((plan) => {
+            const isCurrentPlan = currentPlanName === plan.name;
+            const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
+            const isDowngrade = Boolean(teamPlan && currentPlanIndex > planIndex);
+            const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
+            const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
+            const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
+            const isSelectedPlan = selectedPlanStep.name === plan.name;
+            const isEnterprise = plan.name === 'enterprise';
+            const hasSmartCapture = Boolean(plan.smartCaptureEnabled || plan.name === 'scale' || isEnterprise);
+            const isFree = plan.name === 'free';
+            const price = plan.priceCents / 100;
+            const actionLabel = isSavingPlan
+              ? '...'
+              : isDowngrade
+                ? 'Downgrade'
+                : isNewPaidSubscription
+                  ? 'Subscribe'
+                  : 'Upgrade';
+
+            const isHighlighted = isSelectedPlan;
+            const badgeText = isFree ? 'Getting Started' : isEnterprise ? 'Contact Us' : 'Best Value';
+            const cardClassName = isHighlighted
+              ? 'border-2 border-slate-950 bg-white shadow-[8px_8px_0_#0f172a] -translate-y-1'
+              : 'border border-slate-200 bg-white/80 shadow-sm hover:-translate-y-0.5 hover:border-slate-350 hover:shadow-md';
+            const actionClassName = isHighlighted
+              ? 'border-slate-950 bg-[#86efac] text-black shadow-[2px_2px_0_#0f172a] hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none'
+              : 'border-slate-250 bg-white text-slate-800 hover:border-slate-350 hover:bg-slate-50';
+            const features: Array<{ key: string; content: React.ReactNode; active: boolean }> = isFree
+              ? [
+                  { key: 'sessions', content: <><strong>{plan.sessionLimit.toLocaleString()}</strong> session replays / mo</>, active: true },
+                  { key: 'retention', content: <><strong>7 days</strong> evidence retention</>, active: true },
+                  { key: 'prediction', content: getRevenueLeakPredictionLabel('free'), active: true },
+                  { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
+                  { key: 'funnels', content: 'Standard funnel and cohort trends', active: true },
+                  { key: 'controls', content: 'Standard session recording controls', active: true },
+                  { key: 'smart', content: 'Smart Capture customizable rules', active: false },
+                  { key: 'support', content: 'Priority support & Dedicated hardware', active: false },
+                ]
+              : isEnterprise
+                ? [
+                    { key: 'sessions', content: <><strong>Custom volume</strong> of monthly sessions</>, active: true },
+                    { key: 'retention', content: <><strong>Custom</strong> evidence retention history</>, active: true },
+                    { key: 'prediction', content: getRevenueLeakPredictionLabel('enterprise'), active: true },
+                    { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
+                    { key: 'funnels', content: 'Full suite of custom funnels & analytics', active: true },
+                    { key: 'hardware', content: 'Dedicated hardware & custom storage bucket', active: true },
+                    { key: 'support', content: 'Dedicated support team & custom SLA', active: true },
+                  ]
+                : [
+                    { key: 'sessions', content: <><strong>{plan.sessionLimit.toLocaleString()}</strong> session replays / mo</>, active: true },
+                    { key: 'retention', content: <><strong>{plan.videoRetentionLabel}</strong> evidence retention</>, active: true },
+                    { key: 'prediction', content: getRevenueLeakPredictionLabel(plan.name), active: true },
+                    { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
+                    { key: 'funnels', content: 'Checkout, onboarding, & paywall drill-downs', active: true },
+                    { key: 'diagnostics', content: 'Crash, API, and ANR diagnostic tools', active: true },
+                    { key: 'smart', content: 'Smart Capture customizable rules', active: hasSmartCapture },
+                    { key: 'support', content: 'Priority support & Dedicated hardware', active: false },
+                  ];
+
+            return (
+              <article
+                key={plan.name}
+                className={`relative flex min-h-[650px] flex-col justify-between rounded-2xl p-8 transition-all duration-300 ${cardClassName}`}
+              >
+                {isHighlighted && (
+                  <span className="absolute -top-3 left-6 inline-flex items-center rounded-full border border-emerald-500 bg-emerald-100 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    {isCurrentPlan ? 'Current Plan' : badgeText}
+                  </span>
+                )}
+
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">{plan.displayName}</h3>
+                      <p className="mt-3 min-h-12 text-sm font-semibold leading-relaxed text-slate-500">
+                      {PLAN_DESCRIPTIONS[plan.name] || 'Subscription plan'}
+                      </p>
+                    </div>
+                    {!isHighlighted && isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
+                    {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
+                  </div>
+
+                  <div className="mt-6 flex items-end gap-x-2">
+                    <span className="text-4xl font-black tracking-tight text-slate-900">
+                    {isEnterprise ? 'Custom' : price === 0 ? '$0' : `$${price}`}
+                    </span>
+                    {!isFree && !isEnterprise && <span className="pb-1 text-sm font-bold text-slate-400">/ month</span>}
+                  </div>
+
+                  <div className="mt-8 space-y-4">
+                    {features.map(feature => (
+                      <PlanCheck key={feature.key} tone={feature.active ? 'check' : 'minus'}>
+                        {feature.content}
+                      </PlanCheck>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-2">
+                  {isCurrentPlan ? (
+                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 text-sm font-extrabold uppercase text-indigo-700">
+                      Your current plan
+                    </div>
+                  ) : isScheduledPlan ? (
+                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-extrabold uppercase text-rose-700">
+                      Already scheduled
+                    </div>
+                  ) : isEnterprise ? (
+                    <a
+                      href="mailto:contact@rejourney.co?subject=Enterprise%20Plan%20Inquiry"
+                      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-extrabold uppercase transition-all duration-150 ${actionClassName}`}
+                    >
+                      Contact Sales
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
+                  ) : isBillingAdmin ? (
+                    <button
+                      type="button"
+                      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-extrabold uppercase transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${actionClassName}`}
+                      onClick={() => handlePlanClick(plan.name)}
+                      disabled={isSavingPlan || isFreePlanDisabled}
+                    >
+                      {actionLabel}
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-xs font-semibold text-slate-500">
+                      Billing admin required
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 grid gap-3 rounded-xl border border-slate-200/70 bg-white/55 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            'Web and mobile replay',
+            'AI Leak Detection',
+            'Heatmaps and journeys',
+            'Crash and API context',
+          ].map(feature => (
+            <div key={feature} className="flex items-center gap-2 text-xs font-semibold text-slate-650">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Check className="h-3 w-3 stroke-[3px]" />
+              </span>
+              {feature}
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Plan Change Confirmation Modal */}
       {planChangeModal.isOpen && (

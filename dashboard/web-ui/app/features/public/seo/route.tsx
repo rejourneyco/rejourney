@@ -7,6 +7,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleMinus,
   ExternalLink,
   Gauge,
@@ -22,6 +24,7 @@ import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { SITE_URL } from "~/shared/lib/internationalMarketing";
 import { getSeoPageByPath, type SeoComparisonValue, type SeoPage } from "./seoPages";
+import { SankeyPanel } from "../home/components/AiLeakHomepage";
 
 const iconCycle = [PlayCircle, Infinity, Users, Layers3, Gauge, GitBranch];
 
@@ -3162,6 +3165,642 @@ function RelatedResourcesSection({ page }: { page: SeoPage }) {
   );
 }
 
+const AD_LANDING_PATHS = [
+  "/web-session-replay",
+  "/mobile-session-replay",
+  "/stability-monitoring",
+  "/funnel-replay-evidence",
+  "/revenue-recovery-analytics",
+  "/alternatives/posthog-session-replay",
+  "/alternatives/sentry-session-replay",
+  "/alternatives/smartlook"
+];
+
+const AD_LANDING_HEADLINES: Record<string, string> = {
+  "/web-session-replay": "Web Session Replay",
+  "/mobile-session-replay": "Mobile Session Replay",
+  "/stability-monitoring": "Mobile Crash Reporting",
+  "/funnel-replay-evidence": "Funnel Drop-offs",
+  "/revenue-recovery-analytics": "Revenue Leaks",
+  "/alternatives/posthog-session-replay": "PostHog Alternative",
+  "/alternatives/sentry-session-replay": "Sentry Alternative",
+  "/alternatives/smartlook": "Smartlook Alternative",
+};
+
+const AD_LANDING_SUBHEADLINES: Record<string, string> = {
+  "/web-session-replay": "Record DOM mutations and browser sessions. Predict and pinpoint checkout friction and conversion leaks before they cost you sales.",
+  "/mobile-session-replay": "Replay native iOS, React Native, and Expo screens. Identify gesture friction, freeze points, and mobile onboarding leaks.",
+  "/stability-monitoring": "Monitor crashes, ANRs, and API failures. Pair error diagnostics with replay context to fix bugs that block transactions.",
+  "/funnel-replay-evidence": "Analyze journey ribbons and backtrack loops. Pinpoint where visitors abandon flows and watch replays of drops.",
+  "/revenue-recovery-analytics": "Link gross revenue drops directly to failed checkouts and releases. Recover leaked carts with replay evidence.",
+  "/alternatives/posthog-session-replay": "Get replay-first product analytics and mobile stability context in one tab. Simple pricing, no complex usage meters.",
+  "/alternatives/sentry-session-replay": "Go beyond exception monitoring. Watch session replays and journeys to see why users drop off, even when code succeeds.",
+  "/alternatives/smartlook": "Migrate from Smartlook before the Cisco EOL path winds down. Keep replay, heatmaps, journeys, and crash triage together.",
+};
+
+const AD_LANDING_HERO_IMAGES: Record<string, string> = {
+  "/web-session-replay": "/images/landing-replay-theater.png",
+  "/mobile-session-replay": "/images/engineering/product-tools-live-replay.png",
+  "/stability-monitoring": "/images/anr-issues.png",
+  "/funnel-replay-evidence": "/images/readme-user-journeys.png",
+  "/revenue-recovery-analytics": "/images/growth-engines.png",
+  "/alternatives/posthog-session-replay": "/images/readme-general-demo.png",
+  "/alternatives/sentry-session-replay": "/images/anr-issues.png",
+  "/alternatives/smartlook": "/images/engineering/smartlook-alternatives-heatmaps.png",
+};
+
+function AdHeader() {
+  return (
+    <header className="fixed inset-x-0 top-0 z-[100] border-b border-slate-200/80 bg-white/90 py-3 backdrop-blur-md">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <Link to="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
+          <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney logo" className="h-8 w-8 object-contain" />
+          <span className="text-lg font-black uppercase tracking-tight text-slate-950">Rejourney</span>
+        </Link>
+        <Link
+          to="/login"
+          className="group inline-flex min-h-[40px] items-center justify-center rounded-md border border-slate-950 bg-[#86efac] px-5 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none"
+        >
+          Start free
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+function AdHero({ page }: { page: SeoPage }) {
+  const headline = AD_LANDING_HEADLINES[page.path] ?? page.title;
+  const subheadline = AD_LANDING_SUBHEADLINES[page.path] ?? page.subtitle;
+  const heroImage = AD_LANDING_HERO_IMAGES[page.path] ?? page.image;
+
+  return (
+    <section className="relative overflow-hidden bg-[#fdfbf7] pb-20 pt-28 px-4 sm:px-6 lg:px-8">
+      {/* Soft Ambient Glows */}
+      <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-indigo-200/15 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-emerald-200/15 blur-[120px] pointer-events-none" />
+
+      <div className="relative z-10 mx-auto max-w-7xl grid gap-12 lg:grid-cols-12 lg:items-center">
+        <div className="lg:col-span-6 flex flex-col items-start text-left">
+          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+            Visual User Evidence
+          </span>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight text-slate-950 leading-[0.98] mb-6">
+            {headline}
+          </h1>
+          <p className="text-lg sm:text-xl font-bold leading-relaxed text-slate-600 mb-8 max-w-xl">
+            {subheadline}
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto mb-8">
+            <Link
+              to="/login"
+              className="group inline-flex min-h-[52px] min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-8 text-[0.95rem] font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center"
+            >
+              <span>Start Free</span>
+              <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
+            </Link>
+            <Link
+              to="/demo"
+              className="group inline-flex min-h-[52px] min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-8 text-[0.95rem] font-extrabold uppercase text-black shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-slate-350 hover:bg-[#ecfeff] hover:shadow-md active:translate-y-0 text-center"
+            >
+              Open live demo
+            </Link>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs sm:text-sm font-bold text-slate-800">
+            <span className="flex items-center gap-1.5">
+              <Check className="h-4 w-4 text-emerald-600" strokeWidth={3} />
+              5,000 sessions free / mo
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Check className="h-4 w-4 text-emerald-600" strokeWidth={3} />
+              No credit card required
+            </span>
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4 text-sky-600" strokeWidth={2.5} />
+              GDPR compliant · Secure data masking
+            </span>
+          </div>
+        </div>
+
+        <div className="lg:col-span-6">
+          <div className="relative">
+            {/* Ambient drop shadow backdrop */}
+            <div className="absolute inset-2 bg-indigo-500/10 blur-xl rounded-2xl pointer-events-none" />
+            <div className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-2.5 shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
+              {/* Browser control bar */}
+              <div className="flex items-center gap-1.5 pb-2.5 border-b border-slate-100 mb-2">
+                <div className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+                <div className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+                <div className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                <div className="h-4 w-48 rounded bg-slate-50 ml-4 flex items-center px-2 text-[8px] text-slate-400 font-bold select-none">rejourney.co{page.path}</div>
+              </div>
+              <img
+                src={heroImage}
+                alt={page.imageAlt}
+                className="h-auto max-h-[460px] w-full rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdTrustBanner() {
+  const [activeStory, setActiveStory] = React.useState<'burst' | 'merch'>('burst');
+
+  return (
+    <section className="border-y border-slate-200/80 bg-[#fafafa] py-16 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-6 mb-10">
+          <div className="text-left">
+            <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+              Success Stories
+            </span>
+            <h2 className="text-2xl sm:text-4xl font-black uppercase text-slate-950 leading-none">
+              Real Teams. Real Revenue Recovered.
+            </h2>
+          </div>
+        </div>
+
+        <div className="relative px-14 sm:px-20">
+          {/* Side Gallery Navigation */}
+          <button
+            onClick={() => setActiveStory(activeStory === 'burst' ? 'merch' : 'burst')}
+            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+            aria-label="Previous story"
+          >
+            <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
+          </button>
+          <button
+            onClick={() => setActiveStory(activeStory === 'burst' ? 'merch' : 'burst')}
+            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+            aria-label="Next story"
+          >
+            <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
+          </button>
+
+          {/* Case study card */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm">
+            {activeStory === 'burst' ? (
+              <div>
+                {/* Top: logo circle + headline */}
+                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
+                  <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1.5">
+                    <img
+                      src="/images/burst-creatine-logo-red.png"
+                      alt="Burst Creatine"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-sans text-xl sm:text-2xl font-black uppercase leading-tight tracking-tight text-slate-955">
+                      Burst Creatine Increased Sales by 103%
+                    </h3>
+                    <p className="text-sm font-bold leading-relaxed text-slate-500 max-w-xl">
+                      Rejourney surfaced the UX friction points causing checkout drop-offs. Simple fixes, no guesswork.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sankey diagrams */}
+                <div className="grid gap-8 lg:grid-cols-2">
+                  <SankeyPanel
+                    title="Before Rejourney"
+                    addToCart={6810}
+                    checkout={2130}
+                    accent="#ef4444"
+                    accentLight="rgba(239,68,68,0.15)"
+                    dropColor="#94a3b8"
+                    dropLight="rgba(148,163,184,0.1)"
+                  />
+                  <SankeyPanel
+                    title="After Rejourney"
+                    addToCart={6810}
+                    checkout={4319}
+                    accent="#10b981"
+                    accentLight="rgba(16,185,129,0.15)"
+                    dropColor="#94a3b8"
+                    dropLight="rgba(148,163,184,0.08)"
+                  />
+                </div>
+
+                {/* Result line */}
+                <p className="mt-8 text-center text-sm font-extrabold text-slate-700">
+                  Same Meta Ads Budget. <span className="text-emerald-600 font-black">+2,189 more checkouts</span> from fixing easy UX leaks.
+                </p>
+              </div>
+            ) : (
+              <div>
+                {/* Top: logo circle + headline */}
+                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
+                  <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1">
+                    <img
+                      src="/images/customer-onboarding-logo.png"
+                      alt="Campus Merch Live"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-sans text-xl sm:text-2xl font-black uppercase leading-tight tracking-tight text-slate-955">
+                      Campus Merch Live Increased Onboarding to 93%
+                    </h3>
+                    <p className="text-sm font-bold leading-relaxed text-slate-500 max-w-xl">
+                      Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sankey diagrams */}
+                <div className="grid gap-8 lg:grid-cols-2">
+                  <SankeyPanel
+                    title="Before Rejourney"
+                    addToCart={4500}
+                    checkout={3555}
+                    accent="#ef4444"
+                    accentLight="rgba(239,68,68,0.15)"
+                    dropColor="#94a3b8"
+                    dropLight="rgba(148,163,184,0.1)"
+                    sourceLabel="Signups"
+                    completionLabel="Verified"
+                  />
+                  <SankeyPanel
+                    title="After Rejourney"
+                    addToCart={4500}
+                    checkout={4185}
+                    accent="#10b981"
+                    accentLight="rgba(16,185,129,0.15)"
+                    dropColor="#94a3b8"
+                    dropLight="rgba(148,163,184,0.08)"
+                    sourceLabel="Signups"
+                    completionLabel="Verified"
+                  />
+                </div>
+
+                {/* Result line */}
+                <p className="mt-8 text-center text-sm font-extrabold text-slate-700">
+                  Same Onboarding Traffic. <span className="text-emerald-600 font-black">+630 more verified users</span> from fixing safari layout bug.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdBenefits({ page }: { page: SeoPage }) {
+  const benefits = [
+    {
+      title: "Identify UX Friction",
+      desc: "Watch high-fidelity session replays of gestures, screen paths, backtrack loops, and rage clicks. Instantly identify checkout drops and conversion blocks.",
+      image: "/images/landing-replay-workbench.png",
+      imageAlt: "Rejourney Session Replay Workbench",
+      badge: "Session Replay",
+      color: "indigo"
+    },
+    {
+      title: "Quantify Revenue Severity",
+      desc: "Connect replays to Stripe, RevenueCat, or Superwall events. Track conversion leaks and API errors prioritized by their estimated revenue impact.",
+      image: "/images/growth-engines.png",
+      imageAlt: "Rejourney Revenue Analytics",
+      badge: "Revenue Analytics",
+      color: "emerald"
+    },
+    {
+      title: "Exact Reproduction Steps",
+      desc: "Triage stability issues with console logs, network payloads, and stack traces. Share clean diagnostic bundles with engineering to patch bugs in minutes.",
+      image: "/images/anr-issues.png",
+      imageAlt: "Rejourney Crash Triage Dashboard",
+      badge: "Crash & ANR Triage",
+      color: "amber"
+    }
+  ];
+
+  return (
+    <section className="border-b border-slate-200/85 bg-white py-20 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl text-center">
+        <span className="text-xs font-black uppercase text-emerald-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          Recovery Workflow
+        </span>
+        <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-16 max-w-3xl mx-auto leading-none">
+          RECOVERY WORKFLOW THAT DRIVES CONVERSION
+        </h2>
+        
+        <div className="space-y-24 text-left">
+          {benefits.map((b, idx) => {
+            const isEven = idx % 2 === 0;
+            return (
+              <div key={b.title} className="grid gap-12 lg:grid-cols-12 lg:items-center">
+                <div className={`lg:col-span-5 space-y-5 ${isEven ? "lg:order-first" : "lg:order-last"}`}>
+                  <span className={`text-xs font-black uppercase tracking-wide flex items-center gap-1.5 ${
+                    b.color === "indigo" ? "text-indigo-600" :
+                    b.color === "emerald" ? "text-emerald-600" :
+                    "text-amber-600"
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      b.color === "indigo" ? "bg-indigo-500 animate-pulse" :
+                      b.color === "emerald" ? "bg-emerald-500 animate-pulse" :
+                      "bg-amber-500 animate-pulse"
+                    }`} />
+                    {b.badge}
+                  </span>
+                  <h3 className="text-2xl sm:text-3xl font-black uppercase text-slate-950 leading-tight">
+                    {b.title}
+                  </h3>
+                  <p className="text-base sm:text-lg font-bold leading-relaxed text-slate-500">
+                    {b.desc}
+                  </p>
+                </div>
+                
+                <div className="lg:col-span-7">
+                  <div className="relative">
+                    <div className="absolute inset-2 bg-slate-900/5 blur-xl rounded-2xl pointer-events-none" />
+                    <div className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-2 shadow-md">
+                      {/* Browser control bar */}
+                      <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 mb-1.5">
+                        <div className="h-2 w-2 rounded-full bg-rose-400" />
+                        <div className="h-2 w-2 rounded-full bg-amber-400" />
+                        <div className="h-2 w-2 rounded-full bg-emerald-400" />
+                      </div>
+                      <img
+                        src={b.image}
+                        alt={b.imageAlt}
+                        className="h-auto max-h-[360px] w-full rounded-md object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdInstallation() {
+  const [activeTab, setActiveTab] = React.useState("web");
+
+  const tabs = [
+    { id: "web", label: "Web / React", command: "npm install @rejourneyco/browser", code: `import { Rejourney } from '@rejourneyco/browser';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
+    { id: "reactnative", label: "React Native / Expo", command: "npm install @rejourneyco/react-native", code: `import { Rejourney } from '@rejourneyco/react-native';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
+    { id: "swift", label: "Swift / iOS", command: "SPM: https://github.com/rejourneyco/rejourney", code: `import Rejourney\n\nRejourney.configure(publicKey: "rj_your_key")\nTask { await Rejourney.start() }` }
+  ];
+
+  const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
+
+  return (
+    <section className="border-b border-slate-200/80 bg-[#fffdf7] py-16 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl text-center">
+        <span className="text-xs font-black uppercase text-amber-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+          DEVELOPER FRIENDLY
+        </span>
+        <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
+          INSTALL IN UNDER 2 MINUTES
+        </h2>
+        <p className="text-base sm:text-lg font-bold text-slate-500 mb-10 max-w-2xl mx-auto">
+          Add lightweight visual session monitoring to your app shell with three lines of code.
+        </p>
+
+        {/* Custom Tab selectors */}
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 mb-8">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-md py-2 px-4 sm:px-5 font-sans text-xs sm:text-sm font-extrabold uppercase text-center transition-all ${
+                activeTab === tab.id
+                  ? "bg-white text-slate-950 shadow-sm border border-slate-200/50"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sleek Terminal / Code Box */}
+        <div className="border border-slate-800 bg-slate-950 text-white shadow-[0_12px_40px_rgba(15,23,42,0.16)] rounded-xl overflow-hidden text-left font-mono">
+          <div className="border-b border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between text-xs text-slate-500 select-none">
+            <div className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full bg-slate-700" />
+              <div className="h-2 w-2 rounded-full bg-slate-700" />
+              <div className="h-2 w-2 rounded-full bg-slate-700" />
+            </div>
+            <span>Terminal setup</span>
+          </div>
+          <div className="p-4 sm:p-5 select-all text-sm sm:text-base text-emerald-400 leading-normal">
+            <span className="text-slate-600 mr-2">$</span>
+            {currentTab.command}
+          </div>
+          
+          <div className="border-t border-slate-850 bg-slate-900/30 px-4 py-2 flex items-center justify-between text-xs text-slate-500 select-none">
+            <span>Setup file</span>
+          </div>
+          <pre className="p-4 sm:p-5 text-xs sm:text-sm text-slate-100 overflow-x-auto whitespace-pre leading-relaxed select-all">
+            {currentTab.code}
+          </pre>
+        </div>
+
+        {/* Setup pills updated to square tags */}
+        <div className="mt-10 flex flex-wrap justify-center gap-3">
+          {["Web SDK", "React Native", "Expo Plugin", "Swift iOS", "CocoaPods"].map((pill) => (
+            <span key={pill} className="inline-flex items-center gap-1.5 rounded border border-slate-205 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {pill}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdComparison({ page }: { page: SeoPage }) {
+  if (page.kind !== "alternative") return null;
+
+  return (
+    <section className="border-b border-slate-200/80 bg-white py-16 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-3xl text-center mb-12">
+          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+            Capability Compare
+          </span>
+          <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
+            REJOURNEY VS {page.otherColumnTitle.toUpperCase()}
+          </h2>
+          <p className="text-base sm:text-lg font-bold text-slate-500 max-w-xl mx-auto">
+            A lighter, replay-first workspace built for product recovery and dev debugging.
+          </p>
+        </div>
+
+        {/* Clean Table Wrapper */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-12">
+          <div className="overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-[1.25fr_0.75fr_0.75fr] border-b border-slate-200 bg-slate-950 text-white font-mono text-xs uppercase font-black select-none">
+                <div className="px-6 py-4.5">Capability</div>
+                <div className="border-l border-slate-800 px-6 py-4.5">Rejourney</div>
+                <div className="border-l border-slate-800 px-6 py-4.5">{page.otherColumnTitle}</div>
+              </div>
+              
+              {page.comparisonRows.map((row, idx) => (
+                <div
+                  key={row.feature}
+                  className={`grid grid-cols-[1.25fr_0.75fr_0.75fr] items-center border-b border-slate-100 last:border-0 ${
+                    idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"
+                  }`}
+                >
+                  <div className="px-6 py-4.5 text-base font-bold text-slate-900">{row.feature}</div>
+                  {/* Highlight Rejourney column with soft green */}
+                  <div className="border-l border-slate-100 px-6 py-4.5 bg-emerald-500/[0.015] self-stretch flex items-center">
+                    <ValueBadge value={row.rejourney} />
+                  </div>
+                  <div className="border-l border-slate-100 px-6 py-4.5 self-stretch flex items-center">
+                    <ValueBadge value={row.other} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Try Rejourney CTA Box */}
+        <div className="relative rounded-2xl border border-slate-200 bg-gradient-to-br from-[#ecfeff]/80 to-white p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 max-w-4xl mx-auto overflow-hidden">
+          <div className="absolute top-0 right-0 h-48 w-48 rounded-full bg-cyan-200/10 blur-2xl pointer-events-none" />
+          <div className="relative z-10 text-left">
+            <h3 className="text-xl sm:text-2xl font-black uppercase text-slate-950 mb-2 leading-none">
+              READY TO TRY REJOURNEY?
+            </h3>
+            <p className="text-base font-bold text-slate-500">
+              Get started in under 2 minutes. 5,000 monthly sessions included free.
+            </p>
+          </div>
+          <Link
+            to="/login"
+            className="group relative z-10 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-6 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center"
+          >
+            Start free now
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdRepeatedCTA({ isBottom = false }: { isBottom?: boolean }) {
+  return (
+    <section className={`relative overflow-hidden border-b border-slate-200/80 py-20 px-4 sm:px-6 lg:px-8 text-center ${isBottom ? "bg-gradient-to-br from-[#ecfeff]/40 to-[#fff7df]/40" : "bg-white"}`}>
+      {/* Background visual element */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[350px] w-[350px] rounded-full bg-indigo-300/10 blur-[80px] pointer-events-none" />
+      
+      <div className="relative z-10 mx-auto max-w-4xl">
+        <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
+          START RECLAIMING LEAKED REVENUE TODAY
+        </h2>
+        <p className="text-base sm:text-lg font-bold text-slate-500 mb-8 max-w-2xl mx-auto">
+          Get 5,000 monthly sessions for free. Installation takes under 2 minutes. No credit card required.
+        </p>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 max-w-md mx-auto">
+          <Link
+            to="/login"
+            className="group inline-flex min-h-[52px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-8 text-base font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center w-full sm:w-auto"
+          >
+            Start free now
+            <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdFaq({ page }: { page: SeoPage }) {
+  return (
+    <section className="border-b border-slate-200/80 bg-white px-4 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl">
+        <div className="text-center mb-12">
+          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+            FAQ
+          </span>
+          <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 leading-none">
+            FREQUENTLY ASKED QUESTIONS
+          </h2>
+        </div>
+        <div className="space-y-4">
+          {page.faq.map((item) => (
+            <details key={item.question} className="group rounded-xl border border-slate-200 bg-white overflow-hidden transition-all duration-350 hover:shadow-sm">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden sm:p-6 focus:outline-none">
+                <h3 className="text-left text-base sm:text-lg font-extrabold uppercase leading-tight text-slate-900 transition-colors group-hover:text-black">
+                  {item.question}
+                </h3>
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-slate-200 bg-slate-50 transition group-open:rotate-90">
+                  <ChevronRight className="h-4 w-4 text-slate-500" strokeWidth={2.5} />
+                </span>
+              </summary>
+              <div className="px-5 pb-5 pt-0 sm:px-6 sm:pb-6">
+                <p className="border-t border-slate-100 pt-4 text-sm sm:text-base font-bold leading-relaxed text-slate-500">
+                  {item.answer}
+                </p>
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdFooter() {
+  return (
+    <footer className="bg-slate-950 py-12 px-4 sm:px-6 lg:px-8 text-white font-sans text-xs border-t border-slate-900">
+      <div className="mx-auto max-w-7xl flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-2.5">
+          <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney logo" className="h-6 w-6 object-contain invert brightness-200" />
+          <span className="text-sm font-black uppercase tracking-tight">Rejourney</span>
+        </div>
+        <div className="flex flex-wrap justify-center gap-6 font-bold uppercase tracking-wider text-slate-400">
+          <Link to="/privacy-policy" className="hover:text-white transition">Privacy Policy</Link>
+          <Link to="/terms-of-service" className="hover:text-white transition">Terms of Service</Link>
+          <Link to="/dpa" className="hover:text-white transition">Data Processing Agreement (DPA)</Link>
+        </div>
+        <p className="text-slate-500 font-medium">
+          &copy; {new Date().getFullYear()} Rejourney. All rights reserved.
+        </p>
+      </div>
+    </footer>
+  );
+}
+
+function PaidAdLandingPage({ page }: { page: SeoPage }) {
+  return (
+    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950 flex flex-col">
+      <AdHeader />
+      <AdHero page={page} />
+      <AdTrustBanner />
+      <AdBenefits page={page} />
+      <AdInstallation />
+      {page.kind === "alternative" && <AdComparison page={page} />}
+      <AdRepeatedCTA isBottom={false} />
+      <AdFaq page={page} />
+      <AdRepeatedCTA isBottom={true} />
+      <AdFooter />
+    </div>
+  );
+}
+
 export default function SeoLandingPage() {
   const location = useLocation();
   const page = getSeoPageByPath(normalizePath(location.pathname));
@@ -3243,18 +3882,12 @@ export default function SeoLandingPage() {
   };
 
   return (
-    <div className="public-readable-scope min-h-screen bg-white text-slate-950">
+    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <Header />
-      {page.kind === "category" ? (
-        <CategoryFeatureArticlePage page={page} />
-      ) : (
-        <AlternativeComparisonArticlePage page={page} />
-      )}
-      <Footer />
+      <PaidAdLandingPage page={page} />
     </div>
   );
 }

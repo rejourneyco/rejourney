@@ -270,109 +270,111 @@ export default function LoginPage() {
                 </div>
 
                 {/* Inline Customer Success Gallery */}
-                <div className="w-full max-w-[640px] self-center justify-self-center">
+                <div className="w-full max-w-[760px] self-center justify-self-center px-4">
                     <div className="mb-5 flex items-end justify-between gap-5">
                         <div>
                             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Customer success</p>
                             <h2 className="mt-1 max-w-md text-2xl font-black uppercase tracking-tight text-slate-955 2xl:text-[1.7rem]">One story at a time.</h2>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                                className="flex h-11 w-11 items-center justify-center rounded-none border-2 border-black bg-white text-black shadow-neo-sm transition-[background-color,box-shadow,transform] motion-safe:hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
-                                aria-label="Previous story"
-                            >
-                                <ChevronLeft className="h-4 w-4 stroke-[2.5px]" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                                className="flex h-11 w-11 items-center justify-center rounded-none border-2 border-black bg-white text-black shadow-neo-sm transition-[background-color,box-shadow,transform] motion-safe:hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
-                                aria-label="Next story"
-                            >
-                                <ChevronRight className="h-4 w-4 stroke-[2.5px]" />
-                            </button>
-                        </div>
                     </div>
 
-                    {/* Case study card — yellow background to match homepage */}
-                    <div className="overflow-hidden rounded-none border-2 border-black bg-[#fef08a] p-5 shadow-neo text-black 2xl:p-6">
-                        {activeSuccessStory === 'burst' ? (
-                            <div>
-                                <div className="mb-5 flex items-center gap-3">
-                                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-black bg-white shadow-neo-sm">
-                                        <img src="/images/burst-creatine-logo-red.png" alt="Burst Creatine" className="h-full w-full object-cover" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-sans text-base font-black uppercase leading-tight text-slate-955">Burst Creatine</h3>
-                                        <p className="text-[11px] font-bold text-slate-800">Increased sales by 103%</p>
-                                    </div>
-                                </div>
+                    <div className="relative px-14 sm:px-20">
+                        {/* Side Gallery Navigation */}
+                        <button
+                            type="button"
+                            onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border-2 border-black bg-white text-black shadow-neo-sm transition-all hover:bg-slate-50 active:translate-y-0 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 shrink-0"
+                            aria-label="Previous story"
+                        >
+                            <ChevronLeft className="h-4 w-4 stroke-[2.5px]" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border-2 border-black bg-white text-black shadow-neo-sm transition-all hover:bg-slate-50 active:translate-y-0 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 shrink-0"
+                            aria-label="Next story"
+                        >
+                            <ChevronRight className="h-4 w-4 stroke-[2.5px]" />
+                        </button>
 
-                                <div className="grid gap-4 sm:grid-cols-2">
-                                    <SankeyPanel
-                                        title="Before Rejourney"
-                                        addToCart={6810}
-                                        checkout={2130}
-                                        accent="#f87171"
-                                        accentLight="rgba(248,113,113,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.14)"
-                                    />
-                                    <SankeyPanel
-                                        title="After Rejourney"
-                                        addToCart={6810}
-                                        checkout={4319}
-                                        accent="#34d399"
-                                        accentLight="rgba(52,211,153,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.12)"
-                                    />
-                                </div>
-
-                                <p className="mt-5 text-center text-xs font-bold leading-relaxed text-slate-800">
-                                    Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
-                                </p>
-                            </div>
-                        ) : (
-                            <div>
-                                <div className="mb-5 flex items-center gap-3">
-                                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-black bg-white shadow-neo-sm">
-                                        <img src="/images/customer-onboarding-logo.png" alt="Campus Merch Live" className="h-full w-full object-cover" />
+                        {/* Case study card — white background */}
+                        <div className="overflow-hidden rounded-none border-2 border-black bg-white p-5 shadow-neo text-black 2xl:p-6">
+                            {activeSuccessStory === 'burst' ? (
+                                <div>
+                                    <div className="mb-5 flex items-center gap-3">
+                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-black bg-white shadow-neo-sm">
+                                            <img src="/images/burst-creatine-logo-red.png" alt="Burst Creatine" className="h-full w-full object-cover" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-sans text-base font-black uppercase leading-tight text-slate-955">Burst Creatine</h3>
+                                            <p className="text-[11px] font-bold text-slate-800">Increased sales by 103%</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h3 className="font-sans text-base font-black uppercase leading-tight text-slate-955 animate-fade-in">Campus Merch Live</h3>
-                                        <p className="text-[11px] font-bold text-slate-800">79% to 93% onboarding rate</p>
+
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                        <SankeyPanel
+                                            title="Before Rejourney"
+                                            addToCart={6810}
+                                            checkout={2130}
+                                            accent="#f87171"
+                                            accentLight="rgba(248,113,113,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.14)"
+                                        />
+                                        <SankeyPanel
+                                            title="After Rejourney"
+                                            addToCart={6810}
+                                            checkout={4319}
+                                            accent="#34d399"
+                                            accentLight="rgba(52,211,153,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.12)"
+                                        />
                                     </div>
-                                </div>
 
-                                <div className="grid gap-4 sm:grid-cols-2">
-                                    <SankeyPanel
-                                        title="Before Rejourney"
-                                        addToCart={4500}
-                                        checkout={3555}
-                                        accent="#f87171"
-                                        accentLight="rgba(248,113,113,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.14)"
-                                    />
-                                    <SankeyPanel
-                                        title="After Rejourney"
-                                        addToCart={4500}
-                                        checkout={4185}
-                                        accent="#34d399"
-                                        accentLight="rgba(52,211,153,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.12)"
-                                    />
+                                    <p className="mt-5 text-center text-xs font-bold leading-relaxed text-slate-800">
+                                        Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
+                                    </p>
                                 </div>
+                            ) : (
+                                <div>
+                                    <div className="mb-5 flex items-center gap-3">
+                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-black bg-white shadow-neo-sm">
+                                            <img src="/images/customer-onboarding-logo.png" alt="Campus Merch Live" className="h-full w-full object-cover" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-sans text-base font-black uppercase leading-tight text-slate-955 animate-fade-in">Campus Merch Live</h3>
+                                            <p className="text-[11px] font-bold text-slate-800">79% to 93% onboarding rate</p>
+                                        </div>
+                                    </div>
 
-                                <p className="mt-5 text-center text-xs font-bold leading-relaxed text-slate-800">
-                                    Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
-                                </p>
-                            </div>
-                        )}
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                        <SankeyPanel
+                                            title="Before Rejourney"
+                                            addToCart={4500}
+                                            checkout={3555}
+                                            accent="#f87171"
+                                            accentLight="rgba(248,113,113,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.14)"
+                                        />
+                                        <SankeyPanel
+                                            title="After Rejourney"
+                                            addToCart={4500}
+                                            checkout={4185}
+                                            accent="#34d399"
+                                            accentLight="rgba(52,211,153,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.12)"
+                                        />
+                                    </div>
+
+                                    <p className="mt-5 text-center text-xs font-bold leading-relaxed text-slate-800">
+                                        Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 

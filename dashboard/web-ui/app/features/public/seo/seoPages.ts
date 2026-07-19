@@ -67,6 +67,7 @@ type CoreFeatureStatuses = {
 };
 
 const coreFeatureRows = (other: CoreFeatureStatuses): SeoComparisonRow[] => [
+  { feature: "Revenue leak prediction", rejourney: "yes", other: "no" },
   { feature: "Replay-First", rejourney: "yes", other: other.replayFirst },
   { feature: "Web session replay", rejourney: "yes", other: other.webSessionReplay },
   { feature: "Mobile session replay", rejourney: "yes", other: other.mobileSessionReplay },
@@ -93,6 +94,7 @@ const comparisonRows = (
 ];
 
 const categoryFeatureRows = (otherColumn: SeoComparisonValue): SeoComparisonRow[] => [
+  { feature: "Revenue leak prediction", rejourney: "yes", other: "no" },
   { feature: "Replay-First", rejourney: "yes", other: otherColumn },
   { feature: "Web session replay", rejourney: "yes", other: otherColumn },
   { feature: "Mobile session replay", rejourney: "yes", other: otherColumn },
@@ -255,7 +257,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/ai-funnel-leak-detection",
     badge: "Leak detection",
     eyebrow: "AI funnel leaks",
-    title: "AI funnel leak detection that starts from the leaks page",
+    title: "AI Funnel Leak Detection",
     subtitle:
       "Use the Rejourney leaks page to rank conversion drops, rage taps, crashes, API failures, and journey loops with the replay evidence needed to fix them.",
     metaTitle: "AI Funnel Leak Detection | Rejourney",
@@ -304,7 +306,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/funnel-replay-evidence",
     badge: "Funnels",
     eyebrow: "Funnel replay evidence",
-    title: "Funnel replay evidence for the paths where users branch, loop, or drop",
+    title: "Funnel Replay Evidence",
     subtitle:
       "Use journey ribbons to find the highest-volume paths, then open the replay evidence behind each branch, loop, and drop-off.",
     metaTitle: "Funnel Replay Evidence | Rejourney",
@@ -353,7 +355,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/geographic-analytics",
     badge: "Regions",
     eyebrow: "Geographic analytics",
-    title: "Geographic analytics for regional sentiment and UX friction",
+    title: "Geographic Analytics",
     subtitle:
       "Map positive, neutral, and frustrated sessions by region so teams can see where UX, network, language, or market-specific friction is clustering.",
     metaTitle: "Geographic Analytics | Rejourney",
@@ -402,7 +404,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/revenue-recovery-analytics",
     badge: "Growth",
     eyebrow: "Revenue recovery",
-    title: "Revenue recovery analytics tied to sessions and releases",
+    title: "Revenue Recovery Analytics",
     subtitle:
       "Track revenue, transactions, active users, retention, and releases beside the sessions that explain movement.",
     metaTitle: "Revenue Recovery Analytics | Rejourney",
@@ -451,7 +453,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/standardized-context",
     badge: "Context",
     eyebrow: "Standardized context",
-    title: "Standardized context for sessions, regions, events, and issues",
+    title: "Standardized Session Context",
     subtitle:
       "Turn sessions, regional signals, events, and technical evidence into consistent context that teams can query, share, compare, and hand off.",
     metaTitle: "Standardized Context | Rejourney",
@@ -500,7 +502,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/ai-agent-handoff",
     badge: "AI handoff",
     eyebrow: "AI agent handoff",
-    title: "AI agent handoff from replay evidence to fix-ready context",
+    title: "AI Agent Handoff",
     subtitle:
       "Package replay, event, request, crash, and journey evidence into context developers can paste into Cursor, Claude, Codex, or an IDE workflow.",
     metaTitle: "AI Agent Handoff | Rejourney",
@@ -549,7 +551,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/autonomous-debugging",
     badge: "Debugging",
     eyebrow: "Autonomous debugging",
-    title: "Autonomous debugging starts with exact session context",
+    title: "Autonomous Debugging",
     subtitle:
       "Group repeated issue signals with replay links, stack context, events, and handoff text so engineering can reproduce and repair production bugs faster.",
     metaTitle: "Autonomous Debugging | Rejourney",
@@ -598,7 +600,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/self-healing-software",
     badge: "Self-healing",
     eyebrow: "Self-healing software",
-    title: "Self-healing software starts with real session evidence",
+    title: "Self-Healing Software",
     subtitle:
       "Use replay, stability, API, device, journey, and leak context to turn repeated production friction into fix-ready work.",
     metaTitle: "Self-Healing Software | Rejourney",
@@ -655,7 +657,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/stability-monitoring",
     badge: "Stability",
     eyebrow: "Stability monitoring",
-    title: "Stability monitoring with replay context for crashes, errors, and ANRs",
+    title: "Stability & Crash Triage",
     subtitle:
       "Group crashes, errors, ANRs, and API spikes with affected users, devices, releases, and replay evidence.",
     metaTitle: "Stability Monitoring | Rejourney",
@@ -712,7 +714,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/api-endpoint-insights",
     badge: "API insights",
     eyebrow: "API endpoint insights",
-    title: "API endpoint insights tied to product sessions",
+    title: "API Endpoint Insights",
     subtitle:
       "Track endpoint volume, latency, failure codes, and risk while keeping the affected session evidence close.",
     metaTitle: "API Endpoint Insights | Rejourney",
@@ -769,7 +771,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/device-insights",
     badge: "Devices",
     eyebrow: "Device insights",
-    title: "Device insights for mobile app friction, crashes, and engagement",
+    title: "Mobile Device Analytics",
     subtitle:
       "Compare device models, platforms, app versions, issue rates, engagement, and session quality to find device-specific friction.",
     metaTitle: "Device Insights | Rejourney",
@@ -826,7 +828,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/record-user-sessions",
     badge: "Strategy guide",
     eyebrow: "Record user sessions",
-    title: "Record user sessions without building a clip graveyard",
+    title: "User Session Recording",
     subtitle:
       "Capture the session, the search that found it, and the signals that explain whether the behavior is a one-off or a pattern worth fixing.",
     metaTitle: "Record User Sessions | Rejourney",
@@ -875,7 +877,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/mobile-session-replay",
     badge: "Mobile apps",
     eyebrow: "Mobile session replay",
-    title: "Mobile session replay with the app context intact",
+    title: "Mobile Session Replay",
     subtitle:
       "Watch taps, gestures, screen changes, slow requests, crashes, and ANRs with enough metadata to reproduce what happened on the device.",
     metaTitle: "Mobile Session Replay | Rejourney",
@@ -924,7 +926,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/web-session-replay",
     badge: "Browser replay",
     eyebrow: "Web session replay",
-    title: "Web session replay for the state between pageviews",
+    title: "Web Session Replay",
     subtitle:
       "See the clicks, route changes, loading states, failed requests, and UI dead ends that traffic analytics usually flatten.",
     metaTitle: "Web Session Replay | Rejourney",
@@ -973,7 +975,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/heatmaps",
     badge: "Behavior analytics",
     eyebrow: "Heatmaps",
-    title: "Heatmaps should explain attention, not common sense",
+    title: "Visual Heatmaps",
     subtitle:
       "Use web attention maps and mobile touch maps to understand what users notice, skim, miss, and repeat.",
     metaTitle: "Heatmaps | Rejourney",
@@ -1040,7 +1042,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/replay-first-mentality",
     badge: "Product thinking",
     eyebrow: "Replay-first mentality",
-    title: "Replay-first mentality starts with the session, not the chart",
+    title: "Replay-First Workspace",
     subtitle:
       "Use real sessions as the first shared artifact in product decisions, support escalations, bug triage, and release reviews.",
     metaTitle: "Replay-First Mentality | Rejourney",
@@ -1089,7 +1091,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/importance-of-open-source",
     badge: "Open source",
     eyebrow: "Importance of open source",
-    title: "Open source matters when replay data is this close to users",
+    title: "Open Source Foundation",
     subtitle:
       "Session replay touches product behavior, user privacy, and debugging workflows. Source visibility makes those boundaries easier to inspect.",
     metaTitle: "Importance of Open Source | Rejourney",
@@ -1138,7 +1140,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/what-is-session-replay",
     badge: "Guide",
     eyebrow: "Session replay guide",
-    title: "What session replay actually shows",
+    title: "What Session Replay Shows",
     subtitle:
       "Session replay reconstructs a user experience so teams can inspect the visible path, the surrounding events, and the system signals around a confusing moment.",
     metaTitle: "What Is Session Replay? | Rejourney",
@@ -1187,7 +1189,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/how-to-see-what-your-users-do",
     badge: "Practical guide",
     eyebrow: "How to see what your users do",
-    title: "How to see what your users do without guessing",
+    title: "See What Users Do",
     subtitle:
       "Move from vague feedback to real sessions, journey paths, heatmaps, events, crashes, and API context that point to the same moment.",
     metaTitle: "How to See What Your Users Do | Rejourney",
@@ -1236,7 +1238,7 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/be-your-users",
     badge: "Team habit",
     eyebrow: "Be your users",
-    title: "Be your users without pretending to be them",
+    title: "True User Experience",
     subtitle:
       "Watch real sessions before shipping so roadmap debates, bug triage, and design reviews stay attached to what people actually experienced.",
     metaTitle: "Be Your Users | Rejourney",
@@ -1321,7 +1323,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
       { feature: "Device and app-version friction boards", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1407,8 +1408,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "Product journey maps", other: "no" },
       { feature: "Heatmaps", other: "no" },
       { feature: "Product analytics workspace", other: "no" },
-      { feature: "API endpoint analytics dashboard", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1500,7 +1499,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "Open-source or self-host path", other: "no" },
       { feature: "React Native and Expo replay path", other: "partial" },
       { feature: "Native ANR replay triage", other: "partial" },
-      { feature: "Team/project alert topology", other: "no" },
       { feature: "Focused product-team workspace", other: "no" },
     ]),
     featureDifferences: [
@@ -1680,7 +1678,6 @@ export const SEO_PAGES: SeoPage[] = [
     }, [
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "Device and app-version friction boards", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
       { feature: "API degradation email rules", other: "no" },
       { feature: "Open-source or self-host path", other: "no" },
     ]),
@@ -1779,7 +1776,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "API degradation email rules", other: "no" },
       { feature: "Open-source or self-host path", other: "no" },
       { feature: "Device and app-version friction boards", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1973,7 +1969,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
       { feature: "Open-source or self-host path", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -2062,7 +2057,6 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "Native ANR replay triage", other: "no" },
       { feature: "API endpoint analytics dashboard", other: "partial" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Team/project alert topology", other: "no" },
     ]),
     featureDifferences: [
       {

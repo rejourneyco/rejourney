@@ -320,12 +320,12 @@ export const SankeyPanel: React.FC<{
     // W/H are the inner chart area. We add a left pad for the source
     // label and a right pad for dest labels — kept inside viewBox so
     // nothing ever clips.
-    const PAD_LEFT  = 72;   // room for source value and label
-    const PAD_RIGHT = 80;   // room for completed value and label
+    const PAD_LEFT  = 90;   // room for source value and label
+    const PAD_RIGHT = 110;  // room for completed value and label
     const TITLE_H   = 32;   // space above chart for the panel title
     const CHART_H   = 200;
     const W = PAD_LEFT + 400 + PAD_RIGHT;   // total SVG width
-    const H = TITLE_H + CHART_H + 16;       // total SVG height
+    const H = TITLE_H + CHART_H + 36;       // total SVG height
 
     const barW   = 10;
     const sourceX = PAD_LEFT;
@@ -1161,129 +1161,131 @@ export const AiLeakHomepage: React.FC = () => {
                             <p className="text-center text-xs font-black uppercase tracking-[0.18em] text-slate-500 sm:text-left">Customer success</p>
                             <h2 className="mt-2 text-center font-sans text-3xl font-black uppercase tracking-tight text-slate-955 sm:text-left">One story at a time.</h2>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                                className="flex h-10 w-10 items-center justify-center rounded-none border border-black bg-white text-black shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
-                                aria-label="Previous story"
-                            >
-                                <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                                className="flex h-10 w-10 items-center justify-center rounded-none border border-black bg-white text-black shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
-                                aria-label="Next story"
-                            >
-                                <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
-                            </button>
-                        </div>
                     </div>
 
-                    {/* Case study card — yellow background to match styling */}
-                    <div className="overflow-hidden rounded-2xl border border-amber-200/80 bg-[#fff8c5] px-6 py-10 text-black shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:px-10 sm:py-12">
-                        {activeSuccessStory === 'burst' ? (
-                            <div>
-                                {/* Top: logo circle + headline */}
-                                <div className="flex flex-col items-center text-center gap-5 mb-14">
-                                    <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
-                                        <img
-                                            src="/images/burst-creatine-logo-red.png"
-                                            alt="Burst Creatine"
-                                            className="h-full w-full object-cover"
+                    <div className="relative px-14 sm:px-20">
+                        {/* Side Gallery Navigation */}
+                        <button
+                            type="button"
+                            onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+                            aria-label="Previous story"
+                        >
+                            <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
+                            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+                            aria-label="Next story"
+                        >
+                            <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
+                        </button>
+
+                        {/* Case study card — white background */}
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white px-6 py-10 text-black shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:px-10 sm:py-12">
+                            {activeSuccessStory === 'burst' ? (
+                                <div>
+                                    {/* Top: logo circle + headline */}
+                                    <div className="flex flex-col items-center text-center gap-5 mb-14">
+                                        <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                            <img
+                                                src="/images/burst-creatine-logo-red.png"
+                                                alt="Burst Creatine"
+                                                className="h-full w-full object-cover"
+                                            />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-955 sm:text-3xl">
+                                                Burst Creatine Increased Sales by 103%.
+                                            </h3>
+                                            <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                                Rejourney surfaced the UX friction points causing drop-off. Simple fixes, no guesswork.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Sankey diagrams */}
+                                    <div className="grid gap-8 lg:grid-cols-2">
+                                        <SankeyPanel
+                                            title="Before Rejourney"
+                                            addToCart={6810}
+                                            checkout={2130}
+                                            accent="#f87171"
+                                            accentLight="rgba(248,113,113,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.14)"
+                                        />
+                                        <SankeyPanel
+                                            title="After Rejourney"
+                                            addToCart={6810}
+                                            checkout={4319}
+                                            accent="#34d399"
+                                            accentLight="rgba(52,211,153,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.12)"
                                         />
                                     </div>
-                                    <div className="space-y-3">
-                                        <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-950 sm:text-3xl">
-                                            Burst Creatine Increased Sales by 103%.
-                                        </h3>
-                                        <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
-                                            Rejourney surfaced the UX friction points causing drop-off. Simple fixes, no guesswork.
-                                        </p>
+
+                                    {/* Result line */}
+                                    <p className="mt-8 text-center text-sm font-bold text-slate-800">
+                                        Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div>
+                                    {/* Top: logo circle + headline */}
+                                    <div className="flex flex-col items-center text-center gap-5 mb-14">
+                                        <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                            <img
+                                                src="/images/customer-onboarding-logo.png"
+                                                alt="Campus Merch Live"
+                                                className="h-full w-full object-cover"
+                                            />
+                                        </div>
+                                        <div className="space-y-3">
+                                            <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-955 sm:text-3xl">
+                                                Campus Merch Live Increased Onboarding to 93%.
+                                            </h3>
+                                            <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                                Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
+                                            </p>
+                                        </div>
                                     </div>
-                                </div>
 
-                                {/* Sankey diagrams */}
-                                <div className="grid gap-8 lg:grid-cols-2">
-                                    <SankeyPanel
-                                        title="Before Rejourney"
-                                        addToCart={6810}
-                                        checkout={2130}
-                                        accent="#f87171"
-                                        accentLight="rgba(248,113,113,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.14)"
-                                    />
-                                    <SankeyPanel
-                                        title="After Rejourney"
-                                        addToCart={6810}
-                                        checkout={4319}
-                                        accent="#34d399"
-                                        accentLight="rgba(52,211,153,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.12)"
-                                    />
-                                </div>
-
-                                {/* Result line */}
-                                <p className="mt-8 text-center text-sm font-bold text-slate-800">
-                                    Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
-                                </p>
-                            </div>
-                        ) : (
-                            <div>
-                                {/* Top: logo circle + headline */}
-                                <div className="flex flex-col items-center text-center gap-5 mb-14">
-                                    <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
-                                        <img
-                                            src="/images/customer-onboarding-logo.png"
-                                            alt="Campus Merch Live"
-                                            className="h-full w-full object-cover"
+                                    {/* Sankey diagrams */}
+                                    <div className="grid gap-8 lg:grid-cols-2">
+                                        <SankeyPanel
+                                            title="Before Rejourney"
+                                            addToCart={4500}
+                                            checkout={3555}
+                                            accent="#f87171"
+                                            accentLight="rgba(248,113,113,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.14)"
+                                            sourceLabel="Signups"
+                                            completionLabel="Verified"
+                                        />
+                                        <SankeyPanel
+                                            title="After Rejourney"
+                                            addToCart={4500}
+                                            checkout={4185}
+                                            accent="#34d399"
+                                            accentLight="rgba(52,211,153,0.22)"
+                                            dropColor="#94a3b8"
+                                            dropLight="rgba(148,163,184,0.12)"
+                                            sourceLabel="Signups"
+                                            completionLabel="Verified"
                                         />
                                     </div>
-                                    <div className="space-y-3">
-                                        <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-950 sm:text-3xl">
-                                            Campus Merch Live Increased Onboarding to 93%.
-                                        </h3>
-                                        <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
-                                            Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
-                                        </p>
-                                    </div>
-                                </div>
 
-                                {/* Sankey diagrams */}
-                                <div className="grid gap-8 lg:grid-cols-2">
-                                    <SankeyPanel
-                                        title="Before Rejourney"
-                                        addToCart={4500}
-                                        checkout={3555}
-                                        accent="#f87171"
-                                        accentLight="rgba(248,113,113,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.14)"
-                                        sourceLabel="Signups"
-                                        completionLabel="Verified"
-                                    />
-                                    <SankeyPanel
-                                        title="After Rejourney"
-                                        addToCart={4500}
-                                        checkout={4185}
-                                        accent="#34d399"
-                                        accentLight="rgba(52,211,153,0.22)"
-                                        dropColor="#94a3b8"
-                                        dropLight="rgba(148,163,184,0.12)"
-                                        sourceLabel="Signups"
-                                        completionLabel="Verified"
-                                    />
+                                    {/* Result line */}
+                                    <p className="mt-8 text-center text-sm font-bold text-slate-800">
+                                        Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
+                                    </p>
                                 </div>
-
-                                {/* Result line */}
-                                <p className="mt-8 text-center text-sm font-bold text-slate-800">
-                                    Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
-                                </p>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
             </section>

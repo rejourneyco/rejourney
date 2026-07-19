@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Copy, Github, Minus, Plus } from 'lucide-react';
+import { ArrowRight, Check, Copy, Github, Minus, Plus } from 'lucide-react';
 import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
 import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
-
+import { PricingThreeField } from './PricingThreeField';
 
 type PricingPlan = BillingPlan & {
     interval?: 'month' | 'year';
@@ -22,33 +22,28 @@ const FALLBACK_PLANS: PricingPlan[] = [
 
 const PLAN_ORDER = ['free', 'starter', 'growth', 'pro', 'scale', 'enterprise'];
 
-const VOLUME_PRESETS = [
-    { label: '5k', sessions: 5000 },
-    { label: '25k', sessions: 25000 },
-    { label: '100k', sessions: 100000 },
-    { label: '350k', sessions: 350000 },
-    { label: '1m', sessions: 1000000 },
+const PLAN_STEPS = [
+    { name: 'free', label: '5k', sessions: 5000 },
+    { name: 'starter', label: '25k', sessions: 25000 },
+    { name: 'growth', label: '100k', sessions: 100000 },
+    { name: 'pro', label: '350k', sessions: 350000 },
+    { name: 'scale', label: '1m', sessions: 1000000 },
+    { name: 'enterprise', label: '1m+', sessions: 10000000 },
 ];
+
+const PLAN_DESCRIPTIONS: Record<string, string> = {
+    free: 'For validating your funnel before traffic ramps.',
+    starter: 'For finding the first leaks in real traffic.',
+    growth: 'For ranking conversion leaks as traffic scales.',
+    pro: 'Deep insights for high-volume product and checkout flows.',
+    scale: 'High-scale funnels that need high-intent capture control.',
+    enterprise: 'Custom captured-session volume & dedicated hardware.',
+};
 
 const normalizePlanName = (plan: Pick<PricingPlan, 'name' | 'displayName'>) =>
     (plan.name || plan.displayName).toLowerCase().trim();
 
-const sliderToSessions = (value: number) => Math.round(1000 * Math.pow(1200, value / 100));
-
-const sessionsToSlider = (sessions: number) =>
-    Math.min(100, Math.max(0, (Math.log(sessions / 1000) / Math.log(1200)) * 100));
-
-const DEFAULT_CALCULATOR_SESSIONS = 25000;
-const DEFAULT_CALCULATOR_SLIDER_VALUE = sessionsToSlider(DEFAULT_CALCULATOR_SESSIONS);
-const PLANS_RAIL_EDGE_TOLERANCE = 32;
-
 const formatInteger = (value: number, languageTag = 'en-US') => new Intl.NumberFormat(languageTag).format(value);
-
-const formatShortInteger = (value: number) => {
-    if (value >= 1000000) return `${Number((value / 1000000).toFixed(1))}m`;
-    if (value >= 1000) return `${Number((value / 1000).toFixed(value >= 100000 ? 0 : 1))}k`;
-    return String(value);
-};
 
 const formatPlanPrice = (priceCents: number) => {
     if (priceCents < 0) return 'Custom';
@@ -78,189 +73,40 @@ const getOrderedPlans = (availablePlans: PricingPlan[]) => {
 
 const rejourneyPlan = (sessions: number): { price: number; plan: string; isCustom: boolean } => {
     if (sessions <= 5000) return { price: 0, plan: 'Free', isCustom: false };
-    if (sessions <= 25000) return { price: 5, plan: 'Starter', isCustom: false };
-    if (sessions <= 100000) return { price: 15, plan: 'Growth', isCustom: false };
-    if (sessions <= 350000) return { price: 35, plan: 'Pro', isCustom: false };
-    if (sessions <= 1000000) return { price: 149, plan: 'Scale', isCustom: false };
-    return { price: 149, plan: 'Enterprise', isCustom: true };
+    if (sessions <= 25000) return { price: 500, plan: 'Starter', isCustom: false };
+    if (sessions <= 100000) return { price: 1500, plan: 'Growth', isCustom: false };
+    if (sessions <= 350000) return { price: 3500, plan: 'Pro', isCustom: false };
+    if (sessions <= 1000000) return { price: 14900, plan: 'Scale', isCustom: false };
+    return { price: 14900, plan: 'Enterprise', isCustom: true };
 };
 
-const ROI_LIFT_PRESETS = [
-    { label: '+0.10pt', value: 0.1 },
-    { label: '+0.25pt', value: 0.25 },
-    { label: '+0.50pt', value: 0.5 },
-];
+const getRevenueLeakPredictionText = (planName: string, sessionLimit: number) => {
+    switch (planName) {
+        case 'free':
+            return <span><strong>5,000 sessions</strong> of Revenue Leak Prediction</span>;
+        case 'starter':
+            return <span><strong>5x more</strong> Revenue Leak Prediction than Free</span>;
+        case 'growth':
+            return <span><strong>20x more</strong> Revenue Leak Prediction than Free</span>;
+        case 'pro':
+            return <span><strong>70x more</strong> Revenue Leak Prediction than Free</span>;
+        case 'scale':
+            return <span><strong>200x more</strong> Revenue Leak Prediction than Free</span>;
+        case 'enterprise':
+            return <span><strong>Custom</strong> Revenue Leak Prediction coverage</span>;
+        default:
+            return <span>Revenue Leak Prediction included</span>;
+    }
+};
 
-const ROI_BENCHMARK_SOURCES = [
-    {
-        label: 'Baymard cart abandonment research',
-        href: 'https://baymard.com/lists/cart-abandonment-rate',
-        stat: '70.22% average documented cart abandonment rate across 50 studies.',
-    },
-    {
-        label: 'Appcues onboarding metrics guide',
-        href: 'https://www.appcues.com/blog/user-onboarding-metrics-and-kpis',
-        stat: 'SaaS activation targets often fall between 25% and 50%; the product\'s own trend remains the most useful benchmark.',
-    },
-    {
-        label: 'RevenueCat subscription app benchmarks',
-        href: 'https://www.revenuecat.com/blog/growth/subscription-app-trends-benchmarks-2026/',
-        stat: 'Longer trials converted 42.5% vs 25.5% for very short trials in RevenueCat benchmark data.',
-    },
-];
-
-const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
-    <li className="flex gap-3 text-[13px] font-bold leading-6 text-slate-800">
-        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-none border border-black ${tone === 'minus' || tone === 'warning' ? 'bg-amber-100 text-amber-900' : 'bg-[#86efac] text-emerald-950 font-black'}`}>
-            {tone === 'minus' || tone === 'warning'
-                ? <Minus className="h-3 w-3 stroke-[3px]" aria-hidden />
-                : <Check className="h-3 w-3 stroke-[3px]" aria-hidden />}
+const PlanCheck: React.FC<{ children: React.ReactNode; active?: boolean }> = ({ children, active = true }) => (
+    <li className="flex gap-3 text-sm leading-6 text-slate-700 font-medium">
+        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+            {active ? <Check className="h-3 w-3 stroke-[2.5px]" aria-hidden /> : <Minus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />}
         </span>
-        <span>{children}</span>
+        <span className={active ? 'text-slate-800' : 'text-slate-400 font-normal'}>{children}</span>
     </li>
 );
-
-const PlanGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-    <div className="border-t-2 border-black pt-5 first:border-t-0 first:pt-0">
-        <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-slate-800">{title}</p>
-        <ul className="space-y-3">{children}</ul>
-    </div>
-);
-
-const captureControlLabel = (hasHighIntentCapture: boolean) =>
-    hasHighIntentCapture
-        ? 'High-Intent Capture keeps revenue-critical journeys'
-        : 'Standard replay sampling, masking, and length controls';
-
-const retentionHighlightClass = (retention: string) => {
-    const days = Number.parseInt(retention, 10);
-    return Number.isFinite(days) && days >= 30 ? 'text-emerald-700' : 'text-amber-600';
-};
-
-const isShortRetention = (retention: string) => {
-    const days = Number.parseInt(retention, 10);
-    return Number.isFinite(days) && days < 30;
-};
-
-const isLowAiLeakCoverage = (planName: string) => planName === 'free' || planName === 'starter';
-
-const RetentionEvidenceLabel: React.FC<{ retention: string }> = ({ retention }) => (
-    <>
-        <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
-        {' '}of checkout, onboarding, and paywall evidence
-    </>
-);
-
-const fixWorkflowCoverageDetail = (planName: string) => {
-    switch (planName) {
-        case 'free':
-            return 'for short launch cohorts and first funnel checks';
-        case 'starter':
-            return 'for early traffic cohorts and first fix cycles';
-        case 'growth':
-            return 'for campaigns, experiments, and funnel comparisons';
-        case 'pro':
-            return 'for high-volume checkout, subscription, and onboarding fixes';
-        case 'scale':
-            return 'with high-intent capture control for noisy traffic';
-        default:
-            return 'for conversion-critical fixes';
-    }
-};
-
-const FixWorkflowCoverage: React.FC<{ planName: string; sessions: string; retention: string }> = ({
-    planName,
-    sessions,
-    retention,
-}) => {
-    return (
-        <>
-            <span className="font-bold text-slate-900">{sessions}</span>
-            {' '}journeys across{' '}
-            <span className={`font-bold ${retentionHighlightClass(retention)}`}>{retention}</span>
-            {' '}
-            {fixWorkflowCoverageDetail(planName)}
-        </>
-    );
-};
-
-const aiLeakUpgradePositioning = (planName: string, sessions: string) => {
-    switch (planName) {
-        case 'free':
-            return { lead: `${sessions} sessions`, detail: ' of AI Leak Detection coverage' };
-        case 'starter':
-            return { lead: '5x more AI Leak Detection coverage', detail: ' than Free' };
-        case 'growth':
-            return { lead: '20x more AI Leak Detection coverage', detail: ' than Free' };
-        case 'pro':
-            return { lead: '70x more AI Leak Detection coverage', detail: ' than Free' };
-        case 'scale':
-            return { lead: '200x more AI Leak Detection coverage', detail: ' than Free' };
-        default:
-            return { lead: `${sessions} sessions`, detail: ' of AI Leak Detection coverage' };
-    }
-};
-
-const AiLeakUpgradeLabel: React.FC<{ planName: string; sessions: string }> = ({ planName, sessions }) => {
-    const positioning = aiLeakUpgradePositioning(planName, sessions);
-    return (
-        <>
-            <span className="font-bold text-slate-900">{positioning.lead}</span>
-            {positioning.detail}
-        </>
-    );
-};
-
-const PRICING_FAQS = [
-    {
-        question: 'Are analytics unlimited?',
-        answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. The paid meter is captured session volume because those sessions are what let Rejourney explain revenue leaks, not just count traffic.',
-    },
-    {
-        question: 'What happens when I use all included captured sessions?',
-        answer: 'New revenue evidence stops saving until the next billing cycle or until you upgrade. Rejourney still accepts analytics events for high-level charts, but fresh AI leak packets, heatmaps, journey drill-downs, crash context, replay search, and fix evidence need captured sessions to stay useful.',
-    },
-    {
-        question: 'How is Rejourney different from usage-based replay pricing?',
-        answer: 'Many observability and product analytics tools meter several things at once: events, replays, errors, seats, sites, add-ons, retention, or separate product packages. Rejourney keeps the public plans anchored to included monthly captured sessions, with core analytics and debugging features included.',
-    },
-    {
-        question: 'Do web and mobile replays cost different amounts?',
-        answer: 'No. The listed Rejourney plans use one captured-session allowance for web and mobile. You do not need to buy a separate mobile replay add-on just to understand native app sessions.',
-    },
-    {
-        question: 'Do I pay per seat or tracked user?',
-        answer: 'No. The public plans are not priced per teammate, DAU, MAU, or tracked user. Invite product, engineering, design, support, and leadership without turning every new viewer into a billing decision.',
-    },
-    {
-        question: 'Are crashes, ANRs, errors, heatmaps, and journeys add-ons?',
-        answer: 'No. They are part of the core Rejourney workspace. The plan limit decides how many captured sessions can become revenue-leak evidence each month and how long that evidence is retained.',
-    },
-    {
-        question: 'What counts as a captured session?',
-        answer: 'A captured session is one saved user session from the web or mobile SDK. It can include replay, screens, routes, events, errors, requests, and interaction context from that user journey. Analytics events still count as analytics, not as extra replay charges.',
-    },
-    {
-        question: 'Can high-traffic teams control what gets recorded?',
-        answer: 'Yes. Every plan includes standard replay capture controls such as project-level replay toggles, replay length limits, sample rate, FPS, and masking. Scale adds Smart Capture for teams that need rule-based replay selection at higher volume.',
-    },
-    {
-        question: 'What are the standard capture controls?',
-        answer: 'Standard capture controls are the project-level settings included before Smart Capture: SDK collection on or off, session replay on or off, max mobile replay length, max web replay length, session sample rate, mobile recording FPS, text input masking, and image/video masking.',
-    },
-    {
-        question: 'What is Smart Capture, and why is it Scale-only?',
-        answer: 'Smart Capture is the high-volume capture layer for Scale teams. It is more than a complex filter: AI can turn prompts into labeled rules, saved sessions are tagged by the rule that kept them, and rules can combine strict conditions with AND clauses, alternative OR rules, per-rule capture rates, colors, and names. You can target checkout risk, churn signals, rage taps, dead taps, crashes, ANRs, JS errors, API failures, API latency, slow starts, route or screen names, custom events, metadata, UTM and referral context, platform, device, browser, country, app version, network type, session duration, screen count, new users, loyal users, bouncers, and engagement score so Scale workspaces keep only the replays they actually need.',
-    },
-    {
-        question: 'How should I compare Rejourney with PostHog, Sentry, Hotjar, Fullstory, or LogRocket?',
-        answer: 'Start with the job you need done. If the important work is finding why users drop before checkout, onboarding, purchase, or activation, compare how many captured sessions feed that workflow, whether mobile is bundled, which features are add-ons, how retention works, and whether seats or events can change the bill.',
-    },
-    {
-        question: 'Can we self-host Rejourney instead of using cloud pricing?',
-        answer: 'Yes. Rejourney can be self-hosted if your team wants to run the stack on its own infrastructure. Cloud pricing is for the managed Rejourney service, storage, retention, billing, and hosted operations.',
-    },
-];
 
 export const PricingTable: React.FC = () => {
     const { showToast } = useToast();
@@ -268,16 +114,14 @@ export const PricingTable: React.FC = () => {
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale).pricing;
     const footerCopy = getMarketingHomeCopy(location.pathname).footer;
+
     const [availablePlans, setAvailablePlans] = useState<PricingPlan[]>([]);
-    const [sliderValue, setSliderValue] = useState(DEFAULT_CALCULATOR_SLIDER_VALUE);
-    const [currentConversionRate, setCurrentConversionRate] = useState(1.4);
-    const [averageConversionValue, setAverageConversionValue] = useState(75);
-    const [conversionLiftPoints, setConversionLiftPoints] = useState(0.25);
-    const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+    const [volumeIndex, setVolumeIndex] = useState(2); // Default to Growth - 100k sessions
+    const [trafficCalculator, setTrafficCalculator] = useState(25000); // 25k sessions
+    const [aovCalculator, setAovCalculator] = useState(75); // $75 average conversion/order value
+    const [openIndex, setOpenIndex] = useState<number | null>(null);
     const [contactCopied, setContactCopied] = useState(false);
     const copyResetTimerRef = useRef<number | null>(null);
-    const plansRailRef = useRef<HTMLDivElement | null>(null);
-    const [plansRailState, setPlansRailState] = useState({ canScrollPrev: false, canScrollNext: false });
 
     useEffect(() => {
         let cancelled = false;
@@ -305,64 +149,10 @@ export const PricingTable: React.FC = () => {
     }, []);
 
     const plans = useMemo(() => getOrderedPlans(availablePlans), [availablePlans]);
-    const calculatorSessions = sliderToSessions(sliderValue);
-    const rejourneyMonthlyPlan = rejourneyPlan(calculatorSessions);
-    const sliderStyle = { '--slider-fill': `${sliderValue}%` } as CSSProperties;
-    const safeConversionRate = Math.max(0, currentConversionRate);
-    const safeAverageConversionValue = Math.max(0, averageConversionValue);
-    const safeConversionLiftPoints = Math.max(0, conversionLiftPoints);
-    const baselineConversions = calculatorSessions * (safeConversionRate / 100);
-    const recoveredConversions = calculatorSessions * (safeConversionLiftPoints / 100);
-    const baselineRevenue = baselineConversions * safeAverageConversionValue;
-    const recoveredMonthlyRevenue = recoveredConversions * safeAverageConversionValue;
-    const netMonthlyUpside = recoveredMonthlyRevenue - rejourneyMonthlyPlan.price;
-    const roiPercent = rejourneyMonthlyPlan.price > 0
-        ? (netMonthlyUpside / rejourneyMonthlyPlan.price) * 100
-        : null;
-    const breakEvenConversions = safeAverageConversionValue > 0 && rejourneyMonthlyPlan.price > 0
-        ? rejourneyMonthlyPlan.price / safeAverageConversionValue
-        : 0;
 
-    const updatePlansRailState = () => {
-        const rail = plansRailRef.current;
-        if (!rail) return;
-
-        const maxScrollLeft = rail.scrollWidth - rail.clientWidth;
-        setPlansRailState({
-            canScrollPrev: rail.scrollLeft > PLANS_RAIL_EDGE_TOLERANCE,
-            canScrollNext: rail.scrollLeft < maxScrollLeft - PLANS_RAIL_EDGE_TOLERANCE,
-        });
+    const getPlanByStepName = (name: string) => {
+        return plans.find(p => normalizePlanName(p) === name) ?? FALLBACK_PLANS.find(p => p.name === name) ?? FALLBACK_PLANS[0];
     };
-
-    const scrollPlansRail = (direction: -1 | 1) => {
-        const rail = plansRailRef.current;
-        if (!rail) return;
-
-        const firstCard = rail.querySelector('article');
-        const cardWidth = firstCard instanceof HTMLElement ? firstCard.offsetWidth : rail.clientWidth * 0.8;
-
-        rail.scrollBy({
-            left: direction * (cardWidth + 20),
-            behavior: 'smooth',
-        });
-    };
-
-    useEffect(() => {
-        const rail = plansRailRef.current;
-        if (!rail) return;
-
-        const animationFrame = window.requestAnimationFrame(updatePlansRailState);
-        const handleScroll = () => updatePlansRailState();
-
-        rail.addEventListener('scroll', handleScroll, { passive: true });
-        window.addEventListener('resize', handleScroll);
-
-        return () => {
-            window.cancelAnimationFrame(animationFrame);
-            rail.removeEventListener('scroll', handleScroll);
-            window.removeEventListener('resize', handleScroll);
-        };
-    }, [plans.length]);
 
     const handleCopyEmail = async () => {
         if (copyResetTimerRef.current) {
@@ -383,412 +173,364 @@ export const PricingTable: React.FC = () => {
         }, 1800);
     };
 
+    // Calculator values
+    const calculatorSessions = trafficCalculator;
+    const rejourneyMonthlyPlan = rejourneyPlan(calculatorSessions);
+    const recoveredRevenue = calculatorSessions * 0.0025 * aovCalculator;
+    const netMonthlyUpside = recoveredRevenue - (rejourneyMonthlyPlan.price / 100);
+    const roiPercent = rejourneyMonthlyPlan.price > 0
+        ? (netMonthlyUpside / (rejourneyMonthlyPlan.price / 100)) * 100
+        : 0;
+
+    // Resolve index for middle card
+    const activeStep = PLAN_STEPS[volumeIndex];
+    const activeCenterIndex = volumeIndex === 0 ? 1 : volumeIndex === 5 ? 4 : volumeIndex;
+
+    const faqs = [
+        {
+            question: 'Are analytics unlimited?',
+            answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. The paid meter is captured session volume because those sessions are what let Rejourney explain revenue leaks, not just count traffic.',
+        },
+        {
+            question: 'What happens when I use all included captured sessions?',
+            answer: 'New revenue evidence stops saving until the next billing cycle or until you upgrade. Rejourney still accepts analytics events for high-level charts, but fresh AI leak packets, heatmaps, journey drill-downs, crash context, replay search, and fix evidence need captured sessions to stay useful.',
+        },
+        {
+            question: 'How is Rejourney different from usage-based replay pricing?',
+            answer: 'Many observability and product analytics tools meter several things at once: events, replays, errors, seats, sites, add-ons, retention, or separate product packages. Rejourney keeps the public plans anchored to included monthly captured sessions, with core analytics and debugging features included.',
+        },
+        {
+            question: 'Do web and mobile replays cost different amounts?',
+            answer: 'No. The listed Rejourney plans use one captured-session allowance for web and mobile. You do not need to buy a separate mobile replay add-on just to understand native app sessions.',
+        },
+        {
+            question: 'Do I pay per seat or tracked user?',
+            answer: 'No. The public plans are not priced per teammate, DAU, MAU, or tracked user. Invite product, engineering, design, support, and leadership without turning every new viewer into a billing decision.',
+        },
+        {
+            question: 'What is Smart Capture, and why is it Scale/Enterprise only?',
+            answer: 'Smart Capture is our advanced collection engine. Instead of recording everything, you define rules (like only capturing checkout flows with errors, slow API calls, or specific onboarding paths) using simple AI prompts. This lets you optimize your captured session budget at high scale.',
+        },
+        {
+            question: 'Can we self-host Rejourney instead of using cloud pricing?',
+            answer: 'Yes. Rejourney can be self-hosted if your team wants to run the stack on its own infrastructure. Cloud pricing is for the managed Rejourney service, storage, retention, billing, and hosted operations.',
+        },
+    ];
+
+    const renderCard = (cardType: 0 | 1 | 2, plan: PricingPlan) => {
+        const planName = normalizePlanName(plan);
+        const description = PLAN_DESCRIPTIONS[planName] ?? PLAN_DESCRIPTIONS.fallback;
+        
+        const isFree = plan.priceCents === 0;
+        const isEnterprise = plan.name === 'enterprise';
+
+        const isHighlighted = (cardType === 0 && volumeIndex === 0) ||
+                              (cardType === 1 && volumeIndex >= 1 && volumeIndex <= 4) ||
+                              (cardType === 2 && volumeIndex === 5);
+
+        const badgeText = cardType === 0 ? 'Getting Started' : cardType === 1 ? 'Best Value' : 'Contact Us';
+        
+        const containerClasses = isHighlighted
+            ? 'relative flex flex-col justify-between p-8 rounded-2xl border-2 border-slate-950 bg-white shadow-[8px_8px_0_#0f172a] -translate-y-1 transition-all duration-300'
+            : 'relative flex flex-col justify-between p-8 rounded-2xl border border-slate-200 bg-white/80 shadow-sm hover:border-slate-350 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300';
+
+        const buttonClasses = isHighlighted
+            ? 'inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-950 bg-[#86efac] px-4 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none'
+            : 'inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-250 bg-white px-4 text-sm font-extrabold uppercase text-slate-800 transition-all duration-150 hover:border-slate-350 hover:bg-slate-50';
+
+        // Custom features listing
+        type CardFeature = {
+            key: string;
+            content: React.ReactNode;
+            active: boolean;
+        };
+
+        let cardFeatures: CardFeature[] = [];
+
+        if (cardType === 0) {
+            cardFeatures = [
+                { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
+                { key: 'retention', content: <span><strong>7 days</strong> evidence retention</span>, active: true },
+                { key: 'ai', content: getRevenueLeakPredictionText('free', plan.sessionLimit), active: true },
+                { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
+                { key: 'funnels', content: <span>Standard funnel and cohort trends</span>, active: true },
+                { key: 'controls', content: <span>Standard session recording controls</span>, active: true },
+                { key: 'smart', content: <span>Smart Capture customizable rules</span>, active: false },
+                { key: 'sla', content: <span>Priority support & Dedicated hardware</span>, active: false },
+            ];
+        } else if (cardType === 1) {
+            cardFeatures = [
+                { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
+                { key: 'retention', content: <span><strong>{plan.videoRetentionLabel}</strong> evidence retention</span>, active: true },
+                { key: 'ai', content: getRevenueLeakPredictionText(plan.name, plan.sessionLimit), active: true },
+                { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
+                { key: 'funnels', content: <span>Checkout, onboarding, & paywall drill-downs</span>, active: true },
+                { key: 'diagnostics', content: <span>Crash, API, and ANR diagnostic tools</span>, active: true },
+                { key: 'smart', content: <span>Smart Capture customizable rules</span>, active: Boolean(plan.smartCaptureEnabled || plan.name === 'scale') },
+                { key: 'sla', content: <span>Priority support & Dedicated hardware</span>, active: false },
+            ];
+        } else {
+            cardFeatures = [
+                { key: 'sessions', content: <span><strong>Custom volume</strong> of monthly sessions</span>, active: true },
+                { key: 'retention', content: <span><strong>Custom</strong> evidence retention history</span>, active: true },
+                { key: 'ai', content: getRevenueLeakPredictionText('enterprise', plan.sessionLimit), active: true },
+                { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
+                { key: 'funnels', content: <span>Full suite of custom funnels & analytics</span>, active: true },
+                { key: 'hardware', content: <span>Dedicated hardware & custom storage bucket</span>, active: true },
+                { key: 'support', content: <span>Dedicated support team & custom SLA</span>, active: true },
+            ];
+        }
+
+        return (
+            <article key={cardType} className={containerClasses}>
+                {isHighlighted && (
+                    <span className="absolute -top-3 left-6 inline-flex items-center rounded-full bg-emerald-100 border border-emerald-500 text-emerald-800 px-3 py-0.5 text-xs font-bold uppercase tracking-wider">
+                        {badgeText}
+                    </span>
+                )}
+                
+                <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">{isFree ? 'Free' : isEnterprise ? 'Enterprise' : plan.displayName}</h2>
+                    <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed min-h-[48px]">{description}</p>
+                    
+                    <div className="mt-6 flex items-end gap-x-2">
+                        <span className="text-4xl font-black tracking-tight text-slate-900">
+                            {isEnterprise ? 'Custom' : formatPlanPrice(plan.priceCents)}
+                        </span>
+                        {!isFree && !isEnterprise && (
+                            <span className="pb-1 text-sm font-bold text-slate-400">/ month</span>
+                        )}
+                    </div>
+
+                    <ul className="mt-8 space-y-4">
+                        {cardFeatures.map((feat) => (
+                            <PlanCheck key={feat.key} active={feat.active}>
+                                {feat.content}
+                            </PlanCheck>
+                        ))}
+                    </ul>
+                </div>
+
+                <div className="mt-8 pt-2">
+                    {isEnterprise ? (
+                        <button
+                            type="button"
+                            onClick={handleCopyEmail}
+                            className={buttonClasses}
+                        >
+                            {contactCopied ? copy.copied : 'Contact Sales'}
+                            <ArrowRight className="h-4 w-4" aria-hidden />
+                        </button>
+                    ) : (
+                        <Link
+                            to="/login"
+                            className={buttonClasses}
+                        >
+                            {isFree ? copy.startFree : copy.getStarted}
+                            <ArrowRight className="h-4 w-4" aria-hidden />
+                        </Link>
+                    )}
+                </div>
+            </article>
+        );
+    };
+
     return (
-        <section className="relative w-full border-t-4 border-black bg-[#fdfbf7] text-slate-950 overflow-hidden">
+        <section className="relative w-full bg-[#fdfbf7] text-slate-900 overflow-hidden min-h-screen">
+            <PricingThreeField variant="icosahedron" layout="pricing" className="opacity-30" />
 
+            <div className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-col items-center px-6 pt-32 pb-8 sm:px-8 lg:px-10">
+                <div className="text-center max-w-3xl">
+                    <h1 className="text-4xl font-black uppercase tracking-tight text-slate-900 sm:text-5xl lg:text-6xl leading-[1.05]">
+                        {copy.heading}
+                    </h1>
+                    <p className="mt-6 text-lg font-semibold leading-relaxed text-slate-600">
+                        {copy.intro}
+                    </p>
+                </div>
+            </div>
 
-            <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-5 pb-12 pt-36 sm:gap-16 sm:px-8 sm:pb-16 sm:pt-44 lg:gap-20 lg:px-10 lg:pb-20 lg:pt-48">
-                <div className="relative z-10 border-b border-black/20 pb-8 sm:pb-10">
-                    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-end">
+            {/* Slider Container */}
+            <div className="w-full max-w-2xl mx-auto px-6 mb-16 relative z-20">
+                <div className="relative border border-slate-200 bg-white/95 rounded-2xl p-6 shadow-sm">
+                    <div className="flex justify-between items-end mb-4">
                         <div>
-                            <h1 className="break-words text-4xl font-black uppercase tracking-tight text-slate-955 sm:text-5xl lg:text-6xl">
-                                {copy.heading}
-                            </h1>
-                            <p className="mt-4 max-w-3xl text-base font-bold leading-7 text-slate-750 sm:text-lg">
-                                {copy.intro}
-                            </p>
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Captured Session Volume</span>
+                            <div className="mt-1 text-3xl font-black text-slate-900">
+                                {volumeIndex === 5 ? 'Custom' : `${formatInteger(PLAN_STEPS[volumeIndex].sessions)} / mo`}
+                            </div>
                         </div>
-
-                        <div className="flex justify-start lg:justify-end">
-                            <div className="border border-black/20 bg-white p-5 shadow-neo flex flex-col gap-4 w-full sm:max-w-md lg:w-72 rounded-none">
-                                <div>
-                                    <p className="font-mono text-[10px] font-black uppercase tracking-wider text-slate-800">{copy.contactEyebrow}</p>
-                                    <h2 className="mt-1.5 text-lg font-black uppercase leading-snug text-slate-900">{copy.contactHeading}</h2>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={handleCopyEmail}
-                                    className={`flex h-11 items-center justify-center gap-2 rounded-none border border-black px-4 text-xs font-black uppercase shadow-neo-sm transition-all hover:-translate-y-0.5 active:translate-y-0 active:shadow-none ${
-                                        contactCopied
-                                            ? 'bg-[#86efac] text-black'
-                                            : 'bg-black text-white hover:bg-slate-900'
-                                    }`}
-                                    aria-live="polite"
-                                    style={{ WebkitTapHighlightColor: 'transparent' }}
-                                >
-                                    {contactCopied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
-                                    {contactCopied ? copy.copied : copy.contactEmail}
-                                </button>
+                        <div className="text-right">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Current Step</span>
+                            <div className="mt-1 text-lg font-extrabold text-indigo-600 uppercase">
+                                {PLAN_STEPS[volumeIndex].name}
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div className="relative z-10">
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:gap-8 pt-4 pb-12">
-                        {plans.map((plan) => {
-                            const planName = normalizePlanName(plan);
-                            const description = copy.planDescriptions[planName] ?? copy.planDescriptions.fallback;
-                            const isFeatured = planName === 'growth';
-                            const isScale = planName === 'scale';
-                            const isEnterprise = planName === 'enterprise';
-                            const isFree = plan.priceCents === 0;
-                            const priceSuffix = isFree || isEnterprise ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
-                            const smartCaptureEnabled = Boolean(plan.smartCaptureEnabled || planName === 'scale' || isEnterprise);
+                    <input
+                        type="range"
+                        min={0}
+                        max={PLAN_STEPS.length - 1}
+                        step={1}
+                        value={volumeIndex}
+                        onChange={(e) => setVolumeIndex(Number(e.target.value))}
+                        className="pricing-range-slider mt-2"
+                        style={{ '--slider-fill': `${(volumeIndex / (PLAN_STEPS.length - 1)) * 100}%` } as CSSProperties}
+                        aria-label="Monthly session limit slider"
+                    />
 
-                            const cardClassName = isFeatured
-                                ? 'border border-black bg-[#fef08a] shadow-neo hover:shadow-neo-lg hover:-translate-y-1.5'
-                                : 'border border-black bg-white shadow-neo-sm hover:shadow-neo hover:-translate-y-1.5';
-
-                            return (
-                                <article
-                                    key={`${plan.name}-${plan.priceCents}`}
-                                    className={`relative flex min-h-[680px] flex-col overflow-hidden p-6 transition-all duration-300 sm:p-7 rounded-none ${cardClassName}`}
-                                >
-                                    <div>
-                                        <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
-                                            <h2 className="text-xl font-black uppercase tracking-tight text-slate-950 sm:text-2xl">{plan.displayName}</h2>
-                                            {isFeatured && (
-                                                <span className="bg-white text-black px-2.5 py-0.5 text-[10px] font-black uppercase rounded-none border border-black shadow-neo-sm">
-                                                    {copy.popular}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <p className="mt-4 min-h-[72px] text-sm font-bold leading-6 text-slate-700">{description}</p>
-
-                                        <div className="mt-6 flex flex-wrap items-end gap-x-2 gap-y-1">
-                                            <span className="text-3xl font-black tracking-tight text-slate-950">{formatPlanPrice(plan.priceCents)}</span>
-                                            {priceSuffix && <span className="pb-0.5 text-sm font-bold text-slate-500">{priceSuffix}</span>}
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-7 flex-1 space-y-5">
-                                        <PlanGroup title="Revenue evidence">
-                                            <PlanCheck>Boost Web & Mobile Conversion, Checkout, and Subscription</PlanCheck>
-                                            <PlanCheck>
-                                                {isEnterprise
-                                                    ? 'Custom session replays/month'
-                                                    : `${formatInteger(plan.sessionLimit, locale.languageTag)} session replays/month included`}
-                                            </PlanCheck>
-                                            <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
-                                                {isEnterprise
-                                                    ? 'Custom conversion evidence history'
-                                                    : <RetentionEvidenceLabel retention={plan.videoRetentionLabel} />}
-                                            </PlanCheck>
-                                            <PlanCheck tone={smartCaptureEnabled ? 'check' : 'minus'}>
-                                                {isEnterprise
-                                                    ? 'Smart Capture custom rules included'
-                                                    : captureControlLabel(smartCaptureEnabled)}
-                                            </PlanCheck>
-                                        </PlanGroup>
-
-                                        <PlanGroup title="Revenue analytics">
-                                            <PlanCheck>Unlimited events, DAU, and MAU</PlanCheck>
-                                            <PlanCheck>Funnels, cohorts, revenue, and retention trends</PlanCheck>
-                                            <PlanCheck>Checkout, onboarding, signup, and subscription drill-downs</PlanCheck>
-                                        </PlanGroup>
-
-                                        <PlanGroup title="Fix workflow">
-                                            <PlanCheck tone={isEnterprise ? 'check' : (isLowAiLeakCoverage(planName) ? 'warning' : 'check')}>
-                                                <span className="inline-flex flex-wrap items-center gap-2">
-                                                    <span className="inline-flex items-center gap-1.5 rounded-none bg-white border border-black px-2.5 py-0.5 text-[11px] font-black text-slate-900 shadow-neo-sm">
-                                                        + AI Leak Detection
-                                                    </span>
-                                                    <span>
-                                                        {isEnterprise
-                                                            ? 'Custom volume conversion journeys'
-                                                            : <AiLeakUpgradeLabel planName={planName} sessions={formatInteger(plan.sessionLimit, locale.languageTag)} />}
-                                                    </span>
-                                                </span>
-                                            </PlanCheck>
-                                            <PlanCheck tone={isEnterprise ? 'check' : (isShortRetention(plan.videoRetentionLabel) ? 'warning' : 'check')}>
-                                                {isEnterprise ? (
-                                                    <span>Custom volume of conversion-critical fixes</span>
-                                                ) : (
-                                                    <FixWorkflowCoverage
-                                                        planName={planName}
-                                                        sessions={formatInteger(plan.sessionLimit, locale.languageTag)}
-                                                        retention={plan.videoRetentionLabel}
-                                                    />
-                                                )}
-                                            </PlanCheck>
-                                            <PlanCheck tone={isLowAiLeakCoverage(planName) ? 'warning' : 'check'}>
-                                                {isLowAiLeakCoverage(planName) ? 'Limited ' : ''}AI Query Builder searches users, events, errors, devices, and metadata in that window
-                                            </PlanCheck>
-                                            <PlanCheck>Crash, API, ANR, Device, Geo fixes</PlanCheck>
-                                        </PlanGroup>
-                                    </div>
-
-                                    <div className="mt-8 pt-2">
-                                        {isEnterprise ? (
-                                            <button
-                                                type="button"
-                                                onClick={handleCopyEmail}
-                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-black px-4 text-sm font-black uppercase transition-all shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none ${
-                                                    contactCopied
-                                                        ? 'bg-[#86efac] text-black'
-                                                        : 'bg-black text-white hover:bg-slate-900'
-                                                }`}
-                                                style={{ WebkitTapHighlightColor: 'transparent' }}
-                                            >
-                                                {contactCopied ? copy.copied : 'Contact Sales'}
-                                                <ArrowRight className="h-4 w-4" aria-hidden />
-                                            </button>
-                                        ) : (
-                                            <Link
-                                                to="/login"
-                                                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-black px-4 text-sm font-black uppercase transition-all shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none ${
-                                                    isFeatured
-                                                        ? 'bg-[#86efac] text-black hover:bg-[#4ade80]'
-                                                        : 'bg-black text-white hover:bg-slate-900'
-                                                }`}
-                                                style={{ WebkitTapHighlightColor: 'transparent' }}
-                                            >
-                                                {isFree ? copy.startFree : copy.getStarted}
-                                                <ArrowRight className="h-4 w-4" aria-hidden />
-                                            </Link>
-                                        )}
-                                    </div>
-                                </article>
-                            );
-                        })}
+                    <div className="flex justify-between mt-3 px-1 text-[11px] font-black uppercase text-slate-400">
+                        {PLAN_STEPS.map((step, idx) => (
+                            <button
+                                key={step.name}
+                                type="button"
+                                onClick={() => setVolumeIndex(idx)}
+                                className={`transition-colors duration-150 ${volumeIndex === idx ? 'text-indigo-600 font-black' : 'hover:text-slate-600'}`}
+                            >
+                                {step.label}
+                            </button>
+                        ))}
                     </div>
                 </div>
+            </div>
 
-                <div className="relative z-10 border-t border-black/20 pt-12 sm:pt-16 lg:pt-20">
-                    <div className="mb-8 border border-black/20 bg-white px-6 py-5 text-left shadow-neo-sm rounded-none">
-                        <span className="block text-xl font-black uppercase tracking-tight text-slate-955">{copy.comparisonTitle}</span>
-                        <span className="mt-1.5 block text-sm font-bold leading-normal text-slate-700">{copy.comparisonSubtitle}</span>
-                    </div>
+            {/* 3-Card Layout */}
+            <div className="grid gap-8 lg:grid-cols-3 max-w-[1200px] mx-auto px-6 mb-24 items-stretch relative z-20">
+                {renderCard(0, getPlanByStepName('free'))}
+                {renderCard(1, getPlanByStepName(PLAN_STEPS[activeCenterIndex].name))}
+                {renderCard(2, getPlanByStepName('enterprise'))}
+            </div>
 
-                    <div className="grid gap-8 border border-black/20 bg-white p-6 shadow-neo rounded-none lg:grid-cols-[0.95fr_1.2fr]">
-                        <div className="space-y-6">
+            {/* Simplified ROI Calculator */}
+            <div className="relative border border-slate-200 bg-white/95 rounded-2xl p-8 shadow-sm max-w-[1200px] mx-4 md:mx-auto mb-24 z-20">
+                <div className="grid gap-8 lg:grid-cols-2 items-center">
+                    <div>
+                        <h2 className="text-2xl font-black uppercase text-slate-900">Calculate Your Potential ROI</h2>
+                        <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed">
+                            See what recovering just a tiny fraction of your dropped-off checkout, onboarding, or subscription conversions would return.
+                        </p>
+
+                        <div className="mt-8 space-y-6">
                             <div>
-                                <div className="mb-3 flex items-end justify-between gap-4">
-                                    <span className="text-xs font-black uppercase tracking-wider text-slate-800">{copy.sessionsPerMonthLabel}</span>
-                                    <span className="text-2xl font-black text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
+                                <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                    <span>Monthly Traffic (Sessions)</span>
+                                    <span className="text-slate-700 font-extrabold">{formatInteger(trafficCalculator)}</span>
                                 </div>
                                 <input
                                     type="range"
-                                    min={0}
-                                    max={100}
-                                    step="any"
-                                    value={sliderValue}
-                                    onChange={(event) => setSliderValue(Number(event.target.value))}
+                                    min={10000}
+                                    max={1000000}
+                                    step={10000}
+                                    value={trafficCalculator}
+                                    onChange={(e) => setTrafficCalculator(Number(e.target.value))}
                                     className="pricing-range-slider"
-                                    style={sliderStyle}
-                                    aria-label={copy.monthlySessionsAriaLabel}
+                                    style={{ '--slider-fill': `${((trafficCalculator - 10000) / 990000) * 100}%` } as CSSProperties}
+                                    aria-label="Monthly traffic slider"
                                 />
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    {VOLUME_PRESETS.map((preset) => {
-                                        const active = Math.abs(calculatorSessions - preset.sessions) / preset.sessions < 0.08;
-                                        return (
-                                            <button
-                                                key={preset.label}
-                                                type="button"
-                                                onClick={() => setSliderValue(sessionsToSlider(preset.sessions))}
-                                                className={`h-9 border border-black px-3 text-sm font-black uppercase transition shadow-neo-sm rounded-none ${
-                                                    active
-                                                        ? 'bg-[#86efac] text-black'
-                                                        : 'bg-white text-slate-700 hover:text-black hover:-translate-y-0.5'
-                                                }`}
-                                                style={{ WebkitTapHighlightColor: 'transparent' }}
-                                            >
-                                                {preset.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
                             </div>
 
-                            <div className="grid gap-4 sm:grid-cols-3">
-                                <label className="block">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Current conversion</span>
-                                    <div className="mt-2 flex h-11 items-center border border-black/25 bg-white px-3 shadow-neo-sm rounded-none">
-                                        <input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            step={0.1}
-                                            value={currentConversionRate}
-                                            onChange={(event) => setCurrentConversionRate(Number(event.target.value))}
-                                            className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none"
-                                        />
-                                        <span className="text-xs font-bold text-slate-400">%</span>
-                                    </div>
-                                </label>
-                                <label className="block">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Value per conversion</span>
-                                    <div className="mt-2 flex h-11 items-center border border-black/25 bg-white px-3 shadow-neo-sm rounded-none">
-                                        <span className="text-xs font-bold text-slate-400">$</span>
-                                        <input
-                                            type="number"
-                                            min={0}
-                                            step={1}
-                                            value={averageConversionValue}
-                                            onChange={(event) => setAverageConversionValue(Number(event.target.value))}
-                                            className="w-full bg-transparent pl-1 text-sm font-bold text-slate-950 outline-none"
-                                        />
-                                    </div>
-                                </label>
-                                <div>
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">Lift from fixes</span>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                        {ROI_LIFT_PRESETS.map((preset) => (
-                                            <button
-                                                key={preset.label}
-                                                type="button"
-                                                onClick={() => setConversionLiftPoints(preset.value)}
-                                                className={`h-11 flex-1 border border-black px-2 text-xs font-black uppercase transition shadow-neo-sm rounded-none ${
-                                                    conversionLiftPoints === preset.value
-                                                        ? 'bg-[#67e8f9] text-black'
-                                                        : 'bg-white text-slate-700 hover:text-black hover:-translate-y-0.5'
-                                                }`}
-                                                style={{ WebkitTapHighlightColor: 'transparent' }}
-                                            >
-                                                {preset.label}
-                                            </button>
-                                        ))}
-                                    </div>
+                            <div>
+                                <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                    <span>Average Order/Conversion Value</span>
+                                    <span className="text-slate-700 font-extrabold">${aovCalculator}</span>
                                 </div>
-                            </div>
-
-                            <p className="text-xs font-bold leading-5 text-slate-600">
-                                Model: monthly journeys x conversion-rate lift x value per conversion. Use order value for stores, first-month value for subscriptions, or blended revenue per activated user for onboarding.
-                            </p>
-                        </div>
-
-                        <div className="space-y-5">
-                            <div className="grid overflow-hidden border border-black/20 rounded-none bg-white shadow-neo sm:grid-cols-3">
-                                <div className="border-b border-black/15 bg-white p-5 sm:border-b-0 sm:border-r sm:border-black/15 sm:p-6">
-                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Recovered/month</p>
-                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{formatCurrency(recoveredMonthlyRevenue)}</p>
-                                    <p className="mt-2 text-xs font-bold text-slate-500">{formatInteger(recoveredConversions, locale.languageTag)} extra conversions modeled</p>
-                                </div>
-                                <div className="border-b border-black/15 p-5 sm:border-b-0 sm:border-r sm:border-black/15 sm:p-6">
-                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Rejourney plan</p>
-                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{formatCurrency(rejourneyMonthlyPlan.price)}</p>
-                                    <p className="mt-2 text-xs font-bold text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
-                                </div>
-                                <div className="p-5 sm:p-6">
-                                    <p className="text-xs font-black uppercase tracking-wider text-slate-800">Estimated ROI</p>
-                                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">
-                                        {roiPercent === null ? 'Free' : `${Math.round(roiPercent).toLocaleString()}%`}
-                                    </p>
-                                    <p className="mt-2 text-xs font-bold text-slate-500">
-                                        {roiPercent === null
-                                            ? 'No paid plan cost at this volume'
-                                            : `${formatCurrency(netMonthlyUpside)} net after plan cost`}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="grid gap-3 sm:grid-cols-3">
-                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Baseline revenue</p>
-                                    <p className="mt-2 text-lg font-black text-slate-950">{formatCurrency(baselineRevenue)}</p>
-                                </div>
-                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Break even</p>
-                                    <p className="mt-2 text-lg font-black text-slate-950">{breakEvenConversions <= 0 ? '0' : breakEvenConversions.toFixed(1)}</p>
-                                    <p className="mt-1 text-xs font-bold text-slate-500">extra conversions/month</p>
-                                </div>
-                                <div className="border border-black/15 bg-white p-4 shadow-neo-sm rounded-none">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Annualized upside</p>
-                                    <p className="mt-2 text-lg font-black text-slate-950">{formatCurrency(Math.max(0, netMonthlyUpside) * 12)}</p>
-                                </div>
-                            </div>
-
-                             <div className="border border-black bg-white p-4 rounded-none shadow-neo-sm text-slate-850">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-900">Research benchmarks used</p>
-                                <div className="mt-3 grid gap-3">
-                                    {ROI_BENCHMARK_SOURCES.map((source) => (
-                                        <a
-                                            key={source.href}
-                                            href={source.href}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="group text-sm font-bold leading-5 text-slate-700 hover:text-black"
-                                        >
-                                            <span className="font-black text-slate-950 group-hover:underline">{source.label}:</span>{' '}
-                                            {source.stat}
-                                        </a>
-                                    ))}
-                                </div>
+                                <input
+                                    type="range"
+                                    min={10}
+                                    max={500}
+                                    step={5}
+                                    value={aovCalculator}
+                                    onChange={(e) => setAovCalculator(Number(e.target.value))}
+                                    className="pricing-range-slider"
+                                    style={{ '--slider-fill': `${((aovCalculator - 10) / 490) * 100}%` } as CSSProperties}
+                                    aria-label="Average order value slider"
+                                />
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div className="relative z-10 -mx-5 overflow-hidden border-y border-black/20 bg-white px-5 py-12 sm:-mx-8 sm:px-8 sm:py-16 lg:-mx-10 lg:px-10 lg:py-20">
-                    <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
-
-                    <div className="relative grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
-                        <div className="max-w-2xl">
-                            <p className="mb-4 inline-flex rounded-none bg-white text-black px-3 py-1 text-[11px] font-black uppercase tracking-wider border border-black shadow-neo-sm">FAQ</p>
-                            <h2 className="text-3xl font-black uppercase tracking-tight text-slate-950 sm:text-4xl">
-                                Everything included, clarified.
-                            </h2>
-                            <p className="mt-5 text-base font-bold leading-relaxed text-slate-700">
-                                Replays are planned by volume. Analytics stays open, and Scale adds Smart Capture for teams that need precise replay selection.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-col gap-4">
-                            {PRICING_FAQS.map((faq, index) => {
-                                const isOpen = openFaqIndex === index;
-                                return (
-                                    <div 
-                                        key={faq.question}
-                                        className={`border border-black/25 p-5 rounded-none transition-all duration-200 ${
-                                            isOpen
-                                                ? 'bg-[#ecfeff] shadow-neo -translate-y-0.5'
-                                                : 'bg-white shadow-neo-sm hover:shadow-neo hover:-translate-y-0.5'
-                                        }`}
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={() => setOpenFaqIndex(isOpen ? null : index)}
-                                            className="flex w-full items-start justify-between gap-6 text-left"
-                                            aria-expanded={isOpen}
-                                        >
-                                            <span className="text-base font-black uppercase tracking-tight leading-snug text-black">
-                                                {faq.question}
-                                            </span>
-                                            <span className="shrink-0 rounded-none border border-black bg-white p-1 text-black shadow-neo-sm">
-                                                {isOpen
-                                                    ? <Minus className="h-3.5 w-3.5 stroke-[3px]" aria-hidden />
-                                                    : <Plus className="h-3.5 w-3.5 stroke-[3px]" aria-hidden />
-                                                }
-                                            </span>
-                                        </button>
-                                        
-                                        {isOpen && (
-                                            <div className="border-t border-black/15 pt-4 mt-4">
-                                                <p className="max-w-3xl text-sm font-bold leading-relaxed text-slate-800">{faq.answer}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-
-                <div className="border-t border-black/20 pt-12 sm:pt-16 lg:pt-20">
-                    <div className="max-w-4xl border border-black/25 bg-white rounded-none p-6 sm:p-8 shadow-neo">
-                        <p className="font-mono text-[10px] font-black uppercase tracking-wider text-slate-800">{copy.selfHostedEyebrow}</p>
-                        <h2 className="mt-3 text-2xl font-black uppercase tracking-tight text-slate-950">{copy.selfHostedHeading}</h2>
-                        <p className="mt-4 text-[15px] font-bold leading-7 text-slate-700">
-                            {copy.selfHostedCopy}
+                    <div className="flex flex-col items-center justify-center bg-indigo-50/40 border border-indigo-100/80 rounded-xl p-8 text-center">
+                        <span className="text-xs font-black uppercase tracking-widest text-indigo-500">Estimated Monthly Value</span>
+                        <span className="mt-4 text-5xl font-black text-slate-900 tracking-tight">
+                            {formatCurrency(recoveredRevenue)}
+                        </span>
+                        <p className="mt-3 max-w-sm text-sm font-bold leading-relaxed text-slate-650">
+                            Recovered revenue per month, assuming a very conservative <strong className="text-indigo-600">0.25% checkout lift</strong>.
                         </p>
+                        <div className="mt-6 border-t border-indigo-100/70 pt-4 w-full text-xs font-black text-indigo-700 uppercase tracking-wider">
+                            {netMonthlyUpside > 0 ? `${Math.round(roiPercent).toLocaleString()}% ROI on the Pro plan` : '100% Free at this volume'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Accordion FAQ Section */}
+            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.4fr] lg:items-start max-w-[1200px] mx-4 md:mx-auto mb-24 relative z-20">
+                <div className="space-y-4">
+                    <h2 className="text-3xl font-black uppercase text-slate-900">Frequently Asked Questions</h2>
+                    <p className="text-sm font-semibold text-slate-500 leading-relaxed">
+                        Everything you need to know about Rejourney pricing, billing, and features.
+                    </p>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                    {faqs.map((faq, index) => {
+                        const isOpen = openIndex === index;
+                        return (
+                            <div 
+                                key={index}
+                                className={`rounded-xl border p-4 transition-colors duration-200 sm:p-5 ${
+                                    isOpen
+                                        ? 'border-indigo-200 bg-indigo-50/35 shadow-sm'
+                                        : 'border-slate-200 bg-white shadow-sm hover:border-slate-350'
+                                }`}
+                            >
+                                <button
+                                    onClick={() => setOpenIndex(isOpen ? null : index)}
+                                    className="flex w-full items-start justify-between gap-6 text-left"
+                                    aria-expanded={isOpen}
+                                >
+                                    <span className="text-base font-extrabold text-slate-900">
+                                        {faq.question}
+                                    </span>
+                                    <Plus className={`mt-0.5 h-5 w-5 shrink-0 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-45 text-indigo-600' : ''}`} />
+                                </button>
+                                
+                                <div 
+                                    className={`grid transition-all duration-350 ease-in-out ${
+                                        isOpen ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0'
+                                    }`}
+                                >
+                                    <div className="overflow-hidden border-t border-slate-100 pt-4">
+                                        <p className="text-sm font-semibold leading-relaxed text-slate-650">
+                                            {faq.answer}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Self-hosted Section */}
+            <div className="max-w-[1200px] mx-4 md:mx-auto mb-24 relative z-20">
+                <div className="relative overflow-hidden border border-slate-200 bg-white/95 rounded-2xl p-8 shadow-sm text-slate-900">
+                    <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
+                    <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                        <div className="max-w-2xl">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{copy.selfHostedEyebrow}</span>
+                            <h2 className="mt-2 text-2xl font-black uppercase text-slate-950">{copy.selfHostedHeading}</h2>
+                            <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed">
+                                {copy.selfHostedCopy}
+                            </p>
+                        </div>
                         <a
                             href="https://github.com/rejourneyco/rejourney"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="mt-6 inline-flex h-11 items-center justify-center gap-2 border border-black bg-[#f9a8d4] px-5 text-sm font-black uppercase text-black rounded-none shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all"
+                            className="inline-flex h-12 shrink-0 items-center justify-center gap-2 border border-slate-950 bg-[#fff19c] px-6 text-sm font-extrabold uppercase text-black rounded-xl shadow-[2px_2px_0_#0f172a] hover:bg-[#ffe366] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150"
                         >
                             <Github className="h-4 w-4" aria-hidden />
                             {copy.viewSource}
