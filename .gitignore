@@ -56,6 +56,7 @@ local.properties
 
 # Local Google Ads Editor upload artifacts
 /ads_import/
+/google-ads-bulk/
 /tmp/google_ads_measurement_workbook/
 
 # Local research lake report drafts

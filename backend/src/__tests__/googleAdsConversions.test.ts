@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     buildGoogleAdsDataManagerEvent,
+    dataManagerStatusAfterIngest,
     hashGoogleAdsEmail,
     isWithinGoogleAdsActivationWindow,
 } from '../services/googleAdsConversions.js';
@@ -48,5 +49,10 @@ describe('Google Ads conversion payloads', () => {
         expect(isWithinGoogleAdsActivationWindow(signup, new Date('2026-07-08T00:00:00.000Z'))).toBe(true);
         expect(isWithinGoogleAdsActivationWindow(signup, new Date('2026-07-08T00:00:00.001Z'))).toBe(false);
         expect(isWithinGoogleAdsActivationWindow(signup, new Date('2026-06-30T23:59:59.999Z'))).toBe(false);
+    });
+
+    it('does not poll validate-only request IDs', () => {
+        expect(dataManagerStatusAfterIngest(true)).toBe('validated');
+        expect(dataManagerStatusAfterIngest(false)).toBe('accepted');
     });
 });

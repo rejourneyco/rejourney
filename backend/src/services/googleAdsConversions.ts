@@ -98,6 +98,13 @@ type RequestStatusResponse = {
 
 let googleAuth: GoogleAuth | null = null;
 
+export function dataManagerStatusAfterIngest(validateOnly: boolean): 'validated' | 'accepted' {
+    // Data Manager validates validate-only uploads synchronously. Google returns
+    // a requestId, but its requestStatus endpoint explicitly rejects polling
+    // request IDs created with validateOnly=true.
+    return validateOnly ? 'validated' : 'accepted';
+}
+
 function isUploadEventName(eventName: GoogleAdsMilestoneName): eventName is GoogleAdsUploadEventName {
     return (GOOGLE_ADS_UPLOAD_EVENT_NAMES as readonly string[]).includes(eventName);
 }
@@ -481,18 +488,24 @@ async function uploadOne(row: ConversionEventRow): Promise<void> {
         throw new Error('Data Manager ingest response did not include requestId');
     }
 
+    const validateOnly = config.GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY;
+    const status = dataManagerStatusAfterIngest(validateOnly);
     await db
         .update(googleAdsConversionEvents)
         .set({
-            status: 'accepted',
+            status,
             attempts: row.attempts + 1,
             acceptedAt: new Date(),
+            ...(validateOnly ? { processedAt: new Date() } : {}),
             lastAttemptAt: new Date(),
-            nextAttemptAt: new Date(Date.now() + config.GOOGLE_ADS_DATA_MANAGER_POLL_INTERVAL_MS),
+            nextAttemptAt: validateOnly
+                ? new Date()
+                : new Date(Date.now() + config.GOOGLE_ADS_DATA_MANAGER_POLL_INTERVAL_MS),
             googleRequestId: responseBody.requestId,
             lastError: null,
             diagnostics: {
-                validateOnly: config.GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY,
+                validateOnly,
+                ...(validateOnly ? { validationStage: 'ingest' } : {}),
             },
             updatedAt: new Date(),
         })
