@@ -7,6 +7,8 @@
 
 import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getFingerprint } from '~/shared/lib/fingerprint';
+import { appendGoogleAdsAttributionToUrl, getGoogleAdsAttribution } from '~/shared/lib/googleAdsAttribution';
+import { hasGoogleAdsConsent } from '~/shared/lib/googleAdsConsent';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 
 // Network timeout in milliseconds (10 seconds)
@@ -233,6 +235,8 @@ export interface AuthActionResult {
   transient?: boolean;
   status?: number;
   accountActivated?: boolean;
+  userId?: string;
+  email?: string;
 }
 
 class AuthRequestError extends Error {
@@ -412,6 +416,7 @@ export function AuthProvider({
 
       // Collect fingerprint data for duplicate account detection
       const fingerprint = await getFingerprint();
+      const attribution = getGoogleAdsAttribution();
 
       // Use relative URL to go through the proxy with timeout
       await fetchAuthJson('/api/auth/otp/send', {
@@ -421,6 +426,8 @@ export function AuthProvider({
         body: JSON.stringify({
           email,
           fingerprint,
+          ...(attribution ? { attribution } : {}),
+          ...(hasGoogleAdsConsent() ? { googleAdsConsent: 'accepted' } : {}),
         }),
       }, 'Failed to send verification code');
 
@@ -459,7 +466,12 @@ export function AuthProvider({
 
         // The OTP verification response proves the session cookie was issued.
         // The dashboard loader hydrates the complete user and workspace state.
-        return { ok: true, accountActivated: Boolean(verifyData.accountActivated) };
+        return {
+          ok: true,
+          accountActivated: Boolean(verifyData.accountActivated),
+          userId: verifiedUser.id,
+          email: verifiedUser.email,
+        };
       }
 
       // Older auth responses may omit user data; keep the previous validation
@@ -467,7 +479,12 @@ export function AuthProvider({
       const refreshedUser = await refreshUser();
       setAuthServiceUnavailable(false);
       return refreshedUser
-        ? { ok: true, accountActivated: Boolean(verifyData?.accountActivated) }
+        ? {
+            ok: true,
+            accountActivated: Boolean(verifyData?.accountActivated),
+            userId: refreshedUser.id,
+            email: refreshedUser.email,
+          }
         : {
             ok: false,
             message: 'We verified the code, but could not load your dashboard session. Please retry.',
@@ -507,7 +524,7 @@ export function AuthProvider({
   const loginWithGitHub = useCallback(() => {
     if (typeof window === 'undefined') return;
     // Redirect to GitHub OAuth endpoint (use relative URL)
-    window.location.href = '/api/auth/github';
+    window.location.href = appendGoogleAdsAttributionToUrl('/api/auth/github');
   }, []);
 
   const value: AuthContextValue = {

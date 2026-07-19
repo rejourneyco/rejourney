@@ -16,7 +16,13 @@ import {
   X,
   Users,
 } from 'lucide-react';
-import { addTeamMember, createTeam, sendProjectSetupEmail, updateTeam } from '~/shared/api/client';
+import {
+  addTeamMember,
+  createTeam,
+  recordSdkSetupOpened,
+  sendProjectSetupEmail,
+  updateTeam,
+} from '~/shared/api/client';
 import {
   buildProjectAIPromptById,
   getAIPromptDefinition,
@@ -176,6 +182,13 @@ export const SetupRoute: React.FC = () => {
     setWorkspaceNameDraft(currentTeam?.name ?? '');
     setWorkspaceConfirmError(null);
   }, [currentTeam?.id, currentTeam?.name]);
+
+  useEffect(() => {
+    if (!activeProject?.id) return;
+    void recordSdkSetupOpened(activeProject.id).catch(() => {
+      // Conversion measurement must never interrupt the setup workflow.
+    });
+  }, [activeProject?.id]);
 
   const promptProjectContext = useMemo(() => ({
     ...(activeProject ?? {}),

@@ -31,6 +31,7 @@ export type WorkerName =
     | 'statsAggregator'
     | 'alertWorker'
     | 'revenueSyncWorker'
+    | 'googleAdsConversionWorker'
     | 'stripeSyncWorker';
 
 export type WorkerMetric = {
@@ -483,6 +484,7 @@ export async function getWorkerStatuses(): Promise<Record<WorkerName, WorkerHeal
         'retentionWorker',
         'statsAggregator',
         'alertWorker',
+        'googleAdsConversionWorker',
         'stripeSyncWorker',
     ];
 

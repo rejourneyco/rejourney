@@ -174,6 +174,26 @@ const envSchema = z.object({
     SUPERWALL_API_BASE_URL: z.string().default('https://api.superwall.com'),
     REVENUECAT_API_BASE_URL: z.string().default('https://api.revenuecat.com/v2'),
 
+    // Google Ads Data Manager conversion outbox. Disabled until the Google Ads
+    // conversion action IDs and Application Default Credentials are configured.
+    GOOGLE_ADS_DATA_MANAGER_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY: z.string().transform(v => v !== 'false').default('true'),
+    GOOGLE_ADS_DATA_MANAGER_GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
+    GOOGLE_ADS_DATA_MANAGER_SERVICE_ACCOUNT_JSON: z.string().optional(),
+    GOOGLE_ADS_OPERATING_ACCOUNT_ID: z.string().optional(),
+    GOOGLE_ADS_LOGIN_ACCOUNT_ID: z.string().optional(),
+    GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_PROJECT_CREATED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_SDK_SETUP_OPENED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_FIRST_SESSION_RECEIVED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_SETUP_COMPLETED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_FIRST_REPLAY_VIEWED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_ACTIVATED_ACCOUNT_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_SUBSCRIPTION_STARTED_ACTION_ID: z.string().optional(),
+    GOOGLE_ADS_DATA_MANAGER_BATCH_SIZE: z.coerce.number().int().min(1).max(2000).default(100),
+    GOOGLE_ADS_DATA_MANAGER_POLL_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
+    GOOGLE_ADS_DATA_MANAGER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(25).default(10),
+
     // AI query builder (optional)
     QUERY_BUILDER_KEY: z.string().optional(),
     QUERY_BUILDER_MODEL: z.string().default('gemini-3.1-flash-lite-preview'),

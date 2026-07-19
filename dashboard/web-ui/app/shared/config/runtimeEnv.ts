@@ -4,6 +4,9 @@ export interface RuntimeEnvSnapshot {
   VITE_TURNSTILE_SITE_KEY?: string;
   VITE_GOOGLE_ADS_CONVERSION_ID?: string;
   VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL?: string;
+  VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL?: string;
+  VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL?: string;
+  VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL?: string;
   VITE_REDDIT_PIXEL_ID?: string;
   SHOW_ISSUE_DETECTION_UI?: string;
 }
@@ -23,6 +26,9 @@ export function getRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_TURNSTILE_SITE_KEY: readRuntimeEnvValue("VITE_TURNSTILE_SITE_KEY"),
     VITE_GOOGLE_ADS_CONVERSION_ID: readRuntimeEnvValue("VITE_GOOGLE_ADS_CONVERSION_ID"),
     VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL"),
+    VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL"),
+    VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL"),
+    VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL"),
     VITE_REDDIT_PIXEL_ID: readRuntimeEnvValue("VITE_REDDIT_PIXEL_ID"),
     SHOW_ISSUE_DETECTION_UI: readRuntimeEnvValue("SHOW_ISSUE_DETECTION_UI"),
   };
@@ -51,6 +57,18 @@ export function getGoogleAdsSignupConversionLabel(): string {
   return getRuntimeEnvSnapshot().VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL?.trim() || "";
 }
 
+export function getGoogleAdsWebsiteConversionLabel(
+  eventName: "demo_opened" | "pricing_viewed" | "docs_opened",
+): string {
+  const snapshot = getRuntimeEnvSnapshot();
+  const labels = {
+    demo_opened: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
+    pricing_viewed: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
+    docs_opened: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
+  };
+  return labels[eventName]?.trim() || "";
+}
+
 export function getRedditPixelId(): string {
   return getRuntimeEnvSnapshot().VITE_REDDIT_PIXEL_ID?.trim() || "";
 }
@@ -71,6 +89,9 @@ export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_TURNSTILE_SITE_KEY: snapshot.VITE_TURNSTILE_SITE_KEY,
     VITE_GOOGLE_ADS_CONVERSION_ID: snapshot.VITE_GOOGLE_ADS_CONVERSION_ID,
     VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL,
+    VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
+    VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
+    VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
     VITE_REDDIT_PIXEL_ID: snapshot.VITE_REDDIT_PIXEL_ID,
     SHOW_ISSUE_DETECTION_UI: snapshot.SHOW_ISSUE_DETECTION_UI === "true" ? "true" : "false",
   };

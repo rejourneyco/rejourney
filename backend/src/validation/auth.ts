@@ -13,6 +13,23 @@ const fingerprintSchema = z.object({
     platform: z.string().max(50).optional(),
 }).optional();
 
+export const googleAdsAttributionSchema = z.object({
+    gclid: z.string().trim().max(255).optional(),
+    gbraid: z.string().trim().max(255).optional(),
+    wbraid: z.string().trim().max(255).optional(),
+    utm_source: z.string().trim().max(255).optional(),
+    utm_medium: z.string().trim().max(255).optional(),
+    utm_campaign: z.string().trim().max(255).optional(),
+    utm_content: z.string().trim().max(255).optional(),
+    utm_term: z.string().trim().max(255).optional(),
+    matchtype: z.string().trim().max(32).optional(),
+    device: z.string().trim().max(32).optional(),
+    network: z.string().trim().max(32).optional(),
+    loc: z.string().trim().max(64).optional(),
+    capturedAt: z.string().datetime(),
+    landingPage: z.string().url().max(2048),
+}).strict();
+
 function isValidTimeZone(value: string): boolean {
     try {
         new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
@@ -35,6 +52,8 @@ const userTimeZoneSchema = z.preprocess(
 export const sendOtpSchema = z.object({
     email: z.string().email('Invalid email address'),
     fingerprint: fingerprintSchema,
+    attribution: googleAdsAttributionSchema.optional(),
+    googleAdsConsent: z.literal('accepted').optional(),
 });
 
 export const verifyOtpSchema = z.object({

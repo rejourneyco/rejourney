@@ -17,6 +17,7 @@ import {
     normalizeClientEpochMsForSession,
     resolveSessionClock,
 } from './sessionClock.js';
+import { recordProjectOwnerMilestone } from './googleAdsConversions.js';
 
 export type IngestSessionMetadata = {
     userId?: string;
@@ -532,6 +533,16 @@ export async function ensureIngestSession(
     if (session && (created || loadedSessionFromDb || updatedSessionMetadata || !prefetchedWasCacheHit)) {
         setIngestSessionCache(projectId, session as unknown as Record<string, unknown>).catch(() => {});
         setSessionExistsCache(projectId, sessionId).catch(() => {});
+    }
+
+    if (created) {
+        void recordProjectOwnerMilestone(projectId, 'first_session_received', {
+            occurredAt: session.startedAt ?? serverNow,
+            eventSource: 'OTHER',
+            metadata: { firstSessionId: sessionId },
+        }).catch((err) => {
+            logger.warn({ err, projectId, sessionId }, 'Failed to record first-session conversion milestone');
+        });
     }
 
     return { session, created };

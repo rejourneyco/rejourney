@@ -4,6 +4,16 @@ import { Cookie, ShieldCheck, ShieldX } from "lucide-react";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { useSafeTeam } from "~/shared/providers/TeamContext";
 import {
+    captureGoogleAdsAttribution,
+    clearGoogleAdsAttribution,
+    grantGoogleAdsAttributionConsent,
+} from "~/shared/lib/googleAdsAttribution";
+import { updateGoogleAdsConsent } from "~/shared/lib/googleAdsConsent";
+import {
+    getGoogleAdsPageConversionRule,
+    trackGoogleAdsWebsiteConversion,
+} from "~/shared/lib/googleAdsWebsiteConversions";
+import {
     disableRejourneyWebsiteTelemetry,
     isEmbeddedFrame,
     isOfficialWebsiteHost,
@@ -23,14 +33,19 @@ export function RejourneyConsentBanner() {
     const [consentState, setConsentState] = useState<ConsentState>("loading");
     const [startSource, setStartSource] = useState<"stored_consent" | "banner_accept">("stored_consent");
     const [isMounted, setIsMounted] = useState(false);
-    const isAppShellPath = location.pathname.startsWith("/dashboard") || location.pathname.startsWith("/demo");
+    const isDashboardPath = location.pathname.startsWith("/dashboard");
+    const isWebsiteTelemetryDisabledPath = isDashboardPath || location.pathname.startsWith("/demo");
 
     useEffect(() => {
         if (typeof window === "undefined") return;
+        captureGoogleAdsAttribution();
 
-        if (isAppShellPath) {
-            setConsentState("disabled");
+        if (isWebsiteTelemetryDisabledPath) {
             disableRejourneyWebsiteTelemetry();
+        }
+
+        if (isDashboardPath) {
+            setConsentState("disabled");
             return;
         }
 
@@ -56,7 +71,7 @@ export function RejourneyConsentBanner() {
         }
 
         setConsentState("pending");
-    }, [isAppShellPath]);
+    }, [isDashboardPath, isWebsiteTelemetryDisabledPath]);
 
     useEffect(() => {
         if (consentState === "pending") {
@@ -71,6 +86,7 @@ export function RejourneyConsentBanner() {
 
     useEffect(() => {
         if (consentState !== "accepted") return;
+        if (isWebsiteTelemetryDisabledPath) return;
 
         void startRejourneyWebsiteTelemetry({
             pathname: location.pathname,
@@ -96,10 +112,11 @@ export function RejourneyConsentBanner() {
             .catch(() => {
                 // The SDK logs its own startup diagnostics when debug logging is enabled.
             });
-    }, [consentState, currentTeam, location.pathname, location.search, startSource, teams, user?.id]);
+    }, [consentState, currentTeam, isWebsiteTelemetryDisabledPath, location.pathname, location.search, startSource, teams, user?.id]);
 
     useEffect(() => {
         if (consentState !== "accepted") return;
+        if (isWebsiteTelemetryDisabledPath) return;
 
         trackRejourneyRouteView({
             pathname: location.pathname,
@@ -108,16 +125,55 @@ export function RejourneyConsentBanner() {
             currentTeam,
             teams,
         });
-    }, [consentState, currentTeam, location.pathname, location.search, teams, user?.id]);
+    }, [consentState, currentTeam, isWebsiteTelemetryDisabledPath, location.pathname, location.search, teams, user?.id]);
+
+    useEffect(() => {
+        if (consentState !== "accepted" || typeof window === "undefined") return;
+        const rule = getGoogleAdsPageConversionRule(location.pathname);
+        if (!rule) return;
+
+        let elapsed = false;
+        let interacted = !rule.requiresInteraction;
+        let fired = false;
+        const maybeTrack = () => {
+            if (fired || !elapsed || !interacted || document.visibilityState !== "visible") return;
+            fired = trackGoogleAdsWebsiteConversion(rule.eventName);
+        };
+        const onInteraction = () => {
+            interacted = true;
+            maybeTrack();
+        };
+        const timer = window.setTimeout(() => {
+            elapsed = true;
+            maybeTrack();
+        }, rule.delayMs);
+        const interactionEvents = ["pointerdown", "keydown", "scroll"] as const;
+        for (const eventName of interactionEvents) {
+            window.addEventListener(eventName, onInteraction, { passive: true });
+        }
+        document.addEventListener("visibilitychange", maybeTrack);
+
+        return () => {
+            window.clearTimeout(timer);
+            for (const eventName of interactionEvents) {
+                window.removeEventListener(eventName, onInteraction);
+            }
+            document.removeEventListener("visibilitychange", maybeTrack);
+        };
+    }, [consentState, location.pathname]);
 
     const acceptAnalytics = () => {
         writeStoredRejourneyConsent("accepted");
+        updateGoogleAdsConsent(true);
+        grantGoogleAdsAttributionConsent();
         setStartSource("banner_accept");
         setConsentState("accepted");
     };
 
     const rejectAnalytics = () => {
         writeStoredRejourneyConsent("rejected");
+        updateGoogleAdsConsent(false);
+        clearGoogleAdsAttribution();
         setConsentState("rejected");
         disableRejourneyWebsiteTelemetry();
     };
@@ -143,7 +199,7 @@ export function RejourneyConsentBanner() {
                             Optimize your experience
                         </h2>
                         <p className="mt-1.5 text-xs font-bold leading-relaxed text-slate-700 max-w-3xl">
-                            We use first-party cookies to measure page speed and bug fixes. Sessions are masked and secure.
+                            We use cookies to optimize your experience.
                         </p>
                     </div>
                 </div>

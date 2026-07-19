@@ -1,4 +1,5 @@
 import { getGoogleAdsConversionId, getGoogleAdsSignupConversionLabel } from "~/shared/config/runtimeEnv";
+import { hasGoogleAdsConsent } from "~/shared/lib/googleAdsConsent";
 
 type EdgeSignalProperties = Record<string, string | number | boolean>;
 
@@ -56,8 +57,9 @@ async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
   return getZarazTrack();
 }
 
-function trackGoogleAdsSignupConversion(): void {
+function trackGoogleAdsSignupConversion(identity?: { userId: string; email: string }): void {
   if (window.__rejourneyGoogleAdsSignupTracked) return;
+  if (!hasGoogleAdsConsent()) return;
 
   const gtag = getGtagTrack();
   if (!gtag) return;
@@ -69,8 +71,13 @@ function trackGoogleAdsSignupConversion(): void {
   if (!signupConversionLabel) return;
 
   window.__rejourneyGoogleAdsSignupTracked = true;
+  const normalizedEmail = identity?.email.trim().toLowerCase();
+  if (normalizedEmail) {
+    gtag("set", "user_data", { email: normalizedEmail });
+  }
   gtag("event", "conversion", {
     send_to: `${conversionId}/${signupConversionLabel}`,
+    ...(identity?.userId ? { transaction_id: `signup_completed:${identity.userId}` } : {}),
   });
 }
 
@@ -85,10 +92,13 @@ function trackRedditSignupConversion(): void {
   }
 }
 
-export async function trackAccountActivationSignal(method: AccountActivationMethod): Promise<void> {
+export async function trackAccountActivationSignal(
+  method: AccountActivationMethod,
+  identity?: { userId: string; email: string },
+): Promise<void> {
   if (typeof window === "undefined") return;
 
-  trackGoogleAdsSignupConversion();
+  trackGoogleAdsSignupConversion(identity);
   trackRedditSignupConversion();
 
   if (!window.zaraz) return;

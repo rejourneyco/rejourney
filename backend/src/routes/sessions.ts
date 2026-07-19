@@ -95,6 +95,10 @@ import {
     type MobileTapPoint,
 } from '../utils/mobileFrustration.js';
 import { shouldTrustClientFrustrationCountsForPlatform } from '../services/ingestSessionEnd.js';
+import {
+    recordDashboardInvestigation,
+    recordProjectOwnerMilestone,
+} from '../services/googleAdsConversions.js';
 
 type ScreenshotFramePayload = {
     timestamp: number;
@@ -4060,6 +4064,13 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
+        void recordDashboardInvestigation({
+            userId: req.user!.id,
+            projectId: session.projectId,
+            sessionId: session.id,
+        }).catch((err) => {
+            logger.warn({ err, sessionId: session.id }, 'Failed to record dashboard investigation milestone');
+        });
         const includeReplay = shouldIncludeReplayFromQuery(req.query.includeReplay);
         const cacheKind: SessionDetailCacheKind = includeReplay ? 'core' : 'coreLite';
         // Always try cache: unstable sessions get a short TTL on write, which
@@ -4156,6 +4167,12 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        void recordProjectOwnerMilestone(session.projectId, 'first_replay_viewed', {
+            eventSource: 'WEB',
+            metadata: { firstSessionId: session.id },
+        }).catch((err) => {
+            logger.warn({ err, sessionId: session.id }, 'Failed to record replay conversion milestone');
+        });
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
         const manifestCacheScope = `${session.id}:${frameUrlMode}`;
         const { payloadJson, cacheStatus } = await getOrBuildCachedSessionDetailJson(

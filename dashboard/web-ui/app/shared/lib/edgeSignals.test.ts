@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { trackAccountActivationSignal } from './edgeSignals';
+import { GOOGLE_ADS_CONSENT_STORAGE_KEY } from './googleAdsConsent';
 
 const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
@@ -9,6 +10,12 @@ function setTestWindow(value: unknown) {
     configurable: true,
     value,
   });
+}
+
+function acceptedGoogleAdsStorage() {
+  return {
+    getItem: (key: string) => key === GOOGLE_ADS_CONSENT_STORAGE_KEY ? 'accepted' : null,
+  };
 }
 
 function restoreWindow() {
@@ -81,14 +88,22 @@ describe('edge signals', () => {
         VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
       },
       gtag,
+      localStorage: acceptedGoogleAdsStorage(),
       setTimeout,
       zaraz: { track: vi.fn().mockResolvedValue(undefined) },
     });
 
-    await trackAccountActivationSignal('otp');
+    await trackAccountActivationSignal('otp', {
+      userId: 'user-123',
+      email: ' Person@Example.com ',
+    });
 
+    expect(gtag).toHaveBeenCalledWith('set', 'user_data', {
+      email: 'person@example.com',
+    });
     expect(gtag).toHaveBeenCalledWith('event', 'conversion', {
       send_to: 'AW-18175283670/Rt-7COH-3cccENaj09pD',
+      transaction_id: 'signup_completed:user-123',
     });
   });
 
@@ -100,6 +115,7 @@ describe('edge signals', () => {
         VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
       },
       gtag,
+      localStorage: acceptedGoogleAdsStorage(),
       setTimeout,
       zaraz: { track: vi.fn().mockResolvedValue(undefined) },
     });
@@ -133,11 +149,33 @@ describe('edge signals', () => {
         VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
       },
       gtag,
+      localStorage: acceptedGoogleAdsStorage(),
       setTimeout,
       zaraz: { track: vi.fn().mockResolvedValue(undefined) },
     });
 
     await trackAccountActivationSignal('github');
+
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it('does not send Google Ads conversion or enhanced-conversion email before consent', async () => {
+    const gtag = vi.fn();
+    setTestWindow({
+      ENV: {
+        VITE_GOOGLE_ADS_CONVERSION_ID: 'AW-18175283670',
+        VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: 'Rt-7COH-3cccENaj09pD',
+      },
+      gtag,
+      localStorage: { getItem: () => null },
+      setTimeout,
+      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    await trackAccountActivationSignal('otp', {
+      userId: 'user-123',
+      email: 'person@example.com',
+    });
 
     expect(gtag).not.toHaveBeenCalled();
   });

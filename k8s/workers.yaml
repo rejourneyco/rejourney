@@ -1175,6 +1175,161 @@ spec:
               memory: 384Mi
 
 ---
+# Google Ads Conversion Worker Deployment
+# Delivers consented first-party milestones through the Data Manager API and
+# polls Google processing diagnostics. Conversion/action IDs and credentials
+# remain in app-secret and are never stored in the repository.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: google-ads-conversion-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: google-ads-conversion-worker
+  template:
+    metadata:
+      labels:
+        app: google-ads-conversion-worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: rejourney.co/datacenter
+                    operator: In
+                    values: ["hel1"]
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/googleAdsConversionWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: PGBOUNCER_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: GOOGLE_ADS_DATA_MANAGER_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_DATA_MANAGER_ENABLED
+                  optional: true
+            - name: GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY
+                  optional: true
+            - name: GOOGLE_ADS_DATA_MANAGER_GOOGLE_CLOUD_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_DATA_MANAGER_GOOGLE_CLOUD_PROJECT_ID
+                  optional: true
+            - name: GOOGLE_ADS_DATA_MANAGER_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_DATA_MANAGER_SERVICE_ACCOUNT_JSON
+                  optional: true
+            - name: GOOGLE_ADS_OPERATING_ACCOUNT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_OPERATING_ACCOUNT_ID
+                  optional: true
+            - name: GOOGLE_ADS_LOGIN_ACCOUNT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_LOGIN_ACCOUNT_ID
+                  optional: true
+            - name: GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_PROJECT_CREATED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_PROJECT_CREATED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_SDK_SETUP_OPENED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_SDK_SETUP_OPENED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_FIRST_SESSION_RECEIVED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_FIRST_SESSION_RECEIVED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_SETUP_COMPLETED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_SETUP_COMPLETED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_FIRST_REPLAY_VIEWED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_FIRST_REPLAY_VIEWED_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_ACTIVATED_ACCOUNT_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_ACTIVATED_ACCOUNT_ACTION_ID
+                  optional: true
+            - name: GOOGLE_ADS_SUBSCRIPTION_STARTED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_SUBSCRIPTION_STARTED_ACTION_ID
+                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+---
 # Stripe Sync Worker CronJob
 # Hourly reconciliation of team billing state against Stripe.
 # Corrects desynced billingCycleAnchor, stripePriceId, paymentFailedAt,

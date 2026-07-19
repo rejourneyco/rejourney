@@ -56,6 +56,7 @@ export default function LoginPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const {
+        user,
         sendOtp,
         login,
         loginWithGitHub,
@@ -91,13 +92,16 @@ export default function LoginPage() {
         return "/dashboard";
     }, []);
 
-    const navigateToPostLoginDestination = useCallback((accountActivationMethod?: AccountActivationMethod | null) => {
+    const navigateToPostLoginDestination = useCallback((
+        accountActivationMethod?: AccountActivationMethod | null,
+        conversionIdentity?: { userId: string; email: string } | null,
+    ) => {
         if (postLoginNavigationStarted.current) return;
 
         postLoginNavigationStarted.current = true;
         setPendingAction("opening");
         if (accountActivationMethod) {
-            void trackAccountActivationSignal(accountActivationMethod);
+            void trackAccountActivationSignal(accountActivationMethod, conversionIdentity ?? undefined);
         }
         navigate(getPostLoginDestination(), { replace: true });
     }, [getPostLoginDestination, navigate]);
@@ -117,8 +121,11 @@ export default function LoginPage() {
 
     useEffect(() => {
         if (authLoading || !isAuthenticated) return;
-        navigateToPostLoginDestination(pendingAccountActivationMethod);
-    }, [authLoading, isAuthenticated, navigateToPostLoginDestination, pendingAccountActivationMethod]);
+        navigateToPostLoginDestination(
+            pendingAccountActivationMethod,
+            user ? { userId: user.id, email: user.email } : null,
+        );
+    }, [authLoading, isAuthenticated, navigateToPostLoginDestination, pendingAccountActivationMethod, user]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -194,7 +201,10 @@ export default function LoginPage() {
                 setPendingAction(null);
                 return;
             }
-            navigateToPostLoginDestination(result.accountActivated ? "otp" : null);
+            navigateToPostLoginDestination(
+                result.accountActivated ? "otp" : null,
+                result.userId && result.email ? { userId: result.userId, email: result.email } : null,
+            );
         } catch (caughtError) {
             setPendingAction(null);
             setError(caughtError instanceof Error ? caughtError.message : "That code is invalid or has expired.");

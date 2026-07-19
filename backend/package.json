@@ -44,7 +44,9 @@
         "worker:alerts": "tsx src/worker/alertWorker.ts",
         "worker:alerts:dev": "tsx watch src/worker/alertWorker.ts",
         "worker:revenue-sync": "tsx src/worker/revenueSyncWorker.ts",
-        "worker:revenue-sync:dev": "tsx watch src/worker/revenueSyncWorker.ts"
+        "worker:revenue-sync:dev": "tsx watch src/worker/revenueSyncWorker.ts",
+        "worker:google-ads-conversions": "tsx src/worker/googleAdsConversionWorker.ts",
+        "worker:google-ads-conversions:dev": "tsx watch src/worker/googleAdsConversionWorker.ts"
     },
     "author": "Rejourney",
     "license": "SSPL-1.0",
@@ -63,6 +65,7 @@
         "drizzle-orm": "^1.0.0-beta.12",
         "express": "^4.22.2",
         "express-rate-limit": "^7.4.1",
+        "google-auth-library": "^10.9.0",
         "helmet": "^8.0.0",
         "ioredis": "^5.4.1",
         "jpeg-js": "^0.4.4",

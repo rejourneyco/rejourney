@@ -135,6 +135,24 @@ spec:
                   name: app-secret
                   key: VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL
                   optional: true
+            - name: VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL
+                  optional: true
+            - name: VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL
+                  optional: true
+            - name: VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL
+                  optional: true
             - name: VITE_REDDIT_PIXEL_ID
               valueFrom:
                 secretKeyRef:

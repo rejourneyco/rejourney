@@ -54,6 +54,10 @@ local.properties
 # Local SEO exports
 /seo_reports/
 
+# Local Google Ads Editor upload artifacts
+/ads_import/
+/tmp/google_ads_measurement_workbook/
+
 # Local research lake report drafts
 /research_lake_report.pdf
 /scripts/repair_research_lake_report_pdf.py
@@ -86,3 +90,4 @@ dashboard/.DS_Store
 marketing
 outputs
 .playwright-cli
+dev_docs/google-ads-conversion-tracking.md

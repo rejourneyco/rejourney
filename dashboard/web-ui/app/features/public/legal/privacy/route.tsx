@@ -55,6 +55,9 @@ export default function PrivacyPolicy() {
                             <p className="mt-4">
                                 We use the Rejourney web SDK on rejourney.co to capture optional first-party website analytics, performance signals, and session replay so we can improve our website and product experience. We load Rejourney website analytics and replay only after you provide explicit consent through our cookie consent banner. The SDK masks text inputs by default and does not load third-party session replay tooling.
                             </p>
+                            <p className="mt-4">
+                                We also use the Google tag for Google Ads conversion measurement. Consent Mode v2 keeps advertising storage, analytics storage, advertising user data, and ad personalization denied until you allow cookies. Before consent, Google Ads click or campaign identifiers are not persisted by Rejourney or submitted with signup requests. When a new account completes signup after consent, the conversion may include normalized email data that Google hashes before transmission, a unique transaction ID for deduplication, and consented Google Ads click or campaign identifiers used for attribution.
+                            </p>
 
                             <h3 id="customers" className="text-base font-semibold mt-6 mb-2">2. Information for Customers</h3>
                             <p>

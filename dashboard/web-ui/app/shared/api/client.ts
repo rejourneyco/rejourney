@@ -1617,6 +1617,16 @@ export async function sendProjectSetupEmail(
     });
 }
 
+export async function recordSdkSetupOpened(projectId: string): Promise<void> {
+    await fetchJson<{ success: boolean }>('/api/conversions/product-event', {
+        method: 'POST',
+        body: JSON.stringify({
+            eventName: 'sdk_setup_opened',
+            projectId,
+        }),
+    });
+}
+
 /**
  * Create a new project
  */
@@ -5447,6 +5457,7 @@ export const api = {
     getProject,
     updateProject,
     sendProjectSetupEmail,
+    recordSdkSetupOpened,
     deleteProject,
     getTeamBillingUsage,
     getTeamBillingDashboard,
