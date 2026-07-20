@@ -99,6 +99,7 @@ import {
     recordDashboardInvestigation,
     recordProjectOwnerMilestone,
 } from '../services/googleAdsConversions.js';
+import { normalizeReplayEventPayload } from '../services/replayEventPayload.js';
 
 type ScreenshotFramePayload = {
     timestamp: number;
@@ -1851,8 +1852,7 @@ function normalizeEventsForTimeline(
             const type = rawType.length > 0 ? rawType.toLowerCase() : 'unknown';
             const rawTs = e?.timestamp ?? e?.ts ?? e?.time;
             const timestamp = coerceToEpochMs(rawTs, sessionStartMs);
-            const payload = e?.payload ?? e?.payloadInline ?? e?.details ?? e?.properties ?? null;
-            const properties = payload && typeof payload === 'object' ? payload : (e?.details ?? e?.properties ?? null);
+            const { payload, properties } = normalizeReplayEventPayload(e);
 
             return {
                 ...e,
@@ -3757,8 +3757,7 @@ router.get(
             const timestamp = coerceToEpochMs(rawTs, sessionStartMs);
 
             // SDK payloads vary: `payload`, `payloadInline`, `details`, or `properties`.
-            const payload = e?.payload ?? e?.payloadInline ?? e?.details ?? e?.properties ?? null;
-            const properties = payload && typeof payload === 'object' ? payload : (e?.details ?? e?.properties ?? null);
+            const { payload, properties } = normalizeReplayEventPayload(e);
 
             return {
                 // Spread all original event fields first, then override with normalized values
