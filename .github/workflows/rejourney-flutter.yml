@@ -202,7 +202,10 @@ jobs:
           fi
 
           tag="flutter-v${VERSION}"
-          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+          existing_sha=""
+          if existing_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" 2>/dev/null)"; then
+            existing_sha="$(jq -r '.object.sha' <<<"$existing_ref")"
+          fi
           if [ -n "$existing_sha" ]; then
             if [ "$existing_sha" = "$GITHUB_SHA" ]; then
               echo "$tag already points to this commit; no new tag is needed."
