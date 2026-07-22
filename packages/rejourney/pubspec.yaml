@@ -1,6 +1,6 @@
 name: rejourney
 description: Privacy-first Flutter session replay for iOS and Android with masking, crash and ANR reporting, network timing, and product analytics.
-version: 0.1.0
+version: 0.1.1
 homepage: https://rejourney.co
 documentation: https://rejourney.co/docs/flutter/overview
 repository: https://github.com/rejourneyco/rejourney/tree/main/packages/rejourney
@@ -12,7 +12,7 @@ topics:
   - crash-reporting
   - monitoring
 screenshots:
-  - description: Rejourney Flutter example with native session controls and privacy-safe capture features.
+  - description: Rejourney Replay Workbench showing an iOS session with synchronized console, network, gesture, and navigation evidence.
     path: screenshots/flutter-session-replay-example.png
 
 environment:

@@ -30,4 +30,4 @@ flutter build apk --debug
 flutter build ios --simulator --no-codesign
 ```
 
-The example application is MIT licensed. The local Rejourney package contains its own license and third-party notices.
+The example application and local Rejourney package are licensed under the Apache License 2.0. The package contains its own license and third-party notices.

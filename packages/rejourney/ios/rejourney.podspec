@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'rejourney'
-  s.version          = '0.1.0'
+  s.version          = '0.1.1'
   s.summary          = 'Rejourney session replay and observability for Flutter.'
   s.description      = 'Privacy-first mobile session replay, crash and ANR reporting, network telemetry, and product analytics.'
   s.homepage         = 'https://rejourney.co'

@@ -169,7 +169,7 @@ packages:
       path: "../../packages/rejourney"
       relative: true
     source: path
-    version: "0.1.0"
+    version: "0.1.1"
   sky_engine:
     dependency: transitive
     description: flutter

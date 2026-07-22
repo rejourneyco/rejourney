@@ -311,9 +311,8 @@ Architecture and deployment references are in
 
 ## License
 
-Client-side components (SDKs and CLIs) are licensed under Apache 2.0, except
-the Flutter package's Dart API, bridges, examples, and documentation, which are
-MIT licensed; its embedded native core sources retain Apache-2.0 notices.
+Client-side components, including the Flutter package's Dart API, bridges,
+native core, examples, and documentation, are licensed under Apache 2.0.
 Server-side components (backend and dashboard) are licensed under SSPL 1.0.
 See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-SSPL](LICENSE-SSPL), and the
-[Flutter package licenses](packages/rejourney/README.md#license).
+[Flutter package license](packages/rejourney/README.md#license).

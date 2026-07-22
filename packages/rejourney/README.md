@@ -2,7 +2,7 @@
 
 [![pub package](https://img.shields.io/pub/v/rejourney.svg)](https://pub.dev/packages/rejourney)
 [![Flutter platforms](https://img.shields.io/badge/Flutter-iOS%20%7C%20Android-02569B?logo=flutter)](https://rejourney.co/docs/flutter/overview)
-[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 Privacy-first session replay, mobile observability, crash reporting, and product analytics for Flutter applications on iOS and Android.
 
@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.1.0
+  rejourney: ^0.1.1
 ```
 
 Then install packages:
@@ -162,4 +162,4 @@ The package includes a runnable application in [`example/`](example/). The compl
 
 ## License
 
-The Flutter API, platform bridges, and examples are licensed under the MIT License. Embedded Rejourney native core sources retain their Apache-2.0 notices. See `LICENSE`, `LICENSE-APACHE`, and `THIRD_PARTY_NOTICES.md`.
+The Flutter API, platform bridges, native core, examples, and documentation are licensed under the Apache License 2.0. See `LICENSE`, `LICENSE-APACHE`, and `THIRD_PARTY_NOTICES.md`.

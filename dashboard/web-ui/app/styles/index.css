@@ -6449,8 +6449,38 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   75% { transform: rotate(5deg) scale(1.04); }
 }
 
+@keyframes landing-platform-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+.landing-home .landing-platform-marquee {
+  mask-image: linear-gradient(to right, transparent, black 4rem, black calc(100% - 4rem), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 4rem, black calc(100% - 4rem), transparent);
+}
+
+.landing-home .landing-platform-marquee-track {
+  animation: landing-platform-marquee 34s linear infinite;
+  will-change: transform;
+}
+
+.landing-home .landing-platform-marquee:hover .landing-platform-marquee-track,
+.landing-home .landing-platform-marquee:focus-within .landing-platform-marquee-track {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing-home .landing-hero-cat--purring img {
+    animation: none;
+  }
+
+  .landing-home .landing-platform-marquee {
+    overflow-x: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .landing-home .landing-platform-marquee-track {
     animation: none;
   }
 }
@@ -6504,12 +6534,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 
   .landing-home .landing-platforms {
-    margin-top: 3.75rem !important;
-    padding-top: 1.35rem !important;
+    margin-top: 3rem !important;
+    padding-top: 1rem !important;
   }
 
-  .landing-home .landing-platforms > div {
-    gap: 0.5rem !important;
+  .landing-home .landing-platform-marquee {
+    mask-image: linear-gradient(to right, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
   }
 
   .landing-home .landing-platforms .rounded-full {
