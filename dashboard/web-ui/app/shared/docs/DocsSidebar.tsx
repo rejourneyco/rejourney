@@ -16,6 +16,7 @@ const selfhostedDocs = markdownDocs.filter(doc => doc.category === 'Self-Hosting
 const communityDocs = markdownDocs.filter(doc => doc.category === 'Community' || doc.category === 'Development');
 const archDocs = markdownDocs.filter(doc => doc.category === 'Architecture');
 const swiftDocs = markdownDocs.filter(doc => doc.category === 'Swift (iOS)');
+const flutterDocs = markdownDocs.filter(doc => doc.category === 'Flutter');
 const shopifyDocs = markdownDocs.filter(doc => doc.category === 'Shopify');
 const webDocs = markdownDocs.filter(doc => doc.category === 'Web');
 
@@ -76,6 +77,26 @@ const NAVIGATION: NavCategory[] = [
             }
         ]
     },
+    ...(flutterDocs.length > 0 ? [{
+        category: "Flutter",
+        sections: [
+            {
+                title: "Getting Started",
+                links: [
+                    { label: "Overview", href: "/docs/flutter/overview", isRoute: true },
+                    { label: "Installation", href: "/docs/flutter/overview#installation", isRoute: false },
+                    { label: "3 Line Setup", href: "/docs/flutter/overview#3-line-setup", isRoute: false },
+                    { label: "Screen Tracking", href: "/docs/flutter/overview#screen-tracking", isRoute: false },
+                    { label: "User Identification", href: "/docs/flutter/overview#user-identification", isRoute: false },
+                    { label: "Custom Events", href: "/docs/flutter/overview#custom-events", isRoute: false },
+                    { label: "Privacy Controls", href: "/docs/flutter/overview#privacy-controls", isRoute: false },
+                    { label: "Error Capture", href: "/docs/flutter/overview#error-capture", isRoute: false },
+                    { label: "Network Capture", href: "/docs/flutter/overview#network-capture", isRoute: false },
+                    { label: "Verify", href: "/docs/flutter/overview#verify-the-integration", isRoute: false },
+                ]
+            }
+        ]
+    }] : []),
     ...(swiftDocs.length > 0 ? [{
         category: "Swift (iOS)",
         sections: [
@@ -141,7 +162,7 @@ export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Flutter", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
     const navigation = NAVIGATION.map((cat) => {
         if (cat.category !== "Web") {

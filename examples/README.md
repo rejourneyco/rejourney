@@ -26,6 +26,11 @@ React Native examples:
 - `react-native-bare`
 - `brew-coffee-labs`
 
+Flutter examples:
+
+- `flutter`: standalone consumer-style iOS and Android app using the local `packages/rejourney` plugin
+- `../packages/rejourney/example`: package-owned integration and widget-test fixture
+
 Useful root commands:
 
 ```bash
@@ -34,5 +39,6 @@ npm run example:web-sveltekit
 npm run example:web-nuxt
 npm run example:swift:sdk:new
 npm run example:swift
+npm run example:flutter
 npm run example:boilerplate
 ```

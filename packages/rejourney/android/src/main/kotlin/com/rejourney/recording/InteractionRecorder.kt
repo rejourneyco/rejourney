@@ -1,0 +1,646 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.rejourney.recording
+
+import android.app.Activity
+import android.content.Context
+import android.graphics.Rect
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.view.View
+import android.view.ViewGroup
+import android.view.Window
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageButton
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import java.lang.ref.WeakReference
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.sqrt
+
+/**
+ * Touch and gesture recording
+ * Android implementation aligned with iOS InteractionRecorder.swift
+ */
+class InteractionRecorder private constructor(private val context: Context) {
+
+    companion object {
+        @Volatile
+        private var instance: InteractionRecorder? = null
+
+        fun getInstance(context: Context): InteractionRecorder {
+            return instance ?: synchronized(this) {
+                instance ?: InteractionRecorder(context.applicationContext).also { instance = it }
+            }
+        }
+
+        val shared: InteractionRecorder?
+            get() = instance
+    }
+
+    var isTracking = false
+        private set
+
+    private var gestureAggregator: GestureAggregator? = null
+    private val inputObservers = CopyOnWriteArrayList<WeakReference<EditText>>()
+    private val navigationStack = mutableListOf<String>()
+    private val coalesceWindow: Long = 300 // ms
+    private val lastInteractionTimestampMs = AtomicLong(0L)
+    internal var rageTapSettings = RageTapSettings()
+        private set
+
+    internal var currentActivity: WeakReference<Activity>? = null
+
+    private fun coordinateDensity(): Float {
+        val density = currentActivity?.get()?.resources?.displayMetrics?.density
+            ?: context.resources.displayMetrics.density
+        return density.takeIf { it > 0f } ?: 1f
+    }
+
+    internal fun screenToCapturePoint(x: Float, y: Float): PointF {
+        val decorView = currentActivity?.get()?.window?.decorView ?: return PointF(x, y)
+        val density = coordinateDensity()
+        val loc = IntArray(2)
+        decorView.getLocationOnScreen(loc)
+        return PointF((x - loc[0]) / density, (y - loc[1]) / density)
+    }
+
+    internal fun captureToScreenPoint(point: PointF): PointF {
+        val decorView = currentActivity?.get()?.window?.decorView ?: return point
+        val density = coordinateDensity()
+        val loc = IntArray(2)
+        decorView.getLocationOnScreen(loc)
+        return PointF(point.x * density + loc[0], point.y * density + loc[1])
+    }
+
+    fun setCurrentActivity(activity: Activity?) {
+        val oldActivity = currentActivity?.get()
+        currentActivity = if (activity != null) WeakReference(activity) else null
+        // Re-install the touch listener when the activity changes while tracking
+        if (isTracking && activity != null && activity !== oldActivity) {
+            removeGlobalTouchListener()
+            installGlobalTouchListener()
+        }
+    }
+
+    fun activate() {
+        if (isTracking) return
+        isTracking = true
+        gestureAggregator = GestureAggregator(this, context)
+        installGlobalTouchListener()
+    }
+
+    fun deactivate() {
+        if (!isTracking) return
+        isTracking = false
+        removeGlobalTouchListener()
+        gestureAggregator = null
+        inputObservers.clear()
+        navigationStack.clear()
+        lastInteractionTimestampMs.set(0L)
+    }
+
+    fun latestInteractionTimestampMs(): Long = lastInteractionTimestampMs.get()
+
+    internal fun configureRageTapDetection(
+        enabled: Boolean,
+        threshold: Int,
+        timeWindowMs: Long,
+        radius: Float
+    ) {
+        val settings = RageTapSettings(
+            enabled = enabled,
+            threshold = threshold.coerceAtLeast(1),
+            timeWindowMs = timeWindowMs.coerceAtLeast(1L),
+            radius = radius.coerceAtLeast(1f)
+        )
+        rageTapSettings = settings
+        gestureAggregator?.updateRageTapSettings(settings)
+    }
+
+    internal fun isKeyboardVisible(): Boolean {
+        val activity = currentActivity?.get() ?: return false
+        val decorView = activity.window?.decorView ?: return false
+        ViewCompat.getRootWindowInsets(decorView)?.let { insets ->
+            if (insets.isVisible(WindowInsetsCompat.Type.ime())) return true
+        }
+
+        val visibleFrame = Rect()
+        decorView.getWindowVisibleDisplayFrame(visibleFrame)
+        val obscuredHeight = decorView.rootView.height - visibleFrame.bottom
+        return obscuredHeight > decorView.rootView.height * 0.15f
+    }
+
+    fun observeTextField(field: EditText) {
+        if (inputObservers.any { it.get() === field }) return
+        inputObservers.add(WeakReference(field))
+    }
+
+    fun pushScreen(identifier: String) {
+        navigationStack.add(identifier)
+        TelemetryPipeline.shared?.recordViewTransition(identifier, identifier, true)
+        ReplayOrchestrator.shared?.logScreenView(identifier)
+    }
+
+    fun popScreen() {
+        val last = navigationStack.removeLastOrNull() ?: return
+        TelemetryPipeline.shared?.recordViewTransition(last, last, false)
+    }
+
+    private var originalWindowCallback: Window.Callback? = null
+    private var installedWindow: WeakReference<Window>? = null
+
+    private fun installGlobalTouchListener() {
+        val activity = currentActivity?.get() ?: return
+        val window = activity.window ?: return
+        val original = window.callback ?: return
+
+        // Don't double-install on the same window
+        if (installedWindow?.get() === window && originalWindowCallback != null) return
+
+        originalWindowCallback = original
+        installedWindow = WeakReference(window)
+        val agg = gestureAggregator ?: return
+
+        window.callback = object : Window.Callback by original {
+            override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
+                if (event != null) {
+                    markInteractionNow()
+                    agg.processTouchEvent(event)
+
+                    // Notify SpecialCases about touch phases for touch-based
+                    // map idle detection (Mapbox v10+ fallback).
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            VisualCapture.shared?.invalidateMaskCache()
+                            SpecialCases.shared.notifyTouchBegan()
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                            SpecialCases.shared.notifyTouchEnded()
+                    }
+                }
+                return original.dispatchTouchEvent(event)
+            }
+        }
+    }
+
+    private fun markInteractionNow() {
+        lastInteractionTimestampMs.set(System.currentTimeMillis())
+    }
+
+    private fun removeGlobalTouchListener() {
+        val window = installedWindow?.get()
+        if (window != null) {
+            originalWindowCallback?.let { window.callback = it }
+        }
+        originalWindowCallback = null
+        installedWindow = null
+    }
+
+    // Report methods (called by GestureAggregator)
+
+    internal fun reportTap(location: PointF, target: String, isInteractive: Boolean = false) {
+        TelemetryPipeline.shared?.recordTapEvent(target, location.x.toLong().coerceAtLeast(0), location.y.toLong().coerceAtLeast(0), isInteractive)
+        ReplayOrchestrator.shared?.incrementTapTally()
+    }
+
+    internal fun reportSwipe(location: PointF, direction: SwipeDirection, target: String) {
+        TelemetryPipeline.shared?.recordSwipeEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0),
+            direction.label
+        )
+        ReplayOrchestrator.shared?.incrementGestureTally()
+    }
+
+    internal fun reportScroll(location: PointF, target: String) {
+        TelemetryPipeline.shared?.recordScrollEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0),
+            "vertical"
+        )
+        ReplayOrchestrator.shared?.incrementGestureTally()
+    }
+
+    internal fun reportPan(location: PointF, target: String) {
+        TelemetryPipeline.shared?.recordPanEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0)
+        )
+    }
+
+    internal fun reportPinch(location: PointF, scale: Double, target: String) {
+        TelemetryPipeline.shared?.recordPinchEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0),
+            scale
+        )
+        ReplayOrchestrator.shared?.incrementGestureTally()
+    }
+
+    internal fun reportRotation(location: PointF, angle: Double, target: String) {
+        TelemetryPipeline.shared?.recordRotationEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0),
+            angle
+        )
+        ReplayOrchestrator.shared?.incrementGestureTally()
+    }
+
+    internal fun reportLongPress(location: PointF, target: String) {
+        TelemetryPipeline.shared?.recordLongPressEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0)
+        )
+        ReplayOrchestrator.shared?.incrementGestureTally()
+    }
+
+    internal fun reportRageTap(location: PointF, count: Int, target: String) {
+        TelemetryPipeline.shared?.recordRageTapEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0),
+            count
+        )
+        ReplayOrchestrator.shared?.incrementRageTapTally()
+    }
+
+    internal fun reportDeadTap(location: PointF, target: String) {
+        TelemetryPipeline.shared?.recordDeadTapEvent(
+            target,
+            location.x.toLong().coerceAtLeast(0),
+            location.y.toLong().coerceAtLeast(0)
+        )
+        ReplayOrchestrator.shared?.incrementDeadTapTally()
+    }
+
+    internal fun reportInput(value: String, masked: Boolean, hint: String) {
+        TelemetryPipeline.shared?.recordInputEvent(value, masked, hint)
+    }
+}
+
+internal data class RageTapSettings(
+    val enabled: Boolean = true,
+    val threshold: Int = 3,
+    val timeWindowMs: Long = 500,
+    val radius: Float = 50f
+)
+
+data class PointF(val x: Float, val y: Float) {
+    fun distance(to: PointF): Float {
+        val dx = x - to.x
+        val dy = y - to.y
+        return sqrt(dx * dx + dy * dy)
+    }
+}
+
+enum class SwipeDirection(val label: String) {
+    UP("up"),
+    DOWN("down"),
+    LEFT("left"),
+    RIGHT("right")
+}
+
+private class GestureAggregator(
+    private val recorder: InteractionRecorder,
+    context: Context
+) {
+    private val gestureDetector: GestureDetector
+    private val scaleDetector: ScaleGestureDetector
+
+    private val recentTaps = mutableListOf<Pair<PointF, Long>>()
+    private var rageTapSettings = recorder.rageTapSettings
+
+    // Throttle pan/pinch/rotation events
+    private var lastThrottleTime: Long = 0
+    private val throttleInterval: Long = 100
+
+    // Track scroll → swipe classification on ACTION_UP
+    private var isScrolling = false
+    private var lastScrollLocation: PointF? = null
+    private var flingDetected = false
+
+    // Track multi-touch for rotation
+    private var previousAngle: Double? = null
+    private var isMultiTouch = false
+    private var windowToRawOffsetX: Float = 0f
+    private var windowToRawOffsetY: Float = 0f
+
+    init {
+        gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean {
+                // Must return true so onSingleTapUp / onFling / etc. fire
+                isScrolling = false
+                flingDetected = false
+                return true
+            }
+
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                val loc = capturePointFromEvent(e)
+                val target = resolveTarget(loc)
+                handleTap(loc, target)
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                val loc = capturePointFromEvent(e)
+                val target = resolveTarget(loc)
+                recorder.reportLongPress(loc, target)
+            }
+
+            override fun onScroll(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                distanceX: Float,
+                distanceY: Float
+            ): Boolean {
+                isScrolling = true
+                val loc = capturePointFromEvent(e2)
+                lastScrollLocation = loc
+                val now = System.currentTimeMillis()
+                if (now - lastThrottleTime >= throttleInterval) {
+                    lastThrottleTime = now
+                    val target = resolveTarget(loc)
+                    recorder.reportPan(loc, target)
+                }
+                return true
+            }
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                flingDetected = true
+                val loc = capturePointFromEvent(e2)
+                val target = resolveTarget(loc)
+                val direction = classifyDirection(velocityX, velocityY)
+                recorder.reportSwipe(loc, direction, target)
+                return true
+            }
+        })
+        gestureDetector.setIsLongpressEnabled(true)
+
+        scaleDetector = ScaleGestureDetector(context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    val loc = capturePointFromWindow(detector.focusX, detector.focusY)
+                    val now = System.currentTimeMillis()
+                    if (now - lastThrottleTime >= throttleInterval) {
+                        lastThrottleTime = now
+                        val target = resolveTarget(loc)
+                        recorder.reportPinch(loc, detector.scaleFactor.toDouble(), target)
+                    }
+                    return true
+                }
+
+                override fun onScaleEnd(detector: ScaleGestureDetector) {
+                    val loc = capturePointFromWindow(detector.focusX, detector.focusY)
+                    val target = resolveTarget(loc)
+                    recorder.reportPinch(loc, detector.scaleFactor.toDouble(), target)
+                }
+            }
+        )
+    }
+
+    fun processTouchEvent(event: MotionEvent) {
+        windowToRawOffsetX = event.rawX - event.x
+        windowToRawOffsetY = event.rawY - event.y
+        scaleDetector.onTouchEvent(event)
+        gestureDetector.onTouchEvent(event)
+        processRotation(event)
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_UP -> {
+                // If we were scrolling but no fling (swipe) was detected, emit scroll
+                if (isScrolling && !flingDetected) {
+                    val loc = lastScrollLocation ?: capturePointFromEvent(event)
+                    val target = resolveTarget(loc)
+                    recorder.reportScroll(loc, target)
+                }
+                resetState()
+            }
+            MotionEvent.ACTION_CANCEL -> resetState()
+        }
+    }
+
+    private fun capturePointFromEvent(event: MotionEvent, pointerIndex: Int = 0): PointF {
+        val rawX = event.rawX + (event.getX(pointerIndex) - event.x)
+        val rawY = event.rawY + (event.getY(pointerIndex) - event.y)
+        return recorder.screenToCapturePoint(rawX, rawY)
+    }
+
+    private fun capturePointFromWindow(x: Float, y: Float): PointF {
+        return recorder.screenToCapturePoint(x + windowToRawOffsetX, y + windowToRawOffsetY)
+    }
+
+    private fun resetState() {
+        isScrolling = false
+        flingDetected = false
+        lastScrollLocation = null
+        previousAngle = null
+        isMultiTouch = false
+    }
+
+    // --- Multi-touch rotation (no built-in Android detector) ---
+
+    private fun processRotation(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount == 2) {
+                    isMultiTouch = true
+                    previousAngle = computeAngle(event)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isMultiTouch && event.pointerCount >= 2) {
+                    val angle = computeAngle(event)
+                    val prev = previousAngle
+                    if (prev != null) {
+                        val delta = angle - prev
+                        if (abs(delta) > 0.01) {
+                            val cx = (event.getX(0) + event.getX(1)) / 2
+                            val cy = (event.getY(0) + event.getY(1)) / 2
+                            val loc = capturePointFromWindow(cx, cy)
+                            val now = System.currentTimeMillis()
+                            if (now - lastThrottleTime >= throttleInterval) {
+                                lastThrottleTime = now
+                                val target = resolveTarget(loc)
+                                recorder.reportRotation(loc, delta, target)
+                            }
+                        }
+                    }
+                    previousAngle = angle
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (event.pointerCount <= 2) {
+                    isMultiTouch = false
+                    previousAngle = null
+                }
+            }
+        }
+    }
+
+    private fun computeAngle(event: MotionEvent): Double {
+        val dx = event.getX(1) - event.getX(0)
+        val dy = event.getY(1) - event.getY(0)
+        return Math.atan2(dy.toDouble(), dx.toDouble())
+    }
+
+    // --- Tap / rage-tap ---
+
+    private fun handleTap(location: PointF, target: String) {
+        if (recorder.isKeyboardVisible()) {
+            recentTaps.clear()
+            recorder.reportTap(location, target, true)
+            return
+        }
+
+        val settings = rageTapSettings
+        if (!settings.enabled) {
+            recentTaps.clear()
+            val isInteractive = isViewInteractive(location)
+            recorder.reportTap(location, target, isInteractive)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        recentTaps.add(Pair(location, now))
+        pruneOldTaps(settings.timeWindowMs)
+
+        val nearby = recentTaps.filter { it.first.distance(location) < settings.radius }
+        if (nearby.size >= settings.threshold) {
+            recorder.reportRageTap(location, nearby.size, target)
+            recentTaps.clear()
+        } else {
+            val isInteractive = isViewInteractive(location)
+            recorder.reportTap(location, target, isInteractive)
+        }
+    }
+
+    fun updateRageTapSettings(settings: RageTapSettings) {
+        rageTapSettings = settings
+        if (!settings.enabled) {
+            recentTaps.clear()
+        }
+    }
+
+    private fun pruneOldTaps(windowMs: Long) {
+        val cutoff = System.currentTimeMillis() - windowMs
+        recentTaps.removeIf { it.second < cutoff }
+    }
+
+    // --- Helpers ---
+
+    private fun classifyDirection(velocityX: Float, velocityY: Float): SwipeDirection {
+        return if (abs(velocityX) > abs(velocityY)) {
+            if (velocityX > 0) SwipeDirection.RIGHT else SwipeDirection.LEFT
+        } else {
+            if (velocityY > 0) SwipeDirection.DOWN else SwipeDirection.UP
+        }
+    }
+
+    private fun resolveTarget(location: PointF): String {
+        // When a map view is visible, skip the expensive hit-test walk
+        // through the deep SurfaceView/TextureView hierarchy.
+        if (SpecialCases.shared.mapVisible) {
+            return "map"
+        }
+        return "view_${location.x.toInt()}_${location.y.toInt()}"
+    }
+
+    /**
+     * Check if the view at a given screen location is interactive.
+     *
+     * In React Native, Pressable/TouchableOpacity set view.isClickable = true
+     * on the native Android ReactViewGroup. Plain View defaults to isClickable = false.
+     * We walk up to 8 ancestors because the deepest hit view may be a child
+     * (e.g. TextView inside a Pressable), not the clickable Pressable itself.
+     */
+    private fun isViewInteractive(location: PointF): Boolean {
+        // Skip the expensive hierarchy walk when a map is visible to
+        // prevent micro-stutter during pan/zoom gestures.
+        if (SpecialCases.shared.mapVisible) return false
+
+        val activity = recorder.currentActivity?.get() ?: return false
+        val decorView = activity.window?.decorView ?: return false
+        val screenLocation = recorder.captureToScreenPoint(location)
+        val hit = findViewAt(decorView, screenLocation.x.toInt(), screenLocation.y.toInt()) ?: return false
+
+        // Check the hit view itself
+        if (isSingleViewInteractive(hit)) return true
+
+        // Walk ancestor chain — the hit view may be a child (e.g. TextView)
+        // inside a Pressable/TouchableOpacity.
+        var ancestor = hit.parent
+        var depth = 0
+        while (ancestor is View && depth < 8) {
+            if (isSingleViewInteractive(ancestor)) return true
+            ancestor = (ancestor as View).parent
+            depth++
+        }
+
+        return false
+    }
+
+    private fun isSingleViewInteractive(view: View): Boolean {
+        // React Native's Pressable/TouchableOpacity set accessible={true} by default,
+        // which maps to importantForAccessibility = YES on Android.
+        // Plain View defaults to accessible={false} → importantForAccessibility = AUTO.
+        if (view.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_YES) return true
+
+        // Also check contentDescription — RN sets this from accessibilityLabel,
+        // which Pressable often has (e.g. accessibilityLabel="Go to Details")
+        if (!view.contentDescription.isNullOrEmpty()) return true
+
+        // Native isClickable (set by native Android buttons, switches, etc.)
+        if (view.isClickable || view.isLongClickable) return true
+
+        // Native input
+        if (view is EditText) return true
+
+        return false
+    }
+
+    private fun findViewAt(root: View, x: Int, y: Int): View? {
+        if (root !is ViewGroup) return root
+        // Traverse children in reverse order (topmost first)
+        for (i in root.childCount - 1 downTo 0) {
+            val child = root.getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+            val loc = IntArray(2)
+            child.getLocationOnScreen(loc)
+            if (x >= loc[0] && x < loc[0] + child.width &&
+                y >= loc[1] && y < loc[1] + child.height) {
+                return findViewAt(child, x, y) ?: child
+            }
+        }
+        return root
+    }
+}

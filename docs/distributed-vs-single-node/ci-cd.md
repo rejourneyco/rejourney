@@ -1,9 +1,10 @@
 # CI/CD & Automated Testing
 
-Rejourney uses GitHub Actions for four separate release surfaces:
+Rejourney uses GitHub Actions for five separate release surfaces:
 
 - the production app and backend deployment
 - the React Native SDK package
+- the Flutter SDK package
 - the native Swift iOS SDK package
 - the Browser/Web SDK package
 
@@ -17,6 +18,7 @@ All workflows run on pull requests to `main`, pushes to `main`, and manual `work
 | --- | --- | --- |
 | Rejourney CI | `.github/workflows/rejourney-ci.yml` | Backend, dashboard, Kubernetes config checks, image builds, and production deploy |
 | React Native SDK CI | `.github/workflows/rejourney-sdk.yml` | React Native package validation, bare/Expo integration, npm publish, release tag |
+| Flutter SDK CI | `.github/workflows/rejourney-flutter.yml` | Dart, Android, and iOS validation, pub.dev publish, release tag |
 | Native iOS CI | `.github/workflows/rejourney-ios.yml` | Swift package validation, iOS builds/tests, native iOS release tag |
 | Web SDK CI | `.github/workflows/rejourney-web-sdk.yml` | Browser SDK validation, npm publish, release tag |
 
@@ -148,6 +150,14 @@ The tag is only created when `packages/react-native/package.json` changed from t
 
 ---
 
+## Flutter SDK Pipeline
+
+The Flutter SDK pipeline lives in `Rejourney Flutter SDK` and validates `packages/rejourney` plus its standalone consumer example.
+
+It runs Dart formatting, analysis, tests, bridge benchmarks, and a pub.dev dry run; builds and tests the Android and iOS plugin examples; and runs native integration tests on an Android emulator and iOS simulator. A tested version bump creates a `flutter-vX.Y.Z` tag, publishes `rejourney` to pub.dev with OIDC, and creates the matching GitHub release.
+
+---
+
 ## Native iOS SDK Pipeline
 
 The native Swift SDK pipeline lives in `Rejourney Native iOS CI` and validates the root Swift package plus `packages/ios`.
@@ -240,6 +250,7 @@ The local parity runner uses the production-style migration path, not a schema p
 
 - `.github/workflows/rejourney-ci.yml`
 - `.github/workflows/rejourney-sdk.yml`
+- `.github/workflows/rejourney-flutter.yml`
 - `.github/workflows/rejourney-ios.yml`
 - `.github/workflows/rejourney-web-sdk.yml`
 - `scripts/k8s/deploy-release.sh`

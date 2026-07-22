@@ -128,7 +128,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "rtl",
     metaTitle: "Rejourney: Session Replay للويب والجوال",
     metaDescription:
-      "Session replay وتحليلات مفتوحة المصدر للويب وتطبيقات iOS وAndroid وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
+      "Session replay وتحليلات مفتوحة المصدر للويب وتطبيقات iOS وAndroid وFlutter وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
     keywords: [
       "session replay عربي",
       "session replay للويب",
@@ -174,7 +174,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web y movil",
     metaDescription:
-      "Session replay y analítica open source para web, iOS, Android, Expo y React Native con reproducción de sesiones, crashes, mapas de calor y un SDK ligero.",
+      "Session replay y analítica open source para web, iOS, Android, Flutter, Expo y React Native con reproducción de sesiones, crashes, mapas de calor y un SDK ligero.",
     keywords: [
       "session replay español",
       "session replay web",
@@ -220,7 +220,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: Web ve mobil session replay analitigi",
     metaDescription:
-      "Web, iOS, Android, Expo ve React Native uygulamaları için open source analytics, session replay, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
+      "Web, iOS, Android, Flutter, Expo ve React Native uygulamaları için open source analytics, session replay, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
     keywords: [
       "session replay türkçe",
       "web session replay",
@@ -266,7 +266,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web e mobile",
     metaDescription:
-      "Analytics open source para web, iOS, Android, Expo e React Native com replay de sessão, crashes, mapas de calor, jornadas e SDK leve.",
+      "Analytics open source para web, iOS, Android, Flutter, Expo e React Native com replay de sessão, crashes, mapas de calor, jornadas e SDK leve.",
     keywords: [
       "analytics web open source",
       "session replay web",
@@ -310,7 +310,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: Web- und Mobile-Session-Replay",
     metaDescription:
-      "Open-Source-Analytics für Web, iOS, Android, Expo und React Native mit Session Replay, Crash-Reporting, Heatmaps, Journeys und leichtem SDK.",
+      "Open-Source-Analytics für Web, iOS, Android, Flutter, Expo und React Native mit Session Replay, Crash-Reporting, Heatmaps, Journeys und leichtem SDK.",
     keywords: [
       "Open Source Web Analytics",
       "Web Session Replay",
@@ -352,7 +352,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web et mobile",
     metaDescription:
-      "Analytics open source pour le web, iOS, Android, Expo et React Native avec replay de session, crashs, heatmaps, parcours utilisateur et SDK léger.",
+      "Analytics open source pour le web, iOS, Android, Flutter, Expo et React Native avec replay de session, crashs, heatmaps, parcours utilisateur et SDK léger.",
     keywords: [
       "analytics web open source",
       "replay de session web",
@@ -396,7 +396,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: web और mobile session replay",
     metaDescription:
-      "वेब, iOS, Android, Expo और React Native ऐप्स के लिए ओपन-सोर्स एनालिटिक्स: सेशन रीप्ले, क्रैश, हीटमैप, यूजर जर्नी और हल्का SDK.",
+      "वेब, iOS, Android, Flutter, Expo और React Native ऐप्स के लिए ओपन-सोर्स एनालिटिक्स: सेशन रीप्ले, क्रैश, हीटमैप, यूजर जर्नी और हल्का SDK.",
     keywords: [
       "ओपन सोर्स वेब एनालिटिक्स",
       "वेब सेशन रीप्ले",
@@ -439,7 +439,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web dan mobile",
     metaDescription:
-      "Analitik open source untuk web, iOS, Android, Expo, dan React Native dengan session replay, crash, heatmap, journey, dan SDK ringan.",
+      "Analitik open source untuk web, iOS, Android, Flutter, Expo, dan React Native dengan session replay, crash, heatmap, journey, dan SDK ringan.",
     keywords: [
       "analitik web open source",
       "session replay web",
@@ -482,7 +482,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: Web・モバイル session replay",
     metaDescription:
-      "Web、iOS、Android、Expo、React Native向けの軽量SDKで、セッションリプレイ、クラッシュ、ヒートマップ、ジャーニーを扱うオープンソース分析基盤。",
+      "Web、iOS、Android、Flutter、Expo、React Native向けの軽量SDKで、セッションリプレイ、クラッシュ、ヒートマップ、ジャーニーを扱うオープンソース分析基盤。",
     keywords: [
       "オープンソース Web分析",
       "Web セッションリプレイ",
@@ -524,7 +524,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: 웹 및 모바일 session replay",
     metaDescription:
-      "웹, iOS, Android, Expo, React Native 앱을 위한 오픈소스 분석. 세션 리플레이, 크래시, 히트맵, 사용자 여정, 가벼운 SDK를 제공합니다.",
+      "웹, iOS, Android, Flutter, Expo, React Native 앱을 위한 오픈소스 분석. 세션 리플레이, 크래시, 히트맵, 사용자 여정, 가벼운 SDK를 제공합니다.",
     keywords: [
       "오픈소스 웹 분석",
       "웹 세션 리플레이",
@@ -566,7 +566,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney：开源 Web 与移动分析、会话回放与可观测性",
     metaDescription:
-      "面向 Web、iOS、Android、Expo 和 React Native 应用的开源分析，包含会话回放、崩溃、热力图、用户旅程和轻量 SDK。",
+      "面向 Web、iOS、Android、Flutter、Expo 和 React Native 应用的开源分析，包含会话回放、崩溃、热力图、用户旅程和轻量 SDK。",
     keywords: [
       "开源 Web 分析",
       "Web 会话回放",
@@ -608,7 +608,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web e mobile",
     metaDescription:
-      "Analytics open source per app web, iOS, Android, Expo e React Native con replay di sessione, crash, heatmap, journey e SDK leggero.",
+      "Analytics open source per app web, iOS, Android, Flutter, Expo e React Native con replay di sessione, crash, heatmap, journey e SDK leggero.",
     keywords: [
       "analytics web open source",
       "session replay web",
@@ -652,7 +652,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: web en mobiele sessiereplay",
     metaDescription:
-      "Open-source analytics voor web, iOS, Android, Expo en React Native met sessiereplay, crashes, heatmaps, journeys en een lichte SDK.",
+      "Open-source analytics voor web, iOS, Android, Flutter, Expo en React Native met sessiereplay, crashes, heatmaps, journeys en een lichte SDK.",
     keywords: [
       "open source web analytics",
       "web sessiereplay",
@@ -694,7 +694,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: web i mobilny session replay",
     metaDescription:
-      "Open-source analytics dla web, iOS, Android, Expo i React Native z replayem sesji, crashami, heatmapami, journey i lekkim SDK.",
+      "Open-source analytics dla web, iOS, Android, Flutter, Expo i React Native z replayem sesji, crashami, heatmapami, journey i lekkim SDK.",
     keywords: [
       "open source analytics webowy",
       "replay sesji web",
@@ -738,7 +738,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web e mobile",
     metaDescription:
-      "Analytics open source para apps web, iOS, Android, Expo e React Native com replay de sessao, crashes, mapas de calor, jornadas e SDK leve.",
+      "Analytics open source para apps web, iOS, Android, Flutter, Expo e React Native com replay de sessao, crashes, mapas de calor, jornadas e SDK leve.",
     keywords: [
       "analytics web open source",
       "session replay web",
@@ -782,7 +782,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: web и mobile session replay",
     metaDescription:
-      "Open-source аналитика для web, iOS, Android, Expo и React Native: replay сессий, краши, heatmap, пользовательские пути и легкий SDK.",
+      "Open-source аналитика для web, iOS, Android, Flutter, Expo и React Native: replay сессий, краши, heatmap, пользовательские пути и легкий SDK.",
     keywords: [
       "open source web аналитика",
       "web session replay",
@@ -824,7 +824,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     dir: "ltr",
     metaTitle: "Rejourney: session replay web và mobile",
     metaDescription:
-      "Phân tích open source cho web, iOS, Android, Expo và React Native với session replay, crash, heatmap, journey và SDK nhẹ.",
+      "Phân tích open source cho web, iOS, Android, Flutter, Expo và React Native với session replay, crash, heatmap, journey và SDK nhẹ.",
     keywords: [
       "phan tich web open source",
       "web session replay",
@@ -1333,7 +1333,7 @@ const englishHomeCopy: MarketingHomeCopy = {
         },
         {
           q: "Does Rejourney work for both mobile and web?",
-          a: "Yes. Rejourney supports iOS (Swift), React Native (iOS & Android), and web apps via our JavaScript SDK. All sessions, mobile and web, feed into the same dashboard so your team has one unified view of the user experience across platforms.",
+          a: "Yes. Rejourney supports Flutter on iOS and Android, native iOS with Swift, React Native and Expo, and web apps via our JavaScript SDK. All sessions, mobile and web, feed into the same dashboard so your team has one unified view of the user experience across platforms.",
         },
         {
           q: "Is this useful for product teams, or just engineering?",
@@ -1607,7 +1607,7 @@ const arabicHomeCopy: MarketingHomeCopy = {
         },
         {
           q: "هل يعمل Rejourney مع الجوال والويب معا؟",
-          a: "نعم. يدعم Rejourney تطبيقات iOS (Swift)، وAndroid قريبا، وReact Native، وتطبيقات الويب عبر JavaScript SDK. كل الجلسات، الجوال والويب، تصل إلى لوحة واحدة حتى يحصل فريقك على رؤية موحدة لتجربة المستخدم عبر المنصات.",
+          a: "نعم. يدعم Rejourney تطبيقات Flutter على iOS وAndroid، وتطبيقات iOS الأصلية عبر Swift، وReact Native وExpo، وتطبيقات الويب عبر JavaScript SDK. كل الجلسات، الجوال والويب، تصل إلى لوحة واحدة حتى يحصل فريقك على رؤية موحدة لتجربة المستخدم عبر المنصات.",
         },
         {
           q: "هل هذا مفيد لفرق المنتج أم للهندسة فقط؟",
@@ -1879,7 +1879,7 @@ const spanishHomeCopy: MarketingHomeCopy = {
         },
         {
           q: "¿Rejourney funciona para mobile y web?",
-          a: "Si. Rejourney soporta iOS (Swift), Android (proximamente), React Native y apps web con nuestro JavaScript SDK. Todas las sesiones, mobile y web, llegan al mismo dashboard para que tu equipo tenga una vista unificada de la experiencia en todas las plataformas.",
+          a: "Sí. Rejourney soporta Flutter en iOS y Android, iOS nativo con Swift, React Native y Expo, y apps web con nuestro JavaScript SDK. Todas las sesiones, mobile y web, llegan al mismo dashboard para que tu equipo tenga una vista unificada de la experiencia en todas las plataformas.",
         },
         {
           q: "¿Esto sirve para equipos de producto o solo para ingenieria?",
@@ -2151,7 +2151,7 @@ const turkishHomeCopy: MarketingHomeCopy = {
         },
         {
           q: "Rejourney hem mobile hem web icin calisir mi?",
-          a: "Evet. Rejourney iOS (Swift), Android (yakinda), React Native ve JavaScript SDK ile web uygulamalarini destekler. Mobil ve web tum oturumlar ayni dashboard'a akar, boylece ekip platformlar arasinda birlesik bir deneyim gorunumune sahip olur.",
+          a: "Evet. Rejourney iOS ve Android'de Flutter'i, Swift ile native iOS'u, React Native ve Expo'yu ve JavaScript SDK ile web uygulamalarini destekler. Mobil ve web tum oturumlar ayni dashboard'a akar, boylece ekip platformlar arasinda birlesik bir deneyim gorunumune sahip olur.",
         },
         {
           q: "Bu urun ekipleri icin mi, yoksa sadece muhendislik icin mi?",

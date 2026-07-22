@@ -774,7 +774,7 @@ function attributeValues(attribute: string, session: SmartCaptureSession, metric
             break;
         case 'device_type':
             values.push(...metadataValues(metadata, ['deviceType', 'device_type', 'formFactor']));
-            values.push(session.platform && ['ios', 'android', 'react-native'].includes(session.platform) ? 'mobile' : null);
+            values.push(session.platform && ['ios', 'android', 'react-native', 'flutter'].includes(session.platform) ? 'mobile' : null);
             break;
         case 'browser':
             values.push(...metadataValues(metadata, ['browser', 'browserName', 'webBrowser']));

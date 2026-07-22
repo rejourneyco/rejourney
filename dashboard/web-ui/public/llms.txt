@@ -6,7 +6,7 @@
 
 - [Home](https://rejourney.co/): Revenue leak prediction overview for web and mobile apps, including checkout analytics, onboarding drop-off, subscription analytics, churn risk, and failed flows.
 - [Pricing](https://rejourney.co/pricing): Fixed-price revenue leak prediction plans for checkout, onboarding, and subscription analytics teams.
-- [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for iOS, Expo, and React Native teams.
+- [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for Flutter, iOS, Expo, and React Native teams.
 - [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from captured sessions to replay-backed revenue leak prediction.
 - [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
 - [Self-Healing Software](https://rejourney.co/self-healing-software): Product and engineering workflow for turning replay, stability, API, device, and journey signals into fix-ready repair context.
@@ -23,6 +23,7 @@
 - [Sentry Session Replay Alternative](https://rejourney.co/alternatives/sentry-session-replay): Comparison page for teams evaluating replay beyond error monitoring.
 - [Engineering Log](https://rejourney.co/engineering): Technical articles on SDK architecture, pricing, scaling, SwiftPM, and map performance.
 - [React Native SDK](https://rejourney.co/docs/reactnative/overview): Install and configure the React Native SDK.
+- [Flutter SDK](https://rejourney.co/docs/flutter/overview): Install and configure the Flutter SDK for native iOS and Android replay.
 - [Swift iOS SDK](https://rejourney.co/docs/swift/overview): Install and configure the native Swift iOS SDK.
 - [Self-Hosted Deployment](https://rejourney.co/docs/selfhosted): Deploy Rejourney on your own infrastructure.
 
@@ -30,7 +31,7 @@
 
 - Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
 - Replay-backed evidence for checkout drop-off, onboarding drop-off, subscription churn risk, paywall issues, payment failures, rage taps, API errors, crashes, and confusing journeys.
-- Mobile session replay for iOS, Android, Expo, React Native, and Swift applications.
+- Mobile session replay for iOS, Android, Expo, React Native, Flutter, and Swift applications.
 - Touch heatmaps for mobile app screens, including rage tap and dead tap investigation.
 - Crash reporting, ANR monitoring, and stability signals for production mobile apps.
 - Stability monitoring for crashes, errors, ANRs, API spikes, affected users, devices, and releases.
@@ -54,6 +55,7 @@
 ## Documentation By Search Intent
 
 - [React Native SDK](https://rejourney.co/docs/reactnative/overview): Mobile SDK setup, session replay, crash reporting, heatmaps.
+- [Flutter SDK](https://rejourney.co/docs/flutter/overview): Flutter session replay, privacy masking, crash and ANR reporting, and network timing.
 - [Swift iOS SDK](https://rejourney.co/docs/swift/overview): Swift session replay SDK, native iOS analytics, privacy-safe mobile telemetry.
 - [Self-Hosted Deployment](https://rejourney.co/docs/selfhosted): Self-hosted mobile analytics, self-hosted session replay, Docker deployment.
 - [Backup and Recovery](https://rejourney.co/docs/selfhosted/backup-recovery): Self-hosted analytics backup and disaster recovery.

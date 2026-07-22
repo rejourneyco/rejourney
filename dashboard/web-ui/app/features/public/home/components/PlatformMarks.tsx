@@ -68,6 +68,16 @@ export function MarkReactNative(props: React.SVGProps<SVGSVGElement>) {
     );
 }
 
+export function MarkFlutter(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
+            <path d="M14.32 2 4 12.32l3.2 3.2L20.72 2h-6.4Z" fill="currentColor" opacity="0.72" />
+            <path d="m11.12 15.52 3.2-3.2h6.4l-6.4 6.4-3.2-3.2Z" fill="currentColor" />
+            <path d="m7.2 15.52 3.2-3.2 7.2 7.2-3.2 3.2-7.2-7.2Z" fill="currentColor" opacity="0.9" />
+        </svg>
+    );
+}
+
 export function MarkExpo(props: React.SVGProps<SVGSVGElement>) {
     return (
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>

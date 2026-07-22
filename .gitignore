@@ -14,6 +14,10 @@ docker/.env
 **/.output/
 **/.svelte-kit/
 packages/**/lib/
+!packages/rejourney/lib/
+!packages/rejourney/lib/**
+!packages/rejourney/example/lib/
+!packages/rejourney/example/lib/**
 packages/**/dist/
 packages/react-native/*.tgz
 *.tsbuildinfo
@@ -21,9 +25,15 @@ packages/react-native/*.tgz
 # iOS
 *.xcworkspace
 !*.xcworkspace/contents.xcworkspacedata
+!packages/rejourney/example/ios/Runner.xcworkspace/
+!packages/rejourney/example/ios/Runner.xcworkspace/contents.xcworkspacedata
+!examples/flutter/ios/Runner.xcworkspace/
+!examples/flutter/ios/Runner.xcworkspace/contents.xcworkspacedata
 **/ios/Pods/
 **/ios/build/
 **/ios/*.xcworkspace/xcuserdata/
+**/ios/*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+**/ios/*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 *.pbxuser
 *.mode1v3
 *.mode2v3

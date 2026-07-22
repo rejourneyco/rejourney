@@ -29,7 +29,7 @@ const FEATURE_GROUPS = [
     title: "Product Evidence",
     items: [
       { label: "Web Replay Evidence", href: "/web-session-replay", desc: "Track DOM mutations and console exceptions in web apps" },
-      { label: "Mobile Replay Evidence", href: "/mobile-session-replay", desc: "Record native sessions on React Native and Swift" },
+      { label: "Mobile Replay Evidence", href: "/mobile-session-replay", desc: "Record native sessions on Flutter, React Native, and Swift" },
       { label: "Funnel Replay Evidence", href: "/funnel-replay-evidence", desc: "Drill directly into dropped-off sessions from funnels" },
       { label: "Heatmaps", href: "/heatmaps", desc: "Aggregate scroll maps, click patterns, and rage clicks" },
       { label: "Geographic Analytics", href: "/geographic-analytics", desc: "Visualize sentiment and infrastructure issues by country" },

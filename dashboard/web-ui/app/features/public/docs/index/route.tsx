@@ -23,6 +23,7 @@ import {
 import {
     MarkShopify,
     MarkReactNative,
+    MarkFlutter,
     MarkRedux,
     MarkSwift,
     MarkNextJs,
@@ -201,6 +202,15 @@ const PLATFORM_GROUPS: PlatformGroup[] = [
                 iconColor: "#2563eb",
                 iconBg: "#eff6ff",
                 badge: "Expo supported",
+            },
+            {
+                name: "Flutter",
+                description: "Native iOS & Android replay for Flutter applications.",
+                href: "/docs/flutter/overview",
+                Icon: MarkFlutter,
+                iconColor: "#027dfd",
+                iconBg: "#eff6ff",
+                badge: "iOS + Android",
             },
             {
                 name: "Swift (iOS)",

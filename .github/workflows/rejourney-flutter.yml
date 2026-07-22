@@ -1,0 +1,308 @@
+name: Rejourney Flutter SDK
+
+on:
+  pull_request:
+    paths:
+      - "packages/rejourney/**"
+      - "examples/flutter/**"
+      - "docs/flutter/**"
+      - "benchmarks/flutter/**"
+      - ".github/workflows/rejourney-flutter.yml"
+  push:
+    branches: [main]
+    tags: ["flutter-v*"]
+    paths:
+      - "packages/rejourney/**"
+      - "examples/flutter/**"
+      - "docs/flutter/**"
+      - "benchmarks/flutter/**"
+      - ".github/workflows/rejourney-flutter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-version:
+    name: Detect Flutter version bump
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version-check.outputs.changed }}
+      version: ${{ steps.version-check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare pubspec version with the start of this push
+        id: version-check
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          version="$(sed -n 's/^version: //p' packages/rejourney/pubspec.yaml)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Current Flutter package version: $version"
+
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || \
+             ! git cat-file -e "$BEFORE_SHA:packages/rejourney/pubspec.yaml" 2>/dev/null; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "This is the package's first commit; publish and transfer the first version manually before enabling automation."
+            exit 0
+          fi
+
+          previous_version="$(git show "$BEFORE_SHA:packages/rejourney/pubspec.yaml" | sed -n 's/^version: //p')"
+          test -n "$previous_version"
+          echo "Previous Flutter package version: $previous_version"
+
+          if [ "$version" = "$previous_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  dart:
+    name: Dart API, widgets, package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/rejourney
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Verify release versions and changelog agree
+        run: |
+          version="$(sed -n 's/^version: //p' pubspec.yaml)"
+          test -n "$version"
+          grep -Fqx "## $version" <(head -n 1 CHANGELOG.md)
+          grep -Fq "static const String version = '$version';" lib/rejourney.dart
+          grep -Fq "version = \"$version\"" android/build.gradle.kts
+          grep -Fq "const val SDK_VERSION = \"$version\"" android/src/main/kotlin/co/rejourney/rejourney/RejourneyNativeController.kt
+          grep -Fq "var sdkVersion: String = \"$version\"" android/src/main/kotlin/com/rejourney/RejourneySdkInfo.kt
+          grep -Fq "s.version          = '$version'" ios/rejourney.podspec
+          grep -Fq "static var version = \"$version\"" ios/rejourney/Sources/rejourney/Core/RejourneySDKInfo.swift
+          echo "All Flutter release metadata uses $version."
+      - run: flutter pub get
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib test benchmark example/lib example/test example/integration_test
+      - run: flutter analyze --fatal-infos
+      - run: flutter test --coverage
+      - name: Run Dart bridge benchmarks
+        run: flutter test benchmark/rejourney_benchmark_test.dart --reporter expanded
+      - name: Validate pub.dev package contents
+        run: flutter pub publish --dry-run
+
+  android:
+    name: Android plugin and example
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/rejourney/example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --debug
+      - name: Run Android native bridge unit tests
+        run: ./android/gradlew -p android :rejourney:testDebugUnitTest
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run native integration on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_7
+          working-directory: packages/rejourney/example
+          script: flutter test integration_test/plugin_integration_test.dart -d emulator-5554 --reporter expanded
+
+  ios:
+    name: iOS plugin and example
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: packages/rejourney/example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build ios --simulator --no-codesign
+      - name: Run native integration on iOS simulator
+        run: |
+          device_id="$(xcrun simctl list devices available -j | ruby -rjson -e 'puts JSON.parse(STDIN.read).fetch("devices").values.flatten.find { |device| device.fetch("name", "").start_with?("iPhone") }.fetch("udid")')"
+          xcrun simctl boot "$device_id" 2>/dev/null || :
+          xcrun simctl bootstatus "$device_id" -b
+          flutter test integration_test/plugin_integration_test.dart -d "$device_id" --reporter expanded
+
+  consumer-example:
+    name: Standalone consumer example
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --fatal-infos
+      - run: flutter test
+      - run: flutter build apk --debug
+
+  create-release-tag:
+    name: Create tag for a tested version bump
+    if: >-
+      success() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.flutter-version.outputs.changed == 'true'
+    needs: [flutter-version, dart, android, ios, consumer-example]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the pub.dev release tag
+        env:
+          GH_TOKEN: ${{ secrets.FLUTTER_RELEASE_TOKEN }}
+          VERSION: ${{ needs.flutter-version.outputs.version }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "FLUTTER_RELEASE_TOKEN is required so this tag push can start the pub.dev workflow."
+            echo "Use a fine-grained token scoped to this repository with Contents: write."
+            exit 1
+          fi
+
+          tag="flutter-v${VERSION}"
+          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+          if [ -n "$existing_sha" ]; then
+            if [ "$existing_sha" = "$GITHUB_SHA" ]; then
+              echo "$tag already points to this commit; no new tag is needed."
+              exit 0
+            fi
+            echo "$tag already exists at $existing_sha, not $GITHUB_SHA. Bump the Flutter package version."
+            exit 1
+          fi
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="$GITHUB_SHA"
+          echo "Created $tag; its push event will run the OIDC publishing job."
+
+  release-metadata:
+    name: Verify tagged release
+    if: startsWith(github.ref, 'refs/tags/flutter-v')
+    needs: [dart, android, ios, consumer-example]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches pubspec version
+        id: release
+        working-directory: packages/rejourney
+        run: |
+          version="$(sed -n 's/^version: //p' pubspec.yaml)"
+          test -n "$version"
+          test "$GITHUB_REF_NAME" = "flutter-v${version}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  publication-status:
+    name: Check whether the tagged version is already published
+    if: startsWith(github.ref, 'refs/tags/flutter-v')
+    needs: [release-metadata]
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.pub-status.outputs.published }}
+    steps:
+      - name: Query pub.dev
+        id: pub-status
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          published=false
+          if package_json="$(curl --fail --silent --show-error https://pub.dev/api/packages/rejourney)"; then
+            if jq -e --arg version "$VERSION" '.versions | any(.version == $version)' <<<"$package_json" >/dev/null; then
+              published=true
+            fi
+          fi
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          echo "rejourney $VERSION already published: $published"
+
+  publish:
+    name: Publish tagged release to pub.dev
+    if: >-
+      startsWith(github.ref, 'refs/tags/flutter-v') &&
+      needs.publication-status.outputs.published != 'true'
+    needs: [release-metadata, publication-status]
+    permissions:
+      id-token: write
+      contents: read
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/rejourney
+      environment: pub.dev
+
+  github-release:
+    name: Create Flutter GitHub release
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/flutter-v') &&
+      needs.release-metadata.result == 'success' &&
+      needs.publication-status.result == 'success' &&
+      (needs.publication-status.outputs.published == 'true' || needs.publish.result == 'success')
+    needs: [release-metadata, publication-status, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release after pub.dev is ready
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          tag="flutter-v${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub release $tag already exists."
+            exit 0
+          fi
+
+          notes_file=".github/releases/flutter-${VERSION}.md"
+          notes_args=(--notes "Published to pub.dev as \`rejourney ${VERSION}\`." --generate-notes)
+          if [ -f "$notes_file" ]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+
+          gh release create "$tag" \
+            --title "Flutter SDK v${VERSION}" \
+            "${notes_args[@]}" \
+            --verify-tag

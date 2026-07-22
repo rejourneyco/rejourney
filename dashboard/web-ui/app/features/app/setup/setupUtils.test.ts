@@ -13,7 +13,7 @@ function projectWithPlatforms(platforms: Project['platforms']): Project {
 
 describe('setup integration normalization', () => {
   it('offers only integrations with installable SDKs', () => {
-    expect(SETUP_PLATFORM_OPTIONS.map((option) => option.id)).toEqual(['web', 'react-native', 'ios']);
+    expect(SETUP_PLATFORM_OPTIONS.map((option) => option.id)).toEqual(['web', 'react-native', 'flutter', 'ios']);
   });
 
   it('collapses React Native runtime markers into one integration', () => {
@@ -24,6 +24,12 @@ describe('setup integration normalization', () => {
   it('preserves supported multi-integration projects', () => {
     expect(normalizeSetupIntegrations(['web', 'ios'])).toEqual(['web', 'ios']);
     expect(formatProjectPlatforms(projectWithPlatforms(['web', 'ios']))).toBe('Web, iOS');
+  });
+
+  it('normalizes Flutter as one cross-platform mobile integration', () => {
+    expect(normalizeSetupIntegrations(['flutter', 'ios', 'android'])).toEqual(['flutter']);
+    expect(formatProjectPlatforms(projectWithPlatforms(['flutter', 'ios', 'android']))).toBe('Flutter');
+    expect(hasUnsupportedNativeAndroid(['flutter', 'android'])).toBe(false);
   });
 
   it('flags legacy Native Android selections without treating React Native Android as unsupported', () => {

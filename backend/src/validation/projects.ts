@@ -94,7 +94,7 @@ export const createProjectSchema = z.object({
     teamId: z.string().uuid().optional(),
     webDomain: webAllowedDomainSchema.optional(),
     webAllowedDomains: webAllowedDomainsSchema.optional(),
-    platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native'])).optional(),
+    platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native', 'flutter'])).optional(),
     rejourneyEnabled: z.boolean().optional().default(true),
     recordingEnabled: z.boolean().optional().default(true),
     textInputMasking: textInputMaskingSchema.optional().default('all'),
@@ -104,11 +104,11 @@ export const createProjectSchema = z.object({
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional().default(10),
     webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional().default(30),
 }).superRefine((data, ctx) => {
-    if (data.platforms?.includes('android') && !data.platforms.includes('react-native')) {
+    if (data.platforms?.includes('android') && !data.platforms.includes('react-native') && !data.platforms.includes('flutter')) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['platforms'],
-            message: 'Android is supported through React Native. Select react-native instead of Native Android.',
+            message: 'Android is supported through React Native or Flutter. Select the matching framework instead of Native Android.',
         });
     }
     if (data.platforms?.includes('web')) {
@@ -133,7 +133,7 @@ export const updateProjectSchema = z.object({
     packageName: appIdentifierSchema.nullable().optional(),
     webDomain: webAllowedDomainSchema.nullable().optional(),
     webAllowedDomains: webAllowedDomainsSchema.nullable().optional(),
-    platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native'])).optional(),
+    platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native', 'flutter'])).optional(),
     rejourneyEnabled: z.boolean().optional(),
     recordingEnabled: z.boolean().optional(),
     textInputMasking: textInputMaskingSchema.optional(),
@@ -143,11 +143,11 @@ export const updateProjectSchema = z.object({
     maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional(),
     webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional(),
 }).superRefine((data, ctx) => {
-    if (data.platforms?.includes('android') && !data.platforms.includes('react-native')) {
+    if (data.platforms?.includes('android') && !data.platforms.includes('react-native') && !data.platforms.includes('flutter')) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['platforms'],
-            message: 'Android is supported through React Native. Select react-native instead of Native Android.',
+            message: 'Android is supported through React Native or Flutter. Select the matching framework instead of Native Android.',
         });
     }
 });
