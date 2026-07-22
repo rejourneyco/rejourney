@@ -6,6 +6,8 @@
 
 The Rejourney Flutter package provides privacy-first session replay, native crash and ANR reporting, product events, network timing, and SDK health metrics for iOS and Android. Capture runs in native code while the public API, navigation integration, privacy masks, error hooks, and HTTP client are idiomatic Dart and Flutter.
 
+![Rejourney Replay Workbench showing a captured iOS session with synchronized console and network evidence](/images/docs/flutter-replay-workbench.png)
+
 ## Requirements
 
 | Platform | Minimum |
@@ -429,4 +431,4 @@ The repository includes two working applications: the package example in `packag
 
 ## License
 
-The Flutter API, platform bridges, examples, and documentation are MIT licensed. Embedded Rejourney native core source files retain their Apache-2.0 notices. See the package license and third-party notice files for the exact boundary.
+The Flutter API, platform bridges, native core, examples, and documentation are licensed under the Apache License 2.0. See the package license and third-party notice files for details.

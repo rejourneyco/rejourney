@@ -574,34 +574,36 @@ export const AiLeakHomepage: React.FC = () => {
                                 <span className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-transparent transition group-hover:ring-emerald-300/70" aria-hidden="true" />
                             </button>
                         </div>
-                        <div className="landing-platforms mx-auto mt-12 flex w-full max-w-6xl flex-col items-center justify-center gap-4 border-t border-slate-200/70 pt-7">
+                        <div className="landing-platforms mx-auto mt-12 flex w-full max-w-6xl flex-col items-center justify-center gap-3 border-t border-slate-200/70 pt-6">
                             <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.18em] text-slate-400">
                                 Supported platforms
                             </p>
-                            <div className="flex w-full max-w-5xl flex-col items-center gap-3">
-                                {[supportedPlatforms.slice(0, 6), supportedPlatforms.slice(6)].map((row, rowIndex) => (
-                                    <div
-                                        key={rowIndex}
-                                        className={`flex w-full flex-wrap items-center justify-center gap-3 ${
-                                            rowIndex === 0 ? 'max-w-6xl' : 'max-w-4xl'
-                                        }`}
-                                    >
-                                        {row.map((platform) => {
-                                            const Icon = platform.icon;
-                                            return (
-                                                <Link
-                                                    key={platform.label}
-                                                    to={platform.href}
-                                                    aria-label={`${platform.label} setup documentation`}
-                                                    className="group inline-flex min-h-10 min-w-[9.5rem] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/70 px-4 text-sm font-extrabold text-slate-600 shadow-sm shadow-slate-200/60 ring-1 ring-white/60 backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-white hover:text-indigo-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-                                                >
-                                                    <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" style={{ color: platform.color }} />
-                                                    <span className="whitespace-nowrap">{platform.label}</span>
-                                                </Link>
-                                            );
-                                        })}
-                                    </div>
-                                ))}
+                            <div className="landing-platform-marquee relative w-full overflow-hidden py-1">
+                                <div className="landing-platform-marquee-track flex w-max items-center">
+                                    {[0, 1].map((groupIndex) => (
+                                        <div
+                                            key={groupIndex}
+                                            className="flex shrink-0 items-center gap-3 pr-3"
+                                            aria-hidden={groupIndex === 1 ? true : undefined}
+                                        >
+                                            {supportedPlatforms.map((platform) => {
+                                                const Icon = platform.icon;
+                                                return (
+                                                    <Link
+                                                        key={platform.label}
+                                                        to={platform.href}
+                                                        aria-label={`${platform.label} setup documentation`}
+                                                        tabIndex={groupIndex === 1 ? -1 : undefined}
+                                                        className="group inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3.5 text-xs font-extrabold text-slate-600 shadow-sm shadow-slate-200/60 ring-1 ring-white/60 backdrop-blur-sm transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:text-indigo-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+                                                    >
+                                                        <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" style={{ color: platform.color }} />
+                                                        <span className="whitespace-nowrap">{platform.label}</span>
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                 </div>

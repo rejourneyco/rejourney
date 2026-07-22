@@ -53,6 +53,8 @@ export type SeoPage = {
 };
 
 type CoreFeatureStatuses = {
+  revenueLeakPrediction: SeoComparisonValue;
+  frictionAlertEmails: SeoComparisonValue;
   replayFirst: SeoComparisonValue;
   webSessionReplay: SeoComparisonValue;
   mobileSessionReplay: SeoComparisonValue;
@@ -67,16 +69,15 @@ type CoreFeatureStatuses = {
 };
 
 const coreFeatureRows = (other: CoreFeatureStatuses): SeoComparisonRow[] => [
-  { feature: "Revenue leak prediction", rejourney: "yes", other: "no" },
-  { feature: "Replay-First", rejourney: "yes", other: other.replayFirst },
+  { feature: "Automated revenue leak prediction", rejourney: "yes", other: other.revenueLeakPrediction },
+  { feature: "Replay-linked friction alert emails", rejourney: "yes", other: other.frictionAlertEmails },
   { feature: "Web session replay", rejourney: "yes", other: other.webSessionReplay },
   { feature: "Mobile session replay", rejourney: "yes", other: other.mobileSessionReplay },
   { feature: "Product analytics", rejourney: "yes", other: other.productAnalytics },
   { feature: "Heatmaps", rejourney: "yes", other: other.heatmaps },
-  { feature: "Journey maps", rejourney: "yes", other: other.journeyMaps },
+  { feature: "Journey / funnel analysis", rejourney: "yes", other: other.journeyMaps },
   { feature: "Crash / error context", rejourney: "yes", other: other.crashOrErrorContext },
   { feature: "Network / API context", rejourney: "yes", other: other.networkApiContext },
-  { feature: "Native API calls", rejourney: "yes", other: other.nativeApiCalls },
   { feature: "Console logs", rejourney: "yes", other: other.consoleLogs },
   { feature: "Privacy masking controls", rejourney: "yes", other: other.privacyMasking },
 ];
@@ -137,6 +138,11 @@ const commonRelated = [
     description: "Install mobile session replay for React Native and Expo apps.",
   },
   {
+    label: "Flutter SDK",
+    href: "/docs/flutter/overview",
+    description: "Install native iOS and Android session replay for Flutter apps.",
+  },
+  {
     label: "Web SDK",
     href: "/docs/web/getting-started",
     description: "Add browser session replay, analytics, and network capture to a web app.",
@@ -170,7 +176,7 @@ const categoryPage = (config: {
   chooseRejourney: [
     "You want replay, product analytics, heatmaps, journeys, crashes, and network context together.",
     "You need predictable pricing with unlimited events, retention, projects, and team members.",
-    "You want a lightweight SDK that is easy to add to web, React Native, Expo, and iOS apps.",
+    "You want a lightweight SDK that is easy to add to web, React Native, Expo, Flutter, and iOS apps.",
     "You want a product team and engineering team to investigate the same real session.",
   ],
   pricingTitle: "Pricing built for teams that instrument deeply",
@@ -206,7 +212,7 @@ const alternativePage = (config: {
   path: config.path,
   badge: config.badge,
   eyebrow: "Alternative comparison",
-  title: `${config.competitor}: pricing, features, and alternative`,
+  title: `Rejourney vs ${config.competitor}`,
   subtitle: config.subtitle,
   metaTitle: config.metaTitle,
   metaDescription: config.metaDescription,
@@ -230,7 +236,7 @@ const alternativePage = (config: {
   otherColumnTitle: config.competitor,
   comparisonRows: config.comparisonRows,
   featureDifferences: config.featureDifferences,
-  lastReviewed: "May 24, 2026",
+  lastReviewed: "July 21, 2026",
   competitorFacts: config.competitorFacts,
   officialSources: config.officialSources,
   pricingTitle: "Pricing comparison",
@@ -882,11 +888,11 @@ export const SEO_PAGES: SeoPage[] = [
       "Watch taps, gestures, screen changes, slow requests, crashes, and ANRs with enough metadata to reproduce what happened on the device.",
     metaTitle: "Mobile Session Replay | Rejourney",
     metaDescription:
-      "Mobile session replay for iOS, React Native, and Expo with heatmaps, journeys, ANR detection, crash context, and lightweight SDKs.",
-    keywords: ["mobile session replay", "mobile app session replay", "React Native session replay", "iOS session replay"],
+      "Mobile session replay for Flutter, iOS, React Native, and Expo with heatmaps, journeys, ANR detection, crash context, and lightweight SDKs.",
+    keywords: ["mobile session replay", "mobile app session replay", "Flutter session replay", "React Native session replay", "iOS session replay"],
     image: "/images/heatmaps.png",
     imageAlt: "Rejourney heatmap workspace with replay and behavioral insights",
-    proofPoints: ["React Native + Expo", "Native iOS", "Heatmaps + ANRs"],
+    proofPoints: ["Flutter + React Native", "Native iOS + Android", "Heatmaps + ANRs"],
     whyTitle: "Mobile replay has to understand the app behind the pixels",
     whyParagraphs: [
       "Mobile bugs often hide in app-specific context: screen transitions, gestures, OS versions, foreground and background changes, flaky networks, slow frames, crashes, and ANRs. A recording without those details is hard to act on.",
@@ -896,7 +902,7 @@ export const SEO_PAGES: SeoPage[] = [
     chooseOtherTitle: "Choose a web-first tool if...",
     chooseOther: [
       "Your product is browser-only and every important flow happens on the web.",
-      "You do not need React Native, Expo, or native iOS replay.",
+      "You do not need Flutter, React Native, Expo, or native iOS replay.",
       "You already capture mobile crashes, API failures, and user paths in another workflow.",
     ],
     comparisonTitle: "Mobile replay requires mobile context",
@@ -908,7 +914,12 @@ export const SEO_PAGES: SeoPage[] = [
       {
         question: "Does Rejourney work with React Native?",
         answer:
-          "Yes. Rejourney has React Native and Expo documentation, plus native iOS support for teams building mobile apps.",
+          "Yes. Rejourney supports React Native and Expo, Flutter on iOS and Android, and native iOS apps.",
+      },
+      {
+        question: "Does Rejourney work with Flutter?",
+        answer:
+          "Yes. The Rejourney Flutter SDK records sessions on iOS and Android with route tracking, privacy masking, errors, network timing, and custom events.",
       },
       {
         question: "Can mobile replay help with crashes?",
@@ -1225,7 +1236,7 @@ export const SEO_PAGES: SeoPage[] = [
       {
         question: "Is this useful for websites and mobile apps?",
         answer:
-          "Yes. Rejourney supports browser replay and mobile replay workflows, so teams can inspect behavior across web, React Native, Expo, and native iOS apps.",
+          "Yes. Rejourney supports browser replay and mobile replay workflows, so teams can inspect behavior across web, Flutter, React Native, Expo, and native iOS apps.",
       },
       {
         question: "How do I avoid cherry-picking one replay?",
@@ -1307,6 +1318,8 @@ export const SEO_PAGES: SeoPage[] = [
       "You prefer consolidating many growth tools into one large platform.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
       mobileSessionReplay: "yes",
@@ -1348,6 +1361,7 @@ export const SEO_PAGES: SeoPage[] = [
     ],
     officialSources: [
       { label: "PostHog pricing", href: "https://posthog.com/pricing" },
+      { label: "PostHog Session Replay docs", href: "https://posthog.com/docs/session-replay" },
     ],
     pricingIntro:
       "PostHog publishes transparent usage-based pricing with free monthly quotas and per-product overage rates. Rejourney is built for teams that want replay-led investigation with unlimited events, analytics history, projects, and seats included in the Rejourney model.",
@@ -1393,6 +1407,8 @@ export const SEO_PAGES: SeoPage[] = [
       "You want replay primarily as an attachment to errors rather than as a product analytics workflow.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
       mobileSessionReplay: "yes",
@@ -1434,6 +1450,7 @@ export const SEO_PAGES: SeoPage[] = [
     officialSources: [
       { label: "Sentry pricing", href: "https://sentry.io/pricing/" },
       { label: "Sentry pricing docs", href: "https://docs.sentry.io/pricing/" },
+      { label: "Sentry Session Replay docs", href: "https://docs.sentry.io/platforms/javascript/session-replay/" },
     ],
     pricingIntro:
       "Sentry documents event-volume billing across several data categories, including replays. Rejourney is positioned for replay and analytics teams that want simple included limits across events, retention, projects, and seats.",
@@ -1484,6 +1501,8 @@ export const SEO_PAGES: SeoPage[] = [
       "You need replay mainly as one component of a full infrastructure observability stack.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
       mobileSessionReplay: "yes",
@@ -1496,8 +1515,8 @@ export const SEO_PAGES: SeoPage[] = [
       consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
-      { feature: "Open-source or self-host path", other: "no" },
-      { feature: "React Native and Expo replay path", other: "partial" },
+      { feature: "Self-hosted deployment", other: "no" },
+      { feature: "Flutter, React Native, and Expo replay path", other: "partial" },
       { feature: "Native ANR replay triage", other: "partial" },
       { feature: "Focused product-team workspace", other: "no" },
     ]),
@@ -1526,6 +1545,7 @@ export const SEO_PAGES: SeoPage[] = [
     officialSources: [
       { label: "Datadog RUM and Session Replay pricing", href: "https://www.datadoghq.com/pricing/?product=real-user-monitoring" },
       { label: "Datadog Session Replay docs", href: "https://docs.datadoghq.com/session_replay/" },
+      { label: "Datadog frustration-signal alerts", href: "https://docs.datadoghq.com/real_user_monitoring/application_monitoring/browser/frustration_signals/" },
     ],
     pricingIntro:
       "Datadog publishes RUM and Session Replay session-based pricing. Rejourney is aimed at teams that want replay and product analytics with simpler access and fewer dimensions to plan.",
@@ -1571,6 +1591,8 @@ export const SEO_PAGES: SeoPage[] = [
       "Session replay is secondary to your event analytics warehouse strategy.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "partial",
+      frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
       mobileSessionReplay: "yes",
@@ -1578,7 +1600,7 @@ export const SEO_PAGES: SeoPage[] = [
       heatmaps: "partial",
       journeyMaps: "yes",
       crashOrErrorContext: "partial",
-      networkApiContext: "partial",
+      networkApiContext: "yes",
       nativeApiCalls: "partial",
       consoleLogs: "yes",
       privacyMasking: "yes",
@@ -1587,7 +1609,7 @@ export const SEO_PAGES: SeoPage[] = [
       { feature: "Crash replay context", other: "no" },
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Open-source or self-host path", other: "no" },
+      { feature: "Self-hosted deployment", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1607,21 +1629,22 @@ export const SEO_PAGES: SeoPage[] = [
       },
     ],
     competitorFacts: [
-      "Amplitude lists a free Starter plan with 10K MTUs, up to 2M events, and Session Replay included.",
-      "Amplitude lists Plus starting at $49/mo when paid annually, Growth and Enterprise as custom, and says Growth and Enterprise use custom MTU or event volume.",
-      "Amplitude's plan table lists Session Replay monthly sessions as 10,000 on Starter and Plus, 20,000 on Growth with add-ons for more, and 50,000 on Enterprise with add-ons for more; replay retention is listed as 1 month, with add-ons for more on Growth and Enterprise.",
+      "Amplitude lists a Free plan with 2 million events per month, unlimited seats, and 10,000 monthly session replays.",
+      "Amplitude lists Plus as starting at $0 with the first 2 million events per month free, while Growth and Enterprise use custom event-based pricing.",
+      "Amplitude lists 20,000 monthly session replays on Growth and 50,000 on Enterprise, with custom replay volume and extended retention available to Growth and Enterprise customers.",
     ],
     officialSources: [
       { label: "Amplitude pricing", href: "https://amplitude.com/pricing" },
       { label: "Amplitude Session Replay docs", href: "https://amplitude.com/docs/session-replay/overview" },
+      { label: "Amplitude Session Replay Agent", href: "https://amplitude.com/docs/amplitude-ai/session-replay-agent" },
     ],
     pricingIntro:
-      "Amplitude publishes MTU/event-volume plan limits and Session Replay session allowances by plan. Rejourney is evaluated as a replay-first analytics workspace with broad included limits for events, retention, projects, and seats.",
+      "Amplitude publishes event-volume plan limits and Session Replay allowances by plan. Rejourney is evaluated as a replay-first analytics workspace with broad included limits for events, retention, projects, and seats.",
     faq: [
       {
         question: "How much does Amplitude Session Replay cost?",
         answer:
-          "Amplitude publishes replay allowances by plan: 10,000 monthly sessions on Starter and Plus, 20,000 on Growth, and 50,000 on Enterprise, with add-ons available on higher tiers. Verify current limits on Amplitude's linked pricing page.",
+          "Amplitude currently lists 10,000 monthly session replays on Free, 20,000 on Growth, and 50,000 on Enterprise. Plus starts at $0 with event-based usage; verify the current replay allowance for your Plus configuration on Amplitude's pricing page.",
       },
       {
         question: "Is Rejourney an Amplitude alternative?",
@@ -1664,9 +1687,11 @@ export const SEO_PAGES: SeoPage[] = [
       "You do not need mobile replay, heatmaps, or crash context in the same workflow.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
-      mobileSessionReplay: "partial",
+      mobileSessionReplay: "yes",
       productAnalytics: "yes",
       heatmaps: "yes",
       journeyMaps: "yes",
@@ -1677,9 +1702,8 @@ export const SEO_PAGES: SeoPage[] = [
       privacyMasking: "yes",
     }, [
       { feature: "API endpoint analytics dashboard", other: "no" },
-      { feature: "Device and app-version friction boards", other: "no" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Open-source or self-host path", other: "no" },
+      { feature: "Self-hosted deployment", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1705,6 +1729,7 @@ export const SEO_PAGES: SeoPage[] = [
     ],
     officialSources: [
       { label: "Mixpanel pricing", href: "https://mixpanel.com/pricing/" },
+      { label: "Mixpanel Session Replay", href: "https://mixpanel.com/platform/session-replay/" },
     ],
     pricingIntro:
       "Mixpanel publishes event-volume and session-replay allowances by plan. Rejourney is positioned for teams that want replay-first workflows and included limits across events, history, projects, and team access.",
@@ -1760,22 +1785,23 @@ export const SEO_PAGES: SeoPage[] = [
       "You want product engagement messaging as a core platform feature.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "partial",
+      frictionAlertEmails: "partial",
       replayFirst: "no",
-      webSessionReplay: "partial",
-      mobileSessionReplay: "partial",
+      webSessionReplay: "yes",
+      mobileSessionReplay: "yes",
       productAnalytics: "yes",
-      heatmaps: "partial",
+      heatmaps: "yes",
       journeyMaps: "yes",
-      crashOrErrorContext: "no",
-      networkApiContext: "no",
+      crashOrErrorContext: "partial",
+      networkApiContext: "partial",
       nativeApiCalls: "no",
       consoleLogs: "partial",
       privacyMasking: "yes",
     }, [
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Open-source or self-host path", other: "no" },
-      { feature: "Device and app-version friction boards", other: "no" },
+      { feature: "Self-hosted deployment", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1795,12 +1821,13 @@ export const SEO_PAGES: SeoPage[] = [
       },
     ],
     competitorFacts: [
-      "Pendo says pricing combines the number of Monthly Active Users tracked and the functionality included in the selected plan.",
-      "Pendo's pricing table lists Free, Base, Core, and Ultimate bundles; Free lists 500 monthly active users and paid tiers list custom MAU amounts.",
-      "Pendo's table shows analytics and in-app guides included across bundles, while session replays are shown as available for purchase as an add-on on Base and included on Core and Ultimate.",
+      "Pendo's current pricing page lists Base, Core, and Ultimate with custom pricing and custom monthly-active-user volume.",
+      "Pendo lists Product Analytics and In-app Guides on Base; Session Replay is included on Core and Ultimate.",
+      "Pendo offers a 30-day trial of the full platform, but does not publish a session-volume dollar rate for Session Replay.",
     ],
     officialSources: [
       { label: "Pendo pricing", href: "https://www.pendo.io/pricing/" },
+      { label: "Pendo Session Replay", href: "https://www.pendo.io/product/session-replay/" },
     ],
     pricingIntro:
       "Pendo publishes bundle and MAU-based pricing guidance, with some capabilities included or available as add-ons by bundle. Rejourney is evaluated as a replay-first analytics and observability workspace with broad included limits.",
@@ -1861,24 +1888,25 @@ export const SEO_PAGES: SeoPage[] = [
       "You only need to maintain existing Smartlook access through the remaining support window and are not ready to migrate.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "partial",
       replayFirst: "yes",
       webSessionReplay: "yes",
       mobileSessionReplay: "yes",
       productAnalytics: "yes",
       heatmaps: "yes",
-      journeyMaps: "partial",
+      journeyMaps: "yes",
       crashOrErrorContext: "yes",
-      networkApiContext: "no",
+      networkApiContext: "yes",
       nativeApiCalls: "no",
-      consoleLogs: "partial",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Active standalone buying path after May 31, 2026", other: "no" },
-      { feature: "Replacement workflow independent of Cisco/Splunk migration", other: "no" },
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Native ANR replay triage", other: "partial" },
-      { feature: "Open-source or self-host path", other: "no" },
+      { feature: "Native ANR replay triage", other: "no" },
+      { feature: "Self-hosted deployment", other: "no" },
     ]),
     featureDifferences: [
       {
@@ -1907,6 +1935,8 @@ export const SEO_PAGES: SeoPage[] = [
       { label: "Cisco Smartlook EOL notice", href: "https://www.cisco.com/c/en/us/products/collateral/software/smartlook-com-eol.html" },
       { label: "Cisco Smartlook acquisition", href: "https://www.cisco.com/site/us/en/about/corporate-development/acquisitions/smartlook/index.html" },
       { label: "Smartlook pricing", href: "https://www.smartlook.com/pricing/" },
+      { label: "Smartlook project settings", href: "https://help.smartlook.com/docs/project-settings" },
+      { label: "Smartlook anomaly emails", href: "https://help.smartlook.com/docs/anomalies-detection" },
     ],
     pricingIntro:
       "Smartlook's public pricing page now leads with an end-of-sale notice. Rejourney is positioned for teams that want to migrate behavior analytics into an active replay-first workflow with unlimited events, analytics retention, projects, and team access.",
@@ -1930,10 +1960,10 @@ export const SEO_PAGES: SeoPage[] = [
   }),
   alternativePage({
     path: "/alternatives/hotjar",
-    competitor: "Hotjar",
+    competitor: "Hotjar / Contentsquare",
     badge: "",
     subtitle:
-      "Hotjar is a good fit for website heatmaps, recordings, surveys, and feedback. Rejourney is for teams that need those behavior signals tied to product and engineering evidence.",
+      "Hotjar's replay experience is moving into Contentsquare. Rejourney is the focused alternative for teams that want web and mobile replay tied to product and engineering evidence.",
     metaTitle: "Hotjar Alternatives: Rejourney vs Hotjar",
     metaDescription:
       "Compare Rejourney and Hotjar alternatives for heatmaps, session replay, user journeys, mobile analytics, unlimited events, retention, projects, and teams.",
@@ -1942,62 +1972,65 @@ export const SEO_PAGES: SeoPage[] = [
     imageAlt: "Rejourney heatmap workspace showing a product page with interaction density",
     proofPoints: ["Heatmaps + replay", "Journeys + analytics", "Mobile + stability context"],
     whyParagraphs: [
-      "Hotjar frames Observe around heatmaps and recordings, with Ask and Engage for surveys, feedback, user interviews, and user tests. That is useful when a website team wants classic qualitative UX research tools.",
+      "Hotjar now directs its Session Replay and pricing experience into Contentsquare, whose current plans combine replay, heatmaps, funnels, error monitoring, surveys, and broader experience analytics.",
       "Rejourney is built for product teams that need the session, heatmap, journey, metric, crash, and API context on the same investigation path.",
       "If your team is comparing Hotjar alternatives because recordings alone are not enough, Rejourney keeps replay close to product analytics, mobile context, and technical evidence.",
     ],
     chooseOther: [
-      "You mainly need website heatmaps, recordings, surveys, feedback widgets, and user interviews.",
-      "Your team already uses Hotjar as a lightweight research layer on marketing pages.",
-      "You do not need mobile app replay, crash context, ANRs, API context, or engineering evidence beside sessions.",
+      "You want Contentsquare's broader experience analytics, Voice of Customer, or enterprise digital-experience suite.",
+      "Your team already uses Hotjar or Contentsquare and wants to keep its existing research workflow.",
+      "You prefer a broad experience-analytics platform over a focused replay and product-debugging workspace.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "partial",
+      frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
-      mobileSessionReplay: "no",
-      productAnalytics: "partial",
+      mobileSessionReplay: "yes",
+      productAnalytics: "yes",
       heatmaps: "yes",
-      journeyMaps: "partial",
+      journeyMaps: "yes",
       crashOrErrorContext: "partial",
-      networkApiContext: "no",
+      networkApiContext: "partial",
       nativeApiCalls: "no",
       consoleLogs: "partial",
       privacyMasking: "yes",
     }, [
-      { feature: "Mobile app replay workflow", other: "no" },
       { feature: "Native crash and ANR triage", other: "no" },
       { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
-      { feature: "Open-source or self-host path", other: "no" },
+      { feature: "Self-hosted deployment", other: "no" },
     ]),
     featureDifferences: [
       {
         feature: "Core job",
         rejourney: "Replay-first analytics for product, support, design, and engineering teams that need behavior plus technical context.",
-        other: "Hotjar is strongest as a website behavior research product with heatmaps, recordings, surveys, feedback, and user research products.",
+        other: "Hotjar's current buying path leads into Contentsquare, which combines replay, heatmaps, funnels, error monitoring, surveys, and a broader experience-analytics suite.",
       },
       {
         feature: "From symptom to cause",
         rejourney: "Connects heatmaps to session replay, journeys, product analytics, crashes, ANRs, device context, and API evidence.",
-        other: "Best to evaluate when the main goal is website heatmaps, recordings, and feedback workflows rather than mobile and engineering triage.",
+        other: "Best to evaluate when the goal is a broad experience-analytics and feedback suite rather than a focused replay and engineering workflow.",
       },
       {
         feature: "Product surface",
         rejourney: "Designed for web and mobile apps where friction can come from UI, device, app version, crash, network, or backend behavior.",
-        other: "A strong fit for teams that want qualitative website insight and do not need the same depth of mobile app or technical context.",
+        other: "Contentsquare now covers web and mobile experience analytics; verify the plan and platform scope needed for replay and technical context.",
       },
     ],
     competitorFacts: [
-      "Hotjar's pricing page says teams can mix and match products and always get access to the Basic plan on all products.",
-      "Hotjar lists Observe as Heatmaps & Recordings, with Basic at $0 and Plus shown at $39 when billed annually at review time.",
-      "Hotjar's Observe feature table lists items such as funnels, trends, JavaScript error filtering, Google Analytics filtering, Jira, Slack, Microsoft Teams, Webhooks, and Hotjar API in its plan comparison, so teams should verify which plan gates the exact workflow they need.",
+      "Hotjar's pricing URL now redirects to Contentsquare pricing, and Hotjar describes its Recordings product as Session Replay in Contentsquare.",
+      "Contentsquare's Experience Analytics Free plan allows up to 200,000 analyzed sessions, but captures 5% for replay with a maximum of 10,000 monthly replays.",
+      "Contentsquare lists Experience Analytics Growth from $49 per month when billed annually, with 15% replay capture and a 20,000-replay minimum; Pro and Enterprise pricing is handled through sales.",
     ],
     officialSources: [
-      { label: "Hotjar pricing", href: "https://www.hotjar.com/pricing/" },
-      { label: "Hotjar plans docs", href: "https://help.hotjar.com/hc/en-us/articles/360001389973-Hotjar-Plans" },
+      { label: "Contentsquare pricing (redirected from Hotjar)", href: "https://www.hotjar.com/pricing/" },
+      { label: "Hotjar Session Replay transition", href: "https://www.hotjar.com/product/recordings/" },
+      { label: "Hotjar platform compatibility", href: "https://help.hotjar.com/hc/en-us/articles/36819957176721-Platforms-and-Frameworks-Not-Compatible-with-Hotjar" },
+      { label: "Contentsquare friction alerts", href: "https://support.contentsquare.com/hc/en-us/articles/37271665241617-How-to-automatically-detect-and-fix-pain-points" },
     ],
     pricingIntro:
-      "Hotjar publishes product and plan packaging for Observe, Ask, and Engage. Rejourney is positioned for teams that want heatmaps and replay connected to product analytics, mobile evidence, crashes, API context, unlimited events, analytics retention, projects, and team access.",
+      "Hotjar's current pricing path leads to Contentsquare plans. Rejourney is positioned for teams that want a focused replay workflow connected to product analytics, mobile evidence, crashes, API context, and broad team access.",
     faq: [
       {
         question: "Is Rejourney a Hotjar alternative?",
@@ -2007,7 +2040,7 @@ export const SEO_PAGES: SeoPage[] = [
       {
         question: "When is Hotjar a better fit?",
         answer:
-          "Hotjar can be a better fit when the team mainly needs website heatmaps, recordings, surveys, feedback widgets, and user interviews.",
+          "Hotjar or Contentsquare can be a better fit when the team wants a broader experience-analytics, feedback, and enterprise research suite.",
       },
       {
         question: "Why choose Rejourney over Hotjar?",
@@ -2040,22 +2073,24 @@ export const SEO_PAGES: SeoPage[] = [
       "You need its specific enterprise workflow integrations.",
     ],
     comparisonRows: comparisonRows({
+      revenueLeakPrediction: "no",
+      frictionAlertEmails: "yes",
       replayFirst: "yes",
       webSessionReplay: "yes",
-      mobileSessionReplay: "partial",
+      mobileSessionReplay: "yes",
       productAnalytics: "yes",
       heatmaps: "yes",
-      journeyMaps: "partial",
+      journeyMaps: "yes",
       crashOrErrorContext: "partial",
       networkApiContext: "yes",
       nativeApiCalls: "partial",
       consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
-      { feature: "Open-source or self-host path", other: "no" },
-      { feature: "React Native and Expo replay path", other: "partial" },
+      { feature: "Self-hosted deployment", other: "no" },
+      { feature: "Flutter, React Native, and Expo replay path", other: "partial" },
       { feature: "Native ANR replay triage", other: "no" },
-      { feature: "API endpoint analytics dashboard", other: "partial" },
+      { feature: "API endpoint analytics dashboard", other: "no" },
       { feature: "API degradation email rules", other: "no" },
     ]),
     featureDifferences: [
@@ -2071,7 +2106,7 @@ export const SEO_PAGES: SeoPage[] = [
       },
       {
         feature: "Mobile and add-ons",
-        rejourney: "Mobile investigation is part of the core Rejourney positioning across React Native, Expo, and iOS paths.",
+        rejourney: "Mobile investigation is part of the core Rejourney positioning across Flutter, React Native, Expo, and iOS paths.",
         other: "Fullstory lists Mobile among its add-ons, so teams should verify paid-plan and add-on packaging directly with Fullstory.",
       },
     ],
@@ -2083,6 +2118,9 @@ export const SEO_PAGES: SeoPage[] = [
     officialSources: [
       { label: "Fullstory plans", href: "https://www.fullstory.com/plans/" },
       { label: "Fullstory retention help", href: "https://help.fullstory.com/hc/en-us/articles/4559287110039-Fullstory-Plan-Retention" },
+      { label: "Fullstory Analytics", href: "https://www.fullstory.com/platform/analytics/" },
+      { label: "Fullstory Dev Tools", href: "https://help.fullstory.com/hc/en-us/articles/360020828313-Guide-to-Dev-Tools" },
+      { label: "Fullstory friction alert examples", href: "https://help.fullstory.com/hc/en-us/articles/16194367747735-Sample-Metric-Alerts" },
     ],
     pricingIntro:
       "Fullstory publishes plan names and free-plan limits, while paid plan pricing is handled through pricing/demo requests. Rejourney is built for teams that want replay-first analytics, broad access, and simple included limits.",
@@ -2095,7 +2133,7 @@ export const SEO_PAGES: SeoPage[] = [
       {
         question: "Does Rejourney support mobile apps?",
         answer:
-          "Yes. Rejourney supports mobile app investigation workflows across React Native, Expo, and native iOS paths.",
+          "Yes. Rejourney supports mobile app investigation workflows across Flutter, React Native, Expo, and native iOS paths.",
       },
       {
         question: "Why compare Rejourney with Fullstory?",

@@ -583,7 +583,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.1.0"
+        const val SDK_VERSION = "0.1.1"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

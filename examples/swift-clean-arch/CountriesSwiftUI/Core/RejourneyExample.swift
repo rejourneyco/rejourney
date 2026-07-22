@@ -15,7 +15,7 @@ enum RejourneyExample {
 
     private static let publicKey = "rj_94f602bb3ff12873008b16fb2f3389cc"
     // Fallback URL (Set this to your Mac's local IP address like 192.168.x.x for physical device testing)
-    private static let fallbackAPIURL = URL(string: "http://172.31.251.35:3000")!
+    private static let fallbackAPIURL = URL(string: "http://192.168.4.33:3000")!
     private static var didConfigure = false
     private static var didStart = false
     private static var pendingScreens: [String] = []

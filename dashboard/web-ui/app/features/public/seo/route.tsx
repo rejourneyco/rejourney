@@ -283,7 +283,7 @@ const featureDisplayByPath: Record<string, FeatureDisplay> = {
     fitTitle: "Best fit",
     tradeoffTitle: "Use aggregate analytics when",
     heroBullets: ["Device cohorts", "Issue pressure", "Engagement quality"],
-    available: ["Mobile apps", "React Native", "iOS and Android"],
+    available: ["Flutter", "React Native", "iOS and Android"],
     showcaseTabs: ["Portfolio", "Engagement", "Stability", "Versions", "Replay"],
     showcaseTitle: "Spot device-specific product friction",
     showcaseCopy: "Device insights show which devices carry engagement, stability, duration, and issue patterns that averages hide.",
@@ -314,8 +314,8 @@ const featureDisplayByPath: Record<string, FeatureDisplay> = {
     guideTitle: "Record app semantics",
     fitTitle: "Best fit",
     tradeoffTitle: "Use web-first tools when",
-    heroBullets: ["Record taps and gestures", "Inspect crashes and ANRs", "Support React Native, Expo, and iOS"],
-    available: ["React Native", "Expo", "iOS"],
+    heroBullets: ["Record taps and gestures", "Inspect crashes and ANRs", "Support Flutter, React Native, Expo, and iOS"],
+    available: ["Flutter", "React Native", "Expo", "Native iOS"],
     showcaseTabs: ["Watch taps", "Find rage taps", "Trace screens", "Debug ANRs", "Share sessions"],
     showcaseTitle: "See the app state around the failure",
     showcaseCopy: "Replay is paired with screen, device, journey, touch map, crash, ANR, and network context so mobile issues are easier to reproduce.",
@@ -1046,8 +1046,8 @@ export const meta: MetaFunction = ({ location }) => {
 
 function valueLabel(value: SeoComparisonValue) {
   if (value === "yes") return "Included";
-  if (value === "partial") return "Partial";
-  if (value === "no") return "No";
+  if (value === "partial") return "Limited";
+  if (value === "no") return "Not listed";
   return value;
 }
 
@@ -1059,7 +1059,7 @@ function ValueBadge({ value }: { value: SeoComparisonValue }) {
   const className = isYes
     ? "border-emerald-700 bg-emerald-100 text-emerald-950"
     : isNo
-      ? "border-rose-300 bg-rose-50 text-rose-800"
+      ? "border-slate-300 bg-slate-100 text-slate-700"
       : "border-amber-400 bg-amber-100 text-amber-950";
 
   return (
@@ -3184,18 +3184,30 @@ const AD_LANDING_HEADLINES: Record<string, string> = {
   "/revenue-recovery-analytics": "Revenue Leaks",
   "/alternatives/posthog-session-replay": "PostHog Alternative",
   "/alternatives/sentry-session-replay": "Sentry Alternative",
+  "/alternatives/datadog-session-replay": "Datadog Alternative for Replay-Led Product Teams",
+  "/alternatives/amplitude-session-replay": "Amplitude Alternative for Session-First Investigation",
+  "/alternatives/mixpanel-session-replay": "Mixpanel Alternative with Replay and Debug Context",
+  "/alternatives/pendo-session-replay": "Pendo Alternative for Replay Before In-App Guidance",
+  "/alternatives/fullstory": "A Leaner Fullstory Alternative",
+  "/alternatives/hotjar": "A Focused Hotjar and Contentsquare Alternative",
   "/alternatives/smartlook": "Smartlook Alternative",
 };
 
 const AD_LANDING_SUBHEADLINES: Record<string, string> = {
   "/web-session-replay": "Record DOM mutations and browser sessions. Predict and pinpoint checkout friction and conversion leaks before they cost you sales.",
-  "/mobile-session-replay": "Replay native iOS, React Native, and Expo screens. Identify gesture friction, freeze points, and mobile onboarding leaks.",
+  "/mobile-session-replay": "Replay Flutter, native iOS, React Native, and Expo screens. Identify gesture friction, freeze points, and mobile onboarding leaks.",
   "/stability-monitoring": "Monitor crashes, ANRs, and API failures. Pair error diagnostics with replay context to fix bugs that block transactions.",
   "/funnel-replay-evidence": "Analyze journey ribbons and backtrack loops. Pinpoint where visitors abandon flows and watch replays of drops.",
   "/revenue-recovery-analytics": "Link gross revenue drops directly to failed checkouts and releases. Recover leaked carts with replay evidence.",
-  "/alternatives/posthog-session-replay": "Get replay-first product analytics and mobile stability context in one tab. Simple pricing, no complex usage meters.",
-  "/alternatives/sentry-session-replay": "Go beyond exception monitoring. Watch session replays and journeys to see why users drop off, even when code succeeds.",
-  "/alternatives/smartlook": "Migrate from Smartlook before the Cisco EOL path winds down. Keep replay, heatmaps, journeys, and crash triage together.",
+  "/alternatives/posthog-session-replay": "Compare a focused replay workflow with PostHog's broader product platform across web, mobile, analytics, and debugging context.",
+  "/alternatives/sentry-session-replay": "Compare product and UX investigation with Sentry's developer-first error and performance workflow.",
+  "/alternatives/datadog-session-replay": "Compare a focused session-evidence workspace with Datadog's broad RUM and observability platform.",
+  "/alternatives/amplitude-session-replay": "Compare replay-led investigation with Amplitude's analytics-first platform, current replay allowances, and workflow breadth.",
+  "/alternatives/mixpanel-session-replay": "Compare session-first product debugging with Mixpanel's event analytics, heatmaps, and native mobile replay.",
+  "/alternatives/pendo-session-replay": "Compare replay and technical context with Pendo's analytics, in-app guidance, and product-adoption suite.",
+  "/alternatives/fullstory": "Compare a focused, self-hostable replay workflow with Fullstory's mature digital-experience analytics platform.",
+  "/alternatives/hotjar": "Compare Rejourney with Hotjar's current path into Contentsquare for replay, heatmaps, journeys, and experience analytics.",
+  "/alternatives/smartlook": "Move from Smartlook after end of sale while support continues through August 31, 2027. Keep replay, heatmaps, journeys, and technical context together.",
 };
 
 const AD_LANDING_HERO_IMAGES: Record<string, string> = {
@@ -3243,7 +3255,7 @@ function AdHero({ page }: { page: SeoPage }) {
         <div className="lg:col-span-6 flex flex-col items-start text-left">
           <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-            Visual User Evidence
+            {page.kind === "alternative" ? `Considering ${page.otherColumnTitle}?` : "Visual User Evidence"}
           </span>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight text-slate-950 leading-[0.98] mb-6">
             {headline}
@@ -3279,7 +3291,7 @@ function AdHero({ page }: { page: SeoPage }) {
             </span>
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="h-4 w-4 text-sky-600" strokeWidth={2.5} />
-              GDPR compliant · Secure data masking
+              Privacy masking controls
             </span>
           </div>
         </div>
@@ -3302,6 +3314,15 @@ function AdHero({ page }: { page: SeoPage }) {
                 className="h-auto max-h-[460px] w-full rounded-lg object-contain"
               />
             </div>
+            {page.kind === "alternative" ? (
+              <div className="absolute -bottom-10 -right-2 z-20 rounded-full bg-[#fff19c] p-1.5 shadow-[3px_4px_0_#0f172a] sm:-right-6">
+                <img
+                  src="/images/rejourney-cat.svg"
+                  alt="Rejourney cat mascot"
+                  className="h-20 w-20 drop-shadow-[0_8px_8px_rgba(15,23,42,0.14)] sm:h-24 sm:w-24"
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -3458,7 +3479,7 @@ function AdBenefits({ page }: { page: SeoPage }) {
   const benefits = [
     {
       title: "Identify UX Friction",
-      desc: "Watch high-fidelity session replays of gestures, screen paths, backtrack loops, and rage clicks. Instantly identify checkout drops and conversion blocks.",
+      desc: "Watch session replays of gestures, screen paths, backtrack loops, and rage clicks. Investigate the sessions behind checkout drops and conversion friction.",
       image: "/images/landing-replay-workbench.png",
       imageAlt: "Rejourney Session Replay Workbench",
       badge: "Session Replay",
@@ -3466,7 +3487,7 @@ function AdBenefits({ page }: { page: SeoPage }) {
     },
     {
       title: "Quantify Revenue Severity",
-      desc: "Connect replays to Stripe, RevenueCat, or Superwall events. Track conversion leaks and API errors prioritized by their estimated revenue impact.",
+      desc: "Connect replays to Stripe, RevenueCat, or Superwall events. Review conversion leaks and API errors beside the sessions and revenue events they affected.",
       image: "/images/growth-engines.png",
       imageAlt: "Rejourney Revenue Analytics",
       badge: "Revenue Analytics",
@@ -3474,7 +3495,7 @@ function AdBenefits({ page }: { page: SeoPage }) {
     },
     {
       title: "Exact Reproduction Steps",
-      desc: "Triage stability issues with console logs, network payloads, and stack traces. Share clean diagnostic bundles with engineering to patch bugs in minutes.",
+      desc: "Triage stability issues with console logs, network payloads, and stack traces. Share the replay and diagnostic context with engineering for reproduction.",
       image: "/images/anr-issues.png",
       imageAlt: "Rejourney Crash Triage Dashboard",
       badge: "Crash & ANR Triage",
@@ -3490,7 +3511,7 @@ function AdBenefits({ page }: { page: SeoPage }) {
           Recovery Workflow
         </span>
         <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-16 max-w-3xl mx-auto leading-none">
-          RECOVERY WORKFLOW THAT DRIVES CONVERSION
+          EVIDENCE FOR CONVERSION AND PRODUCT WORK
         </h2>
         
         <div className="space-y-24 text-left">
@@ -3552,6 +3573,7 @@ function AdInstallation() {
   const tabs = [
     { id: "web", label: "Web / React", command: "npm install @rejourneyco/browser", code: `import { Rejourney } from '@rejourneyco/browser';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
     { id: "reactnative", label: "React Native / Expo", command: "npm install @rejourneyco/react-native", code: `import { Rejourney } from '@rejourneyco/react-native';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
+    { id: "flutter", label: "Flutter", command: "flutter pub add rejourney", code: `import 'package:rejourney/rejourney.dart';\n\nawait Rejourney.init('rj_live_your_key');\nawait Rejourney.start();` },
     { id: "swift", label: "Swift / iOS", command: "SPM: https://github.com/rejourneyco/rejourney", code: `import Rejourney\n\nRejourney.configure(publicKey: "rj_your_key")\nTask { await Rejourney.start() }` }
   ];
 
@@ -3565,14 +3587,14 @@ function AdInstallation() {
           DEVELOPER FRIENDLY
         </span>
         <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
-          INSTALL IN UNDER 2 MINUTES
+          GET SET UP WITH YOUR SDK
         </h2>
         <p className="text-base sm:text-lg font-bold text-slate-500 mb-10 max-w-2xl mx-auto">
-          Add lightweight visual session monitoring to your app shell with three lines of code.
+          Choose the web, React Native / Expo, Flutter, or Swift setup and follow the matching SDK documentation.
         </p>
 
         {/* Custom Tab selectors */}
-        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 mb-8">
+        <div className="mb-8 inline-grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -3613,12 +3635,318 @@ function AdInstallation() {
 
         {/* Setup pills updated to square tags */}
         <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {["Web SDK", "React Native", "Expo Plugin", "Swift iOS", "CocoaPods"].map((pill) => (
+          {["Web SDK", "React Native", "Expo Plugin", "Flutter", "Swift iOS", "CocoaPods"].map((pill) => (
             <span key={pill} className="inline-flex items-center gap-1.5 rounded border border-slate-205 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 shadow-sm">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               {pill}
             </span>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type ReplayPlatform = "web" | "mobile";
+
+type CompetitorPricingModel =
+  | "posthog"
+  | "sentry"
+  | "datadog"
+  | "amplitude"
+  | "mixpanel"
+  | "pendo"
+  | "smartlook"
+  | "contentsquare"
+  | "fullstory";
+
+type CompetitorPricingConfig = {
+  model: CompetitorPricingModel;
+  name: string;
+  sourceLabel: string;
+  sourceHref: string;
+  publicFact: string;
+};
+
+const replayVolumeSteps = [5_000, 10_000, 25_000, 50_000, 100_000, 350_000, 1_000_000] as const;
+
+const competitorPricingByPath: Record<string, CompetitorPricingConfig> = {
+  "/alternatives/posthog-session-replay": {
+    model: "posthog",
+    name: "PostHog",
+    sourceLabel: "PostHog pricing",
+    sourceHref: "https://posthog.com/pricing",
+    publicFact: "5K web or 2.5K mobile replays free, then progressive per-recording rates.",
+  },
+  "/alternatives/sentry-session-replay": {
+    model: "sentry",
+    name: "Sentry",
+    sourceLabel: "Sentry pricing",
+    sourceHref: "https://sentry.io/pricing/",
+    publicFact: "50 replays included; Team starts at $26/mo billed annually, with replay usage billed separately.",
+  },
+  "/alternatives/datadog-session-replay": {
+    model: "datadog",
+    name: "Datadog",
+    sourceLabel: "Datadog RUM pricing",
+    sourceHref: "https://www.datadoghq.com/pricing/?product=real-user-monitoring",
+    publicFact: "Session Replay starts at $2.50 per 1K sessions on annual billing, in addition to RUM.",
+  },
+  "/alternatives/amplitude-session-replay": {
+    model: "amplitude",
+    name: "Amplitude",
+    sourceLabel: "Amplitude pricing",
+    sourceHref: "https://amplitude.com/pricing",
+    publicFact: "10K monthly replays on Free, 20K on Growth, and 50K on Enterprise; paid prices are volume-based or custom.",
+  },
+  "/alternatives/mixpanel-session-replay": {
+    model: "mixpanel",
+    name: "Mixpanel",
+    sourceLabel: "Mixpanel pricing",
+    sourceHref: "https://mixpanel.com/pricing/",
+    publicFact: "10K monthly replays on Free and 20K on Growth; larger replay allowances are customizable.",
+  },
+  "/alternatives/pendo-session-replay": {
+    model: "pendo",
+    name: "Pendo",
+    sourceLabel: "Pendo pricing",
+    sourceHref: "https://www.pendo.io/pricing/",
+    publicFact: "Session Replay is included on Core and Ultimate, both with custom MAU-based pricing.",
+  },
+  "/alternatives/smartlook": {
+    model: "smartlook",
+    name: "Smartlook",
+    sourceLabel: "Cisco Smartlook EOL notice",
+    sourceHref: "https://www.cisco.com/c/en/us/products/collateral/software/smartlook-com-eol.html",
+    publicFact: "Smartlook reached end of sale on May 31, 2026; new standalone pricing is no longer a buying path.",
+  },
+  "/alternatives/hotjar": {
+    model: "contentsquare",
+    name: "Contentsquare",
+    sourceLabel: "Contentsquare pricing",
+    sourceHref: "https://contentsquare.com/pricing/",
+    publicFact: "Free captures 5% up to 10K replays; Growth starts at $49/mo annually with session-based sampling.",
+  },
+  "/alternatives/fullstory": {
+    model: "fullstory",
+    name: "Fullstory",
+    sourceLabel: "Fullstory plans",
+    sourceHref: "https://www.fullstory.com/plans/",
+    publicFact: "FullstoryFree includes 30K web sessions; paid plans and Mobile require pricing requests.",
+  },
+};
+
+const formatReplayVolume = (sessions: number) => {
+  if (sessions >= 1_000_000) return `${sessions / 1_000_000}M`;
+  return `${sessions / 1_000}K`;
+};
+
+const formatMonthlyPrice = (price: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Number.isInteger(price) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(price);
+
+const rejourneyReplayPrice = (sessions: number) => {
+  if (sessions <= 5_000) return { price: 0, plan: "Free" };
+  if (sessions <= 25_000) return { price: 5, plan: "Starter" };
+  if (sessions <= 100_000) return { price: 15, plan: "Growth" };
+  if (sessions <= 350_000) return { price: 35, plan: "Pro" };
+  return { price: 149, plan: "Scale" };
+};
+
+const progressiveReplayPrice = (
+  sessions: number,
+  tiers: Array<{ from: number; to?: number; rate: number }>,
+) => tiers.reduce((total, tier) => {
+  const upper = Math.min(sessions, tier.to ?? sessions);
+  return upper > tier.from ? total + (upper - tier.from) * tier.rate : total;
+}, 0);
+
+type CompetitorPriceResult = {
+  priceLabel: string;
+  detail: string;
+  numericMonthly?: number;
+};
+
+const getCompetitorReplayPrice = (
+  config: CompetitorPricingConfig,
+  sessions: number,
+  platform: ReplayPlatform,
+): CompetitorPriceResult => {
+  switch (config.model) {
+    case "posthog": {
+      const tiers = platform === "mobile"
+        ? [
+            { from: 2_500, to: 15_000, rate: 0.01 },
+            { from: 15_000, to: 50_000, rate: 0.007 },
+            { from: 50_000, to: 150_000, rate: 0.004 },
+            { from: 150_000, to: 500_000, rate: 0.0034 },
+            { from: 500_000, rate: 0.003 },
+          ]
+        : [
+            { from: 5_000, to: 15_000, rate: 0.005 },
+            { from: 15_000, to: 50_000, rate: 0.0035 },
+            { from: 50_000, to: 150_000, rate: 0.002 },
+            { from: 150_000, to: 500_000, rate: 0.0017 },
+            { from: 500_000, rate: 0.0015 },
+          ];
+      const price = progressiveReplayPrice(sessions, tiers);
+      return {
+        priceLabel: `${formatMonthlyPrice(price)}/mo`,
+        detail: `Published ${platform} replay tiers, including the monthly free quota.`,
+        numericMonthly: price,
+      };
+    }
+    case "sentry":
+      return sessions <= 50
+        ? { priceLabel: "$0/mo", detail: "Developer includes 50 replays per month.", numericMonthly: 0 }
+        : { priceLabel: "From $26/mo + usage", detail: "Team base on annual billing; Sentry meters replay volume above the included 50." };
+    case "datadog": {
+      const replayLine = (sessions / 1_000) * 2.5;
+      return {
+        priceLabel: `At least ${formatMonthlyPrice(replayLine)}/mo`,
+        detail: "Annual Session Replay line item only. Required RUM charges are additional.",
+        numericMonthly: replayLine,
+      };
+    }
+    case "amplitude":
+      if (sessions <= 10_000) return { priceLabel: "$0/mo", detail: "Free includes 10K monthly replays.", numericMonthly: 0 };
+      if (sessions <= 20_000) return { priceLabel: "Custom Growth price", detail: "Growth lists 20K monthly replays; its event-based price is not public." };
+      if (sessions <= 50_000) return { priceLabel: "Custom Enterprise price", detail: "Enterprise lists 50K monthly replays; its price is not public." };
+      return { priceLabel: "Custom replay package", detail: "Amplitude sells custom monthly replay volume on Growth and Enterprise." };
+    case "mixpanel":
+      if (sessions <= 10_000) return { priceLabel: "$0/mo", detail: "Free includes 10K monthly replays.", numericMonthly: 0 };
+      if (sessions <= 20_000) return { priceLabel: "$0 replay allowance", detail: "Growth includes 20K replays; the plan starts at $0 while usage stays inside its free event allowance.", numericMonthly: 0 };
+      return { priceLabel: "Custom replay allowance", detail: "Mixpanel publishes customizable replay volume, but not its replay dollar rate." };
+    case "pendo":
+      return { priceLabel: "Custom quote", detail: "Replay is included on Core and Ultimate; both use custom MAU-based pricing." };
+    case "smartlook":
+      return { priceLabel: "Not available to buy", detail: "Cisco lists May 31, 2026 as Smartlook's end-of-sale date." };
+    case "contentsquare":
+      return sessions <= 10_000
+        ? { priceLabel: "$0/mo", detail: "Free captures 5% of analyzed sessions, capped at 10K monthly replays.", numericMonthly: 0 }
+        : { priceLabel: "From $49/mo", detail: "Growth starts at $49 annually and samples replays; exact cost depends on total analyzed sessions." };
+    case "fullstory":
+      if (platform === "web" && sessions <= 30_000) {
+        return { priceLabel: "$0/mo", detail: "FullstoryFree includes 30K web sessions per month.", numericMonthly: 0 };
+      }
+      return {
+        priceLabel: "Custom quote",
+        detail: platform === "mobile"
+          ? "Mobile is not included in FullstoryFree and is packaged through paid plans."
+          : "Paid session volume is handled through a pricing request.",
+      };
+  }
+};
+
+function AdReplayPricingCalculator({ page }: { page: SeoPage }) {
+  const config = competitorPricingByPath[page.path];
+  const [volumeIndex, setVolumeIndex] = React.useState(4);
+  const [platform, setPlatform] = React.useState<ReplayPlatform>("web");
+
+  if (!config) return null;
+
+  const sessions = replayVolumeSteps[volumeIndex];
+  const rejourney = rejourneyReplayPrice(sessions);
+  const competitor = getCompetitorReplayPrice(config, sessions, platform);
+  const exactSavings = competitor.numericMonthly !== undefined && competitor.numericMonthly > rejourney.price
+    ? competitor.numericMonthly - rejourney.price
+    : null;
+
+  return (
+    <section className="border-b border-slate-200/80 bg-[#f8fafc] px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
+        <div className="mx-auto mb-9 max-w-3xl text-center">
+          <span className="mb-5 flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-wider text-indigo-600">
+            <BadgeDollarSign className="h-4 w-4" aria-hidden />
+            Replay pricing calculator
+          </span>
+          <h2 className="text-3xl font-black uppercase leading-none text-slate-950 sm:text-5xl">
+            Price {formatReplayVolume(sessions)} captured sessions
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-7 text-slate-500">
+            One monthly replay volume, compared against each vendor's current public pricing.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
+            <label className="block">
+              <span className="flex items-center justify-between gap-4 text-sm font-black uppercase text-slate-900">
+                Captured sessions / month
+                <output className="font-mono text-lg text-indigo-700">{formatReplayVolume(sessions)}</output>
+              </span>
+              <input
+                type="range"
+                min="0"
+                max={replayVolumeSteps.length - 1}
+                step="1"
+                value={volumeIndex}
+                onChange={(event) => setVolumeIndex(Number(event.target.value))}
+                className="mt-4 h-2 w-full cursor-pointer accent-indigo-600"
+                aria-label="Captured sessions per month"
+                aria-valuetext={`${sessions.toLocaleString()} captured sessions per month`}
+              />
+              <span className="mt-2 flex justify-between font-mono text-[10px] font-bold uppercase text-slate-400">
+                <span>5K</span><span>1M</span>
+              </span>
+            </label>
+
+            <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1" aria-label="Replay platform">
+              {(["web", "mobile"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setPlatform(option)}
+                  aria-pressed={platform === option}
+                  className={`rounded-md px-5 py-2 text-xs font-black uppercase transition ${
+                    platform === option ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-7 grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50/60 p-5">
+              <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Rejourney · {rejourney.plan}</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">{formatMonthlyPrice(rejourney.price)}<span className="text-base text-slate-500">/mo</span></p>
+              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">Same captured-session allowance for web and mobile, with revenue leak prediction included.</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-500">{config.name}</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">{competitor.priceLabel}</p>
+              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">{competitor.detail}</p>
+            </div>
+          </div>
+
+          {exactSavings !== null ? (
+            <div className="mt-4 rounded-lg bg-slate-950 px-4 py-3 text-center text-sm font-black uppercase text-white">
+              Rejourney saves {formatMonthlyPrice(exactSavings)}/mo at this volume
+              {config.model === "datadog" ? " before required RUM charges" : ""}.
+            </div>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-5 text-xs font-bold leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-2xl">
+              {config.publicFact} Estimates exclude taxes, negotiated discounts, retention upgrades, and unrelated add-ons. “Custom” means the vendor does not publish enough data for an honest dollar estimate.
+            </p>
+            <a
+              href={config.sourceHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 font-black text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900"
+            >
+              {config.sourceLabel}
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          </div>
         </div>
       </div>
     </section>
@@ -3640,7 +3968,7 @@ function AdComparison({ page }: { page: SeoPage }) {
             REJOURNEY VS {page.otherColumnTitle.toUpperCase()}
           </h2>
           <p className="text-base sm:text-lg font-bold text-slate-500 max-w-xl mx-auto">
-            A lighter, replay-first workspace built for product recovery and dev debugging.
+            Public capabilities reviewed {page.lastReviewed ?? "recently"}. Plan and platform details can change, so verify the linked vendor sources before buying.
           </p>
         </div>
 
@@ -3675,6 +4003,28 @@ function AdComparison({ page }: { page: SeoPage }) {
           </div>
         </div>
 
+        {page.officialSources?.length ? (
+          <div className="mx-auto mb-12 max-w-4xl rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
+            <p className="font-bold leading-6">
+              “Limited” means plan-, platform-, or scope-dependent. “Not listed” means we did not find a directly comparable capability in the public materials reviewed; it is not a claim that the vendor can never support it.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2" aria-label={`${page.otherColumnTitle} official sources`}>
+              {page.officialSources.map((source) => (
+                <a
+                  key={source.href}
+                  href={source.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 font-extrabold text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900"
+                >
+                  {source.label}
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {/* Try Rejourney CTA Box */}
         <div className="relative rounded-2xl border border-slate-200 bg-gradient-to-br from-[#ecfeff]/80 to-white p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 max-w-4xl mx-auto overflow-hidden">
           <div className="absolute top-0 right-0 h-48 w-48 rounded-full bg-cyan-200/10 blur-2xl pointer-events-none" />
@@ -3683,7 +4033,7 @@ function AdComparison({ page }: { page: SeoPage }) {
               READY TO TRY REJOURNEY?
             </h3>
             <p className="text-base font-bold text-slate-500">
-              Get started in under 2 minutes. 5,000 monthly sessions included free.
+              The Free plan includes 5,000 monthly sessions. Review pricing and setup docs before rollout.
             </p>
           </div>
           <Link
@@ -3707,10 +4057,10 @@ function AdRepeatedCTA({ isBottom = false }: { isBottom?: boolean }) {
       
       <div className="relative z-10 mx-auto max-w-4xl">
         <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
-          START RECLAIMING LEAKED REVENUE TODAY
+          START INVESTIGATING PRODUCT FRICTION
         </h2>
         <p className="text-base sm:text-lg font-bold text-slate-500 mb-8 max-w-2xl mx-auto">
-          Get 5,000 monthly sessions for free. Installation takes under 2 minutes. No credit card required.
+          The Free plan includes 5,000 monthly sessions. No credit card required.
         </p>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 max-w-md mx-auto">
           <Link
@@ -3768,7 +4118,9 @@ function AdFooter() {
     <footer className="bg-slate-950 py-12 px-4 sm:px-6 lg:px-8 text-white font-sans text-xs border-t border-slate-900">
       <div className="mx-auto max-w-7xl flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-2.5">
-          <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney logo" className="h-6 w-6 object-contain invert brightness-200" />
+          <span className="grid h-8 w-8 place-items-center rounded-md bg-white p-1 shadow-sm">
+            <img src="/rejourneyIcon-removebg-preview.png" alt="" className="h-full w-full object-contain" />
+          </span>
           <span className="text-sm font-black uppercase tracking-tight">Rejourney</span>
         </div>
         <div className="flex flex-wrap justify-center gap-6 font-bold uppercase tracking-wider text-slate-400">
@@ -3791,6 +4143,7 @@ function PaidAdLandingPage({ page }: { page: SeoPage }) {
       <AdHero page={page} />
       <AdTrustBanner />
       <AdBenefits page={page} />
+      {page.kind === "alternative" && <AdReplayPricingCalculator page={page} />}
       <AdInstallation />
       {page.kind === "alternative" && <AdComparison page={page} />}
       <AdRepeatedCTA isBottom={false} />
