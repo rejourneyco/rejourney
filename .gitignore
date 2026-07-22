@@ -25,6 +25,10 @@ packages/react-native/*.tgz
 # iOS
 *.xcworkspace
 !*.xcworkspace/contents.xcworkspacedata
+!packages/flutter/example/ios/Runner.xcworkspace/
+!packages/flutter/example/ios/Runner.xcworkspace/contents.xcworkspacedata
+!examples/flutter/ios/Runner.xcworkspace/
+!examples/flutter/ios/Runner.xcworkspace/contents.xcworkspacedata
 **/ios/Pods/
 **/ios/build/
 **/ios/*.xcworkspace/xcuserdata/
