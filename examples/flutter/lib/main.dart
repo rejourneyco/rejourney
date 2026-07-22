@@ -171,7 +171,7 @@ class _ExampleHomeState extends State<ExampleHome> {
           ),
           const SizedBox(height: 28),
           const Text(
-            'This app consumes packages/flutter by path, exercises the native '
+            'This app consumes packages/rejourney by path, exercises the native '
             'plugin, supplies named navigation, emits typed events, reads SDK '
             'metrics, and masks payment content from replay.',
           ),

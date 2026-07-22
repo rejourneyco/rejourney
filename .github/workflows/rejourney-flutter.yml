@@ -3,7 +3,7 @@ name: Rejourney Flutter SDK
 on:
   pull_request:
     paths:
-      - "packages/flutter/**"
+      - "packages/rejourney/**"
       - "examples/flutter/**"
       - "docs/flutter/**"
       - "benchmarks/flutter/**"
@@ -12,7 +12,7 @@ on:
     branches: [main]
     tags: ["flutter-v*"]
     paths:
-      - "packages/flutter/**"
+      - "packages/rejourney/**"
       - "examples/flutter/**"
       - "docs/flutter/**"
       - "benchmarks/flutter/**"
@@ -43,19 +43,19 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
-          version="$(sed -n 's/^version: //p' packages/flutter/pubspec.yaml)"
+          version="$(sed -n 's/^version: //p' packages/rejourney/pubspec.yaml)"
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Current Flutter package version: $version"
 
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || \
-             ! git cat-file -e "$BEFORE_SHA:packages/flutter/pubspec.yaml" 2>/dev/null; then
+             ! git cat-file -e "$BEFORE_SHA:packages/rejourney/pubspec.yaml" 2>/dev/null; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "This is the package's first commit; publish and transfer the first version manually before enabling automation."
             exit 0
           fi
 
-          previous_version="$(git show "$BEFORE_SHA:packages/flutter/pubspec.yaml" | sed -n 's/^version: //p')"
+          previous_version="$(git show "$BEFORE_SHA:packages/rejourney/pubspec.yaml" | sed -n 's/^version: //p')"
           test -n "$previous_version"
           echo "Previous Flutter package version: $previous_version"
 
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/flutter
+        working-directory: packages/rejourney
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/flutter/example
+        working-directory: packages/rejourney/example
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -126,7 +126,7 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_7
-          working-directory: packages/flutter/example
+          working-directory: packages/rejourney/example
           script: flutter test integration_test/plugin_integration_test.dart -d emulator-5554 --reporter expanded
 
   ios:
@@ -134,7 +134,7 @@ jobs:
     runs-on: macos-15
     defaults:
       run:
-        working-directory: packages/flutter/example
+        working-directory: packages/rejourney/example
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -223,7 +223,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify tag matches pubspec version
         id: release
-        working-directory: packages/flutter
+        working-directory: packages/rejourney
         run: |
           version="$(sed -n 's/^version: //p' pubspec.yaml)"
           test -n "$version"
@@ -263,7 +263,7 @@ jobs:
       contents: read
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
-      working-directory: packages/flutter
+      working-directory: packages/rejourney
       environment: pub.dev
 
   github-release:

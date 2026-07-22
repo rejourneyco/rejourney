@@ -5,7 +5,7 @@ This benchmark measures the Dart-facing work performed before a Flutter platform
 Run it from the repository root:
 
 ```bash
-cd packages/flutter
+cd packages/rejourney
 flutter pub get
 flutter test benchmark/rejourney_benchmark_test.dart --reporter expanded
 ```

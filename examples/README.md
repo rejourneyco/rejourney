@@ -28,8 +28,8 @@ React Native examples:
 
 Flutter examples:
 
-- `flutter`: standalone consumer-style iOS and Android app using the local `packages/flutter` plugin
-- `../packages/flutter/example`: package-owned integration and widget-test fixture
+- `flutter`: standalone consumer-style iOS and Android app using the local `packages/rejourney` plugin
+- `../packages/rejourney/example`: package-owned integration and widget-test fixture
 
 Useful root commands:
 

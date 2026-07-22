@@ -3,7 +3,7 @@ description: Privacy-first Flutter session replay for iOS and Android with maski
 version: 0.1.0
 homepage: https://rejourney.co
 documentation: https://rejourney.co/docs/flutter/overview
-repository: https://github.com/rejourneyco/rejourney/tree/main/packages/flutter
+repository: https://github.com/rejourneyco/rejourney/tree/main/packages/rejourney
 issue_tracker: https://github.com/rejourneyco/rejourney/issues
 topics:
   - session-replay

@@ -166,7 +166,7 @@ packages:
   rejourney:
     dependency: "direct main"
     description:
-      path: "../../packages/flutter"
+      path: "../../packages/rejourney"
       relative: true
     source: path
     version: "0.1.0"

@@ -1,6 +1,6 @@
 # Rejourney Flutter consumer example
 
-This standalone Flutter application consumes `packages/flutter` through a relative path, the same way a separate application consumes a published plugin. It covers native registration, SDK configuration, health metrics, route observation, custom/revenue events, Flutter error hooks, and replay-only privacy masking.
+This standalone Flutter application consumes `packages/rejourney` through a relative path, the same way a separate application consumes a published plugin. It covers native registration, SDK configuration, health metrics, route observation, custom/revenue events, Flutter error hooks, and replay-only privacy masking.
 
 The app defaults to the Rejourney Flutter example project's public key, so a normal run exercises capture and upload:
 

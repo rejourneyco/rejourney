@@ -28,7 +28,7 @@ For a local checkout of this repository, use a path dependency instead:
 ```yaml
 dependencies:
   rejourney:
-    path: ../../packages/flutter
+    path: ../../packages/rejourney
 ```
 
 Run CocoaPods after adding the plugin to an existing iOS application if your normal Flutter build does not do so automatically:
@@ -415,7 +415,7 @@ await Rejourney.init(
 6. Call `getSdkMetrics()` to verify the native bridge and health counters.
 7. Validate debug crash and ANR capture only in disposable builds.
 
-The repository includes two working applications: the package example in `packages/flutter/example` and a consumer-style app in `examples/flutter`.
+The repository includes two working applications: the package example in `packages/rejourney/example` and a consumer-style app in `examples/flutter`.
 
 ## Troubleshooting
 

@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   rejourney:
-    path: ../../packages/flutter
+    path: ../../packages/rejourney
 
 dev_dependencies:
   flutter_test:

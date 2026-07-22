@@ -152,7 +152,7 @@ The tag is only created when `packages/react-native/package.json` changed from t
 
 ## Flutter SDK Pipeline
 
-The Flutter SDK pipeline lives in `Rejourney Flutter SDK` and validates `packages/flutter` plus its standalone consumer example.
+The Flutter SDK pipeline lives in `Rejourney Flutter SDK` and validates `packages/rejourney` plus its standalone consumer example.
 
 It runs Dart formatting, analysis, tests, bridge benchmarks, and a pub.dev dry run; builds and tests the Android and iOS plugin examples; and runs native integration tests on an Android emulator and iOS simulator. A tested version bump creates a `flutter-vX.Y.Z` tag, publishes `rejourney` to pub.dev with OIDC, and creates the matching GitHub release.
 
