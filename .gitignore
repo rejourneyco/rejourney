@@ -14,6 +14,10 @@ docker/.env
 **/.output/
 **/.svelte-kit/
 packages/**/lib/
+!packages/flutter/lib/
+!packages/flutter/lib/**
+!packages/flutter/example/lib/
+!packages/flutter/example/lib/**
 packages/**/dist/
 packages/react-native/*.tgz
 *.tsbuildinfo
