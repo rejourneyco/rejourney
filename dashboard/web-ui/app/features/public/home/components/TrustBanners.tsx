@@ -1,7 +1,7 @@
 import React from 'react';
 import { Droplet, Globe } from 'lucide-react';
 import { EuFlag } from './EuFlag';
-import { MarkExpo, MarkReactNative, MarkSwift, MarkNextJs, MarkVue, MarkNuxt } from './PlatformMarks';
+import { MarkExpo, MarkFlutter, MarkReactNative, MarkSwift, MarkNextJs, MarkVue } from './PlatformMarks';
 import type { MarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 
 const badgeClass =
@@ -25,6 +25,10 @@ export const TrustBanners: React.FC<{ copy: MarketingHomeCopy['trust'] }> = ({ c
                     <span className={badgeClass}>
                         <MarkReactNative className={`${badgeIconClass} text-[#2563eb]`} />
                         <span className="truncate">{copy.reactNative}</span>
+                    </span>
+                    <span className={badgeClass}>
+                        <MarkFlutter className={`${badgeIconClass} text-[#54c5f8]`} />
+                        Flutter
                     </span>
                     <span className={badgeClass}>
                         <MarkSwift className={`${badgeIconClass} text-[#f97316]`} />

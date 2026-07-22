@@ -11,6 +11,7 @@ export const Footer: React.FC = () => {
   const docsPath = getLocalizedPublicPath(locale, "/docs");
   const webDocsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
   const reactNativeDocsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
+  const flutterDocsPath = getLocalizedPublicPath(locale, "/docs/flutter/overview");
   const swiftDocsPath = getLocalizedPublicPath(locale, "/docs/swift/overview");
   const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
   const pricingPath = getLocalizedPublicPath(locale, "/pricing");
@@ -50,6 +51,7 @@ export const Footer: React.FC = () => {
     { label: "Revenue Leak Guide", href: "/engineering/2026-07-12/revenue-leak-detection" },
     { label: "Web SDK", href: webDocsPath },
     { label: "React Native SDK", href: reactNativeDocsPath },
+    { label: "Flutter SDK", href: flutterDocsPath },
     { label: "iOS SDK", href: swiftDocsPath },
     { label: copy.selfHosted, href: selfHostedPath },
     { label: copy.pricing, href: pricingPath },

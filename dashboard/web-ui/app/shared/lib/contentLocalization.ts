@@ -123,6 +123,7 @@ const englishContentCopy: ContentLocaleCopy = {
     "browser session replay docs",
     "mobile SDK documentation",
     "React Native analytics documentation",
+    "Flutter SDK documentation",
     "mobile session replay docs",
   ],
   engineeringMetaTitle: "Engineering Log - Technical articles | Rejourney",
@@ -233,7 +234,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   ar: {
     docsIndexTitle: "توثيق Web وMobile SDK - Rejourney",
     docsIndexDescription:
-      "توثيق Rejourney لتطبيقات الويب والجوال، بما في ذلك Browser SDK وsession replay وReact Native وSwift iOS وExpo والاستضافة الذاتية.",
+      "توثيق Rejourney لتطبيقات الويب والجوال، بما في ذلك Browser SDK وsession replay وReact Native وFlutter وSwift iOS وExpo والاستضافة الذاتية.",
     docsTitleSuffix: "توثيق Rejourney",
     docsSiteName: "توثيق Rejourney",
     docsBreadcrumb: "التوثيق",
@@ -255,7 +256,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     documentationNotFoundHeading: "التوثيق غير موجود",
     documentationNotFoundCopy: "تعذر العثور على صفحة التوثيق المطلوبة.",
     docDefaultDescription: (title) => `توثيق ${title} لمنصة Rejourney مفتوحة المصدر لـ session replay وإعادة تشغيل الجلسات ومراقبة تطبيقات الجوال.`,
-    docKeywords: ["session replay عربي", "session replay للجوال", "إعادة تشغيل الجلسات", "توثيق SDK للجوال", "توثيق React Native analytics", "توثيق mobile session replay"],
+    docKeywords: ["session replay عربي", "session replay للجوال", "إعادة تشغيل الجلسات", "توثيق SDK للجوال", "توثيق React Native analytics", "توثيق Flutter SDK", "توثيق mobile session replay"],
     engineeringMetaTitle: "سجل الهندسة - مقالات تقنية | Rejourney",
     engineeringMetaDescription:
       "مقالات تقنية حول session replay وإعادة تشغيل الجلسات للجوال، التقاط الخرائط، بنية GPU replay، والمراقبة الخفيفة للجوال.",
@@ -276,7 +277,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   es: {
     docsIndexTitle: "Documentación del SDK web y móvil - Rejourney",
     docsIndexDescription:
-      "Documentación de Rejourney para apps web y móviles, incluyendo Browser SDK, session replay, React Native, Swift iOS, Expo y self-hosting.",
+      "Documentación de Rejourney para apps web y móviles, incluyendo Browser SDK, session replay, React Native, Flutter, Swift iOS, Expo y self-hosting.",
     docsTitleSuffix: "Documentación de Rejourney",
     docsSiteName: "Documentación de Rejourney",
     docsBreadcrumb: "Docs",
@@ -298,7 +299,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     documentationNotFoundHeading: "Documentación no encontrada",
     documentationNotFoundCopy: "No se pudo encontrar la página de documentación solicitada.",
     docDefaultDescription: (title) => `Documentación de ${title} para la plataforma open source de session replay, reproducción de sesiones y observabilidad móvil de Rejourney.`,
-    docKeywords: ["session replay español", "session replay móvil", "reproducción de sesiones", "replay de sesiones móviles", "documentación SDK móvil", "documentación analytics React Native", "documentación session replay móvil"],
+    docKeywords: ["session replay español", "session replay móvil", "reproducción de sesiones", "replay de sesiones móviles", "documentación SDK móvil", "documentación analytics React Native", "documentación SDK Flutter", "documentación session replay móvil"],
     engineeringMetaTitle: "Engineering Log - Artículos técnicos | Rejourney",
     engineeringMetaDescription:
       "Artículos técnicos sobre session replay y reproducción de sesiones móvil, captura de mapas, arquitectura GPU replay y observabilidad móvil ligera.",
@@ -320,7 +321,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   tr: {
     docsIndexTitle: "Web ve Mobil SDK Dokümantasyonu - Rejourney",
     docsIndexDescription:
-      "Browser SDK, web ve mobil session replay, React Native, Swift iOS, Expo, self-hosting ve mimari kılavuzları için Rejourney dokümantasyonu.",
+      "Browser SDK, web ve mobil session replay, React Native, Flutter, Swift iOS, Expo, self-hosting ve mimari kılavuzları için Rejourney dokümantasyonu.",
     docsTitleSuffix: "Rejourney Dokümantasyonu",
     docsSiteName: "Rejourney Dokümantasyonu",
     docsBreadcrumb: "Dokümanlar",
@@ -342,7 +343,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     documentationNotFoundHeading: "Dokümantasyon Bulunamadı",
     documentationNotFoundCopy: "İstenen dokümantasyon sayfası bulunamadı.",
     docDefaultDescription: (title) => `Rejourney'in açık kaynak mobil session replay, oturum tekrarı ve gözlemlenebilirlik platformu için ${title} dokümantasyonu.`,
-    docKeywords: ["session replay türkçe", "mobil session replay", "oturum tekrarı", "mobil oturum yeniden oynatma", "mobil SDK dokümantasyonu", "React Native analytics dokümantasyonu", "mobil session replay dokümantasyonu"],
+    docKeywords: ["session replay türkçe", "mobil session replay", "oturum tekrarı", "mobil oturum yeniden oynatma", "mobil SDK dokümantasyonu", "React Native analytics dokümantasyonu", "Flutter SDK dokümantasyonu", "mobil session replay dokümantasyonu"],
     engineeringMetaTitle: "Engineering Log - Teknik yazılar | Rejourney",
     engineeringMetaDescription:
       "Mobil session replay, oturum tekrarı, harita yakalama, GPU replay mimarisi ve hafif mobil gözlemlenebilirlik üzerine teknik yazılar.",
@@ -364,7 +365,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   fr: {
     docsIndexTitle: "Documentation SDK web et mobile - Rejourney",
     docsIndexDescription:
-      "Documentation Rejourney pour apps web et mobiles, avec Browser SDK, React Native, Swift iOS, Expo, auto-hébergement et guides d'architecture.",
+      "Documentation Rejourney pour apps web et mobiles, avec Browser SDK, React Native, Flutter, Swift iOS, Expo, auto-hébergement et guides d'architecture.",
     docsTitleSuffix: "Documentation Rejourney",
     docsSiteName: "Documentation Rejourney",
     docsBreadcrumb: "Docs",
@@ -392,7 +393,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   de: {
     docsIndexTitle: "Web- und Mobile-SDK Dokumentation - Rejourney",
     docsIndexDescription:
-      "Rejourney Dokumentation für Web- und Mobile-Apps, inklusive Browser SDK, React Native, Swift iOS, Expo, Self-Hosting und Architektur-Guides.",
+      "Rejourney Dokumentation für Web- und Mobile-Apps, inklusive Browser SDK, React Native, Flutter, Swift iOS, Expo, Self-Hosting und Architektur-Guides.",
     docsTitleSuffix: "Rejourney Dokumentation",
     docsSiteName: "Rejourney Dokumentation",
     docsBreadcrumb: "Docs",
@@ -420,7 +421,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   it: {
     docsIndexTitle: "Documentazione SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentazione Rejourney per app web e mobile, inclusi Browser SDK, React Native, Swift iOS, Expo, self-hosting e guide di architettura.",
+      "Documentazione Rejourney per app web e mobile, inclusi Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting e guide di architettura.",
     docsTitleSuffix: "Documentazione Rejourney",
     docsSiteName: "Documentazione Rejourney",
     docsBreadcrumb: "Docs",
@@ -448,7 +449,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   nl: {
     docsIndexTitle: "Web- en mobiele SDK documentatie - Rejourney",
     docsIndexDescription:
-      "Rejourney documentatie voor web- en mobiele apps, inclusief Browser SDK, React Native, Swift iOS, Expo, self-hosting en architectuurgidsen.",
+      "Rejourney documentatie voor web- en mobiele apps, inclusief Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting en architectuurgidsen.",
     docsTitleSuffix: "Rejourney Documentatie",
     docsSiteName: "Rejourney Documentatie",
     docsBreadcrumb: "Docs",
@@ -476,7 +477,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   pl: {
     docsIndexTitle: "Dokumentacja SDK web i mobile - Rejourney",
     docsIndexDescription:
-      "Dokumentacja Rejourney dla aplikacji web i mobile, w tym Browser SDK, React Native, Swift iOS, Expo, self-hosting i przewodniki architektury.",
+      "Dokumentacja Rejourney dla aplikacji web i mobile, w tym Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting i przewodniki architektury.",
     docsTitleSuffix: "Dokumentacja Rejourney",
     docsSiteName: "Dokumentacja Rejourney",
     docsBreadcrumb: "Docs",
@@ -504,7 +505,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   pt: {
     docsIndexTitle: "Documentação do SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
+      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting e guias de arquitetura.",
     docsTitleSuffix: "Documentação Rejourney",
     docsSiteName: "Documentação Rejourney",
     docsBreadcrumb: "Docs",
@@ -532,7 +533,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   "pt-br": {
     docsIndexTitle: "Documentação do SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
+      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting e guias de arquitetura.",
     docsTitleSuffix: "Documentação Rejourney",
     docsSiteName: "Documentação Rejourney",
     docsBreadcrumb: "Docs",
@@ -560,7 +561,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   ru: {
     docsIndexTitle: "Документация Web и Mobile SDK - Rejourney",
     docsIndexDescription:
-      "Документация Rejourney для web и mobile приложений: Browser SDK, React Native, Swift iOS, Expo, self-hosting и архитектурные руководства.",
+      "Документация Rejourney для web и mobile приложений: Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting и архитектурные руководства.",
     docsTitleSuffix: "Документация Rejourney",
     docsSiteName: "Документация Rejourney",
     docsBreadcrumb: "Документация",
@@ -588,7 +589,7 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
   vi: {
     docsIndexTitle: "Tài liệu Web và Mobile SDK - Rejourney",
     docsIndexDescription:
-      "Tài liệu Rejourney cho app web và mobile, gồm Browser SDK, React Native, Swift iOS, Expo, self-hosting và hướng dẫn kiến trúc.",
+      "Tài liệu Rejourney cho app web và mobile, gồm Browser SDK, React Native, Flutter, Swift iOS, Expo, self-hosting và hướng dẫn kiến trúc.",
     docsTitleSuffix: "Tài liệu Rejourney",
     docsSiteName: "Tài liệu Rejourney",
     docsBreadcrumb: "Docs",

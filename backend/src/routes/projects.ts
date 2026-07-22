@@ -64,6 +64,7 @@ function getProjectWebAllowedDomains(project: { webAllowedDomains?: string[] | n
 function getProjectPlatforms(project: { bundleId?: string | null; packageName?: string | null; webDomain?: string | null; webAllowedDomains?: string[] | null; platform?: string | null }): string[] {
     const platforms: string[] = [];
     if (project.platform === 'react-native') platforms.push('react-native');
+    if (project.platform === 'flutter') platforms.push('flutter');
     if (project.bundleId) platforms.push('ios');
     if (project.packageName) platforms.push('android');
     if (project.webDomain || getProjectWebAllowedDomains(project).length > 0 || project.platform === 'web') platforms.push('web');
@@ -1592,7 +1593,11 @@ router.post(
                     packageName: data.packageName,
                     webDomain: webAllowedDomains[0] ?? null,
                     webAllowedDomains,
-                    platform: data.platforms?.includes('react-native') ? 'react-native' : data.platforms?.[0],
+                    platform: data.platforms?.includes('react-native')
+                        ? 'react-native'
+                        : data.platforms?.includes('flutter')
+                            ? 'flutter'
+                            : data.platforms?.[0],
                     publicKey,
                     rejourneyEnabled: data.rejourneyEnabled ?? true,
                     recordingEnabled: data.recordingEnabled ?? true,
@@ -1985,7 +1990,9 @@ router.put(
         if (data.platforms !== undefined) {
             updateData.platform = data.platforms.includes('react-native')
                 ? 'react-native'
-                : data.platforms[0] ?? null;
+                : data.platforms.includes('flutter')
+                    ? 'flutter'
+                    : data.platforms[0] ?? null;
         }
         if (data.bundleId !== undefined) updateData.bundleId = data.bundleId;
         if (data.packageName !== undefined) updateData.packageName = data.packageName;

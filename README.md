@@ -27,6 +27,7 @@ patterns worth investigating.
   <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js%20%2F%20React-111827?style=flat-square&amp;logo=nextdotjs&amp;logoColor=white" alt="Next.js and React" /></a>
   <a href="https://rejourney.co/docs/web/getting-started#redux-and-redux-toolkit"><img src="https://img.shields.io/badge/Redux%20Toolkit-764abc?style=flat-square&amp;logo=redux&amp;logoColor=white" alt="Redux Toolkit replay" /></a>
   <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native%20%2F%20Expo-1e293b?style=flat-square&amp;logo=react&amp;logoColor=61DAFB" alt="React Native and Expo" /></a>
+  <a href="https://rejourney.co/docs/flutter/overview"><img src="https://img.shields.io/badge/Flutter-027DFD?style=flat-square&amp;logo=flutter&amp;logoColor=white" alt="Flutter SDK documentation" /></a>
   <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-f97316?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift" /></a>
   <a href="https://nuxt.com"><img src="https://img.shields.io/badge/Vue%20%2F%20Nuxt-0f766e?style=flat-square&amp;logo=nuxt&amp;logoColor=white" alt="Vue and Nuxt" /></a>
   <a href="https://angular.dev"><img src="https://img.shields.io/badge/Angular-dd0031?style=flat-square&amp;logo=angular&amp;logoColor=white" alt="Angular" /></a>
@@ -42,7 +43,7 @@ patterns worth investigating.
 
 ## How it works
 
-1. Install a Rejourney SDK in your web, Swift, or React Native app.
+1. Install a Rejourney SDK in your web, Swift, React Native, or Flutter app.
 2. Track the few product events that matter most to your business, such as a
    completed signup, subscription purchase, or successful checkout. These are
    your **critical conversion events**.
@@ -186,6 +187,24 @@ React Native requires native code and does not run in Expo Go. See
 [React Native getting started](docs/react-native/getting-started.md) for
 navigation tracking, session controls, event naming, and privacy settings.
 
+### Flutter
+
+```bash
+flutter pub add rejourney
+```
+
+```dart
+import 'package:rejourney/rejourney.dart';
+
+await Rejourney.init('pk_live_your_public_key');
+await Rejourney.start();
+```
+
+The Flutter plugin supports iOS 15.1+ and Android API 24+. It includes native
+capture, navigator observation, region masking, error hooks, and HTTP timing.
+See [Flutter getting started](docs/flutter/getting-started.md) and the runnable
+[Flutter example](examples/flutter/README.md).
+
 ### Swift
 
 In Xcode, choose **File → Add Package Dependencies** and add:
@@ -276,6 +295,12 @@ Mapbox Metal and Firebase.
 Only UIKit + Metal capture runs on the main thread. These measurements describe
 the recorded workload; they are not a general mobile-performance comparison.
 
+The Flutter package also has a reproducible Dart-layer regression benchmark.
+On the checked-in July 21, 2026 run, event, metadata, and network-marker API
+calls averaged 11.97–17.98 µs over 20,000 iterations before entering native code.
+See the [Flutter benchmark method and limitations](benchmarks/flutter/README.md)
+and [latest result](benchmarks/flutter/results/latest.md).
+
 ## Development and deployment
 
 For a local development environment, start with
@@ -286,6 +311,9 @@ Architecture and deployment references are in
 
 ## License
 
-Client-side components (SDKs and CLIs) are licensed under Apache 2.0.
+Client-side components (SDKs and CLIs) are licensed under Apache 2.0, except
+the Flutter package's Dart API, bridges, examples, and documentation, which are
+MIT licensed; its embedded native core sources retain Apache-2.0 notices.
 Server-side components (backend and dashboard) are licensed under SSPL 1.0.
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-SSPL](LICENSE-SSPL).
+See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-SSPL](LICENSE-SSPL), and the
+[Flutter package licenses](packages/flutter/README.md#license).

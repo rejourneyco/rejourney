@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - integration_test (0.0.1):
+    - Flutter
+  - rejourney (0.1.0):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - rejourney (from `.symlinks/plugins/rejourney/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  rejourney:
+    :path: ".symlinks/plugins/rejourney/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  rejourney: 7518df967987fea7786eb09e92f90068ff42a533
+
+PODFILE CHECKSUM: ef408bf62401d49418af75b9276d53e23e5fadf7
+
+COCOAPODS: 1.16.2

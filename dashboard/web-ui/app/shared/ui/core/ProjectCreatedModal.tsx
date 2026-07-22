@@ -28,10 +28,12 @@ function getProjectPlatformLabel(project: Project): string {
   if (platforms.has('web')) labels.push('Web');
   if (platforms.has('react-native')) {
     labels.push('React Native');
+  } else if (platforms.has('flutter')) {
+    labels.push('Flutter');
   } else if (platforms.has('ios')) {
     labels.push('iOS');
   }
-  if (platforms.has('android') && !platforms.has('react-native')) {
+  if (platforms.has('android') && !platforms.has('react-native') && !platforms.has('flutter')) {
     labels.push('Native Android (unsupported)');
   }
   if (labels.length === 1) return `${labels[0]} app`;
@@ -224,7 +226,7 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               <div className="rounded-md border border-[#dadce0] bg-[#f8fafd] p-4">
                 <div className="text-[11px] font-bold uppercase text-[#5f6368]">Step 1</div>
-                <p className="mt-2 text-sm font-medium text-[#202124]">Pick your stack: Web SDK, React Native SDK, or native Swift package.</p>
+                <p className="mt-2 text-sm font-medium text-[#202124]">Pick your stack: Web, React Native, Flutter, or native Swift.</p>
               </div>
               <div className="rounded-md border border-[#dadce0] bg-[#f8fafd] p-4">
                 <div className="text-[11px] font-bold uppercase text-[#5f6368]">Step 2</div>

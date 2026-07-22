@@ -1,0 +1,791 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import UIKit
+import Network
+import QuartzCore
+
+@objc(RJNativeReplayOrchestrator)
+final class ReplayOrchestrator: NSObject {
+
+    @objc static let shared = ReplayOrchestrator()
+
+    @objc var apiToken: String?
+    @objc var replayId: String?
+    @objc var replayStartMs: UInt64 = 0
+    @objc var frameBundleSize: Int = 3
+
+    var serverEndpoint: String {
+        get { TelemetryPipeline.shared.endpoint }
+        set {
+            TelemetryPipeline.shared.endpoint = newValue
+            SegmentDispatcher.shared.endpoint = newValue
+            DeviceRegistrar.shared.endpoint = newValue
+        }
+    }
+
+    @objc var snapshotInterval: Double = 1.0
+    @objc var compressionLevel: Double = 0.5
+    @objc var visualCaptureEnabled: Bool = true
+    @objc var interactionCaptureEnabled: Bool = true
+    @objc var faultTrackingEnabled: Bool = true
+    @objc var responsivenessCaptureEnabled: Bool = true
+    @objc var consoleCaptureEnabled: Bool = true
+    @objc var maskTextInputsByDefault: Bool = true
+    @objc var maskImagesAndVideosByDefault: Bool = false
+    @objc var captureNativeSheets: Bool = true
+    @objc var wifiRequired: Bool = false
+    @objc var hierarchyCaptureEnabled: Bool = true
+    @objc var hierarchyCaptureInterval: Double = 2.0
+    @objc private(set) var currentScreenName: String?
+
+    // Remote config from backend (set via setRemoteConfig before session start)
+    @objc private(set) var remoteRejourneyEnabled: Bool = true
+    @objc private(set) var remoteRecordingEnabled: Bool = true
+    @objc private(set) var remoteSampleRate: Int = 100
+    @objc private(set) var remoteMaxRecordingMinutes: Int = 10
+
+    private var _netMonitor: NWPathMonitor?
+    private var _netReady = false
+    private var _live = false
+
+    // Network state tracking
+    @objc private(set) var currentNetworkType: String = "unknown"
+    @objc private(set) var currentCellularGeneration: String = "unknown"
+    @objc private(set) var networkIsConstrained: Bool = false
+    @objc private(set) var networkIsExpensive: Bool = false
+
+    // App startup tracking - use actual process start time from kernel
+    private static var processStartTime: TimeInterval = {
+        // Get the actual process start time from the kernel
+        var kinfo = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+
+        if sysctl(&mib, UInt32(mib.count), &kinfo, &size, nil, 0) == 0 {
+            let startSec = kinfo.kp_proc.p_starttime.tv_sec
+            let startUsec = kinfo.kp_proc.p_starttime.tv_usec
+            return TimeInterval(startSec) + TimeInterval(startUsec) / 1_000_000.0
+        }
+        // Fallback to current time if sysctl fails
+        return Date().timeIntervalSince1970
+    }()
+
+    private var _crashCount = 0
+    private var _freezeCount = 0
+    private var _errorCount = 0
+    private var _tapCount = 0
+    private var _scrollCount = 0
+    private var _gestureCount = 0
+    private var _rageCount = 0
+    private var _deadTapCount = 0
+    private var _visitedScreens: [String] = []
+    private var _bgTimeMs: UInt64 = 0
+    private var _bgStartMs: UInt64?
+    private var _finalized = false
+    private var _hierarchyTimer: Timer?
+    private var _lastHierarchyHash: String?
+    private var _durationLimitTimer: DispatchWorkItem?
+    private var _recoveryCheckpointTimer: DispatchSourceTimer?
+    private var _lastActiveCheckpointMs: UInt64 = 0
+    private var _lastBackgroundEntryMs: UInt64?
+    private let lifecycleContractVersion = 3
+    private let recoveryCheckpointIntervalMs: UInt64 = 5_000
+
+    private override init() {
+        super.init()
+    }
+
+    /// Fast session start using existing credentials - skips credential fetch for faster restart
+    @objc func beginReplayFast(apiToken: String, serverEndpoint: String, credential: String, captureSettings: [String: Any]? = nil) {
+        let perf = PerformanceSnapshot.capture()
+        DiagnosticLog.debugSessionCreate(phase: "ORCHESTRATOR_FAST_INIT", details: "beginReplayFast with existing credential", perf: perf)
+
+        self.apiToken = apiToken
+        self.serverEndpoint = serverEndpoint
+        _applySettings(captureSettings)
+
+        // Set credentials AND endpoint directly without network fetch
+        TelemetryPipeline.shared.apiToken = apiToken
+        TelemetryPipeline.shared.credential = credential
+        TelemetryPipeline.shared.endpoint = serverEndpoint
+        SegmentDispatcher.shared.apiToken = apiToken
+        SegmentDispatcher.shared.credential = credential
+        SegmentDispatcher.shared.endpoint = serverEndpoint
+
+        // Skip network monitoring, assume network is available since we just came from background
+        DispatchQueue.main.async { [weak self] in
+            self?._beginRecording(token: apiToken)
+        }
+    }
+
+    @objc func beginReplay(apiToken: String, serverEndpoint: String, captureSettings: [String: Any]? = nil) {
+        let perf = PerformanceSnapshot.capture()
+        DiagnosticLog.debugSessionCreate(phase: "ORCHESTRATOR_INIT", details: "beginReplay", perf: perf)
+
+        self.apiToken = apiToken
+        self.serverEndpoint = serverEndpoint
+        _applySettings(captureSettings)
+
+        DiagnosticLog.debugSessionCreate(phase: "CREDENTIAL_START", details: "Requesting device credential")
+
+        DeviceRegistrar.shared.obtainCredential(apiToken: apiToken) { [weak self] ok, cred in
+            guard let self, ok else {
+                DiagnosticLog.debugSessionCreate(phase: "CREDENTIAL_FAIL", details: "Failed")
+                return
+            }
+
+            TelemetryPipeline.shared.apiToken = apiToken
+            TelemetryPipeline.shared.credential = cred
+            SegmentDispatcher.shared.apiToken = apiToken
+            SegmentDispatcher.shared.credential = cred
+
+            self._monitorNetwork(token: apiToken)
+        }
+    }
+
+    @objc func endReplay() {
+        endReplay(completion: nil)
+    }
+
+    @objc func endReplay(completion: ((Bool, Bool) -> Void)?) {
+        endReplayInternal(reason: "unspecified", completion: completion)
+    }
+
+    @objc func endReplayWithReason(_ endReason: String, completion: ((Bool, Bool) -> Void)? = nil) {
+        endReplayInternal(reason: endReason, completion: completion)
+    }
+
+    private func endReplayInternal(reason endReason: String, completion: ((Bool, Bool) -> Void)?) {
+        guard _live else {
+            completion?(false, false)
+            return
+        }
+        _live = false
+        _stopRecoveryCheckpointTimer()
+
+        let sid = replayId ?? ""
+        let termMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        let elapsed = Int((termMs - replayStartMs) / 1000)
+
+        _netMonitor?.cancel()
+        _netMonitor = nil
+        _hierarchyTimer?.invalidate()
+        _hierarchyTimer = nil
+        _stopDurationLimitTimer()
+        _detachLifecycle()
+
+        let metrics: [String: Any] = [
+            "crashCount": _crashCount,
+            "anrCount": _freezeCount,
+            "errorCount": _errorCount,
+            "durationSeconds": elapsed,
+            "touchCount": _tapCount,
+            "scrollCount": _scrollCount,
+            "gestureCount": _gestureCount,
+            "rageTapCount": _rageCount,
+            "deadTapCount": _deadTapCount,
+            "screensVisited": _visitedScreens,
+            "screenCount": Set(_visitedScreens).count
+        ]
+        let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
+
+        // Capture the current generation so a stale halt posted here won't
+        // stop a new session's capture that starts before this block runs.
+        let haltGeneration = VisualCapture.shared.captureGeneration
+
+        let finalizeSession = {
+            SegmentDispatcher.shared.shipPending()
+
+            guard !self._finalized else {
+                self._clearRecovery()
+                completion?(true, true)
+                self.replayId = nil
+                self.replayStartMs = 0
+                return
+            }
+            self._finalized = true
+
+            SegmentDispatcher.shared.concludeReplay(
+                replayId: sid,
+                concludedAt: termMs,
+                backgroundDurationMs: self._bgTimeMs,
+                metrics: metrics,
+                currentQueueDepth: queueDepthAtFinalize,
+                endReason: endReason,
+                lifecycleVersion: self.lifecycleContractVersion,
+                closeAnchorAtMs: self._currentCloseAnchorMs(for: endReason)
+            ) { [weak self] ok in
+                if ok { self?._clearRecovery() }
+                completion?(true, ok)
+            }
+
+            self.replayId = nil
+            self.replayStartMs = 0
+        }
+
+        // Do local teardown immediately so lifecycle rollover never depends on network latency,
+        // but finish session finalization only after the telemetry drain has been kicked off.
+        DispatchQueue.main.async {
+            VisualCapture.shared.halt(expectedGeneration: haltGeneration)
+            TelemetryPipeline.shared.shutdown(completion: finalizeSession, skipVisualFlush: true)
+            InteractionRecorder.shared.deactivate()
+            FaultTracker.shared.deactivate()
+            ResponsivenessWatcher.shared.halt()
+        }
+    }
+
+    @objc func redactView(_ view: UIView) {
+        VisualCapture.shared.registerRedaction(view)
+    }
+
+    @objc func unredactView(_ view: UIView) {
+        VisualCapture.shared.unregisterRedaction(view)
+    }
+
+    /// Set remote configuration from backend
+    /// Called by JS side before startSession to apply server-side settings
+    @objc func setRemoteConfig(
+        rejourneyEnabled: Bool,
+        recordingEnabled: Bool,
+        sampleRate: Int,
+        isSampledIn: Bool = true,
+        maxRecordingMinutes: Int
+    ) {
+        self.remoteRejourneyEnabled = rejourneyEnabled
+        self.remoteRecordingEnabled = recordingEnabled
+        self.remoteSampleRate = sampleRate
+        self.remoteMaxRecordingMinutes = maxRecordingMinutes
+
+        // Set isSampledIn for server-side enforcement. This tracks sampling only;
+        // recordingEnabled=false can also mean observe-only/debug telemetry.
+        TelemetryPipeline.shared.isSampledIn = isSampledIn
+
+        // Apply recording settings immediately
+        // If recording is disabled, disable visual capture
+        if !recordingEnabled {
+            visualCaptureEnabled = false
+            DiagnosticLog.trace("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
+        }
+
+        // If already recording, restart the duration limit timer with updated config
+        if _live {
+            _startDurationLimitTimer()
+        }
+
+        DiagnosticLog.trace("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min, isSampledIn=\(isSampledIn)")
+    }
+
+    @objc func attachAttribute(key: String, value: String) {
+        TelemetryPipeline.shared.recordAttribute(key: key, value: value)
+    }
+
+    @objc func recordCustomEvent(name: String, payload: String?) {
+        TelemetryPipeline.shared.recordCustomEvent(name: name, payload: payload ?? "")
+    }
+
+    @objc func associateUser(_ userId: String) {
+        TelemetryPipeline.shared.recordUserAssociation(userId)
+    }
+
+    @objc func currentReplayId() -> String {
+        replayId ?? ""
+    }
+
+    @objc func activateGestureRecording() {
+    }
+
+    @objc func recoverInterruptedReplay(completion: @escaping (String?) -> Void) {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            completion(nil)
+            return
+        }
+
+        let path = docs.appendingPathComponent("rejourney_recovery.json")
+
+        guard let data = try? Data(contentsOf: path),
+              let checkpoint = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let recId = checkpoint["replayId"] as? String else {
+            completion(nil)
+            return
+        }
+
+        let origStart = checkpoint["startMs"] as? UInt64 ?? 0
+        let timingVersion = checkpoint["timingVersion"] as? Int ?? 0
+        let lastActiveCheckpointMs = checkpoint["lastActiveCheckpointMs"] as? UInt64 ?? 0
+        let lastBackgroundEntryMs = checkpoint["lastBackgroundEntryMs"] as? UInt64 ?? 0
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        DiagnosticLog.notice("[ReplayOrchestrator] Recovering interrupted session: \(recId)")
+
+        if let token = checkpoint["apiToken"] as? String {
+            SegmentDispatcher.shared.apiToken = token
+        }
+        if let endpoint = checkpoint["endpoint"] as? String {
+            SegmentDispatcher.shared.endpoint = endpoint
+        }
+        if let credential = checkpoint["credential"] as? String {
+            SegmentDispatcher.shared.credential = credential
+        }
+        SegmentDispatcher.shared.currentReplayId = recId
+        SegmentDispatcher.shared.activate()
+        TelemetryPipeline.shared.currentReplayId = recId
+        let hasCrashIncident = _hasStoredCrashIncident(for: recId)
+
+        let finalizeRecoveredSession = { [weak self] in
+            let crashMetrics: [String: Any] = [
+                "crashCount": hasCrashIncident ? 1 : 0,
+                "durationSeconds": Int((nowMs - origStart) / 1000)
+            ]
+            let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
+
+            SegmentDispatcher.shared.concludeReplay(
+                replayId: recId,
+                concludedAt: nowMs,
+                backgroundDurationMs: 0,
+                metrics: crashMetrics,
+                currentQueueDepth: queueDepthAtFinalize,
+                endReason: "recovery_finalize",
+                lifecycleVersion: self?.lifecycleContractVersion,
+                closeAnchorAtMs: timingVersion >= 3
+                    ? (lastBackgroundEntryMs > 0 ? lastBackgroundEntryMs : (lastActiveCheckpointMs > 0 ? lastActiveCheckpointMs : nil))
+                    : nil
+            ) { ok in
+                DiagnosticLog.notice("[ReplayOrchestrator] Crash recovery finalize: success=\(ok), sessionId=\(recId)")
+                if ok { self?._clearRecovery() }
+                completion(ok ? recId : nil)
+            }
+        }
+
+        VisualCapture.shared.uploadPendingFrames(sessionId: recId, sessionEpoch: origStart) { uploaded in
+            guard uploaded else {
+                DiagnosticLog.caution("[ReplayOrchestrator] Crash recovery postponed: pending frame upload failed for session \(recId)")
+                completion(nil)
+                return
+            }
+            finalizeRecoveredSession()
+        }
+    }
+
+    private func _hasStoredCrashIncident(for sessionId: String) -> Bool {
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return false
+        }
+
+        let incidentPath = cacheDir.appendingPathComponent("rj_incidents.json")
+        guard let data = try? Data(contentsOf: incidentPath),
+              let incident = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+
+        let incidentSessionId = incident["sessionId"] as? String ?? ""
+        let category = (incident["category"] as? String ?? "").lowercased()
+        let crashLikeCategory = category == "signal" || category == "exception" || category == "crash"
+        let identifier = incident["identifier"] as? String ?? ""
+        let detail = incident["detail"] as? String ?? ""
+        return crashLikeCategory && incidentSessionId == sessionId && (!identifier.isEmpty || !detail.isEmpty)
+    }
+
+    @objc func incrementFaultTally() { _crashCount += 1 }
+    @objc func incrementStalledTally() { _freezeCount += 1 }
+    @objc func incrementExceptionTally() { _errorCount += 1 }
+    @objc func incrementTapTally() { _tapCount += 1 }
+    @objc func logScrollAction() { _scrollCount += 1 }
+    @objc func incrementGestureTally() { _gestureCount += 1 }
+    @objc func incrementRageTapTally() { _rageCount += 1 }
+    @objc func incrementDeadTapTally() { _deadTapCount += 1 }
+
+    @objc func logScreenView(_ screenId: String) {
+        guard !screenId.isEmpty else { return }
+        if _visitedScreens.count >= 500 {
+            _visitedScreens.removeFirst(_visitedScreens.count - 250)
+        }
+        _visitedScreens.append(screenId)
+        currentScreenName = screenId
+        if hierarchyCaptureEnabled { _captureHierarchy() }
+    }
+
+    private func _initSession() {
+        replayStartMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        let uuidPart = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        replayId = "session_\(replayStartMs)_\(uuidPart)"
+        _finalized = false
+
+        _crashCount = 0
+        _freezeCount = 0
+        _errorCount = 0
+        _tapCount = 0
+        _scrollCount = 0
+        _gestureCount = 0
+        _rageCount = 0
+        _deadTapCount = 0
+        _visitedScreens.removeAll()
+        _bgTimeMs = 0
+        _bgStartMs = nil
+        _lastActiveCheckpointMs = replayStartMs
+        _lastBackgroundEntryMs = nil
+        _lastHierarchyHash = nil
+
+        TelemetryPipeline.shared.currentReplayId = replayId
+        SegmentDispatcher.shared.currentReplayId = replayId
+        StabilityMonitor.shared.currentSessionId = replayId
+
+        _attachLifecycle()
+        _saveRecovery()
+        _startRecoveryCheckpointTimer()
+    }
+
+    private func _recordAppStartup() {
+        let nowSec = Date().timeIntervalSince1970
+        let startupDurationMs = Int64((nowSec - ReplayOrchestrator.processStartTime) * 1000)
+
+        // Only record if it's a reasonable startup time (> 0 and < 60 seconds)
+        guard startupDurationMs > 0 && startupDurationMs < 60000 else { return }
+
+        TelemetryPipeline.shared.recordAppStartup(durationMs: startupDurationMs)
+    }
+
+    private func _applySettings(_ cfg: [String: Any]?) {
+        guard let cfg else { return }
+        snapshotInterval = cfg["captureRate"] as? Double ?? 1.0
+        compressionLevel = cfg["imgCompression"] as? Double ?? 0.5
+        visualCaptureEnabled = cfg["captureScreen"] as? Bool ?? true
+        interactionCaptureEnabled = cfg["captureAnalytics"] as? Bool ?? true
+        faultTrackingEnabled = cfg["captureCrashes"] as? Bool ?? true
+        responsivenessCaptureEnabled = cfg["captureANR"] as? Bool ?? true
+        consoleCaptureEnabled = cfg["captureLogs"] as? Bool ?? true
+        maskTextInputsByDefault = (cfg["textInputMasking"] as? String) != "secure_only"
+        maskImagesAndVideosByDefault = (cfg["imageVideoMasking"] as? String) == "all"
+        captureNativeSheets = cfg["captureNativeSheets"] as? Bool ?? true
+        wifiRequired = cfg["wifiOnly"] as? Bool ?? false
+        frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 3
+        InteractionRecorder.shared.configureRageTapDetection(
+            enabled: cfg["detectRageTaps"] as? Bool ?? true,
+            threshold: cfg["rageTapThreshold"] as? Int ?? 3,
+            timeWindowMs: cfg["rageTapTimeWindow"] as? Int ?? 500,
+            radius: CGFloat(cfg["rageTapRadius"] as? Double ?? 50)
+        )
+        TelemetryPipeline.shared.collectDeviceInfo = cfg["collectDeviceInfo"] as? Bool ?? true
+        SegmentDispatcher.shared.collectGeoLocation = cfg["collectGeoLocation"] as? Bool ?? true
+        SegmentDispatcher.shared.observeOnly = cfg["observeOnly"] as? Bool ?? false
+    }
+
+    private func _monitorNetwork(token: String) {
+        _netMonitor = NWPathMonitor()
+        _netMonitor?.pathUpdateHandler = { [weak self] path in
+            self?.handlePathChange(path: path, token: token)
+        }
+        _netMonitor?.start(queue: DispatchQueue.global(qos: .utility))
+    }
+
+    private func handlePathChange(path: NWPath, token: String) {
+        let canProceed: Bool
+
+        if path.status != .satisfied {
+            canProceed = false
+        } else if wifiRequired && !path.isExpensive {
+            canProceed = true
+        } else if wifiRequired && path.isExpensive {
+            canProceed = false
+        } else {
+            canProceed = true
+        }
+
+        // Extract network interface type
+        let networkType: String
+        let isExpensive = path.isExpensive
+        let isConstrained = path.isConstrained
+
+        if path.status != .satisfied {
+            networkType = "none"
+        } else if path.usesInterfaceType(.wifi) {
+            networkType = "wifi"
+        } else if path.usesInterfaceType(.cellular) {
+            networkType = "cellular"
+        } else if path.usesInterfaceType(.wiredEthernet) {
+            networkType = "wired"
+        } else if path.usesInterfaceType(.loopback) {
+            networkType = "other"
+        } else {
+            networkType = "other"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self._netReady = canProceed
+            self.currentNetworkType = networkType
+            self.networkIsExpensive = isExpensive
+            self.networkIsConstrained = isConstrained
+
+            if canProceed && !self._live {
+                self._beginRecording(token: token)
+            }
+        }
+    }
+
+    private func _beginRecording(token: String) {
+        guard !_live else { return }
+        _live = true
+
+        self.apiToken = token
+        _initSession()
+
+        if let sid = replayId {
+            SegmentDispatcher.shared.configure(
+                replayId: sid,
+                apiToken: TelemetryPipeline.shared.apiToken ?? token,
+                credential: TelemetryPipeline.shared.credential,
+                projectId: TelemetryPipeline.shared.projectId,
+                isSampledIn: TelemetryPipeline.shared.isSampledIn
+            )
+            TelemetryPipeline.shared.prepareForNewSession(sid)
+        }
+
+        // Record after prepareForNewSession clears stale buffered events. When
+        // this lived in _initSession, the new session ring was wiped immediately
+        // afterward and Swift sessions silently lost their app_startup event.
+        _recordAppStartup()
+
+        // Reactivate the dispatcher in case it was halted from a previous session
+        SegmentDispatcher.shared.activate()
+        TelemetryPipeline.shared.activate()
+
+        VisualCapture.shared.configure(snapshotInterval: snapshotInterval, jpegQuality: compressionLevel, uploadBatchSize: frameBundleSize)
+
+        if visualCaptureEnabled { VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs) }
+        if interactionCaptureEnabled { InteractionRecorder.shared.activate() }
+        if faultTrackingEnabled { FaultTracker.shared.activate() }
+        if responsivenessCaptureEnabled { ResponsivenessWatcher.shared.activate() }
+        if hierarchyCaptureEnabled { _startHierarchyCapture() }
+
+        // Start duration limit timer based on remote config
+        _startDurationLimitTimer()
+    }
+
+    // MARK: - Duration Limit Timer
+
+    private func _startDurationLimitTimer() {
+        _stopDurationLimitTimer()
+
+        let maxMinutes = remoteMaxRecordingMinutes
+        guard maxMinutes > 0 else { return }
+
+        let maxMs = UInt64(maxMinutes) * 60 * 1000
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        let elapsed = now - replayStartMs
+        let remaining = maxMs > elapsed ? maxMs - elapsed : 0
+
+        guard remaining > 0 else {
+            DiagnosticLog.trace("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
+            endReplayWithReason("duration_limit")
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self._live else { return }
+            DiagnosticLog.trace("[ReplayOrchestrator] Recording duration limit reached (\(maxMinutes)min), stopping session")
+            self.endReplayWithReason("duration_limit")
+        }
+        _durationLimitTimer = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(remaining)), execute: workItem)
+
+        DiagnosticLog.trace("[ReplayOrchestrator] Duration limit timer set: \(remaining / 1000)s remaining (max \(maxMinutes)min)")
+    }
+
+    private func _stopDurationLimitTimer() {
+        _durationLimitTimer?.cancel()
+        _durationLimitTimer = nil
+    }
+
+    private func _saveRecovery() {
+        guard let sid = replayId, let token = apiToken else { return }
+        var checkpoint: [String: Any] = [
+            "timingVersion": lifecycleContractVersion,
+            "replayId": sid,
+            "apiToken": token,
+            "startMs": replayStartMs,
+            "lastActiveCheckpointMs": _lastActiveCheckpointMs,
+            "endpoint": serverEndpoint,
+        ]
+        if let lastBackgroundEntryMs = _lastBackgroundEntryMs, lastBackgroundEntryMs > 0 {
+            checkpoint["lastBackgroundEntryMs"] = lastBackgroundEntryMs
+        }
+        if let cred = SegmentDispatcher.shared.credential {
+            checkpoint["credential"] = cred
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: checkpoint),
+              let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: docs.appendingPathComponent("rejourney_recovery.json"))
+    }
+
+    private func _clearRecovery() {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? FileManager.default.removeItem(at: docs.appendingPathComponent("rejourney_recovery.json"))
+    }
+
+    private func _startRecoveryCheckpointTimer() {
+        _stopRecoveryCheckpointTimer()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + .milliseconds(Int(recoveryCheckpointIntervalMs)), repeating: .milliseconds(Int(recoveryCheckpointIntervalMs)))
+        timer.setEventHandler { [weak self] in
+            guard let self, self._live else { return }
+            if self._bgStartMs == nil {
+                self._lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
+                self._saveRecovery()
+            }
+        }
+        _recoveryCheckpointTimer = timer
+        timer.resume()
+    }
+
+    private func _stopRecoveryCheckpointTimer() {
+        _recoveryCheckpointTimer?.cancel()
+        _recoveryCheckpointTimer = nil
+    }
+
+    private func _attachLifecycle() {
+        NotificationCenter.default.addObserver(self, selector: #selector(_onBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(_onForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    private func _detachLifecycle() {
+        NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @objc private func _onBackground() {
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        _bgStartMs = now
+        _lastBackgroundEntryMs = now
+        _saveRecovery()
+        ResponsivenessWatcher.shared.halt()
+    }
+
+    @objc private func _onForeground() {
+        guard let start = _bgStartMs else { return }
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        _bgTimeMs += (now - start)
+        _bgStartMs = nil
+        _lastBackgroundEntryMs = nil
+        _lastActiveCheckpointMs = now
+        _saveRecovery()
+
+        if responsivenessCaptureEnabled {
+            ResponsivenessWatcher.shared.activate()
+        }
+    }
+
+    private func _currentCloseAnchorMs(for endReason: String) -> UInt64? {
+        switch endReason {
+        case "background_timeout":
+            return _lastBackgroundEntryMs ?? _bgStartMs
+        default:
+            return nil
+        }
+    }
+
+    private func _startHierarchyCapture() {
+        _hierarchyTimer?.invalidate()
+        // Industry standard: Use default run loop mode (NOT .common)
+        // This lets the timer pause during scrolling which prevents stutter
+        _hierarchyTimer = Timer.scheduledTimer(withTimeInterval: hierarchyCaptureInterval, repeats: true) { [weak self] _ in
+            self?._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
+        }
+    }
+
+    func captureHierarchyForFrame(timestampMs: UInt64) {
+        _captureHierarchy(timestampMs: timestampMs, skipDuplicate: false, allowDuringMapMovement: true)
+    }
+
+    private func _captureHierarchy(
+        timestampMs: UInt64? = nil,
+        skipDuplicate: Bool = true,
+        allowDuringMapMovement: Bool = false
+    ) {
+        guard _live, let sid = replayId else { return }
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?._captureHierarchy(
+                    timestampMs: timestampMs,
+                    skipDuplicate: skipDuplicate,
+                    allowDuringMapMovement: allowDuringMapMovement
+                )
+            }
+            return
+        }
+
+        // Throttle hierarchy capture when map is visible and animating —
+        // hierarchy scanning traverses the full view tree including the
+        // map's deep Metal/GL subviews, adding main-thread pressure.
+        if !allowDuringMapMovement && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+            return
+        }
+
+        guard var hierarchy = ViewHierarchyScanner.shared.captureHierarchy() else { return }
+        let ts = timestampMs ?? UInt64(Date().timeIntervalSince1970 * 1000)
+        hierarchy["timestamp"] = Int64(ts)
+
+        let hash = _hierarchyHash(hierarchy)
+        if skipDuplicate && hash == _lastHierarchyHash { return }
+        _lastHierarchyHash = hash
+
+        guard let json = try? JSONSerialization.data(withJSONObject: hierarchy) else { return }
+        guard let compressed = json.gzipCompress() else { return }
+
+        SegmentDispatcher.shared.transmitHierarchy(replayId: sid, hierarchyPayload: compressed, timestampMs: ts, completion: nil)
+    }
+
+    private func _hierarchyHash(_ h: [String: Any]) -> String {
+        let screen = currentScreenName ?? "unknown"
+        var childCount = 0
+        if let root = h["root"] as? [String: Any], let children = root["children"] as? [[String: Any]] {
+            childCount = children.count
+        }
+        return "\(screen):\(childCount)"
+    }
+}
+
+private func _computeRender(fps: Int, tier: String) -> (interval: Double, quality: Double) {
+    let tierLower = tier.lowercased()
+    let interval: Double
+    let quality: Double
+    switch tierLower {
+    case "minimal":
+        interval = 2.0  // 0.5 fps for maximum size reduction
+        quality = 0.4
+    case "low":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.4
+    case "standard":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.5
+    case "high":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.55
+    default:
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.5
+    }
+    return (interval, quality)
+}
+
+func computeQualityPreset(targetFps: Int, preset: String) -> (interval: Double, quality: Double) {
+    _computeRender(fps: targetFps, tier: preset)
+}

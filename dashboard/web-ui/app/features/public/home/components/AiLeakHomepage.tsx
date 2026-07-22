@@ -23,6 +23,7 @@ import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 
 import {
     MarkAngular,
+    MarkFlutter,
     MarkGatsby,
     MarkHydrogen,
     MarkNextJs,
@@ -53,6 +54,7 @@ const supportedPlatforms = [
     { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a', href: '/docs/web/getting-started#nextjs' },
     { label: 'Redux Toolkit', icon: MarkRedux, color: '#764abc', href: '/docs/web/getting-started#redux-and-redux-toolkit' },
     { label: 'React Native / Expo', icon: MarkReactNative, color: '#2563eb', href: '/docs/reactnative/overview' },
+    { label: 'Flutter', icon: MarkFlutter, color: '#54c5f8', href: '/docs/flutter/overview' },
     { label: 'Swift', icon: MarkSwift, color: '#f97316', href: '/docs/swift/overview' },
     { label: 'Vue / Nuxt', icon: MarkVue, color: '#42b883', href: '/docs/web/getting-started#vue' },
     { label: 'Angular', icon: MarkAngular, color: '#dd0031', href: '/docs/web/getting-started#angular' },
@@ -75,6 +77,19 @@ const sdkPlatforms = [
         code: `import { Rejourney } from '@rejourneyco/react-native';
 Rejourney.init('pk_live_your_public_key');
 Rejourney.start();`
+    },
+    {
+        id: 'flutter',
+        title: 'Flutter',
+        icon: MarkFlutter,
+        brandColor: '#54c5f8',
+        terminalCommands: ['flutter pub add rejourney'],
+        subtitle: 'Native iOS & Android replay',
+        fileName: 'main.dart',
+        code: `import 'package:rejourney/rejourney.dart';
+
+await Rejourney.init('pk_live_your_public_key');
+await Rejourney.start();`
     },
     {
         id: 'nextjs',
@@ -440,7 +455,7 @@ export const AiLeakHomepage: React.FC = () => {
     const homeCopy = getMarketingHomeCopy(location.pathname);
 
     // Bottom CTA Playground state
-    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'redux' | 'swift' | 'vue'>('nextjs');
+    const [activeSdkPlatform, setActiveSdkPlatform] = useState<'shopify' | 'nextjs' | 'reactnative' | 'flutter' | 'redux' | 'swift' | 'vue'>('nextjs');
     const [copied, setCopied] = useState(false);
     const [catHasBeenPet, setCatHasBeenPet] = useState(false);
 
@@ -1319,7 +1334,7 @@ export const AiLeakHomepage: React.FC = () => {
                                     <button
                                         key={platform.id}
                                         onClick={() => {
-                                            setActiveSdkPlatform(platform.id as 'shopify' | 'nextjs' | 'reactnative' | 'redux' | 'swift' | 'vue');
+                                            setActiveSdkPlatform(platform.id as 'shopify' | 'nextjs' | 'reactnative' | 'flutter' | 'redux' | 'swift' | 'vue');
                                             setCopied(false);
                                         }}
                                         className={`w-full flex items-center gap-4 rounded-xl p-4 text-left border transition-all duration-300 ${

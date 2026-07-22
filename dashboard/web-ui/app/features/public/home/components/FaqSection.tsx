@@ -17,7 +17,7 @@ const faqs: FaqItem[] = [
     },
     {
         question: "How easy is it to setup?",
-        answer: "It's incredibly straightforward. You can easily get started by copying our AI Setup prompt from your Rejourney dashboard or developer documentation. It takes only a few lines of code to initialize the lightweight SDK on React Native, Next.js, Swift, Vue, or SvelteKit, and start capturing transaction-blocking bugs and rage-clicks out of the box."
+        answer: "It's incredibly straightforward. You can easily get started by copying our AI Setup prompt from your Rejourney dashboard or developer documentation. It takes only a few lines of code to initialize the lightweight SDK on Flutter, React Native, Next.js, Swift, Vue, or SvelteKit, and start capturing transaction-blocking bugs and rage-clicks out of the box."
     },
     {
         question: "Can I measure Rejourney's impact on fixing funnel leaks?",

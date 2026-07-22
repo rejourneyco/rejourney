@@ -14,6 +14,8 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(AI_INTEGRATION_PROMPT).toContain("from '@rejourneyco/browser/redux'");
     expect(AI_INTEGRATION_PROMPT).toContain('getDefaultMiddleware().concat(');
     expect(AI_INTEGRATION_PROMPT).toContain("captureState: 'after'");
+    expect(AI_INTEGRATION_PROMPT).toContain('IF FLUTTER');
+    expect(AI_INTEGRATION_PROMPT).toContain('RejourneyNavigatorObserver');
   });
 
   it('includes dashboard project context before the integration instructions', () => {
@@ -122,5 +124,21 @@ describe('buildProjectAIIntegrationPrompt', () => {
       publicKey: 'pk_live_mobile_123',
       platforms: ['react-native', 'ios', 'android'],
     })).toEqual(['react-native']);
+  });
+
+  it('returns a Flutter-specific setup prompt for Flutter projects', () => {
+    expect(getAIPromptIdsForProject({
+      publicKey: 'pk_live_flutter_123',
+      platforms: ['flutter', 'ios', 'android'],
+    })).toEqual(['flutter']);
+
+    const prompt = buildProjectAIPromptById('flutter', {
+      publicKey: 'pk_live_flutter_123',
+      platforms: ['flutter'],
+    });
+    expect(prompt).toContain('IF FLUTTER');
+    expect(prompt).toContain('pk_live_flutter_123');
+    expect(prompt).toContain('RejourneyMask');
+    expect(prompt).not.toContain('IF SWIFT');
   });
 });

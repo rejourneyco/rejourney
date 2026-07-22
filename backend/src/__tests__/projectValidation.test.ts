@@ -233,7 +233,7 @@ describe('Project Validation', () => {
             expect(created.success).toBe(false);
             expect(updated.success).toBe(false);
             if (!created.success) {
-                expect(created.error.issues[0]?.message).toContain('Android is supported through React Native');
+                expect(created.error.issues[0]?.message).toContain('Android is supported through React Native or Flutter');
             }
         });
 
@@ -244,6 +244,15 @@ describe('Project Validation', () => {
                 packageName: 'com.example.app',
             }).success).toBe(true);
             expect(updateProjectSchema.safeParse({ platforms: ['react-native', 'android'] }).success).toBe(true);
+        });
+
+        it('accepts Flutter projects and Android runtime markers', () => {
+            expect(createProjectSchema.safeParse({
+                name: 'Flutter App',
+                platforms: ['flutter', 'android'],
+                packageName: 'com.example.flutter_app',
+            }).success).toBe(true);
+            expect(updateProjectSchema.safeParse({ platforms: ['flutter', 'android'] }).success).toBe(true);
         });
     });
 });

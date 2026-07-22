@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Apple, Check, Globe, MonitorSmartphone } from 'lucide-react';
+import { AlertTriangle, Apple, Blocks, Check, Globe, MonitorSmartphone } from 'lucide-react';
 import { createProject, updateProject, type ApiTeam } from '~/shared/api/client';
 import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import type { Project } from '~/shared/types';
@@ -16,6 +16,7 @@ import {
 const platformIcons: Record<SetupIntegration, React.ElementType> = {
   web: Globe,
   'react-native': MonitorSmartphone,
+  flutter: Blocks,
   ios: Apple,
 };
 
@@ -34,11 +35,8 @@ function togglePlatform(platforms: SetupIntegration[], platform: SetupIntegratio
     return platforms.filter((current) => current !== platform);
   }
 
-  if (platform === 'react-native') {
-    return [...platforms.filter((current) => current !== 'ios'), platform];
-  }
-  if (platform === 'ios') {
-    return [...platforms.filter((current) => current !== 'react-native'), platform];
+  if (platform === 'react-native' || platform === 'flutter' || platform === 'ios') {
+    return [...platforms.filter((current) => !['react-native', 'flutter', 'ios'].includes(current)), platform];
   }
   return [...platforms, platform];
 }
@@ -94,23 +92,27 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   );
   const includesWeb = selectedPlatforms.includes('web');
   const includesReactNative = selectedPlatforms.includes('react-native');
+  const includesFlutter = selectedPlatforms.includes('flutter');
   const includesIos = selectedPlatforms.includes('ios');
-  const hasLegacyNativeAndroid = hasUnsupportedNativeAndroid(projectToEdit?.platforms) && !includesReactNative;
-  const showIosIdentifier = includesIos || includesReactNative;
-  const showAndroidIdentifier = includesReactNative;
+  const includesCrossPlatformMobile = includesReactNative || includesFlutter;
+  const hasLegacyNativeAndroid = hasUnsupportedNativeAndroid(projectToEdit?.platforms) && !includesCrossPlatformMobile;
+  const showIosIdentifier = includesIos || includesCrossPlatformMobile;
+  const showAndroidIdentifier = includesCrossPlatformMobile;
   const webAllowedDomainsError = includesWeb ? getWebAllowedDomainsError(webAllowedDomains, true) : null;
   const iosBundleIdError = showIosIdentifier && bundleId.trim() ? getIosBundleIdError(bundleId.trim()) : null;
   const androidPackageError = showAndroidIdentifier && packageName.trim() ? getAndroidPackageError(packageName.trim()) : null;
   const missingRequiredIosId = includesIos && !bundleId.trim();
   const missingReactNativeIdentifiers = includesReactNative && !bundleId.trim() && !packageName.trim();
+  const missingFlutterIdentifiers = includesFlutter && !bundleId.trim() && !packageName.trim();
+  const missingCrossPlatformIdentifiers = missingReactNativeIdentifiers || missingFlutterIdentifiers;
 
   const projectNameIsEmpty = !projectName.trim();
   const webIsEmpty = !webAllowedDomains.trim();
   const bundleIdIsEmpty = !bundleId.trim();
   const packageNameIsEmpty = !packageName.trim();
 
-  const isIosRequired = includesIos || (includesReactNative && packageNameIsEmpty);
-  const isAndroidRequired = includesReactNative && bundleIdIsEmpty;
+  const isIosRequired = includesIos || (includesCrossPlatformMobile && packageNameIsEmpty);
+  const isAndroidRequired = includesCrossPlatformMobile && bundleIdIsEmpty;
   const isIosFilled = !bundleIdIsEmpty;
   const isAndroidFilled = !packageNameIsEmpty;
 
@@ -135,12 +137,12 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
     : null;
   const visibleIosBundleIdError = missingRequiredIosId && (touchedFields.bundleId || submitAttempted)
     ? 'Required for native iOS projects'
-    : missingReactNativeIdentifiers && submitAttempted
+    : missingCrossPlatformIdentifiers && submitAttempted
       ? 'iOS Bundle ID or Android Package Name is required'
       : touchedFields.bundleId || submitAttempted
         ? iosBundleIdError
         : null;
-  const visibleAndroidPackageError = missingReactNativeIdentifiers && submitAttempted
+  const visibleAndroidPackageError = missingCrossPlatformIdentifiers && submitAttempted
     ? 'iOS Bundle ID or Android Package Name is required'
     : touchedFields.packageName || submitAttempted
       ? androidPackageError
@@ -149,7 +151,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const canSubmit = Boolean(projectName.trim())
     && selectedPlatforms.length > 0
     && !missingRequiredIosId
-    && !missingReactNativeIdentifiers
+    && !missingCrossPlatformIdentifiers
     && !webAllowedDomainsError
     && !iosBundleIdError
     && !androidPackageError
@@ -161,8 +163,8 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       ? 'Choose at least one platform.'
       : missingRequiredIosId
         ? 'Add the iOS bundle ID, or deselect native iOS.'
-        : missingReactNativeIdentifiers
-          ? 'Add an iOS bundle ID or Android package name for React Native.'
+        : missingCrossPlatformIdentifiers
+          ? `Add an iOS bundle ID or Android package name for ${includesFlutter ? 'Flutter' : 'React Native'}.`
           : webAllowedDomainsError || iosBundleIdError || androidPackageError;
 
   const handleSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
@@ -176,8 +178,8 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
         const updated = await updateProject(projectToEdit.id, {
           name: projectName.trim(),
           platforms: selectedPlatforms,
-          bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || null) : null,
-          packageName: includesReactNative ? (packageName.trim() || null) : null,
+          bundleId: (includesIos || includesCrossPlatformMobile) ? (bundleId.trim() || null) : null,
+          packageName: includesCrossPlatformMobile ? (packageName.trim() || null) : null,
           webDomain: includesWeb ? (parsedWebAllowedDomains[0] ?? null) : null,
           webAllowedDomains: includesWeb ? (parsedWebAllowedDomains ?? null) : null,
         });
@@ -187,8 +189,8 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       } else {
         const created = await createProject({
           name: projectName.trim(),
-          bundleId: (includesIos || includesReactNative) ? (bundleId.trim() || undefined) : undefined,
-          packageName: includesReactNative ? (packageName.trim() || undefined) : undefined,
+          bundleId: (includesIos || includesCrossPlatformMobile) ? (bundleId.trim() || undefined) : undefined,
+          packageName: includesCrossPlatformMobile ? (packageName.trim() || undefined) : undefined,
           webDomain: includesWeb ? parsedWebAllowedDomains[0] : undefined,
           webAllowedDomains: includesWeb ? parsedWebAllowedDomains : undefined,
           teamId: currentTeam?.id,
@@ -281,11 +283,11 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
           <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-850 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              Native Android is not supported. Android apps are supported through the React Native SDK; choose React Native to keep the Android package name.
+              Native Android is not supported. Android apps are supported through the React Native or Flutter SDK; choose the matching framework to keep the Android package name.
             </span>
           </div>
         )}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {SETUP_PLATFORM_OPTIONS.map((platform) => {
             const Icon = platformIcons[platform.id];
             const selected = selectedPlatforms.includes(platform.id);
@@ -417,7 +419,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                     </span>
                   ) : isIosRequired ? (
                     <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                      {includesReactNative ? 'At least one required' : 'Required'}
+                      {includesCrossPlatformMobile ? 'At least one required' : 'Required'}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
@@ -437,7 +439,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
                 />
                 <p className="text-[11px] font-medium text-slate-555 dark:text-slate-455">
-                  {includesReactNative && !includesIos ? 'Confirm bundle identifier.' : 'Use the bundle identifier from Xcode.'}
+                  {includesCrossPlatformMobile && !includesIos ? 'Confirm the iOS bundle identifier.' : 'Use the bundle identifier from Xcode.'}
                 </p>
               </div>
             )}

@@ -1,5 +1,5 @@
 export type Plan = "free" | "paid";
-export type Platform = "ios" | "android" | "web" | "react-native";
+export type Platform = "ios" | "android" | "web" | "react-native" | "flutter";
 export type SessionStatus = "recording" | "pending" | "processing" | "ready" | "error" | "failed" | "deleted";
 
 // Time range options for filtering sessions and stats (align with components/ui/TimeFilter)

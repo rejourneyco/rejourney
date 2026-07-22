@@ -5,7 +5,7 @@
  * All copy buttons should reference these constants to ensure consistency.
  */
 
-export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Web app, a React Native app, or a Swift (native iOS) app by checking imports, dependencies, and file types. Then follow ONLY the matching section below.
+export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Web app, a React Native app, a Swift (native iOS) app, or a Flutter app by checking imports, dependencies, and file types. Then follow ONLY the matching section below.
 
 ==========================================================
 IF WEB — follow this section:
@@ -500,7 +500,65 @@ Once the integration is successfully implemented:
 2. Proactively ask the user if they would like to enrich their session data with custom events.
 3. Analyze the user's code and suggest 3-5 specific examples of:
    - Events with properties that would be valuable to track (e.g., 'checkout_completed' with properties: ["total": amount, "items": count])
-   Base your suggestions on the actual business logic you see in the user's code.`;
+   Base your suggestions on the actual business logic you see in the user's code.
+
+==========================================================
+IF FLUTTER — follow this section:
+==========================================================
+
+Integrate Rejourney into this Flutter app using the official package and its native iOS/Android plugin.
+
+REQUIREMENTS:
+- Flutter 3.22+, Dart 3.3+, iOS 15.1+, Android API 24+.
+
+INSTALLATION:
+flutter pub add rejourney
+
+SETUP:
+import 'package:rejourney/rejourney.dart';
+
+await Rejourney.init('PUBLIC_KEY_HERE');
+// Start only after any consent required by this app:
+await Rejourney.start();
+
+NAVIGATION:
+Create one RejourneyNavigatorObserver and add it to MaterialApp.navigatorObservers. If the app uses a declarative router, use its observer integration or call Rejourney.trackScreen with stable screen names from the router callback.
+
+USER IDENTITY:
+await Rejourney.setUserIdentity(currentUser.id); // internal non-PII ID
+await Rejourney.clearUserIdentity(); // on logout
+
+CUSTOM EVENTS AND REVENUE:
+await Rejourney.logEvent('checkout_started');
+await Rejourney.logEvent('purchase_completed', <String, Object?>{
+  'transactionId': order.id,
+  'amount': order.total,
+  'currency': 'USD',
+  'paymentProvider': 'your_provider',
+  'platform': 'flutter',
+});
+Fire purchase_completed only after payment confirmation. Use stable snake_case names and never put credentials, payment fields, raw email addresses, or other PII in properties.
+
+METADATA:
+await Rejourney.setMetadata(<String, Object?>{
+  'plan': currentUser.plan,
+  'checkoutVariant': 'v2',
+});
+
+PRIVACY:
+Wrap every sensitive Flutter subtree with RejourneyMask. This must include credentials, payment details, health data, account secrets, and any product-specific sensitive fields. Native secure inputs are also masked, but explicit masks are still required for sensitive composite widgets.
+
+ERRORS:
+Install RejourneyErrorCapture before runApp so Flutter framework, PlatformDispatcher, and guarded-zone errors reach the session timeline while preserving existing handlers.
+
+NETWORK TIMING:
+Use RejourneyHttpClient for package:http calls when request timing is desired. It records method, URL, status, timing, content type, and optional byte sizes, never bodies. For Dio, gRPC, or another client, use its interceptor and Rejourney.logNetworkRequest.
+
+VERIFY:
+- Run on both iOS and Android; hot reload cannot install a newly added native plugin.
+- Confirm named route transitions, a custom event, getSdkMetrics(), and masked checkout/login screens.
+- Use debugCrash/debugTriggerAnr only in disposable debug builds.
+- Tell the user exactly where the SDK was initialized, where consent gates start(), which routes are tracked, which views are masked, and which tests/builds passed.`;
 
 export const EXAMPLE_PROJECT_KEY = 'rj_example_public_key';
 
@@ -522,7 +580,7 @@ First ask me for any missing values:
 5. Storage choice: built-in MinIO or external S3-compatible storage.
 6. If external S3: endpoint, bucket, region, access key, secret key, and optional public endpoint.
 7. Whether this is a fresh install, update, restore, or broken install.
-8. Which SDKs I need to configure: React Native, Swift iOS, Web SDK, or all three.
+8. Which SDKs I need to configure: Flutter, React Native, Swift iOS, Web SDK, or all four.
 
 Then give me an interactive runbook with checkboxes:
 - DNS records for dashboard, www redirect, API, and ingest hostnames.
@@ -532,7 +590,7 @@ Then give me an interactive runbook with checkboxes:
 - What the installer will ask and what each answer should look like.
 - A reminder to immediately back up .env.selfhosted securely and never commit it.
 - Verification commands after install.
-- SDK configuration examples for React Native, Swift iOS, and Web SDK using https://api.<domain>.
+- SDK configuration examples for Flutter, React Native, Swift iOS, and Web SDK using https://api.<domain>.
 - A first recording test plan.
 - Backup and recovery steps.
 - A troubleshooting decision tree for the most common failures.
@@ -566,6 +624,18 @@ Successful status should mean:
 - worker services are running.
 
 SDK examples to include:
+
+Flutter:
+import 'package:rejourney/rejourney.dart';
+
+await Rejourney.init(
+  'rj_your_public_key',
+  config: const RejourneyConfig(
+    apiUrl: 'https://api.<base-domain>',
+  ),
+);
+
+await Rejourney.start();
 
 React Native:
 import { initRejourney, startRejourney } from '@rejourneyco/react-native';
@@ -665,7 +735,7 @@ type ProjectForPrompt = {
   webAllowedDomains?: string[] | null;
 } | null;
 
-export type AIPromptId = 'all' | 'web' | 'shopify' | 'react-native' | 'swift' | 'self-hosted';
+export type AIPromptId = 'all' | 'web' | 'shopify' | 'react-native' | 'swift' | 'flutter' | 'self-hosted';
 
 export type AIPromptDefinition = {
   id: AIPromptId;
@@ -700,6 +770,11 @@ export const REACT_NATIVE_AI_INTEGRATION_PROMPT = extractPromptSection(
 
 export const SWIFT_AI_INTEGRATION_PROMPT = extractPromptSection(
   'IF SWIFT (native iOS) — follow this section:',
+  'IF FLUTTER — follow this section:',
+);
+
+export const FLUTTER_AI_INTEGRATION_PROMPT = extractPromptSection(
+  'IF FLUTTER — follow this section:',
 );
 
 export const SHOPIFY_AI_INTEGRATION_PROMPT = `${WEB_AI_INTEGRATION_PROMPT}
@@ -755,7 +830,7 @@ export const AI_PROMPT_DEFINITIONS: Record<AIPromptId, AIPromptDefinition> = {
   all: {
     id: 'all',
     label: 'All SDKs',
-    description: 'Detect the app stack and follow only the matching Web, React Native, or Swift section.',
+    description: 'Detect the app stack and follow only the matching Web, React Native, Flutter, or Swift section.',
     docsPath: '/docs',
     prompt: AI_INTEGRATION_PROMPT,
   },
@@ -787,6 +862,13 @@ export const AI_PROMPT_DEFINITIONS: Record<AIPromptId, AIPromptDefinition> = {
     docsPath: '/docs/swift/overview',
     prompt: SWIFT_AI_INTEGRATION_PROMPT,
   },
+  flutter: {
+    id: 'flutter',
+    label: 'Flutter',
+    description: 'Flutter and Dart setup for native iOS and Android Rejourney capture.',
+    docsPath: '/docs/flutter/overview',
+    prompt: FLUTTER_AI_INTEGRATION_PROMPT,
+  },
   'self-hosted': {
     id: 'self-hosted',
     label: 'Self-hosted',
@@ -801,6 +883,7 @@ function formatPromptPlatform(platform: string): string {
   if (platform === 'android') return 'Android';
   if (platform === 'web') return 'Web';
   if (platform === 'react-native') return 'React Native';
+  if (platform === 'flutter') return 'Flutter';
   return platform;
 }
 
@@ -810,11 +893,13 @@ function formatPromptPlatforms(platforms: readonly string[]): string {
   if (values.has('web')) integrations.push(formatPromptPlatform('web'));
   if (values.has('react-native')) {
     integrations.push(formatPromptPlatform('react-native'));
+  } else if (values.has('flutter')) {
+    integrations.push(formatPromptPlatform('flutter'));
   } else if (values.has('ios')) {
     integrations.push(formatPromptPlatform('ios'));
   }
-  if (values.has('android') && !values.has('react-native')) {
-    integrations.push('Native Android (unsupported; Android requires React Native)');
+  if (values.has('android') && !values.has('react-native') && !values.has('flutter')) {
+    integrations.push('Native Android (unsupported; Android requires React Native or Flutter)');
   }
   return integrations.join(', ');
 }
@@ -945,7 +1030,8 @@ export function getAIPromptIdsForProject(project: ProjectForPrompt): AIPromptId[
   const promptIds: AIPromptId[] = [];
   const hasWeb = platforms.includes('web') || Boolean(project?.webDomain || project?.webAllowedDomains?.length);
   const hasReactNative = platforms.includes('react-native');
-  const hasSwift = platforms.includes('ios') && !hasReactNative;
+  const hasFlutter = platforms.includes('flutter');
+  const hasSwift = platforms.includes('ios') && !hasReactNative && !hasFlutter;
 
   if (hasWeb) {
     if (projectLooksLikeShopify(project)) {
@@ -955,6 +1041,7 @@ export function getAIPromptIdsForProject(project: ProjectForPrompt): AIPromptId[
     }
   }
   if (hasReactNative) promptIds.push('react-native');
+  if (hasFlutter) promptIds.push('flutter');
   if (hasSwift) promptIds.push('swift');
 
   if (promptIds.length === 0) promptIds.push('all');
