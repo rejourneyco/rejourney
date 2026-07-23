@@ -108,7 +108,7 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     ],
     mainAriaLabel: "Rejourney - Revenue Leak Prediction for Web and Mobile Apps",
     hero: {
-      headlinePrimary: "AI finds funnel leaks",
+      headlinePrimary: "Lightweight Session Replay",
       headlineSecondary: "Fix revenue leaks",
       primaryCta: "Find my leaks",
       secondaryCta: "Watch live demo",

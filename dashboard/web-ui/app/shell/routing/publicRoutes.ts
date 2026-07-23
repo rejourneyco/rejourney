@@ -7,6 +7,7 @@ export const publicRoutes = [
   ...MARKETING_LOCALE_SLUGS.map((locale) =>
     route(locale, "features/public/home/redirect.tsx", { id: `public-home-${locale}-redirect` })
   ),
+  route("light", "features/public/light/route.tsx", { id: "public-light" }),
   route("docs", "features/public/docs/index/route.tsx", { id: "public-docs-index" }),
   route("docs/ai-prompts/:promptId", "features/public/docs/ai-prompts/route.tsx", { id: "public-docs-ai-prompts" }),
   route("docs/*", "features/public/docs/slug/route.tsx", { id: "public-docs-slug" }),
