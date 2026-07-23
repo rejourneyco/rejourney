@@ -162,6 +162,12 @@ export function isWithinGoogleAdsActivationWindow(signupCompletedAt: Date, occur
     return elapsed >= 0 && elapsed <= ACTIVATION_WINDOW_MS;
 }
 
+export function hasGoogleAdsMeasurementConsent(
+    consentGrantedAt: Date | null | undefined,
+): boolean {
+    return config.GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING || Boolean(consentGrantedAt);
+}
+
 function defaultTransactionId(eventName: GoogleAdsMilestoneName, userId: string): string {
     return `${eventName}:${userId}`;
 }
@@ -264,7 +270,7 @@ export async function recordGoogleAdsMilestone(
     if (!user) return null;
 
     const uploadable = isUploadEventName(input.eventName);
-    const consentGranted = Boolean(user.consentGrantedAt);
+    const consentGranted = hasGoogleAdsMeasurementConsent(user.consentGrantedAt);
     const [inserted] = await db
         .insert(googleAdsConversionEvents)
         .values({
@@ -452,7 +458,7 @@ async function uploadOne(row: ConversionEventRow): Promise<void> {
         .from(users)
         .where(eq(users.id, row.userId))
         .limit(1);
-    if (!identity?.consentGrantedAt) {
+    if (!identity || !hasGoogleAdsMeasurementConsent(identity.consentGrantedAt)) {
         await db
             .update(googleAdsConversionEvents)
             .set({ status: 'consent_denied', updatedAt: new Date() })
@@ -556,6 +562,22 @@ async function claimUploadRows(): Promise<ConversionEventRow[]> {
     return claimed;
 }
 
+async function requeueConsentDeniedRowsForInitialTesting(): Promise<void> {
+    if (!config.GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING) return;
+
+    const now = new Date();
+    await db
+        .update(googleAdsConversionEvents)
+        .set({
+            consentGranted: true,
+            status: 'pending',
+            nextAttemptAt: now,
+            lastError: null,
+            updatedAt: now,
+        })
+        .where(eq(googleAdsConversionEvents.status, 'consent_denied'));
+}
+
 async function pollAcceptedRows(): Promise<void> {
     const rows = await db
         .select()
@@ -622,6 +644,7 @@ export async function runGoogleAdsConversionDeliveryCycle(): Promise<{
         return { enabled: false, claimed: 0 };
     }
 
+    await requeueConsentDeniedRowsForInitialTesting();
     await pollAcceptedRows();
     const rows = await claimUploadRows();
     for (const row of rows) {

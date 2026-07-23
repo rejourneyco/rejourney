@@ -28,19 +28,24 @@ import {
     getMarketingHomeCopy,
     MARKETING_LOCALES,
 } from "./shared/lib/internationalMarketing";
+import { isGoogleAdsConsentBypassForInitialTestingEnabled } from "./shared/lib/googleAdsConsent";
 import { isAuthBootstrapData, isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
 
-function renderGoogleAdsBootstrap(conversionId: string): string {
+function renderGoogleAdsBootstrap(
+    conversionId: string,
+    bypassConsentForInitialTesting: boolean,
+): string {
     return [
         "(function(){",
         `var conversionId=${JSON.stringify(conversionId)};`,
+        `var bypassConsentForInitialTesting=${JSON.stringify(bypassConsentForInitialTesting)};`,
         "var path=window.location.pathname;",
         "if(path.indexOf('/dashboard')===0){return;}",
         "window.dataLayer=window.dataLayer||[];",
         "function gtag(){dataLayer.push(arguments);}",
         "window.gtag=window.gtag||gtag;",
-        "var consent='denied';",
-        "try{if(window.localStorage.getItem('rejourney.webSdkConsent.v1')==='accepted'){consent='granted';}}catch(e){}",
+        "var consent=bypassConsentForInitialTesting?'granted':'denied';",
+        "if(!bypassConsentForInitialTesting){try{if(window.localStorage.getItem('rejourney.webSdkConsent.v1')==='accepted'){consent='granted';}}catch(e){}}",
         "gtag('consent','default',{ad_storage:consent,analytics_storage:consent,ad_user_data:consent,ad_personalization:consent,wait_for_update:500});",
         "gtag('set','ads_data_redaction',true);",
         "gtag('set','url_passthrough',true);",
@@ -130,7 +135,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {googleAdsConversionId ? (
                     <script
                         dangerouslySetInnerHTML={{
-                            __html: renderGoogleAdsBootstrap(googleAdsConversionId),
+                            __html: renderGoogleAdsBootstrap(
+                                googleAdsConversionId,
+                                isGoogleAdsConsentBypassForInitialTestingEnabled(),
+                            ),
                         }}
                     />
                 ) : null}

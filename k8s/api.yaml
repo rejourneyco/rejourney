@@ -541,6 +541,12 @@ spec:
                   name: app-secret
                   key: SHOW_ISSUE_DETECTION_UI
                   optional: true
+            - name: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+                  optional: true
             - name: ISSUE_DETECTION_API_URL
               valueFrom:
                 secretKeyRef:

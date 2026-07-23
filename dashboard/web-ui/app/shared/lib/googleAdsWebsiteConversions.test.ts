@@ -8,8 +8,14 @@ import {
 
 const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
 
-function installWindow() {
-  const values = new Map([[GOOGLE_ADS_CONSENT_STORAGE_KEY, "accepted"]]);
+function installWindow(
+  withStoredTelemetryConsent = true,
+  consentBypassForInitialTesting?: string,
+) {
+  const values = new Map<string, string>();
+  if (withStoredTelemetryConsent) {
+    values.set(GOOGLE_ADS_CONSENT_STORAGE_KEY, "accepted");
+  }
   const sessionValues = new Map<string, string>();
   const gtag = vi.fn();
   Object.defineProperty(globalThis, "window", {
@@ -18,6 +24,10 @@ function installWindow() {
       ENV: {
         VITE_GOOGLE_ADS_CONVERSION_ID: "AW-123",
         VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: "demo-label",
+        VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: "pricing-label",
+        ...(consentBypassForInitialTesting === undefined
+          ? {}
+          : { VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: consentBypassForInitialTesting }),
       },
       gtag,
       localStorage: {
@@ -66,5 +76,22 @@ describe("Google Ads website conversions", () => {
       send_to: "AW-123/demo-label",
       transaction_id: expect.stringMatching(/^demo_opened:/),
     }));
+  });
+
+  it("dispatches without waiting for the telemetry prompt during the Ads test", () => {
+    const gtag = installWindow(false);
+
+    expect(trackGoogleAdsWebsiteConversion("pricing_viewed")).toBe(true);
+    expect(gtag).toHaveBeenCalledWith("event", "conversion", expect.objectContaining({
+      send_to: "AW-123/pricing-label",
+      transaction_id: expect.stringMatching(/^pricing_viewed:/),
+    }));
+  });
+
+  it("requires prompt consent when the temporary environment bypass is explicitly false", () => {
+    const gtag = installWindow(false, "false");
+
+    expect(trackGoogleAdsWebsiteConversion("pricing_viewed")).toBe(false);
+    expect(gtag).not.toHaveBeenCalled();
   });
 });

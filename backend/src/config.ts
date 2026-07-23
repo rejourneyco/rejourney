@@ -177,6 +177,9 @@ const envSchema = z.object({
     // Google Ads Data Manager conversion outbox. Disabled until the Google Ads
     // conversion action IDs and Application Default Credentials are configured.
     GOOGLE_ADS_DATA_MANAGER_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    // Temporary launch-testing override. This only bypasses the Google Ads
+    // measurement consent gate; it does not enable Rejourney session recording.
+    GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: z.string().transform(v => v !== 'false').default('true'),
     GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY: z.string().transform(v => v !== 'false').default('true'),
     GOOGLE_ADS_DATA_MANAGER_GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
     GOOGLE_ADS_DATA_MANAGER_SERVICE_ACCOUNT_JSON: z.string().optional(),

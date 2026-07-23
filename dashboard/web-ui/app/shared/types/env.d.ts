@@ -11,6 +11,7 @@ declare global {
             VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL?: string;
             VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL?: string;
             VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL?: string;
+            VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING?: string;
             VITE_REDDIT_PIXEL_ID?: string;
             SHOW_ISSUE_DETECTION_UI?: string;
         };
