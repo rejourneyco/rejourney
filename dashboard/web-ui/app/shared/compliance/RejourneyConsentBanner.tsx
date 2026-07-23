@@ -8,7 +8,11 @@ import {
     clearGoogleAdsAttribution,
     grantGoogleAdsAttributionConsent,
 } from "~/shared/lib/googleAdsAttribution";
-import { updateGoogleAdsConsent } from "~/shared/lib/googleAdsConsent";
+import {
+    hasGoogleAdsConsent,
+    isGoogleAdsConsentPromptRequired,
+    updateGoogleAdsConsent,
+} from "~/shared/lib/googleAdsConsent";
 import {
     getGoogleAdsPageConversionRule,
     trackGoogleAdsWebsiteConversion,
@@ -128,7 +132,7 @@ export function RejourneyConsentBanner() {
     }, [consentState, currentTeam, isWebsiteTelemetryDisabledPath, location.pathname, location.search, teams, user?.id]);
 
     useEffect(() => {
-        if (consentState !== "accepted" || typeof window === "undefined") return;
+        if (typeof window === "undefined" || !hasGoogleAdsConsent()) return;
         const rule = getGoogleAdsPageConversionRule(location.pathname);
         if (!rule) return;
 
@@ -172,8 +176,10 @@ export function RejourneyConsentBanner() {
 
     const rejectAnalytics = () => {
         writeStoredRejourneyConsent("rejected");
-        updateGoogleAdsConsent(false);
-        clearGoogleAdsAttribution();
+        if (isGoogleAdsConsentPromptRequired()) {
+            updateGoogleAdsConsent(false);
+            clearGoogleAdsAttribution();
+        }
         setConsentState("rejected");
         disableRejourneyWebsiteTelemetry();
     };

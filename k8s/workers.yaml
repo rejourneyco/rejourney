@@ -476,6 +476,12 @@ spec:
                   key: STORAGE_ENCRYPTION_KEY
             - name: PUSHGATEWAY_URL
               value: "http://pushgateway.rejourney.svc.cluster.local:9091"
+            - name: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+                  optional: true
             - name: RJ_SESSION_EFFECTS_DELAY_MS
               value: "15000"
             - name: RJ_SESSION_EFFECTS_CONCURRENCY
@@ -1240,6 +1246,12 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: GOOGLE_ADS_DATA_MANAGER_ENABLED
+                  optional: true
+            - name: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
                   optional: true
             - name: GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY
               valueFrom:
