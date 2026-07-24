@@ -3,7 +3,10 @@ import type { Project } from '~/shared/types';
 import {
   formatProjectPlatforms,
   hasUnsupportedNativeAndroid,
+  isSetupSupportRoute,
+  isSetupWizardRoute,
   normalizeSetupIntegrations,
+  shouldRedirectFromSetup,
   SETUP_PLATFORM_OPTIONS,
 } from './setupUtils';
 
@@ -36,5 +39,23 @@ describe('setup integration normalization', () => {
     expect(hasUnsupportedNativeAndroid(['android'])).toBe(true);
     expect(hasUnsupportedNativeAndroid(['react-native', 'android'])).toBe(false);
     expect(formatProjectPlatforms(projectWithPlatforms(['android']))).toBe('Native Android (unsupported)');
+  });
+});
+
+describe('completed setup routing', () => {
+  it('redirects projects that have already received sessions', () => {
+    expect(shouldRedirectFromSetup({ sessionsTotal: 1 } as Project)).toBe(true);
+    expect(shouldRedirectFromSetup({ sessionsLast7Days: 1 } as Project)).toBe(true);
+  });
+
+  it('keeps projects without received data in setup', () => {
+    expect(shouldRedirectFromSetup({ sessionsTotal: 0, sessionsLast7Days: 0 } as Project)).toBe(false);
+    expect(shouldRedirectFromSetup(null)).toBe(false);
+  });
+
+  it('distinguishes the onboarding wizard from other setup-support routes', () => {
+    expect(isSetupWizardRoute('/dashboard/setup')).toBe(true);
+    expect(isSetupWizardRoute('/dashboard/settings/project-1/github')).toBe(false);
+    expect(isSetupSupportRoute('/dashboard/settings/project-1/github')).toBe(true);
   });
 });

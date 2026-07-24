@@ -30,6 +30,28 @@ import {
 } from "./shared/lib/internationalMarketing";
 import { isGoogleAdsConsentBypassForInitialTestingEnabled } from "./shared/lib/googleAdsConsent";
 import { isAuthBootstrapData, isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
+import { readCookieValue } from "./shared/utils/selectionCookies";
+
+interface PublicSessionHintData {
+    __publicSessionHint: true;
+    hasSessionCookie: boolean;
+}
+
+function isPublicSessionHintData(value: unknown): value is PublicSessionHintData {
+    return Boolean(
+        value
+        && typeof value === "object"
+        && "__publicSessionHint" in value
+        && (value as PublicSessionHintData).__publicSessionHint
+    );
+}
+
+export function loader({ request }: Route.LoaderArgs): PublicSessionHintData {
+    return {
+        __publicSessionHint: true,
+        hasSessionCookie: Boolean(readCookieValue(request.headers.get("cookie"), "session")),
+    };
+}
 
 function renderGoogleAdsBootstrap(
     conversionId: string,
@@ -210,6 +232,9 @@ export default function App() {
     const publicAuthBootstrap = matches
         .map((match) => match.data)
         .find((data) => isAuthBootstrapData(data)) ?? null;
+    const publicSessionHint = matches
+        .map((match) => match.data)
+        .find((data) => isPublicSessionHintData(data)) ?? null;
     const isDemoRoute = location.pathname === "/demo" || location.pathname.startsWith("/demo/");
 
     const appContent = (
@@ -225,6 +250,7 @@ export default function App() {
             initialHydrated={Boolean(shellBootstrap || publicAuthBootstrap)}
             initialAuthServiceUnavailable={publicAuthBootstrap?.authServiceUnavailable ?? false}
             initialError={publicAuthBootstrap?.error ?? null}
+            initialSessionPresent={publicSessionHint?.hasSessionCookie ?? false}
         >
             {isDemoRoute ? appContent : (
                 <TeamProvider

@@ -273,7 +273,8 @@ app.use((req, res, next) => {
   }
 
   const acceptsHtml = req.headers.accept?.includes('text/html') ?? false;
-  if (acceptsHtml && cachePublicHtmlAtEdge && isEdgeCacheableHtmlPath(req.path)) {
+  const hasSessionCookie = Boolean(req.cookies?.session);
+  if (acceptsHtml && cachePublicHtmlAtEdge && isEdgeCacheableHtmlPath(req.path) && !hasSessionCookie) {
     // Let Cloudflare cache public marketing HTML briefly while browsers
     // still revalidate on navigation.
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');

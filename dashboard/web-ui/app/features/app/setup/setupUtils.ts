@@ -86,11 +86,19 @@ export function shouldSurfaceSetup(projects: readonly Project[], selectedProject
   return projects.length === 0 || !projectHasRecentData(selectedProject);
 }
 
+export function shouldRedirectFromSetup(selectedProject: Project | null | undefined): boolean {
+  return projectHasRecentData(selectedProject);
+}
+
+export function isSetupWizardRoute(pathname: string): boolean {
+  const routeWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
+  return routeWithoutPrefix === '/setup' || routeWithoutPrefix.endsWith('/setup');
+}
+
 export function isSetupSupportRoute(pathname: string): boolean {
   const routeWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
   return (
-    routeWithoutPrefix === '/setup' ||
-    routeWithoutPrefix.endsWith('/setup') ||
+    isSetupWizardRoute(pathname) ||
     /^\/settings\/[^/]+\/github\/?$/.test(routeWithoutPrefix)
   );
 }

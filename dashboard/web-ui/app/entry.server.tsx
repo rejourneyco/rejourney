@@ -14,7 +14,7 @@ import { MARKETING_LOCALES } from "./shared/lib/internationalMarketing";
 
 const ABORT_DELAY = 5000;
 
-// Content Security Policy that allows Stripe, Rejourney ingest, Mapbox, and Zaraz-managed Google Ads.
+// Content Security Policy that allows Stripe, Rejourney ingest, Mapbox, and Google Ads.
 const CSP_POLICY = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com",

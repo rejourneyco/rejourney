@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, Navigate, useSearchParams } from 'react-router';
 import {
   ArrowRight,
   Check,
@@ -43,6 +43,7 @@ import {
   buildDeveloperSetupEmail,
   formatProjectPlatforms,
   projectHasRecentData,
+  shouldRedirectFromSetup,
 } from './setupUtils';
 
 type CopyTarget = 'key' | 'prompt' | 'instructions' | 'contact' | null;
@@ -517,6 +518,10 @@ export const SetupRoute: React.FC = () => {
 
   if (teamsLoading || projectsLoading) {
     return <DashboardGhostLoader variant="settings" />;
+  }
+
+  if (shouldRedirectFromSetup(activeProject)) {
+    return <Navigate to={`${pathPrefix}/general`} replace />;
   }
 
   const setupSteps = [

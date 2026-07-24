@@ -239,23 +239,6 @@ export const demoReplayFixture = {
       "scrollY": 48.5
     },
     {
-      "type": "network_request",
-      "requestId": "req_1779812960480_f42x850kch",
-      "timestamp": 1779811926469,
-      "method": "POST",
-      "url": "https://rejourney.co/cdn-cgi/zaraz/t",
-      "urlPath": "/cdn-cgi/zaraz/t",
-      "urlHost": "rejourney.co",
-      "statusCode": 200,
-      "duration": 431,
-      "endTimestamp": 1779811926900,
-      "success": true,
-      "requestBodySize": 364,
-      "responseBodySize": 0,
-      "requestContentType": null,
-      "responseContentType": "application/json"
-    },
-    {
       "type": "custom",
       "timestamp": 1779811926849,
       "name": "website_scroll_depth_reached",
@@ -924,26 +907,7 @@ export const demoReplayFixture = {
       "scrollY": 16151
     }
   ],
-  "networkRequests": [
-    {
-      "id": "net_web_0000",
-      "requestId": "req_1779812960480_f42x850kch",
-      "timestamp": 1779811926469,
-      "startTimestamp": 1779811926469,
-      "endTimestamp": 1779811926900,
-      "method": "POST",
-      "url": "https://rejourney.co/cdn-cgi/zaraz/t",
-      "urlHost": "rejourney.co",
-      "urlPath": "/cdn-cgi/zaraz/t",
-      "statusCode": 200,
-      "duration": 431,
-      "success": true,
-      "requestBodySize": 364,
-      "responseBodySize": 0,
-      "requestContentType": null,
-      "responseContentType": "application/json"
-    }
-  ],
+  "networkRequests": [],
   "hierarchySnapshots": [],
   "screenshotFrames": [],
   "screenshotFramesStatus": "none",

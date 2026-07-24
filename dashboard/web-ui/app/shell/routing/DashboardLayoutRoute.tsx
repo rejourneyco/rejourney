@@ -13,7 +13,7 @@ import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { SessionDataProvider, useSessionData } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
-import { SETUP_GATE_TOAST, isSetupSupportRoute, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
+import { SETUP_GATE_TOAST, isSetupSupportRoute, isSetupWizardRoute, shouldRedirectFromSetup, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
 import type { Project } from "~/shared/types";
 import { readCookieValue } from "~/shared/utils/selectionCookies";
 import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
@@ -47,8 +47,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (bootstrap) {
         const url = new URL(request.url);
         const isSetupPage = isSetupSupportRoute(url.pathname);
+        const isSetupWizardPage = isSetupWizardRoute(url.pathname);
+        const selectedProject = bootstrap.projects.find((p) => p.id === bootstrap.selectedProjectId) ?? bootstrap.projects[0] ?? null;
+        if (isSetupWizardPage && shouldRedirectFromSetup(selectedProject as unknown as Project)) {
+            throw redirect("/dashboard/general");
+        }
         if (!isSetupPage) {
-            const selectedProject = bootstrap.projects.find((p) => p.id === bootstrap.selectedProjectId) ?? bootstrap.projects[0] ?? null;
             const cookieHeader = request.headers.get("cookie");
             const isBypassed = selectedProject && readCookieValue(cookieHeader, `bypass_setup_${selectedProject.id}`) === "true";
             if (!isBypassed && shouldSurfaceSetup(bootstrap.projects as unknown as Project[], selectedProject as unknown as Project)) {

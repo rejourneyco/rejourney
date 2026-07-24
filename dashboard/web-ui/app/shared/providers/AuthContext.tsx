@@ -273,6 +273,7 @@ interface Props {
   initialAuthServiceUnavailable?: boolean;
   initialError?: string | null;
   initialHydrated?: boolean;
+  initialSessionPresent?: boolean;
   initialUser?: User | null;
 }
 
@@ -281,9 +282,11 @@ export function AuthProvider({
   initialAuthServiceUnavailable = false,
   initialError = null,
   initialHydrated = false,
+  initialSessionPresent = false,
   initialUser = null,
 }: Props) {
   const [user, setUser] = useState<User | null>(initialHydrated ? initialUser : null);
+  const [hasSessionHint, setHasSessionHint] = useState(!initialHydrated && initialSessionPresent);
   const [isLoading, setIsLoading] = useState(!initialHydrated);
   const [error, setError] = useState<string | null>(initialHydrated ? initialError : null);
   const [authServiceUnavailable, setAuthServiceUnavailable] = useState(
@@ -327,6 +330,7 @@ export function AuthProvider({
           if (data && typeof data === 'object' && 'user' in data && data.user === null) {
             setUser(null);
             userRef.current = null;
+            setHasSessionHint(false);
             setError(null);
             setAuthServiceUnavailable(false);
             return null;
@@ -344,6 +348,7 @@ export function AuthProvider({
           const normalizedUser = normalizeAuthUser(userData);
           setUser(normalizedUser);
           userRef.current = normalizedUser;
+          setHasSessionHint(false);
           setError(null);
           setAuthServiceUnavailable(false);
           return normalizedUser;
@@ -351,12 +356,14 @@ export function AuthProvider({
           // Unauthorized - user is not authenticated
           setUser(null);
           userRef.current = null;
+          setHasSessionHint(false);
           setError(null); // Clear error for 401 as it's expected when not logged in
           setAuthServiceUnavailable(false);
           return null;
         } else if (response.status === 403) {
           setUser(null);
           userRef.current = null;
+          setHasSessionHint(false);
           setError(null);
           setAuthServiceUnavailable(false);
           return null;
@@ -403,6 +410,7 @@ export function AuthProvider({
     startTransition(() => {
       setUser(initialUser);
       userRef.current = initialUser;
+      setHasSessionHint(false);
       setError(initialError);
       setAuthServiceUnavailable(initialAuthServiceUnavailable);
       setIsLoading(false);
@@ -412,7 +420,7 @@ export function AuthProvider({
   // Check auth status on mount
   useEffect(() => {
     if (initialHydrated) return;
-    if (!shouldBootstrapAuth(window.location.pathname)) {
+    if (!shouldBootstrapAuth(window.location.pathname) && !initialSessionPresent) {
       setIsLoading(false);
       return;
     }
@@ -425,7 +433,7 @@ export function AuthProvider({
       }
     };
     checkAuth();
-  }, [initialHydrated, refreshUser]);
+  }, [initialHydrated, initialSessionPresent, refreshUser]);
 
   // Send OTP to email
   const sendOtp = useCallback(async (email: string): Promise<AuthActionResult> => {
@@ -534,6 +542,7 @@ export function AuthProvider({
       // Always clear user state, even if network request fails
       setUser(null);
       userRef.current = null;
+      setHasSessionHint(false);
       setError(null);
       setAuthServiceUnavailable(false);
     }
@@ -549,7 +558,7 @@ export function AuthProvider({
   const value: AuthContextValue = {
     user,
     isLoading,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user || hasSessionHint,
     authServiceUnavailable,
     error,
     login,
