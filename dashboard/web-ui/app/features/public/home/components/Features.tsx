@@ -6,7 +6,7 @@ const features = [
         title: 'Session',
         highlight: 'Replay',
         highlightColor: 'text-[#5dadec]',
-        image: '/images/session-replay-preview.png',
+        image: '/images/session-replay-preview.webp',
         badge: 'Replay',
         badgeColor: 'bg-[#5dadec]',
     },
@@ -14,7 +14,7 @@ const features = [
         title: 'Incident',
         highlight: 'Stream',
         highlightColor: 'text-[#ef4444]',
-        image: '/images/issues-feed.png',
+        image: '/images/issues-feed.webp',
         badge: 'Live',
         badgeColor: 'bg-[#ef4444]',
     },
@@ -22,7 +22,7 @@ const features = [
         title: 'Crash',
         highlight: 'Detection',
         highlightColor: 'text-orange-500',
-        image: '/images/anr-issues.png',
+        image: '/images/anr-issues.webp',
         badge: 'ANR',
         badgeColor: 'bg-orange-400',
     },
@@ -30,7 +30,7 @@ const features = [
         title: 'Journey',
         highlight: 'Maps',
         highlightColor: 'text-[#5dadec]',
-        image: '/images/user-journeys.png',
+        image: '/images/user-journeys.webp',
         badge: 'Flows',
         badgeColor: 'bg-[#5dadec]',
     },
@@ -38,7 +38,7 @@ const features = [
         title: 'Touch',
         highlight: 'Heatmaps',
         highlightColor: 'text-rose-500',
-        image: '/images/heatmaps.png',
+        image: '/images/heatmaps.webp',
         badge: 'Taps',
         badgeColor: 'bg-rose-400',
     },
@@ -46,7 +46,7 @@ const features = [
         title: 'Global',
         highlight: 'Stability',
         highlightColor: 'text-purple-500',
-        image: '/images/geo-intelligence.png',
+        image: '/images/geo-intelligence.webp',
         badge: 'Geo',
         badgeColor: 'bg-purple-400',
     },
@@ -54,7 +54,7 @@ const features = [
         title: 'Growth',
         highlight: 'Loops',
         highlightColor: 'text-[#34d399]',
-        image: '/images/growth-engines.png',
+        image: '/images/growth-engines.webp',
         badge: 'Retention',
         badgeColor: 'bg-[#34d399]',
     },
@@ -104,6 +104,7 @@ export const Features: React.FC<{
                                     alt={`${feature.title} ${feature.highlight}`}
                                     className="aspect-[4/3] w-full object-cover object-left-top transition-transform duration-300 group-hover:scale-[1.03]"
                                     loading="lazy"
+                                    decoding="async"
                                 />
                             </div>
                             <h3 className="text-xl font-black uppercase leading-[0.92] tracking-tight sm:text-2xl">

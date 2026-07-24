@@ -10,7 +10,6 @@ import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
-import { PricingThreeField } from '~/features/public/home/components/PricingThreeField';
 import {
   CreditCard,
   Check,
@@ -775,7 +774,6 @@ export const BillingSettings: React.FC = () => {
         </div>
       }
     >
-      <PricingThreeField seed={21} className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60" />
       <div className="relative z-10 space-y-6">
       {isDemoMode && (
         <div className="flex items-start gap-3 rounded-xl border border-sky-200/70 bg-sky-50/80 p-4 backdrop-blur-md">

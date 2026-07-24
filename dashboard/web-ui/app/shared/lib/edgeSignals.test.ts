@@ -128,20 +128,6 @@ describe('edge signals', () => {
     expect(gtag).toHaveBeenCalledTimes(1);
   });
 
-  it('sends the Reddit signup conversion when the pixel is bootstrapped', async () => {
-    const rdt = vi.fn();
-    setTestWindow({
-      ENV: {},
-      rdt,
-      setTimeout,
-      zaraz: { track: vi.fn().mockResolvedValue(undefined) },
-    });
-
-    await trackAccountActivationSignal('github');
-
-    expect(rdt).toHaveBeenCalledWith('track', 'SignUp');
-  });
-
   it('does not send a Google Ads conversion when the conversion label is missing', async () => {
     const gtag = vi.fn();
     setTestWindow({

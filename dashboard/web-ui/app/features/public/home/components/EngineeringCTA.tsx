@@ -46,22 +46,20 @@ export const EngineeringCTA: React.FC<{ copy: MarketingHomeCopy['engineeringCta'
 
 
                     <div className="flex flex-col justify-center gap-4 sm:flex-row">
-                        <Link to={engineeringPath} className="w-full sm:w-auto">
-                            <button
-                                className="flex w-full items-center justify-center gap-3 border-2 border-black bg-black px-4 py-4 text-xs font-black uppercase tracking-widest text-white shadow-[5px_5px_0px_0px_rgba(93,173,236,1)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#5dadec] hover:text-black hover:shadow-neo-lg active:translate-y-0 sm:w-auto sm:px-8 sm:text-base"
-                            >
-                                <Terminal className={CTA_ICON_CLASS} strokeWidth={3} aria-hidden />
-                                {copy.primary}
-                            </button>
+                        <Link
+                            to={engineeringPath}
+                            className="flex w-full items-center justify-center gap-3 border-2 border-black bg-black px-4 py-4 text-xs font-black uppercase tracking-widest text-white shadow-[5px_5px_0px_0px_rgba(93,173,236,1)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#5dadec] hover:text-black hover:shadow-neo-lg active:translate-y-0 sm:w-auto sm:px-8 sm:text-base"
+                        >
+                            <Terminal className={CTA_ICON_CLASS} strokeWidth={3} aria-hidden />
+                            {copy.primary}
                         </Link>
 
-                        <Link to="/login" className="w-full sm:w-auto">
-                            <button
-                                className="flex w-full items-center justify-center gap-3 border-2 border-black bg-[#fef08a] px-4 py-4 text-xs font-black uppercase tracking-widest text-black shadow-neo transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-neo-lg active:translate-y-0 sm:w-auto sm:px-8 sm:text-base"
-                            >
-                                {copy.secondary}
-                                <ArrowRight className={CTA_ICON_CLASS} strokeWidth={3} aria-hidden />
-                            </button>
+                        <Link
+                            to="/login"
+                            className="flex w-full items-center justify-center gap-3 border-2 border-black bg-[#fef08a] px-4 py-4 text-xs font-black uppercase tracking-widest text-black shadow-neo transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:shadow-neo-lg active:translate-y-0 sm:w-auto sm:px-8 sm:text-base"
+                        >
+                            {copy.secondary}
+                            <ArrowRight className={CTA_ICON_CLASS} strokeWidth={3} aria-hidden />
                         </Link>
                     </div>
                 </div>

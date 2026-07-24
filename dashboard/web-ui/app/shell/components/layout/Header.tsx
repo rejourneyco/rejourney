@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { Button } from '~/shared/ui/core/Button';
 import { useAuth } from '~/shared/providers/AuthContext';
-import { ChevronDown, Github, Menu, Star, X } from 'lucide-react';
+import { ChevronDown, Menu, X } from 'lucide-react';
 import {
   MARKETING_LOCALES,
   getLocalizedPublicPath,
@@ -70,22 +69,53 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
 
   useEffect(() => {
     let isMounted = true;
+    const controller = new AbortController();
+    let idleHandle: number | null = null;
+    let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
+    const storageKey = 'rejourney.githubStars';
 
-    fetch(GITHUB_REPO_API_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-    })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data: { stargazers_count?: number } | null) => {
-        if (isMounted && typeof data?.stargazers_count === 'number') {
-          setGithubStars(data.stargazers_count);
+    const loadStars = () => {
+      try {
+        const cachedStars = Number(window.sessionStorage.getItem(storageKey));
+        if (Number.isFinite(cachedStars) && cachedStars > 0) {
+          setGithubStars(cachedStars);
+          return;
         }
+      } catch {
+        // Session storage is optional.
+      }
+
+      fetch(GITHUB_REPO_API_URL, {
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: controller.signal,
       })
-      .catch(() => {
-        // Keep the baked-in fallback if GitHub is unavailable.
-      });
+        .then((response) => response.ok ? response.json() : null)
+        .then((data: { stargazers_count?: number } | null) => {
+          if (isMounted && typeof data?.stargazers_count === 'number') {
+            setGithubStars(data.stargazers_count);
+            try {
+              window.sessionStorage.setItem(storageKey, String(data.stargazers_count));
+            } catch {
+              // Session storage is optional.
+            }
+          }
+        })
+        .catch(() => {
+          // Keep the baked-in fallback if GitHub is unavailable.
+        });
+    };
+
+    if ('requestIdleCallback' in window) {
+      idleHandle = window.requestIdleCallback(loadStars, { timeout: 3000 });
+    } else {
+      fallbackTimeout = globalThis.setTimeout(loadStars, 1500);
+    }
 
     return () => {
       isMounted = false;
+      controller.abort();
+      if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
+      if (fallbackTimeout !== null) globalThis.clearTimeout(fallbackTimeout);
     };
   }, []);
 
@@ -194,10 +224,11 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                 {copy.login}
               </Link>
             )}
-            <Link to={isAuthenticated ? "/dashboard" : "/login"} className="hidden sm:inline-flex">
-              <button className="min-h-10 rounded-none border border-black bg-black px-5 py-2 font-sans text-[15px] font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-900 hover:shadow-neo active:translate-y-0 active:shadow-none">
-                {isAuthenticated ? copy.dashboard : "Get started"}
-              </button>
+            <Link
+              to={isAuthenticated ? "/dashboard" : "/login"}
+              className="hidden min-h-10 items-center rounded-none border border-black bg-black px-5 py-2 font-sans text-[15px] font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-900 hover:shadow-neo active:translate-y-0 active:shadow-none sm:inline-flex"
+            >
+              {isAuthenticated ? copy.dashboard : "Get started"}
             </Link>
 
             {/* Hamburger Button */}
@@ -268,10 +299,12 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                     {copy.login}
                   </Link>
                 )}
-                <Link to={isAuthenticated ? "/dashboard" : "/login"} onClick={() => setIsOpen(false)}>
-                  <button className="w-full font-sans font-black uppercase text-sm py-2 border border-black bg-black text-white hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all duration-200 rounded-none text-center shadow-neo-sm">
-                    {isAuthenticated ? copy.dashboard : "Get started"}
-                  </button>
+                <Link
+                  to={isAuthenticated ? "/dashboard" : "/login"}
+                  onClick={() => setIsOpen(false)}
+                  className="w-full rounded-none border border-black bg-black py-2 text-center font-sans text-sm font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-900 hover:shadow-neo active:translate-y-0 active:shadow-none"
+                >
+                  {isAuthenticated ? copy.dashboard : "Get started"}
                 </Link>
               </div>
             </nav>

@@ -4,15 +4,14 @@ import { ArrowRight, Github } from "lucide-react";
 import { Footer } from "~/shell/components/layout/Footer";
 import { Header } from "~/shell/components/layout/Header";
 import { SITE_URL } from "~/shared/lib/internationalMarketing";
-import { LandingThreeField } from "~/features/public/home/components/LandingThreeField";
-import { FloatingDataNodes } from "~/features/public/home/components/SparseThreeAnimations";
 
 const MARLIN_APP_URL = "https://github.com/apps/rejourney-marlin/";
 const MARLIN_IMAGE = "/images/rejourney-marlin.png";
-const ISSUE_FEED_IMAGE = "/images/issues-feed.png";
-const REPLAY_CONTEXT_IMAGE = "/images/landing-replay-theater.png";
-const REVENUE_IMAGE = "/images/growth-engines.png";
-const STABILITY_IMAGE = "/images/anr-issues.png";
+const MARLIN_DISPLAY_IMAGE = "/images/rejourney-marlin.webp";
+const ISSUE_FEED_IMAGE = "/images/issues-feed.webp";
+const REPLAY_CONTEXT_IMAGE = "/images/landing-replay-theater.webp";
+const REVENUE_IMAGE = "/images/growth-engines.webp";
+const STABILITY_IMAGE = "/images/anr-issues.webp";
 
 export const meta: MetaFunction = () => {
   const canonicalUrl = `${SITE_URL}/rejourney-marlin`;
@@ -92,8 +91,6 @@ export default function RejourneyMarlinPage() {
       <Header noSpacer />
       <main aria-label="Rejourney Marlin GitHub App">
         <section className="relative overflow-hidden px-5 pb-20 pt-36 sm:px-8 sm:pb-28 sm:pt-44 lg:px-10">
-          <LandingThreeField variant="landing-hero" seed={931} />
-          <FloatingDataNodes className="opacity-55" seed={907} />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(45,212,191,0.18),transparent_42%),radial-gradient(circle_at_82%_18%,rgba(37,99,235,0.16),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.86))]" aria-hidden="true" />
 
           <div className="relative z-10 mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
@@ -132,9 +129,10 @@ export default function RejourneyMarlinPage() {
               <div className="absolute -inset-5 rounded-[2rem] bg-cyan-200/30 blur-3xl" aria-hidden="true" />
               <div className="relative overflow-hidden rounded-[1.75rem] border border-cyan-100 bg-white/70 p-3 shadow-2xl shadow-cyan-900/10 backdrop-blur-xl">
                 <img
-                  src={MARLIN_IMAGE}
+                  src={MARLIN_DISPLAY_IMAGE}
                   alt="Rejourney Marlin artwork"
                   className="aspect-square w-full rounded-[1.35rem] object-cover"
+                  decoding="async"
                 />
               </div>
               <div className="relative -mt-12 ml-auto w-[88%] rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl backdrop-blur-md sm:w-[78%]">
@@ -170,7 +168,7 @@ export default function RejourneyMarlinPage() {
                 </p>
               </div>
               <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70">
-                <img src={ISSUE_FEED_IMAGE} alt="Rejourney issue detection feed with ranked funnel leaks" className="w-full object-cover" />
+                <img src={ISSUE_FEED_IMAGE} alt="Rejourney issue detection feed with ranked funnel leaks" className="w-full object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
 
@@ -185,13 +183,13 @@ export default function RejourneyMarlinPage() {
                 </p>
               </div>
               <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
-                <img src={REPLAY_CONTEXT_IMAGE} alt="Rejourney replay theater showing session timeline and diagnostic context" className="w-full rounded-[1.35rem] object-cover" />
+                <img src={REPLAY_CONTEXT_IMAGE} alt="Rejourney replay theater showing session timeline and diagnostic context" className="w-full rounded-[1.35rem] object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
 
             <section id="revenue-impact" className="grid gap-10 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
               <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70 lg:order-first">
-                <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" className="w-full object-cover" />
+                <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" className="w-full object-cover" loading="lazy" decoding="async" />
               </figure>
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Revenue priority</p>
@@ -215,7 +213,7 @@ export default function RejourneyMarlinPage() {
                 </p>
               </div>
               <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70">
-                <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" className="w-full object-cover" />
+                <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" className="w-full object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
 

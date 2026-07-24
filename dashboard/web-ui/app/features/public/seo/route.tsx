@@ -30,6 +30,18 @@ const iconCycle = [PlayCircle, Infinity, Users, Layers3, Gauge, GitBranch];
 
 const normalizePath = (pathname: string) => (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname);
 
+const OPTIMIZED_MARKETING_IMAGES: Record<string, string> = {
+  "/images/anr-issues.png": "/images/anr-issues.webp",
+  "/images/geo-analytics.png": "/images/geo-analytics.webp",
+  "/images/geo-intelligence.png": "/images/geo-intelligence.webp",
+  "/images/growth-engines.png": "/images/growth-engines.webp",
+  "/images/issues-feed.png": "/images/issues-feed.webp",
+  "/images/landing-replay-workbench.png": "/images/landing-replay-workbench.webp",
+  "/images/readme-general-demo.png": "/images/readme-general-demo.webp",
+};
+
+const optimizedMarketingImage = (src: string) => OPTIMIZED_MARKETING_IMAGES[src] ?? src;
+
 const alternativeTldrByPath: Record<string, string> = {
   "/alternatives/posthog-session-replay":
     "Choose Rejourney when session evidence, mobile stability, API context, and lightweight suite matter more than PostHog's OS and broader product set.",
@@ -1120,9 +1132,10 @@ function HeroVisual({ page }: { page: SeoPage }) {
     return (
       <figure className="rounded-lg border-2 border-black bg-[#dbeafe] p-4 lg:justify-self-end">
         <img
-          src={page.image}
+          src={optimizedMarketingImage(page.image)}
           alt={page.imageAlt}
           className="h-auto max-h-[430px] w-full object-contain object-left-top lg:max-w-[560px]"
+          decoding="async"
         />
       </figure>
     );
@@ -1133,7 +1146,12 @@ function HeroVisual({ page }: { page: SeoPage }) {
       <div className="absolute -right-3 -top-3 h-16 w-24 rotate-[5deg] border-2 border-black bg-[#86efac] shadow-neo-sm" aria-hidden />
       <div className="relative overflow-hidden border-2 border-black bg-white p-3 shadow-neo">
         <div className="border-2 border-black bg-[#ecfeff] p-2">
-          <img src={page.image} alt={page.imageAlt} className="h-auto max-h-[420px] w-full object-contain object-left-top" />
+          <img
+            src={optimizedMarketingImage(page.image)}
+            alt={page.imageAlt}
+            className="h-auto max-h-[420px] w-full object-contain object-left-top"
+            decoding="async"
+          />
         </div>
       </div>
     </div>
@@ -1156,7 +1174,13 @@ function AlternativeQuickScan({ page }: { page: SeoPage }) {
         </div>
 
         <div className="hidden overflow-hidden border-2 border-black bg-[#ecfeff] p-3 shadow-neo-sm lg:block">
-          <img src={quickScanImage.src} alt={quickScanImage.alt} className="h-full max-h-56 w-full object-contain object-left-top" />
+          <img
+            src={optimizedMarketingImage(quickScanImage.src)}
+            alt={quickScanImage.alt}
+            className="h-full max-h-56 w-full object-contain object-left-top"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
       </div>
     </section>
@@ -1450,9 +1474,11 @@ function CategoryShowcaseSection({ page }: { page: SeoPage }) {
         <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
           <div className="rounded-lg border-2 border-black bg-[#dbeafe] p-5">
             <img
-              src={page.image}
+              src={optimizedMarketingImage(page.image)}
               alt={page.imageAlt}
               className="mx-auto h-auto max-h-[420px] w-full object-contain"
+              loading="lazy"
+              decoding="async"
             />
           </div>
 
@@ -1502,7 +1528,13 @@ function CategoryImageGallerySection({ page }: { page: SeoPage }) {
           {supportingImages.map((image) => (
             <article key={image.src} className="min-w-0">
               <div className="border-2 border-black bg-[#dbeafe] p-4">
-                <img src={image.src} alt={image.alt} className="h-56 w-full object-contain" />
+                <img
+                  src={optimizedMarketingImage(image.src)}
+                  alt={image.alt}
+                  className="h-56 w-full object-contain"
+                  loading="lazy"
+                  decoding="async"
+                />
               </div>
               <div className="mt-4 border-t-2 border-black pt-4">
                 <h3 className="text-2xl font-black leading-tight text-slate-950">{image.title}</h3>
@@ -1693,12 +1725,13 @@ function FeatureArticleFigure({
     <figure className={figureClassName}>
       <div className={`overflow-hidden border border-slate-200 ${variant === "hero" ? "bg-white" : "bg-slate-50"}`}>
         <img
-          src={image.src}
+          src={optimizedMarketingImage(image.src)}
           alt={image.alt}
           width={dimensions?.width}
           height={dimensions?.height}
           className="block h-auto w-full min-w-0 max-w-full"
           loading={variant === "hero" ? "eager" : "lazy"}
+          decoding="async"
         />
       </div>
       <figcaption className="mt-3 text-sm leading-6 text-slate-600">
@@ -3309,17 +3342,21 @@ function AdHero({ page }: { page: SeoPage }) {
                 <div className="h-4 w-48 rounded bg-slate-50 ml-4 flex items-center px-2 text-[8px] text-slate-400 font-bold select-none">rejourney.co{page.path}</div>
               </div>
               <img
-                src={heroImage}
+                src={optimizedMarketingImage(heroImage)}
                 alt={page.imageAlt}
                 className="h-auto max-h-[460px] w-full rounded-lg object-contain"
+                decoding="async"
               />
             </div>
             {page.kind === "alternative" ? (
               <div className="absolute -bottom-10 -right-2 z-20 rounded-full bg-[#fff19c] p-1.5 shadow-[3px_4px_0_#0f172a] sm:-right-6">
                 <img
-                  src="/images/rejourney-cat.svg"
+                  src="/images/rejourney-cat.webp"
                   alt="Rejourney cat mascot"
+                  width={288}
+                  height={288}
                   className="h-20 w-20 drop-shadow-[0_8px_8px_rgba(15,23,42,0.14)] sm:h-24 sm:w-24"
+                  decoding="async"
                 />
               </div>
             ) : null}
@@ -3373,9 +3410,11 @@ function AdTrustBanner() {
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
                   <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1.5">
                     <img
-                      src="/images/burst-creatine-logo-red.png"
+                      src="/images/burst-creatine-logo-red.webp"
                       alt="Burst Creatine"
                       className="h-full w-full object-contain"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                   <div className="space-y-2">
@@ -3421,9 +3460,11 @@ function AdTrustBanner() {
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
                   <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1">
                     <img
-                      src="/images/customer-onboarding-logo.png"
+                      src="/images/customer-onboarding-logo.webp"
                       alt="Campus Merch Live"
                       className="h-full w-full object-contain"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                   <div className="space-y-2">
@@ -3551,9 +3592,11 @@ function AdBenefits({ page }: { page: SeoPage }) {
                         <div className="h-2 w-2 rounded-full bg-emerald-400" />
                       </div>
                       <img
-                        src={b.image}
+                        src={optimizedMarketingImage(b.image)}
                         alt={b.imageAlt}
                         className="h-auto max-h-[360px] w-full rounded-md object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     </div>
                   </div>

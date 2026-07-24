@@ -41,6 +41,7 @@ function getDocsRoot(): string {
 
 // Cache the resolved path (computed once)
 const DOCS_ROOT = getDocsRoot();
+const DOC_CONTENT_CACHE = new Map<string, string>();
 
 // Re-export DocMetadata for convenience
 export type { DocMetadata };
@@ -64,7 +65,14 @@ export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLo
         }
 
         const filePath = join(DOCS_ROOT, docInfo.file);
-        console.log(`[docsLoader] Loading doc "${docPath}" from: ${filePath} (DOCS_ROOT: ${DOCS_ROOT})`);
+        const cachedContent = DOC_CONTENT_CACHE.get(filePath);
+        if (cachedContent !== undefined) {
+            return {
+                content: cachedContent,
+                localeCode: "en",
+                usedFallback: false,
+            };
+        }
         
         if (!existsSync(filePath)) {
             console.error(`[docsLoader] File does not exist: ${filePath}`);
@@ -72,6 +80,7 @@ export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLo
         }
         
         const content = readFileSync(filePath, 'utf-8');
+        DOC_CONTENT_CACHE.set(filePath, content);
         return {
             content,
             localeCode: "en",

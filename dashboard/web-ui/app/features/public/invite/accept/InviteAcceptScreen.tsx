@@ -5,7 +5,6 @@ import { useTeam } from '~/shared/providers/TeamContext';
 import { Button } from '~/shared/ui/core/Button';
 import { getInvitationByToken, acceptInvitation, ApiTeamInvitation } from '~/shared/api/client';
 import { SELECTED_TEAM_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
-import { PricingThreeField } from '~/features/public/home/components/PricingThreeField';
 
 const LOGIN_REDIRECT_GUARD_KEY = 'rejourney_login_redirect_guard';
 
@@ -127,7 +126,6 @@ export const InviteAccept: React.FC = () => {
     if (isLoading || authLoading) {
         return (
             <div className="public-readable-scope relative flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-955 p-4 font-sans text-slate-700 dark:text-slate-350 overflow-x-hidden">
-                <PricingThreeField variant="icosahedron" seed={42} layout="center" className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-65" />
                 <div className="relative z-10 w-full max-w-sm border border-white/45 dark:border-slate-900/40 bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl p-8 text-center shadow-xl shadow-slate-100/30 dark:shadow-none hover:shadow-2xl transition-all duration-300 rounded-2xl animate-pulse">
                     <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center border border-white/40 dark:border-slate-800/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl shadow-sm backdrop-blur-md">
                         <div className="w-6 h-6 rounded-full border-2 border-t-transparent border-indigo-600 dark:border-indigo-400 animate-spin" />
@@ -143,7 +141,6 @@ export const InviteAccept: React.FC = () => {
     if (error && !invitation) {
         return (
             <div className="public-readable-scope relative flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-955 p-4 font-sans text-slate-700 dark:text-slate-350 overflow-x-hidden">
-                <PricingThreeField variant="icosahedron" seed={42} layout="center" className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-65" />
                 <div className="relative z-10 max-w-md w-full">
                     <div className="border border-red-500/25 bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl p-8 shadow-xl shadow-slate-100/10 dark:shadow-none rounded-2xl hover:shadow-2xl transition-all duration-300 text-center">
                         <div className="flex justify-center mb-4">
@@ -170,7 +167,6 @@ export const InviteAccept: React.FC = () => {
     if (success) {
         return (
             <div className="public-readable-scope relative flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-955 p-4 font-sans text-slate-700 dark:text-slate-350 overflow-x-hidden">
-                <PricingThreeField variant="icosahedron" seed={42} layout="center" className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-65" />
                 <div className="relative z-10 max-w-md w-full text-center">
                     <div className="border border-emerald-500/25 bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl p-8 shadow-xl shadow-slate-100/10 dark:shadow-none rounded-2xl hover:shadow-2xl transition-all duration-300">
                         <div className="flex justify-center mb-4">
@@ -194,9 +190,6 @@ export const InviteAccept: React.FC = () => {
     // Show invitation details
     return (
         <div className="public-readable-scope relative flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-955 p-4 font-sans text-slate-700 dark:text-slate-350 overflow-x-hidden">
-            {/* ThreeJS Background */}
-            <PricingThreeField variant="icosahedron" seed={42} layout="center" className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-65" />
-            
             <div className="relative z-10 max-w-md w-full">
                 <div className="border border-white/45 dark:border-slate-900/40 bg-white/45 dark:bg-slate-950/45 backdrop-blur-xl p-8 shadow-xl shadow-slate-100/30 dark:shadow-none hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 rounded-2xl">
 

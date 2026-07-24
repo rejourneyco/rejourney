@@ -99,6 +99,8 @@ spec:
               # proxied here. Keep operator/dashboard API work on api-dashboard
               # pods instead of the api-ingest compatibility alias.
               value: "http://api-dashboard:3000"
+            - name: WEB_EDGE_HTML_CACHE
+              value: "true"
             - name: SHOW_ISSUE_DETECTION_UI
               valueFrom:
                 secretKeyRef:
@@ -152,12 +154,6 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL
-                  optional: true
-            - name: VITE_REDDIT_PIXEL_ID
-              valueFrom:
-                secretKeyRef:
-                  name: app-secret
-                  key: VITE_REDDIT_PIXEL_ID
                   optional: true
           resources:
             requests:

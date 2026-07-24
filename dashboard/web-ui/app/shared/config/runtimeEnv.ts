@@ -7,7 +7,6 @@ export interface RuntimeEnvSnapshot {
   VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL?: string;
   VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL?: string;
   VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL?: string;
-  VITE_REDDIT_PIXEL_ID?: string;
   SHOW_ISSUE_DETECTION_UI?: string;
 }
 
@@ -29,7 +28,6 @@ export function getRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL"),
     VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL"),
     VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL"),
-    VITE_REDDIT_PIXEL_ID: readRuntimeEnvValue("VITE_REDDIT_PIXEL_ID"),
     SHOW_ISSUE_DETECTION_UI: readRuntimeEnvValue("SHOW_ISSUE_DETECTION_UI"),
   };
 }
@@ -69,10 +67,6 @@ export function getGoogleAdsWebsiteConversionLabel(
   return labels[eventName]?.trim() || "";
 }
 
-export function getRedditPixelId(): string {
-  return getRuntimeEnvSnapshot().VITE_REDDIT_PIXEL_ID?.trim() || "";
-}
-
 export function isIssueDetectionUiEnabled(pathname?: string): boolean {
   if (pathname && (pathname.startsWith('/demo') || pathname.includes('/demo/'))) {
     return true;
@@ -92,7 +86,6 @@ export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
     VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
     VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
-    VITE_REDDIT_PIXEL_ID: snapshot.VITE_REDDIT_PIXEL_ID,
     SHOW_ISSUE_DETECTION_UI: snapshot.SHOW_ISSUE_DETECTION_UI === "true" ? "true" : "false",
   };
 }

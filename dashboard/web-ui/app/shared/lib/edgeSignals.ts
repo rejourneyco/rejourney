@@ -8,7 +8,6 @@ declare global {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
     __rejourneyGoogleAdsSignupTracked?: boolean;
-    rdt?: (...args: unknown[]) => void;
     zaraz?: {
       track?: (eventName: string, eventProperties?: EdgeSignalProperties) => Promise<unknown> | unknown;
     };
@@ -17,7 +16,6 @@ declare global {
 
 type ZarazTrack = NonNullable<NonNullable<Window["zaraz"]>["track"]>;
 type GtagTrack = NonNullable<Window["gtag"]>;
-type RedditTrack = NonNullable<Window["rdt"]>;
 
 export type AccountActivationMethod = "otp" | "github";
 
@@ -40,10 +38,6 @@ function getZarazTrack(): ZarazTrack | null {
 
 function getGtagTrack(): GtagTrack | null {
   return typeof window.gtag === "function" ? window.gtag.bind(window) : null;
-}
-
-function getRedditTrack(): RedditTrack | null {
-  return typeof window.rdt === "function" ? window.rdt.bind(window) : null;
 }
 
 async function waitForZarazTrack(deadline: number): Promise<ZarazTrack | null> {
@@ -81,17 +75,6 @@ function trackGoogleAdsSignupConversion(identity?: { userId: string; email: stri
   });
 }
 
-function trackRedditSignupConversion(): void {
-  const rdt = getRedditTrack();
-  if (!rdt) return;
-
-  try {
-    rdt("track", "SignUp");
-  } catch {
-    // Reddit conversion tracking is best effort and must never block auth.
-  }
-}
-
 export async function trackAccountActivationSignal(
   method: AccountActivationMethod,
   identity?: { userId: string; email: string },
@@ -99,7 +82,6 @@ export async function trackAccountActivationSignal(
   if (typeof window === "undefined") return;
 
   trackGoogleAdsSignupConversion(identity);
-  trackRedditSignupConversion();
 
   if (!window.zaraz) return;
 

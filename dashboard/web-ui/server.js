@@ -30,19 +30,15 @@ let isShuttingDown = false;
 const MARKETING_LOCALE_SEGMENT = '(?:ar|es|tr|pt-br|de|fr|hi|id|ja|ko|zh-cn|it|nl|pl|pt|ru|vi)';
 const MARKETING_LOCALE_PATH_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}$`);
 const LOCALIZED_PUBLIC_CONTENT_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}/(?:docs|engineering|pricing)(?:/.*)?$`);
-const EDGE_CACHEABLE_HTML_PATTERNS = [
-  /^\/$/,
-  MARKETING_LOCALE_PATH_PATTERN,
-  /^\/login$/,
-  /^\/pricing$/,
-  /^\/docs(?:\/.*)?$/,
-  LOCALIZED_PUBLIC_CONTENT_PATTERN,
-  /^\/contribute$/,
-  /^\/engineering(?:\/.*)?$/,
-  /^\/terms-of-service$/,
-  /^\/privacy-policy$/,
-  /^\/dpa$/,
-  /^\/changelog$/,
+const EDGE_CACHE_BYPASS_PATTERNS = [
+  /^\/api(?:\/|$)/,
+  /^\/dashboard(?:\/|$)/,
+  /^\/demo(?:\/|$)/,
+  /^\/invite(?:\/|$)/,
+  /^\/login(?:\/|$)/,
+  /^\/roadmap(?:\/|$)/,
+  /^\/setup(?:\/|$)/,
+  /^\/share(?:\/|$)/,
 ];
 const LEGACY_PUBLIC_HTML_REDIRECTS = new Map([
   ['/index.html', '/'],
@@ -61,7 +57,7 @@ function isApiRequestPath(pathname) {
 }
 
 function isEdgeCacheableHtmlPath(pathname) {
-  return EDGE_CACHEABLE_HTML_PATTERNS.some((pattern) => pattern.test(pathname));
+  return !EDGE_CACHE_BYPASS_PATTERNS.some((pattern) => pattern.test(pathname));
 }
 
 function hasBuiltClientAssets() {
@@ -92,7 +88,6 @@ if (isProduction) {
           "https://googleads.g.doubleclick.net",
           "https://pagead2.googlesyndication.com",
           "https://www.google.com",
-          "https://www.redditstatic.com",
         ],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
@@ -159,6 +154,49 @@ app.get('/health/ready', (_req, res) => {
   res.json({ status: 'ready', service: 'web', timestamp: new Date().toISOString() });
 });
 
+// Browser auth bootstrap that represents an anonymous session as a successful
+// response. This avoids a noisy 401 resource error on every public page while
+// preserving real upstream failures for retry/error handling.
+app.get('/api/auth/session', async (req, res) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  const headers = new Headers({ accept: 'application/json' });
+  if (req.headers.cookie) {
+    headers.set('cookie', req.headers.cookie);
+  }
+
+  try {
+    const upstream = await fetch(new URL('/api/auth/me', API_URL), {
+      headers,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const payload = await upstream.text();
+
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    for (const cookie of upstream.headers.getSetCookie?.() ?? []) {
+      res.appendHeader('Set-Cookie', cookie);
+    }
+    if (upstream.status === 401 || upstream.status === 403) {
+      res.status(200).json({ user: null });
+      return;
+    }
+
+    const contentType = upstream.headers.get('content-type');
+    if (contentType) {
+      res.setHeader('Content-Type', contentType);
+    }
+    res.status(upstream.status).send(payload);
+  } catch (error) {
+    if (!isProduction) {
+      console.error(`[auth-session] Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    res.status(502).json({ error: 'Authentication service unavailable' });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 // Proxy /api/* requests to the backend API server
 app.use('/api', createProxyMiddleware({
   target: API_URL,
@@ -213,6 +251,7 @@ app.use(express.static(buildClientPath, {
   maxAge: '1y',
   immutable: true,
   index: false, // Don't serve index.html for directory requests
+  redirect: false, // Let React Router own canonical paths such as /pricing and /docs.
 }));
 
 app.use('/assets', (req, res, next) => {
@@ -235,12 +274,7 @@ app.use((req, res, next) => {
 
   const acceptsHtml = req.headers.accept?.includes('text/html') ?? false;
   if (acceptsHtml && cachePublicHtmlAtEdge && isEdgeCacheableHtmlPath(req.path)) {
-    if (req.path === '/') {
-      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-      next();
-      return;
-    }
-    // Let Cloudflare cache public marketing/login HTML briefly while browsers
+    // Let Cloudflare cache public marketing HTML briefly while browsers
     // still revalidate on navigation.
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
   } else if (acceptsHtml) {

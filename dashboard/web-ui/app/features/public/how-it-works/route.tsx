@@ -4,17 +4,16 @@ import type { Route } from "./+types/route";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { SITE_URL } from "~/shared/lib/internationalMarketing";
-import { LandingThreeField } from "~/features/public/home/components/LandingThreeField";
 
 const LANDING_IMAGE_VERSION = "20260619";
 const landingImage = (path: string) => `${path}?v=${LANDING_IMAGE_VERSION}`;
 
-const SESSION_REPLAY_IMAGE = landingImage("/images/landing-replay-workbench.png");
-const ISSUE_FEED_IMAGE = landingImage("/images/issues-feed.png");
-const REVENUE_IMAGE = landingImage("/images/growth-engines.png");
-const STABILITY_IMAGE = landingImage("/images/anr-issues.png");
-const CONTEXT_HANDOFF_IMAGE = landingImage("/images/readme-general-demo.png");
-const GEO_IMAGE = landingImage("/images/geo-intelligence.png");
+const SESSION_REPLAY_IMAGE = landingImage("/images/landing-replay-workbench.webp");
+const ISSUE_FEED_IMAGE = landingImage("/images/issues-feed.webp");
+const REVENUE_IMAGE = landingImage("/images/growth-engines.webp");
+const STABILITY_IMAGE = landingImage("/images/anr-issues.webp");
+const CONTEXT_HANDOFF_IMAGE = landingImage("/images/readme-general-demo.webp");
+const GEO_IMAGE = landingImage("/images/geo-intelligence.webp");
 
 export const meta: Route.MetaFunction = () => {
   const canonicalUrl = `${SITE_URL}/how-it-works`;
@@ -60,7 +59,6 @@ export default function HowItWorksPage() {
 
         {/* Detailed Sections (Moved from landing page) */}
         <div className="landing-after-hero relative z-10 overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#f4f7fe_25%,#faf6ff_50%,#f4faf6_75%,#f8fafc_100%)]">
-          <LandingThreeField variant="landing-sparse" seed={307} className="landing-after-hero-field" />
           <div className="pointer-events-none absolute inset-0 z-[0] bg-[radial-gradient(circle_at_15%_9%,rgba(37,99,235,0.015),transparent_31%),radial-gradient(circle_at_86%_22%,rgba(139,92,246,0.015),transparent_34%),radial-gradient(circle_at_18%_52%,rgba(245,158,11,0.015),transparent_34%),radial-gradient(circle_at_82%_78%,rgba(16,185,129,0.015),transparent_34%)]" aria-hidden="true" />
           <div className="pointer-events-none absolute inset-0 z-[1] bg-[linear-gradient(180deg,rgba(255,255,255,0.35)_0%,rgba(255,255,255,0.12)_28%,rgba(255,255,255,0.08)_56%,rgba(255,255,255,0.25)_100%)]" aria-hidden="true" />
           <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-sky-200/45 to-transparent" aria-hidden="true" />
@@ -80,7 +78,7 @@ export default function HowItWorksPage() {
                   </p>
                 </div>
                 <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
-                  <img src={SESSION_REPLAY_IMAGE} alt="Rejourney session replay screen showing user journey steps and timeline context" className="w-full rounded-[1.35rem] object-cover" />
+                  <img src={SESSION_REPLAY_IMAGE} alt="Rejourney session replay screen showing user journey steps and timeline context" loading="lazy" decoding="async" className="w-full rounded-[1.35rem] object-cover" />
                 </div>
               </div>
 
@@ -100,6 +98,8 @@ export default function HowItWorksPage() {
                     <img 
                       src={ISSUE_FEED_IMAGE} 
                       alt="Rejourney issue detection feed showing ranked leaks list" 
+                      loading="lazy"
+                      decoding="async"
                       className="w-[165%] max-w-none h-full object-cover object-left" 
                     />
                   </div>
@@ -109,7 +109,7 @@ export default function HowItWorksPage() {
               {/* Section: Revenue Priority */}
               <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
                 <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70 lg:order-first">
-                  <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" className="w-full rounded-[1.35rem] object-cover" />
+                  <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" loading="lazy" decoding="async" className="w-full rounded-[1.35rem] object-cover" />
                 </div>
                 <div className="space-y-4">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Revenue priority</p>
@@ -134,14 +134,14 @@ export default function HowItWorksPage() {
                   </p>
                 </div>
                 <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
-                  <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" className="w-full rounded-[1.35rem] object-cover" />
+                  <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" loading="lazy" decoding="async" className="w-full rounded-[1.35rem] object-cover" />
                 </div>
               </div>
 
               {/* Section: IDE Handoff */}
               <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
                 <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70 lg:order-first">
-                  <img src={CONTEXT_HANDOFF_IMAGE} alt="Rejourney Markdown context handoff showing Copy md and Open Cursor options" className="w-full rounded-[1.35rem] object-cover" />
+                  <img src={CONTEXT_HANDOFF_IMAGE} alt="Rejourney Markdown context handoff showing Copy md and Open Cursor options" loading="lazy" decoding="async" className="w-full rounded-[1.35rem] object-cover" />
                 </div>
                 <div className="space-y-4">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">IDE Handoff</p>
@@ -166,7 +166,7 @@ export default function HowItWorksPage() {
                   </p>
                 </div>
                 <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
-                  <img src={GEO_IMAGE} alt="Rejourney geographical growth dashboard showing conversion recovery by region" className="w-full rounded-[1.35rem] object-cover" />
+                  <img src={GEO_IMAGE} alt="Rejourney geographical growth dashboard showing conversion recovery by region" loading="lazy" decoding="async" className="w-full rounded-[1.35rem] object-cover" />
                 </div>
               </div>
 

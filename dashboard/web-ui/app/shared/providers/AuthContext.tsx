@@ -14,6 +14,13 @@ import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 // Network timeout in milliseconds (10 seconds)
 const NETWORK_TIMEOUT = 10000;
 
+function shouldBootstrapAuth(pathname: string): boolean {
+  return pathname === '/login'
+    || pathname.startsWith('/invite/')
+    || pathname === '/dashboard'
+    || pathname.startsWith('/dashboard/');
+}
+
 // Helper to create a fetch with timeout
 async function fetchWithTimeout(
   url: string,
@@ -76,7 +83,7 @@ async function fetchFreshCurrentUser(): Promise<Response> {
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
   });
-  const response = await fetchWithTimeout(`/api/auth/me?_=${Date.now()}`, {
+  const response = await fetchWithTimeout(`/api/auth/session?_=${Date.now()}`, {
     credentials: 'include',
     headers,
   });
@@ -85,7 +92,7 @@ async function fetchFreshCurrentUser(): Promise<Response> {
     return response;
   }
 
-  return fetchWithTimeout(`/api/auth/me?_=${Date.now()}&retry=1`, {
+  return fetchWithTimeout(`/api/auth/session?_=${Date.now()}&retry=1`, {
     credentials: 'include',
     headers,
     cache: 'reload',
@@ -316,7 +323,15 @@ export function AuthProvider({
 
         if (response.ok) {
           const data = await parseJsonResponse(response);
-          
+
+          if (data && typeof data === 'object' && 'user' in data && data.user === null) {
+            setUser(null);
+            userRef.current = null;
+            setError(null);
+            setAuthServiceUnavailable(false);
+            return null;
+          }
+
           // Backend returns { user: {...} }, extract the user object
           const userData = data?.user || data;
           if (!userData) {
@@ -397,6 +412,10 @@ export function AuthProvider({
   // Check auth status on mount
   useEffect(() => {
     if (initialHydrated) return;
+    if (!shouldBootstrapAuth(window.location.pathname)) {
+      setIsLoading(false);
+      return;
+    }
     const checkAuth = async () => {
       setIsLoading(true);
       try {

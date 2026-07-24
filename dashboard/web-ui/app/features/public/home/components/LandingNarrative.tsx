@@ -28,7 +28,7 @@ const productStories = [
         title: 'Watch real users move through your app.',
         copy: 'Replay web and mobile sessions with enough context to answer the question everyone asks first: what actually happened?',
         bullets: ['Pixel-perfect replay', 'Click, tap, and screen changes', 'Network, logs, and device context'],
-        image: '/images/session-replay-preview.png',
+        image: '/images/session-replay-preview.webp',
         alt: 'Rejourney session replay preview',
         icon: Eye,
         accent: 'bg-[#e8f4ff]',
@@ -41,7 +41,7 @@ const productStories = [
         title: 'See what grabs attention and where people drop.',
         copy: 'Turn scattered taps, swipes, scrolls, and exits into a map of the screens that help or hurt conversion.',
         bullets: ['Tap and rage-tap clusters', 'Journey maps across screens', 'Drop-off points by flow'],
-        image: '/images/heatmaps.png',
+        image: '/images/heatmaps.webp',
         alt: 'Rejourney touch heatmaps preview',
         icon: MousePointerClick,
         accent: 'bg-[#ffe4e6]',
@@ -52,7 +52,7 @@ const productStories = [
         title: 'Fix Your Funnel',
         copy: 'Follow the ribbons from launch to checkout, search, or drop-off so teams can see which paths carry users forward and which ones leak.',
         bullets: ['Ribbon-weighted screen paths', 'Drop-off and leak detection', 'Replay evidence for every flow', 'Select Paths(s) to Query Replays'],
-        image: '/images/readme-user-journeys.png',
+        image: '/images/readme-user-journeys.webp',
         alt: 'Rejourney user journey funnel ribbon map',
         icon: ClipboardList,
         accent: 'bg-[#dbeafe]',
@@ -65,7 +65,7 @@ const productStories = [
         title: 'Sentiment by region.',
         copy: 'See where positive, neutral, and frustrated sessions cluster across regions so teams can prioritize local UX issues.',
         bullets: ['Regional sentiment clusters', 'Session replay context by country', 'Location-level friction signals'],
-        image: '/images/geo-analytics.png',
+        image: '/images/geo-analytics.webp',
         alt: 'Rejourney sentiment by region map preview',
         icon: Globe2,
         accent: 'bg-[#ccfbf1]',
@@ -76,7 +76,7 @@ const productStories = [
         title: 'Connect product quality to retention.',
         copy: 'Measure whether releases are creating better sessions, calmer funnels, and more users who come back.',
         bullets: ['Retention and loyalty segments', 'Release impact signals', 'Funnel recovery opportunities'],
-        image: '/images/growth-engines.png',
+        image: '/images/growth-engines.webp',
         alt: 'Rejourney growth analytics preview',
         icon: TreePalm,
         accent: 'bg-[#dcfce7]',
@@ -87,7 +87,7 @@ const productStories = [
         title: 'Tie broken experiences to the session that caused them.',
         copy: 'Crash reporting is more useful when it sits beside replay, thread analysis, device details, and the user path.',
         bullets: ['Crash and ANR detection', 'Main-thread performance clues', 'Incident stream for triage'],
-        image: '/images/anr-issues.png',
+        image: '/images/anr-issues.webp',
         alt: 'Rejourney ANR and crash detection preview',
         icon: Bug,
         accent: 'bg-[#fef9c3]',
@@ -237,6 +237,7 @@ export const LandingNarrative: React.FC<{ copy: MarketingHomeCopy['narrative']; 
                                                 alt={story.alt}
                                                 className={story.imageClassName ?? 'h-full max-h-[390px] w-full object-cover object-left-top'}
                                                 loading="lazy"
+                                                decoding="async"
                                             />
                                         </div>
                                     </div>

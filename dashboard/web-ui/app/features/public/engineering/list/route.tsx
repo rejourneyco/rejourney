@@ -24,10 +24,10 @@ const ENGINEERING_KEYWORDS = Array.from(
     new Set(ARTICLES.flatMap((article) => article.seo.targetKeywords))
 ).join(", ");
 const ARTICLE_IMAGES: Record<string, string> = {
-    "mobile-session-replay-cost": "/images/session-replay-preview.png",
+    "mobile-session-replay-cost": "/images/session-replay-preview.webp",
     "swift-package-open-beta": "/images/hero-replay-workbench.png",
     "rejourney-1-3-million-session-replays": "/images/engineering/k3s-cloud-setup.svg",
-    "maps-performance": "/images/geo-intelligence.png",
+    "maps-performance": "/images/geo-intelligence.webp",
     "architecture-deep-dive": "/images/engineering/session-lifecycle.svg",
 };
 
@@ -153,6 +153,7 @@ function ArticleGrid({
                                 alt={article.imageAlt ?? localizedArticle.title}
                                 className={`h-full w-full object-cover ${getArticleImageCropClass(article)} brightness-[0.96] saturate-[0.95] transition duration-300 group-hover:brightness-100 group-hover:saturate-100`}
                                 loading={index < 2 ? "eager" : "lazy"}
+                                decoding="async"
                             />
                         </div>
                         <div className="mt-6 flex flex-wrap items-center gap-3">

@@ -6433,12 +6433,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   isolation: isolate;
 }
 
-.landing-home .landing-after-hero-field {
-  inset: -14rem 0 0 0;
-  height: calc(100% + 14rem);
-  opacity: 0.62;
-}
-
 .landing-home .landing-hero-cat--purring img {
   animation: landing-cat-purr 420ms ease-in-out 2;
 }
@@ -6491,20 +6485,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
       linear-gradient(180deg, #f8fbff 0%, #eff6ff 28%, #ecfdf5 58%, #fffbeb 100%);
   }
 
-  .landing-home .landing-page-field {
-    opacity: 0.24 !important;
-  }
-
   .landing-home .landing-hero-section {
     padding-top: 7.25rem !important;
     padding-bottom: 5.25rem !important;
     overflow: hidden !important;
-  }
-
-  .landing-home .landing-after-hero-field {
-    inset: -8rem 0 0 0;
-    height: calc(100% + 8rem);
-    opacity: 0.44;
   }
 
   .landing-home .landing-hero-title {

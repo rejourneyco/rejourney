@@ -42,13 +42,13 @@ const LOGIN_PATH = '/login';
 const LANDING_IMAGE_VERSION = '20260619';
 const landingImage = (path: string) => `${path}?v=${LANDING_IMAGE_VERSION}`;
 
-const SESSION_REPLAY_IMAGE = landingImage('/images/landing-replay-workbench.png');
-const STABILITY_IMAGE = landingImage('/images/anr-issues.png');
-const GEO_IMAGE = landingImage('/images/geo-analytics.png');
-const HEATMAPS_IMAGE = landingImage('/images/engineering/heatmaps-attention-docs.png');
-const API_INSIGHTS_IMAGE = landingImage('/images/engineering/api-error-rate-spike.png');
-const MOUNTAIN_CARD_IMAGE = landingImage('/images/mountain_app_card.jpg');
-const BEACH_CARD_IMAGE = landingImage('/images/beach_app_card.jpg');
+const SESSION_REPLAY_IMAGE = landingImage('/images/landing-replay-workbench.webp');
+const STABILITY_IMAGE = landingImage('/images/anr-issues.webp');
+const GEO_IMAGE = landingImage('/images/geo-analytics.webp');
+const HEATMAPS_IMAGE = landingImage('/images/engineering/heatmaps-attention-docs.webp');
+const API_INSIGHTS_IMAGE = landingImage('/images/engineering/api-error-rate-spike.webp');
+const MOUNTAIN_CARD_IMAGE = landingImage('/images/mountain_app_card.webp');
+const BEACH_CARD_IMAGE = landingImage('/images/beach_app_card.webp');
 
 const supportedPlatforms = [
     { label: 'Next.js / React', icon: MarkNextJs, color: '#0f172a', href: '/docs/web/getting-started#nextjs' },
@@ -567,8 +567,11 @@ export const AiLeakHomepage: React.FC = () => {
                                 aria-pressed={catHasBeenPet}
                             >
                                 <img
-                                    src="/images/rejourney-cat.svg"
+                                    src="/images/rejourney-cat.webp"
                                     alt=""
+                                    width={288}
+                                    height={288}
+                                    decoding="async"
                                     className="h-20 w-20 drop-shadow-[0_10px_10px_rgba(15,23,42,0.16)] sm:h-24 sm:w-24 xl:h-36 xl:w-36"
                                 />
                                 <span className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-transparent transition group-hover:ring-emerald-300/70" aria-hidden="true" />
@@ -652,6 +655,8 @@ export const AiLeakHomepage: React.FC = () => {
                                             <img
                                                 src={MOUNTAIN_CARD_IMAGE}
                                                 alt="Rainier Climber Pass marketplace listing"
+                                                loading="lazy"
+                                                decoding="async"
                                                 className="h-[125px] w-full object-cover sm:h-[140px]"
                                             />
                                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
@@ -1160,6 +1165,8 @@ export const AiLeakHomepage: React.FC = () => {
                                         key={item.id}
                                         src={item.image}
                                         alt={item.alt}
+                                        loading="lazy"
+                                        decoding="async"
                                         className="w-full rounded-lg object-cover"
                                     />
                                 );
@@ -1207,8 +1214,10 @@ export const AiLeakHomepage: React.FC = () => {
                                     <div className="flex flex-col items-center text-center gap-5 mb-14">
                                         <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
                                             <img
-                                                src="/images/burst-creatine-logo-red.png"
+                                                src="/images/burst-creatine-logo-red.webp"
                                                 alt="Burst Creatine"
+                                                loading="lazy"
+                                                decoding="async"
                                                 className="h-full w-full object-cover"
                                             />
                                         </div>
@@ -1255,8 +1264,10 @@ export const AiLeakHomepage: React.FC = () => {
                                     <div className="flex flex-col items-center text-center gap-5 mb-14">
                                         <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
                                             <img
-                                                src="/images/customer-onboarding-logo.png"
+                                                src="/images/customer-onboarding-logo.webp"
                                                 alt="Campus Merch Live"
+                                                loading="lazy"
+                                                decoding="async"
                                                 className="h-full w-full object-cover"
                                             />
                                         </div>

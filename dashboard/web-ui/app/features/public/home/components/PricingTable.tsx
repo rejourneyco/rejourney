@@ -5,7 +5,6 @@ import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
 import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
-import { PricingThreeField } from './PricingThreeField';
 
 type PricingPlan = BillingPlan & {
     interval?: 'month' | 'year';
@@ -125,6 +124,8 @@ export const PricingTable: React.FC = () => {
 
     useEffect(() => {
         let cancelled = false;
+        let idleHandle: number | null = null;
+        let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
         const fetchPlans = async () => {
             const plans = await api.getAvailablePlans();
@@ -133,10 +134,16 @@ export const PricingTable: React.FC = () => {
             }
         };
 
-        fetchPlans();
+        if ('requestIdleCallback' in window) {
+            idleHandle = window.requestIdleCallback(fetchPlans, { timeout: 2500 });
+        } else {
+            fallbackTimeout = globalThis.setTimeout(fetchPlans, 1200);
+        }
 
         return () => {
             cancelled = true;
+            if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
+            if (fallbackTimeout !== null) globalThis.clearTimeout(fallbackTimeout);
         };
     }, []);
 
@@ -337,8 +344,6 @@ export const PricingTable: React.FC = () => {
 
     return (
         <section className="relative w-full bg-[#fdfbf7] text-slate-900 overflow-hidden min-h-screen">
-            <PricingThreeField variant="icosahedron" layout="pricing" className="opacity-30" />
-
             <div className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-col items-center px-6 pt-32 pb-8 sm:px-8 lg:px-10">
                 <div className="text-center max-w-3xl">
                     <h1 className="text-4xl font-black uppercase tracking-tight text-slate-900 sm:text-5xl lg:text-6xl leading-[1.05]">
