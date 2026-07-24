@@ -145,7 +145,7 @@ describe('edge signals', () => {
     expect(gtag).not.toHaveBeenCalled();
   });
 
-  it('does not send Google Ads conversion or enhanced-conversion email before consent', async () => {
+  it('sends Google Ads conversion without waiting for the telemetry prompt during testing', async () => {
     const gtag = vi.fn();
     setTestWindow({
       ENV: {
@@ -163,7 +163,13 @@ describe('edge signals', () => {
       email: 'person@example.com',
     });
 
-    expect(gtag).not.toHaveBeenCalled();
+    expect(gtag).toHaveBeenCalledWith('set', 'user_data', {
+      email: 'person@example.com',
+    });
+    expect(gtag).toHaveBeenCalledWith('event', 'conversion', {
+      send_to: 'AW-18175283670/Rt-7COH-3cccENaj09pD',
+      transaction_id: 'signup_completed:user-123',
+    });
   });
 
   it('does not fail account activation when gtag is unavailable', async () => {

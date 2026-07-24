@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildGoogleAdsDataManagerEvent,
     dataManagerStatusAfterIngest,
+    hasGoogleAdsMeasurementConsent,
     hashGoogleAdsEmail,
     isWithinGoogleAdsActivationWindow,
 } from '../services/googleAdsConversions.js';
@@ -54,5 +55,9 @@ describe('Google Ads conversion payloads', () => {
     it('does not poll validate-only request IDs', () => {
         expect(dataManagerStatusAfterIngest(true)).toBe('validated');
         expect(dataManagerStatusAfterIngest(false)).toBe('accepted');
+    });
+
+    it('allows server-side Ads milestones without a stored prompt choice during initial testing', () => {
+        expect(hasGoogleAdsMeasurementConsent(null)).toBe(true);
     });
 });

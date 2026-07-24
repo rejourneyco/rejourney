@@ -42,18 +42,14 @@ describe("Google Ads attribution", () => {
     }
   });
 
-  it("holds landing identifiers in memory without persisting them before consent", () => {
+  it("captures landing identifiers immediately during the temporary Ads consent bypass", () => {
     const values = setTestWindow(
       "https://rejourney.co/web-session-replay?gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=123&matchtype=e&device=c",
     );
 
     const attribution = captureGoogleAdsAttribution();
 
-    expect(attribution).toBeNull();
-    expect(values.has(GOOGLE_ADS_ATTRIBUTION_STORAGE_KEY)).toBe(false);
-
-    values.set(GOOGLE_ADS_CONSENT_STORAGE_KEY, "accepted");
-    expect(grantGoogleAdsAttributionConsent()).toMatchObject({
+    expect(attribution).toMatchObject({
       gclid: "click-1",
       utm_source: "google",
       utm_medium: "cpc",
@@ -63,6 +59,9 @@ describe("Google Ads attribution", () => {
       landingPage: "https://rejourney.co/web-session-replay",
     });
     expect(values.has(GOOGLE_ADS_ATTRIBUTION_STORAGE_KEY)).toBe(true);
+    expect(grantGoogleAdsAttributionConsent()).toMatchObject({
+      gclid: "click-1",
+    });
   });
 
   it("captures attribution immediately when consent was already accepted", () => {
@@ -81,7 +80,7 @@ describe("Google Ads attribution", () => {
     expect(values.has(GOOGLE_ADS_ATTRIBUTION_STORAGE_KEY)).toBe(true);
   });
 
-  it("clears stored and pending attribution when consent is rejected", () => {
+  it("does not let telemetry rejection clear Ads attribution during the bypass", () => {
     const stored = JSON.stringify({
       gclid: "old-click",
       capturedAt: new Date().toISOString(),
@@ -92,8 +91,8 @@ describe("Google Ads attribution", () => {
       { consent: "rejected", attribution: stored },
     );
 
-    expect(captureGoogleAdsAttribution()).toBeNull();
-    expect(values.has(GOOGLE_ADS_ATTRIBUTION_STORAGE_KEY)).toBe(false);
+    expect(captureGoogleAdsAttribution()).toMatchObject({ gclid: "old-click" });
+    expect(values.has(GOOGLE_ADS_ATTRIBUTION_STORAGE_KEY)).toBe(true);
   });
 
   it("preserves the original first-touch attribution", () => {
@@ -128,9 +127,11 @@ describe("Google Ads attribution", () => {
     expect(result.searchParams.get("googleAdsConsent")).toBe("accepted");
   });
 
-  it("does not add attribution to auth requests before consent", () => {
+  it("adds attribution to auth requests without waiting for the telemetry prompt", () => {
     setTestWindow("https://rejourney.co/login?gclid=click-1");
 
-    expect(appendGoogleAdsAttributionToUrl("/api/auth/github")).toBe("/api/auth/github");
+    const result = new URL(appendGoogleAdsAttributionToUrl("/api/auth/github"), "https://rejourney.co");
+    expect(result.searchParams.get("gclid")).toBe("click-1");
+    expect(result.searchParams.get("googleAdsConsent")).toBe("accepted");
   });
 });

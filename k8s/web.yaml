@@ -155,6 +155,12 @@ spec:
                   name: app-secret
                   key: VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL
                   optional: true
+            - name: VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+                  optional: true
           resources:
             requests:
               cpu: 200m

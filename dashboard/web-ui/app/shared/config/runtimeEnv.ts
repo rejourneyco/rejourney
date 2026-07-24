@@ -7,6 +7,7 @@ export interface RuntimeEnvSnapshot {
   VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL?: string;
   VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL?: string;
   VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL?: string;
+  VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING?: string;
   SHOW_ISSUE_DETECTION_UI?: string;
 }
 
@@ -28,6 +29,7 @@ export function getRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL"),
     VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL"),
     VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL"),
+    VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: readRuntimeEnvValue("VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING"),
     SHOW_ISSUE_DETECTION_UI: readRuntimeEnvValue("SHOW_ISSUE_DETECTION_UI"),
   };
 }
@@ -53,6 +55,14 @@ export function getGoogleAdsConversionId(): string {
 
 export function getGoogleAdsSignupConversionLabel(): string {
   return getRuntimeEnvSnapshot().VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL?.trim() || "";
+}
+
+export function getGoogleAdsConsentBypassForInitialTesting(): boolean {
+  const value = getRuntimeEnvSnapshot()
+    .VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
+    ?.trim()
+    .toLowerCase();
+  return value !== "false";
 }
 
 export function getGoogleAdsWebsiteConversionLabel(
@@ -86,6 +96,7 @@ export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
     VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
     VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
+    VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: snapshot.VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING,
     SHOW_ISSUE_DETECTION_UI: snapshot.SHOW_ISSUE_DETECTION_UI === "true" ? "true" : "false",
   };
 }
