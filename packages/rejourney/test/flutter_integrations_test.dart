@@ -49,7 +49,10 @@ void main() {
 
     final update = fake.calls.where((call) => call.$1 == 'updateMaskRegion');
     expect(update, isNotEmpty);
-    expect(update.first.$2!['width'], greaterThanOrEqualTo(120));
+    // The first update must be the measured widget bounds. A full-viewport
+    // prime would turn the entire replay frame into a redaction placeholder.
+    expect(update.first.$2!['width'], 120);
+    expect(update.first.$2!['height'], 48);
 
     await tester.pump(const Duration(milliseconds: 750));
     expect(update.last.$2!['width'], 120);
@@ -134,5 +137,11 @@ void main() {
     final tracks = fake.calls.where((call) => call.$1 == 'trackScreen');
     expect(tracks, isNotEmpty);
     expect(tracks.last.$2!['screenName'], '/home');
+
+    final visualChanges =
+        fake.calls.where((call) => call.$1 == 'markVisualChange');
+    expect(visualChanges, isNotEmpty);
+    expect(visualChanges.last.$2!['reason'], 'navigation:/home');
+    expect(visualChanges.last.$2!['importance'], 'high');
   });
 }

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rejourney/rejourney.dart';
 import 'package:rejourney/rejourney_platform_interface.dart';
+import 'package:rejourney/src/flutter_frame_capture.dart';
 
 final class BenchmarkPlatform extends RejourneyPlatform {
   int callCount = 0;
@@ -90,5 +92,58 @@ void main() {
     expect(event, lessThan(100));
     expect(metadata, lessThan(100));
     expect(networkMarker, lessThan(100));
+  });
+
+  testWidgets('benchmarks retained Flutter layer replay capture', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1920, 1080);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: <Color>[Color(0xff0f172a), Color(0xff2563eb)],
+              ),
+            ),
+            child: Center(child: Text('Retained layer benchmark')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    const iterations = 10;
+    const targetWidth = 640;
+    const targetHeight = 360;
+    final stopwatch = Stopwatch()..start();
+    for (var index = 0; index < iterations; index += 1) {
+      final frame = await tester.runAsync(
+        () => FlutterFrameCapture.capture(
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
+        ),
+      );
+      expect(frame, isNotNull);
+    }
+    stopwatch.stop();
+
+    final averageMs = stopwatch.elapsedMicroseconds / iterations / 1000;
+    // ignore: avoid_print
+    print(
+      'REJOURNEY_FLUTTER_CAPTURE_BENCHMARK '
+      '${jsonEncode(<String, Object>{
+            'iterations': iterations,
+            'width': targetWidth,
+            'height': targetHeight,
+            'average_ms': averageMs,
+          })}',
+    );
+    expect(averageMs, lessThan(100));
   });
 }

@@ -51,7 +51,9 @@ internal object FrameContentAnalyzer {
 
         val nearBlackRatio = nearBlack.toDouble() / visible.toDouble()
         val meaningfulSignalFloor = maxOf(2, (visible * 0.01).toInt())
+        val sparseOverlayFloor = maxOf(3, (visible * 0.025).toInt())
         return (nearBlackRatio >= 0.985 && maximumLuma < 48) ||
-            (nonBlack <= meaningfulSignalFloor && maximumLuma - minimumLuma < 12)
+            (nonBlack <= meaningfulSignalFloor && maximumLuma - minimumLuma < 12) ||
+            (nearBlackRatio >= 0.975 && nonBlack <= sparseOverlayFloor)
     }
 }

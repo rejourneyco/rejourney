@@ -1,9 +1,10 @@
 package co.rejourney.rejourney
 
 import android.app.Activity
-import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import com.rejourney.recording.FlutterCapturedFrame
+import com.rejourney.recording.FlutterFrameProvider
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -17,13 +18,35 @@ class RejourneyPlugin :
     private lateinit var channel: MethodChannel
     private var controller: RejourneyNativeController? = null
     private var activity: Activity? = null
-    private var flutterFrameProvider: (() -> Bitmap?)? = null
+    private var flutterFrameProvider: FlutterFrameProvider? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(binding.binaryMessenger, CHANNEL_NAME)
-        flutterFrameProvider = {
-            @Suppress("DEPRECATION")
-            binding.flutterEngine.renderer.bitmap
+        val mainHandler = Handler(Looper.getMainLooper())
+        flutterFrameProvider = FlutterFrameProvider { width, height, callback ->
+            mainHandler.post {
+                channel.invokeMethod(
+                    "_captureFlutterFrame",
+                    mapOf("width" to width, "height" to height),
+                    object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            callback(result.toFlutterCapturedFrame())
+                        }
+
+                        override fun error(
+                            errorCode: String,
+                            errorMessage: String?,
+                            errorDetails: Any?
+                        ) {
+                            callback(null)
+                        }
+
+                        override fun notImplemented() {
+                            callback(null)
+                        }
+                    }
+                )
+            }
         }
         controller = RejourneyNativeController(binding.applicationContext) { event, arguments ->
             Handler(Looper.getMainLooper()).post {
@@ -132,6 +155,33 @@ class RejourneyPlugin :
                     result.error("debug_only", "debugTriggerAnr is available only in debug builds", null)
                 }
             }
+            "debugForceFlutterLayerCapture" -> {
+                if (BuildConfig.DEBUG) {
+                    native.forceFlutterLayerCaptureForTesting(arguments.bool("enabled", true))
+                    result.success(null)
+                } else {
+                    result.error(
+                        "debug_only",
+                        "debugForceFlutterLayerCapture is available only in debug builds",
+                        null
+                    )
+                }
+            }
+            "debugForceFlutterImageViewCapture" -> {
+                if (BuildConfig.DEBUG) {
+                    result.success(
+                        native.forceFlutterImageViewCaptureForTesting(
+                            arguments.bool("enabled", true)
+                        )
+                    )
+                } else {
+                    result.error(
+                        "debug_only",
+                        "debugForceFlutterImageViewCapture is available only in debug builds",
+                        null
+                    )
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -190,4 +240,15 @@ private fun Map<String, Any?>.double(key: String): Double {
 private fun Map<String, Any?>.nestedMap(key: String): Map<String, Any?> {
     val raw = this[key] as? Map<*, *> ?: return emptyMap()
     return raw.entries.associate { (nestedKey, value) -> nestedKey.toString() to value }
+}
+
+private fun Any?.toFlutterCapturedFrame(): FlutterCapturedFrame? {
+    val raw = this as? Map<*, *> ?: return null
+    val width = (raw["width"] as? Number)?.toInt() ?: return null
+    val height = (raw["height"] as? Number)?.toInt() ?: return null
+    val rgba = raw["rgba"] as? ByteArray ?: return null
+    if (width <= 0 || height <= 0) return null
+    val expectedLength = width.toLong() * height.toLong() * 4L
+    if (expectedLength > Int.MAX_VALUE || rgba.size != expectedLength.toInt()) return null
+    return FlutterCapturedFrame(width, height, rgba)
 }

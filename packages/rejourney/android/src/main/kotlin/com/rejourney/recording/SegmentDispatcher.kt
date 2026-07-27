@@ -348,8 +348,9 @@ class SegmentDispatcher private constructor() {
 
         scope.launch {
             try {
-                val response = httpClient.newCall(request).execute()
-                completion(response.code == 200)
+                httpClient.newCall(request).execute().use { response ->
+                    completion(response.code == 200)
+                }
             } catch (e: Exception) {
                 completion(false)
             }
@@ -521,36 +522,39 @@ class SegmentDispatcher private constructor() {
         val startTime = System.currentTimeMillis()
 
         return try {
-            val response = httpClient.newCall(request).execute()
-            val durationMs = (System.currentTimeMillis() - startTime).toDouble()
-            val responseBody = response.body?.string()
+            httpClient.newCall(request).execute().use { response ->
+                val durationMs = (System.currentTimeMillis() - startTime).toDouble()
+                val responseBody = response.body?.string()
 
-            DiagnosticLog.debugPresignResponse(response.code, null, null, durationMs)
+                DiagnosticLog.debugPresignResponse(response.code, null, null, durationMs)
 
-            if (response.code == 402) {
-                DiagnosticLog.caution("[SegmentDispatcher] presign: 402 Payment Required - billing blocked")
-                billingBlocked = true
-                return null
+                if (response.code == 402) {
+                    DiagnosticLog.caution("[SegmentDispatcher] presign: 402 Payment Required - billing blocked")
+                    billingBlocked = true
+                    return null
+                }
+
+                if (response.code != 200 || responseBody == null) {
+                    val bodyPreview = responseBody?.take(300) ?: "null"
+                    DiagnosticLog.caution("[SegmentDispatcher] presign failed: status=${response.code} body=$bodyPreview")
+                    return null
+                }
+
+                val json = JSONObject(responseBody)
+
+                if (json.optBoolean("skipUpload", false)) {
+                    return PresignResponse(skipUpload = true)
+                }
+
+                val presignedUrl =
+                    json.optString("presignedUrl", "").takeIf { it.isNotBlank() }
+                        ?: return null
+                val batchId = json.optString("batchId", "").takeIf { it.isNotBlank() }
+                    ?: json.optString("segmentId", "")
+
+                DiagnosticLog.debugPresignResponse(response.code, batchId, presignedUrl, durationMs)
+                PresignResponse(presignedUrl, batchId)
             }
-
-            if (response.code != 200 || responseBody == null) {
-                val bodyPreview = responseBody?.take(300) ?: "null"
-                DiagnosticLog.caution("[SegmentDispatcher] presign failed: status=${response.code} body=$bodyPreview")
-                return null
-            }
-
-            val json = JSONObject(responseBody)
-
-            if (json.optBoolean("skipUpload", false)) {
-                return PresignResponse(skipUpload = true)
-            }
-
-            val presignedUrl = json.optString("presignedUrl", "").takeIf { it.isNotBlank() } ?: return null
-            val batchId = json.optString("batchId", "").takeIf { it.isNotBlank() }
-                ?: json.optString("segmentId", "")
-
-            DiagnosticLog.debugPresignResponse(response.code, batchId, presignedUrl, durationMs)
-            PresignResponse(presignedUrl, batchId)
         } catch (e: Exception) {
             val durationMs = (System.currentTimeMillis() - startTime).toDouble()
             DiagnosticLog.trace("[SegmentDispatcher] presign exception (${durationMs.toLong()}ms): ${e.javaClass.simpleName}: ${e.message}")
@@ -571,16 +575,17 @@ class SegmentDispatcher private constructor() {
 
         val startTime = System.currentTimeMillis()
         return try {
-            val response = httpClient.newCall(request).execute()
-            val durationMs = (System.currentTimeMillis() - startTime).toDouble()
-            DiagnosticLog.debugUploadComplete("", response.code, durationMs, 0.0)
+            httpClient.newCall(request).execute().use { response ->
+                val durationMs = (System.currentTimeMillis() - startTime).toDouble()
+                DiagnosticLog.debugUploadComplete("", response.code, durationMs, 0.0)
 
-            if (response.code in 200..299) {
-                recordUploadStats(durationMs, true, payload.size.toLong())
-                true
-            } else {
-                recordUploadStats(durationMs, false, payload.size.toLong())
-                false
+                if (response.code in 200..299) {
+                    recordUploadStats(durationMs, true, payload.size.toLong())
+                    true
+                } else {
+                    recordUploadStats(durationMs, false, payload.size.toLong())
+                    false
+                }
             }
         } catch (e: Exception) {
             DiagnosticLog.trace("[SegmentDispatcher] S3 upload exception: ${e.message}")
@@ -611,8 +616,9 @@ class SegmentDispatcher private constructor() {
         val request = buildRequest(url, body, upload.sessionId)
 
         return try {
-            val response = httpClient.newCall(request).execute()
-            response.code == 200
+            httpClient.newCall(request).execute().use { response ->
+                response.code == 200
+            }
         } catch (e: Exception) {
             false
         }

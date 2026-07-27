@@ -41,6 +41,18 @@ internal class FrameContentAnalyzerTest {
     }
 
     @Test
+    fun ignoresSparseNativeOverlayOverABlackFlutterLayer() {
+        val samples = IntArray(576) { 0xff000000.toInt() }
+        // A toast or small platform overlay can be visible even when the
+        // underlying Flutter surface readback is entirely black.
+        repeat(12) { index ->
+            samples[250 + index] = 0xffef4444.toInt()
+        }
+
+        assertTrue(FrameContentAnalyzer.isEffectivelyBlack(samples))
+    }
+
+    @Test
     fun preservesIntentionallyDarkInterfacesWithVisibleContent() {
         val samples = IntArray(576) { 0xff080d12.toInt() }
         repeat(18) { index ->

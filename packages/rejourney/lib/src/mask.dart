@@ -194,22 +194,12 @@ class _RenderRejourneyMask extends RenderProxyBox {
     super.attach(owner);
     _attachmentGeneration += 1;
     _lastRect = null;
-    _primeInitialRegion();
-  }
-
-  void _primeInitialRegion() {
-    if (!_enabled) return;
-    final views = WidgetsBinding.instance.platformDispatcher.views;
-    if (views.isEmpty) return;
-    final view = views.first;
-    final pixelRatio = view.devicePixelRatio;
-    if (pixelRatio <= 0 || view.physicalSize.isEmpty) return;
-
-    final logicalSize = view.physicalSize / pixelRatio;
-    final fullScreenRect = Offset.zero & logicalSize;
-    _initialPrimeActive = true;
-    _reportedRect = fullScreenRect;
-    _sendRegion(fullScreenRect);
+    _reportedRect = null;
+    // The first paint reports the real laid-out bounds before Flutter submits
+    // the frame. Priming with the whole viewport is privacy-safe but makes the
+    // replay unusable during route transitions and can hide every non-sensitive
+    // element for 750 ms.
+    _initialPrimeActive = _enabled;
   }
 
   @override

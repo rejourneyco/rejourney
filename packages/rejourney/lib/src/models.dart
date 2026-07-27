@@ -90,6 +90,7 @@ final class RejourneySdkMetrics {
     this.totalBytesEvicted = 0,
     this.captureAttemptCount = 0,
     this.captureSuccessCount = 0,
+    this.windowPixelCopyCaptureCount = 0,
     this.flutterSurfaceCaptureCount = 0,
     this.flutterImageViewCaptureCount = 0,
     this.flutterRendererCaptureCount = 0,
@@ -132,6 +133,7 @@ final class RejourneySdkMetrics {
       totalBytesEvicted: integer('totalBytesEvicted'),
       captureAttemptCount: integer('captureAttemptCount'),
       captureSuccessCount: integer('captureSuccessCount'),
+      windowPixelCopyCaptureCount: integer('windowPixelCopyCaptureCount'),
       flutterSurfaceCaptureCount: integer('flutterSurfaceCaptureCount'),
       flutterImageViewCaptureCount: integer('flutterImageViewCaptureCount'),
       flutterRendererCaptureCount: integer('flutterRendererCaptureCount'),
@@ -165,6 +167,7 @@ final class RejourneySdkMetrics {
   final int totalBytesEvicted;
   final int captureAttemptCount;
   final int captureSuccessCount;
+  final int windowPixelCopyCaptureCount;
   final int flutterSurfaceCaptureCount;
   final int flutterImageViewCaptureCount;
   final int flutterRendererCaptureCount;

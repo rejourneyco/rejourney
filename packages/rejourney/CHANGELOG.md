@@ -1,3 +1,28 @@
+## 0.2.1
+
+- Fix Android replays that remained black when a small native toast or overlay
+  made a failed whole-window Flutter readback look valid.
+- Find Flutter's render surface by its typed view hierarchy instead of its
+  release-obfuscated class name so minified Android builds use surface capture.
+- Capture Flutter's retained layer tree on affected renderers so complex
+  Impeller and Flame scenes are recorded without replacing the live
+  `FlutterSurfaceView` or requiring a host render-mode change.
+- Reduce compatibility readback resolution, space periodic fallback captures,
+  and let explicit visual changes settle before capture to limit work on
+  software and low-end renderers.
+- Use a 15-second retained-layer heartbeat on affected Android renderers while
+  capturing settled Navigator transitions on demand, avoiding a heavy fallback
+  readback every five seconds during otherwise idle scenes.
+- Preserve capture-only privacy masking on compatibility frames and add a
+  forced retained-layer integration test that verifies real Android delivery.
+- Report a `RejourneyMask` widget's measured bounds on its first painted frame
+  instead of briefly masking the complete replay viewport.
+- Close every Android registration, presign, upload, completion, and session-end
+  HTTP response to prevent connection-pool leaks during long recordings.
+- Add high-density retained-layer pixel tests, sparse-overlay black-frame tests,
+  capture-source metrics, and performance diagnostics for the compatibility
+  path.
+
 ## 0.2.0
 
 - Fix black Android Flutter replay frames on renderer/device combinations where

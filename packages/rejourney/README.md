@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.2.0
+  rejourney: ^0.2.1
 ```
 
 Then install packages:
@@ -130,13 +130,14 @@ SDK ingestion endpoints are ignored automatically. Add product-specific patterns
 
 Rejourney automatically detects the Android renderer/device combination where
 `PixelCopy` reports success for a Flutter `SurfaceView` but returns a black
-frame. While a replay is recording, the SDK switches that Flutter view to its
-supported image-backed rendering path and restores the normal surface when
-recording stops. No application render-mode setting is required.
+frame, including a black Flutter layer with a small native toast on top. The
+SDK then captures Flutter's retained layer tree at reduced replay resolution.
+It leaves the application's live `FlutterSurfaceView` untouched and does not
+require a host render-mode setting.
 
 `Rejourney.getSdkMetrics()` exposes the active source and fallback timing through
 `lastCaptureSource`, `flutterBlackFrameFallbackCount`,
-`flutterImageViewCaptureCount`, and the image-view readback duration fields.
+`flutterRendererCaptureCount`, and the retained-layer readback duration fields.
 
 ## Configuration
 

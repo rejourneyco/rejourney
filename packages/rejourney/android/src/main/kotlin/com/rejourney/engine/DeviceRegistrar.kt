@@ -232,33 +232,34 @@ class DeviceRegistrar private constructor(private val context: Context) {
             .build()
 
         try {
-            val response = httpClient.newCall(request).execute()
-            val durationMs = System.currentTimeMillis() - requestStartTime
-            val body = response.body?.string()
+            httpClient.newCall(request).execute().use { response ->
+                val durationMs = System.currentTimeMillis() - requestStartTime
+                val body = response.body?.string()
 
-            DiagnosticLog.notice("[DeviceRegistrar] Response: code=${response.code}, bodyLen=${body?.length ?: 0}, duration=${durationMs}ms")
-            DiagnosticLog.debugNetworkResponse(url, response.code, body?.length ?: 0, durationMs.toDouble())
+                DiagnosticLog.notice("[DeviceRegistrar] Response: code=${response.code}, bodyLen=${body?.length ?: 0}, duration=${durationMs}ms")
+                DiagnosticLog.debugNetworkResponse(url, response.code, body?.length ?: 0, durationMs.toDouble())
 
-            if (response.isSuccessful && body != null) {
-                try {
-                    val json = JSONObject(body)
-                    val token = json.optString("uploadToken", "")
-                    if (token.isNotEmpty()) {
-                        DiagnosticLog.notice("[DeviceRegistrar] Got uploadToken from server")
-                        DiagnosticLog.debugCredentialFlow("SUCCESS", fingerprint, true, "Got server credential uploadToken=${token.take(12)}...")
-                        uploadCredential = token
-                        credentialValid = true
-                        withContext(Dispatchers.Main) { callback(true, token) }
-                        return
+                if (response.isSuccessful && body != null) {
+                    try {
+                        val json = JSONObject(body)
+                        val token = json.optString("uploadToken", "")
+                        if (token.isNotEmpty()) {
+                            DiagnosticLog.notice("[DeviceRegistrar] Got uploadToken from server")
+                            DiagnosticLog.debugCredentialFlow("SUCCESS", fingerprint, true, "Got server credential uploadToken=${token.take(12)}...")
+                            uploadCredential = token
+                            credentialValid = true
+                            withContext(Dispatchers.Main) { callback(true, token) }
+                            return
+                        }
+                    } catch (e: Exception) {
+                        DiagnosticLog.notice("[DeviceRegistrar] JSON parse error: ${e.message}")
+                        DiagnosticLog.debugCredentialFlow("PARSE_ERROR", fingerprint, false, e.message ?: "")
                     }
-                } catch (e: Exception) {
-                    DiagnosticLog.notice("[DeviceRegistrar] JSON parse error: ${e.message}")
-                    DiagnosticLog.debugCredentialFlow("PARSE_ERROR", fingerprint, false, e.message ?: "")
+                } else {
+                    val bodyPreview = body?.take(200) ?: "empty"
+                    DiagnosticLog.notice("[DeviceRegistrar] Server error: ${response.code}")
+                    DiagnosticLog.debugCredentialFlow("HTTP_ERROR", fingerprint, false, "status=${response.code} body=$bodyPreview")
                 }
-            } else {
-                val bodyPreview = body?.take(200) ?: "empty"
-                DiagnosticLog.notice("[DeviceRegistrar] Server error: ${response.code}")
-                DiagnosticLog.debugCredentialFlow("HTTP_ERROR", fingerprint, false, "status=${response.code} body=$bodyPreview")
             }
 
             // Fallback to local credential

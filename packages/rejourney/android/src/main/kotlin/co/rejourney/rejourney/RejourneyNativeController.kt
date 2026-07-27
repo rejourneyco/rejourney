@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
@@ -15,6 +14,7 @@ import com.rejourney.engine.DiagnosticLog
 import com.rejourney.platform.SessionLifecycleService
 import com.rejourney.recording.AnrSentinel
 import com.rejourney.recording.EventBuffer
+import com.rejourney.recording.FlutterFrameProvider
 import com.rejourney.recording.InteractionRecorder
 import com.rejourney.recording.RejourneyNetworkEventFilter
 import com.rejourney.recording.ReplayOrchestrator
@@ -58,9 +58,9 @@ internal class RejourneyNativeController(
     private val metadata = LinkedHashMap<String, Any?>()
     private val backgroundRunnable = Runnable(::handleBackground)
     private var lifecycleRegistered = false
-    private var flutterFrameProvider: (() -> Bitmap?)? = null
+    private var flutterFrameProvider: FlutterFrameProvider? = null
 
-    fun setFlutterFrameProvider(provider: (() -> Bitmap?)?) {
+    fun setFlutterFrameProvider(provider: FlutterFrameProvider?) {
         val ownedProvider = flutterFrameProvider
         flutterFrameProvider = provider
         if (provider != null) {
@@ -90,6 +90,13 @@ internal class RejourneyNativeController(
             InteractionRecorder.shared?.setCurrentActivity(value)
         }
     }
+
+    fun forceFlutterLayerCaptureForTesting(enabled: Boolean) {
+        VisualCapture.shared?.forceFlutterLayerCaptureForTesting(enabled)
+    }
+
+    fun forceFlutterImageViewCaptureForTesting(enabled: Boolean): Boolean =
+        VisualCapture.shared?.forceFlutterImageViewCaptureForTesting(enabled) == true
 
     fun start(completion: (Map<String, Any?>) -> Unit) {
         ensureInitialized()
@@ -600,7 +607,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.2.0"
+        const val SDK_VERSION = "0.2.1"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

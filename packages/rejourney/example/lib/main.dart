@@ -92,7 +92,7 @@ class _DemoHomeState extends State<DemoHome> {
         _publicKey,
         config: const RejourneyConfig(
           apiUrl: _apiUrl,
-          debug: true,
+          debug: false,
           networkIgnoreUrls: <String>['example.invalid'],
         ),
       );

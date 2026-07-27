@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'rejourney_platform_interface.dart';
+import 'src/flutter_frame_capture.dart';
 
 /// Method-channel implementation for Android and iOS.
 class MethodChannelRejourney extends RejourneyPlatform {
@@ -29,7 +30,7 @@ class MethodChannelRejourney extends RejourneyPlatform {
     return methodChannel.invokeMethod<T>(method, arguments);
   }
 
-  Future<void> _handleNativeCall(MethodCall call) async {
+  Future<Object?> _handleNativeCall(MethodCall call) async {
     final raw = call.arguments;
     final payload = raw is Map
         ? raw.map<String, Object?>(
@@ -37,6 +38,15 @@ class MethodChannelRejourney extends RejourneyPlatform {
                 MapEntry<String, Object?>(key.toString(), value),
           )
         : <String, Object?>{};
+
+    if (call.method == '_captureFlutterFrame') {
+      return FlutterFrameCapture.capture(
+        targetWidth: (payload['width'] as num?)?.toInt() ?? 0,
+        targetHeight: (payload['height'] as num?)?.toInt() ?? 0,
+      );
+    }
+
     _events.add(<String, Object?>{'type': call.method, ...payload});
+    return null;
   }
 }

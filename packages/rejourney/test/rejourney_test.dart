@@ -154,6 +154,7 @@ void main() {
     fake.responses['getSdkMetrics'] = <Object?, Object?>{
       'captureAttemptCount': 12,
       'captureSuccessCount': 11,
+      'windowPixelCopyCaptureCount': 2,
       'flutterSurfaceCaptureCount': 1,
       'flutterImageViewCaptureCount': 9,
       'flutterRendererCaptureCount': 1,
@@ -171,6 +172,7 @@ void main() {
 
     expect(metrics.captureAttemptCount, 12);
     expect(metrics.captureSuccessCount, 11);
+    expect(metrics.windowPixelCopyCaptureCount, 2);
     expect(metrics.flutterSurfaceCaptureCount, 1);
     expect(metrics.flutterImageViewCaptureCount, 9);
     expect(metrics.flutterRendererCaptureCount, 1);

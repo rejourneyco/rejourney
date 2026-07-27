@@ -415,11 +415,14 @@ await Rejourney.init(
 
 Flutter normally renders Android content into a GPU-backed
 `FlutterSurfaceView`. Some renderer/device combinations can report a successful
-Android `PixelCopy` while returning an entirely black bitmap. Rejourney 0.2.0
-detects that false-success result automatically. During an affected recording,
-it switches the Flutter view to Flutter's supported image-backed render path;
-`Rejourney.stop()` restores the normal surface. You do not need to change the
-application's Flutter render mode.
+Android `PixelCopy` while returning an entirely black bitmap. Rejourney 0.2.1
+detects that false-success result automatically, including cases where a small
+native toast appears over the black Flutter layer. During an affected
+recording, it captures Flutter's retained layer tree at reduced replay
+resolution without replacing or pausing the application's live
+`FlutterSurfaceView`. Compatibility captures are spaced out, while explicit
+visual-change captures wait briefly for the UI to settle. You do not need to
+change the application's Flutter render mode.
 
 Use the SDK metrics when validating an affected device:
 
@@ -428,14 +431,15 @@ final metrics = await Rejourney.getSdkMetrics();
 debugPrint(
   'source=${metrics.lastCaptureSource} '
   'blackFallbacks=${metrics.flutterBlackFrameFallbackCount} '
-  'imageViewFrames=${metrics.flutterImageViewCaptureCount} '
-  'imageViewAvgMs=${metrics.averageFlutterImageViewReadbackMs}',
+  'retainedLayerFrames=${metrics.flutterRendererCaptureCount} '
+  'retainedLayerAvgMs=${metrics.averageFlutterRendererReadbackMs}',
 );
 ```
 
 `lastCaptureSource` is normally `flutter_surface_pixel_copy`. After the
-compatibility path activates it is `flutter_image_view_pixel_copy`. A renderer
-snapshot remains the final fallback if image-view capture cannot be used.
+compatibility path activates it is `flutter_retained_layer`. Existing
+`flutterRendererCaptureCount` and `averageFlutterRendererReadbackMs` metric
+names describe retained-layer captures.
 
 ## Verify the Integration
 
@@ -454,7 +458,7 @@ The repository includes two working applications: the package example in `packag
 - **MissingPluginException:** stop the app completely, run `flutter clean`, fetch packages, and rebuild; hot reload cannot install a new native plugin.
 - **iOS deployment target error:** set the application deployment target to iOS 15.1 or newer and run `pod install` again.
 - **Android minSdk error:** set `minSdk` to 24 or newer.
-- **Android replay is black:** use Rejourney 0.2.0 or newer and inspect the capture-source metrics above. The SDK changes capture paths automatically; do not force texture mode as a permanent application workaround.
+- **Android replay is black:** use Rejourney 0.2.1 or newer and inspect the capture-source metrics above. The SDK changes capture paths automatically; do not force texture mode as a permanent application workaround.
 - **No session starts:** check consent flow, `enabled`, `disableInDevelopment`, the dashboard kill switch, project sample rate, and network access.
 - **No route names:** assign names in `RouteSettings` or provide `routeNameResolver`.
 - **Network marker delayed:** consume or drain the streamed response; the wrapper records its final byte count when the stream completes.

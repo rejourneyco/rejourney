@@ -54,5 +54,16 @@ final class RejourneyNavigatorObserver extends NavigatorObserver {
     if (name == _lastScreen) return;
     _lastScreen = name;
     unawaited(Rejourney.trackScreen(name));
+    // Capture the destination after its first paint. On Android devices that
+    // need retained-layer compatibility capture, native code adds a further
+    // settle delay and coalesces rapid transitions.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        Rejourney.markVisualChange(
+          'navigation:$name',
+          importance: RejourneyVisualImportance.high,
+        ),
+      );
+    });
   }
 }

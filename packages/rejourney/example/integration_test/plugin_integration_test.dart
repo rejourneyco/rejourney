@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:rejourney/rejourney.dart';
+import 'package:rejourney/src/flutter_frame_capture.dart';
 import 'package:rejourney_example/main.dart';
 
 const _livePublicKey = String.fromEnvironment('REJOURNEY_PUBLIC_KEY');
@@ -22,7 +24,7 @@ void main() {
         // CI uses a refused loopback port to exercise native offline fallback.
         // Supplying both dart-defines turns this into a real upload test.
         apiUrl: live ? _liveApiUrl : 'http://127.0.0.1:9',
-        debug: true,
+        debug: false,
         captureFps: 1,
       ),
     );
@@ -57,6 +59,31 @@ void main() {
     expect(await Rejourney.getSessionId(), start.sessionId);
     expect(await Rejourney.getSdkMetrics(), isA<RejourneySdkMetrics>());
 
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final directCaptureTimer = Stopwatch()..start();
+      final directCapture = await FlutterFrameCapture.capture(
+        targetWidth: 320,
+        targetHeight: 720,
+      );
+      directCaptureTimer.stop();
+      expect(directCapture, isNotNull);
+      // ignore: avoid_print
+      print(
+        'REJOURNEY_DIRECT_LAYER_CAPTURE_MS='
+        '${directCaptureTimer.elapsedMicroseconds / 1000}',
+      );
+
+      await const MethodChannel(
+        'co.rejourney.flutter/methods',
+      ).invokeMethod<void>('debugForceFlutterLayerCapture', <String, Object?>{
+        'enabled': true,
+      });
+      await Rejourney.markVisualChange(
+        'forced_retained_layer_capture',
+        importance: RejourneyVisualImportance.high,
+      );
+    }
+
     await tester.tap(find.byKey(const Key('open-checkout')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
@@ -64,8 +91,27 @@ void main() {
     // Give the native 1 FPS recorder real wall-clock time to capture the
     // settled masked route; pumpAndSettle is intentionally avoided because
     // an active recorder can keep frame callbacks pending.
-    await Future<void>.delayed(const Duration(seconds: 3));
+    await Future<void>.delayed(const Duration(seconds: 8));
     await tester.pump();
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final captureMetrics = await Rejourney.getSdkMetrics();
+      expect(captureMetrics.flutterRendererCaptureCount, greaterThan(0));
+      expect(captureMetrics.lastCaptureSource, 'flutter_retained_layer');
+      // ignore: avoid_print
+      print(
+        'REJOURNEY_CAPTURE_METRICS='
+        'attempts:${captureMetrics.captureAttemptCount},'
+        'successes:${captureMetrics.captureSuccessCount},'
+        'fallbacks:${captureMetrics.flutterBlackFrameFallbackCount},'
+        'retained:${captureMetrics.flutterRendererCaptureCount},'
+        'avgMs:${captureMetrics.averageCaptureDurationMs},'
+        'maxMs:${captureMetrics.maxCaptureDurationMs},'
+        'retainedAvgMs:${captureMetrics.averageFlutterRendererReadbackMs},'
+        'retainedMaxMs:${captureMetrics.maxFlutterRendererReadbackMs},'
+        'source:${captureMetrics.lastCaptureSource}',
+      );
+    }
 
     await tester.tap(find.byKey(const Key('complete-purchase')));
     await tester.pump();
