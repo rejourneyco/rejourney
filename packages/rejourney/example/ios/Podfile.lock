@@ -2,7 +2,7 @@ PODS:
   - Flutter (1.0.0)
   - integration_test (0.0.1):
     - Flutter
-  - rejourney (0.1.1):
+  - rejourney (0.2.0):
     - Flutter
 
 DEPENDENCIES:
@@ -21,7 +21,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  rejourney: 7beb4ecb308636bc8a8ba5b05a154084949c8bc7
+  rejourney: e909c485516cd2e0f0a77c6b414ca5098eb1ec4f
 
 PODFILE CHECKSUM: ef408bf62401d49418af75b9276d53e23e5fadf7
 

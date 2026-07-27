@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.1.1
+  rejourney: ^0.2.0
 ```
 
 Then install packages:
@@ -102,17 +102,17 @@ Use stable `snake_case` event names and internal user IDs rather than raw person
 Install framework and platform-dispatcher handlers before `runApp`:
 
 ```dart
-final errorCapture = RejourneyErrorCapture.install();
+RejourneyErrorCapture.install();
 
-RejourneyErrorCapture.runGuarded(() {
-  runApp(const App());
-});
-
-// Restore prior handlers if your application owns a shorter lifecycle.
-errorCapture?.dispose();
+runApp(const App());
 ```
 
-The native SDK also captures supported iOS crashes and Android crashes/ANRs when enabled.
+The installed Flutter and platform-dispatcher handlers capture framework and
+uncaught root-isolate errors without moving `runApp` into a different Dart
+zone. Keep the returned handle only when you intentionally need to restore
+previous handlers later. If your application uses `runZonedGuarded`, initialize
+Flutter bindings and call `runApp` inside that same zone. The native SDK also
+captures supported iOS crashes and Android crashes/ANRs when enabled.
 
 ## HTTP instrumentation
 
@@ -125,6 +125,18 @@ client.close();
 ```
 
 SDK ingestion endpoints are ignored automatically. Add product-specific patterns through `networkIgnoreUrls` or disable this integration with `autoTrackNetwork: false`.
+
+## Android GPU rendering compatibility
+
+Rejourney automatically detects the Android renderer/device combination where
+`PixelCopy` reports success for a Flutter `SurfaceView` but returns a black
+frame. While a replay is recording, the SDK switches that Flutter view to its
+supported image-backed rendering path and restores the normal surface when
+recording stops. No application render-mode setting is required.
+
+`Rejourney.getSdkMetrics()` exposes the active source and fallback timing through
+`lastCaptureSource`, `flutterBlackFrameFallbackCount`,
+`flutterImageViewCaptureCount`, and the image-view readback duration fields.
 
 ## Configuration
 

@@ -88,6 +88,19 @@ final class RejourneySdkMetrics {
     this.lastRetryTime,
     this.totalBytesUploaded = 0,
     this.totalBytesEvicted = 0,
+    this.captureAttemptCount = 0,
+    this.captureSuccessCount = 0,
+    this.flutterSurfaceCaptureCount = 0,
+    this.flutterImageViewCaptureCount = 0,
+    this.flutterRendererCaptureCount = 0,
+    this.flutterBlackFrameFallbackCount = 0,
+    this.averageCaptureDurationMs = 0,
+    this.maxCaptureDurationMs = 0,
+    this.averageFlutterImageViewReadbackMs = 0,
+    this.maxFlutterImageViewReadbackMs = 0,
+    this.averageFlutterRendererReadbackMs = 0,
+    this.maxFlutterRendererReadbackMs = 0,
+    this.lastCaptureSource = 'none',
   });
 
   factory RejourneySdkMetrics.fromMap(Map<Object?, Object?> map) {
@@ -117,6 +130,21 @@ final class RejourneySdkMetrics {
       lastRetryTime: timestamp('lastRetryTime'),
       totalBytesUploaded: integer('totalBytesUploaded'),
       totalBytesEvicted: integer('totalBytesEvicted'),
+      captureAttemptCount: integer('captureAttemptCount'),
+      captureSuccessCount: integer('captureSuccessCount'),
+      flutterSurfaceCaptureCount: integer('flutterSurfaceCaptureCount'),
+      flutterImageViewCaptureCount: integer('flutterImageViewCaptureCount'),
+      flutterRendererCaptureCount: integer('flutterRendererCaptureCount'),
+      flutterBlackFrameFallbackCount: integer('flutterBlackFrameFallbackCount'),
+      averageCaptureDurationMs: decimal('averageCaptureDurationMs'),
+      maxCaptureDurationMs: decimal('maxCaptureDurationMs'),
+      averageFlutterImageViewReadbackMs:
+          decimal('averageFlutterImageViewReadbackMs'),
+      maxFlutterImageViewReadbackMs: decimal('maxFlutterImageViewReadbackMs'),
+      averageFlutterRendererReadbackMs:
+          decimal('averageFlutterRendererReadbackMs'),
+      maxFlutterRendererReadbackMs: decimal('maxFlutterRendererReadbackMs'),
+      lastCaptureSource: map['lastCaptureSource'] as String? ?? 'none',
     );
   }
 
@@ -135,6 +163,19 @@ final class RejourneySdkMetrics {
   final DateTime? lastRetryTime;
   final int totalBytesUploaded;
   final int totalBytesEvicted;
+  final int captureAttemptCount;
+  final int captureSuccessCount;
+  final int flutterSurfaceCaptureCount;
+  final int flutterImageViewCaptureCount;
+  final int flutterRendererCaptureCount;
+  final int flutterBlackFrameFallbackCount;
+  final double averageCaptureDurationMs;
+  final double maxCaptureDurationMs;
+  final double averageFlutterImageViewReadbackMs;
+  final double maxFlutterImageViewReadbackMs;
+  final double averageFlutterRendererReadbackMs;
+  final double maxFlutterRendererReadbackMs;
+  final String lastCaptureSource;
 }
 
 /// A network request marker shown on the session timeline.

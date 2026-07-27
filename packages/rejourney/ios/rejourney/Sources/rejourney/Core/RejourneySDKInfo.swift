@@ -1,5 +1,5 @@
 import Foundation
 
 enum RejourneySDKInfo {
-    static var version = "0.1.1"
+    static var version = "0.2.0"
 }

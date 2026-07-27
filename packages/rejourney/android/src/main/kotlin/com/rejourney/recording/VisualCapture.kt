@@ -29,6 +29,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.TextureView
@@ -41,6 +42,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.utility.gzipCompress
+import io.flutter.embedding.android.FlutterView
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.lang.ref.WeakReference
@@ -63,6 +65,8 @@ import kotlin.math.min
 class VisualCapture private constructor(private val context: Context) {
 
     companion object {
+        private const val MAX_FLUTTER_IMAGE_ACQUISITION_ATTEMPTS = 8
+
         @Volatile
         private var instance: VisualCapture? = null
 
@@ -99,9 +103,31 @@ class VisualCapture private constructor(private val context: Context) {
     private val pixelCopyThread = HandlerThread("rejourney-pixel-copy").apply { start() }
     private val pixelCopyHandler = Handler(pixelCopyThread.looper)
     private val windowCopyInFlight = AtomicBoolean(false)
+    private val useFlutterImageViewCapture = AtomicBoolean(false)
+    private val useFlutterRendererCapture = AtomicBoolean(false)
+    private val flutterImageViewHasFrame = AtomicBoolean(false)
     private val placeholderFillColor = Color.WHITE
     private val placeholderForegroundColor = Color.rgb(15, 23, 42)
     private val maxGpuSurfaceScanDepth = 120
+    @Volatile
+    private var flutterFrameProvider: (() -> Bitmap?)? = null
+    @Volatile
+    private var convertedFlutterView: WeakReference<FlutterView>? = null
+
+    private val captureAttemptCount = AtomicLong(0)
+    private val captureSuccessCount = AtomicLong(0)
+    private val flutterSurfaceCaptureCount = AtomicLong(0)
+    private val flutterImageViewCaptureCount = AtomicLong(0)
+    private val flutterRendererCaptureCount = AtomicLong(0)
+    private val flutterBlackFrameFallbackCount = AtomicLong(0)
+    private val flutterImageViewReadbackMicros = AtomicLong(0)
+    private val flutterImageViewReadbackMaxMicros = AtomicLong(0)
+    private val flutterRendererReadbackMicros = AtomicLong(0)
+    private val flutterRendererReadbackMaxMicros = AtomicLong(0)
+    private val totalCaptureMicros = AtomicLong(0)
+    private val maxCaptureMicros = AtomicLong(0)
+    @Volatile
+    private var lastCaptureSource: String = "none"
 
     // Use single thread executor for encoding (industry standard)
     private val encodeExecutor = Executors.newSingleThreadExecutor()
@@ -116,10 +142,49 @@ class VisualCapture private constructor(private val context: Context) {
     // Current activity reference
     private var currentActivity: WeakReference<Activity>? = null
 
-
     fun setCurrentActivity(activity: Activity?) {
         currentActivity = if (activity != null) WeakReference(activity) else null
         DiagnosticLog.trace("[VisualCapture] setCurrentActivity: ${activity?.javaClass?.simpleName ?: "null"}")
+    }
+
+    fun setFlutterFrameProvider(provider: (() -> Bitmap?)?) {
+        flutterFrameProvider = provider
+        if (provider == null) {
+            useFlutterRendererCapture.set(false)
+            restoreFlutterRenderSurface()
+        }
+    }
+
+    fun clearFlutterFrameProvider(provider: () -> Bitmap?) {
+        if (flutterFrameProvider === provider) {
+            setFlutterFrameProvider(null)
+        }
+    }
+
+    fun captureMetrics(): Map<String, Any?> {
+        val successes = captureSuccessCount.get()
+        val rendererCaptures = flutterRendererCaptureCount.get()
+        return mapOf(
+            "captureAttemptCount" to captureAttemptCount.get(),
+            "captureSuccessCount" to successes,
+            "flutterSurfaceCaptureCount" to flutterSurfaceCaptureCount.get(),
+            "flutterImageViewCaptureCount" to flutterImageViewCaptureCount.get(),
+            "flutterRendererCaptureCount" to rendererCaptures,
+            "flutterBlackFrameFallbackCount" to flutterBlackFrameFallbackCount.get(),
+            "averageCaptureDurationMs" to averageMillis(totalCaptureMicros.get(), successes),
+            "maxCaptureDurationMs" to maxCaptureMicros.get() / 1_000.0,
+            "averageFlutterImageViewReadbackMs" to averageMillis(
+                flutterImageViewReadbackMicros.get(),
+                flutterImageViewCaptureCount.get()
+            ),
+            "maxFlutterImageViewReadbackMs" to flutterImageViewReadbackMaxMicros.get() / 1_000.0,
+            "averageFlutterRendererReadbackMs" to averageMillis(
+                flutterRendererReadbackMicros.get(),
+                rendererCaptures
+            ),
+            "maxFlutterRendererReadbackMs" to flutterRendererReadbackMaxMicros.get() / 1_000.0,
+            "lastCaptureSource" to lastCaptureSource
+        )
     }
 
     fun beginCapture(sessionOrigin: Long) {
@@ -186,6 +251,7 @@ class VisualCapture private constructor(private val context: Context) {
         stateLock.withLock {
             screenshots.clear()
         }
+        restoreFlutterRenderSurface()
     }
 
     fun flushToDisk() {
@@ -327,6 +393,7 @@ class VisualCapture private constructor(private val context: Context) {
             val screenScale = 1.25f * pixelDensity
             val scaledWidth = max(1, (bounds.width() / screenScale).toInt())
             val scaledHeight = max(1, (bounds.height() / screenScale).toInt())
+            captureAttemptCount.incrementAndGet()
 
             // Flutter renders through a surface-backed FlutterView. Drawing
             // the Android View hierarchy therefore produces a valid-sized
@@ -337,22 +404,82 @@ class VisualCapture private constructor(private val context: Context) {
                 if (!windowCopyInFlight.compareAndSet(false, true)) return
                 val flutterSurface = findFlutterSurfaceView(decorView)
                 if (flutterSurface != null) {
-                    if (currentFrameNum < 3) {
-                        DiagnosticLog.trace(
-                            "[VisualCapture] Copying FlutterSurfaceView ${flutterSurface.width}x${flutterSurface.height}"
+                    val flutterView = findFlutterView(decorView)
+                    if (useFlutterImageViewCapture.get() && flutterView != null) {
+                        if (ensureFlutterImageView(flutterView)) {
+                            captureFlutterImageViewWithPixelCopy(
+                                window = window,
+                                flutterView = flutterView,
+                                surfaceView = flutterSurface,
+                                decorView = decorView,
+                                captureRoots = captureRoots,
+                                bitmap = Bitmap.createBitmap(
+                                    scaledWidth,
+                                    scaledHeight,
+                                    Bitmap.Config.ARGB_8888
+                                ),
+                                redactionRegions = nativeRedactionRegions,
+                                keyboardPlaceholderRect = keyboardPlaceholderRect,
+                                screenScale = screenScale,
+                                frameStart = frameStart,
+                                force = force
+                            )
+                        } else {
+                            captureFlutterRendererFrame(
+                                surfaceView = flutterSurface,
+                                decorView = decorView,
+                                captureRoots = captureRoots,
+                                bitmap = Bitmap.createBitmap(
+                                    scaledWidth,
+                                    scaledHeight,
+                                    Bitmap.Config.ARGB_8888
+                                ),
+                                redactionRegions = nativeRedactionRegions,
+                                keyboardPlaceholderRect = keyboardPlaceholderRect,
+                                screenScale = screenScale,
+                                frameStart = frameStart,
+                                force = force
+                            )
+                        }
+                    } else if (useFlutterRendererCapture.get() && flutterFrameProvider != null) {
+                        captureFlutterRendererFrame(
+                            surfaceView = flutterSurface,
+                            decorView = decorView,
+                            captureRoots = captureRoots,
+                            bitmap = Bitmap.createBitmap(
+                                scaledWidth,
+                                scaledHeight,
+                                Bitmap.Config.ARGB_8888
+                            ),
+                            redactionRegions = nativeRedactionRegions,
+                            keyboardPlaceholderRect = keyboardPlaceholderRect,
+                            screenScale = screenScale,
+                            frameStart = frameStart,
+                            force = force
+                        )
+                    } else {
+                        if (currentFrameNum < 3) {
+                            DiagnosticLog.trace(
+                                "[VisualCapture] Copying FlutterSurfaceView " +
+                                    "${flutterSurface.width}x${flutterSurface.height}"
+                            )
+                        }
+                        captureFlutterSurfaceWithPixelCopy(
+                            surfaceView = flutterSurface,
+                            decorView = decorView,
+                            captureRoots = captureRoots,
+                            bitmap = Bitmap.createBitmap(
+                                scaledWidth,
+                                scaledHeight,
+                                Bitmap.Config.ARGB_8888
+                            ),
+                            redactionRegions = nativeRedactionRegions,
+                            keyboardPlaceholderRect = keyboardPlaceholderRect,
+                            screenScale = screenScale,
+                            frameStart = frameStart,
+                            force = force
                         )
                     }
-                    captureFlutterSurfaceWithPixelCopy(
-                        surfaceView = flutterSurface,
-                        decorView = decorView,
-                        captureRoots = captureRoots,
-                        bitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888),
-                        redactionRegions = nativeRedactionRegions,
-                        keyboardPlaceholderRect = keyboardPlaceholderRect,
-                        screenScale = screenScale,
-                        frameStart = frameStart,
-                        force = force
-                    )
                 } else {
                     captureWindowWithPixelCopy(
                         window = window,
@@ -502,6 +629,39 @@ class VisualCapture private constructor(private val context: Context) {
 
                 mainHandler.post {
                     try {
+                        if (bitmapLooksEffectivelyBlack(surfaceBitmap) && flutterFrameProvider != null) {
+                            flutterBlackFrameFallbackCount.incrementAndGet()
+                            surfaceBitmap.recycle()
+                            val flutterView = findFlutterView(decorView)
+                            if (flutterView != null && switchToFlutterImageView(flutterView)) {
+                                DiagnosticLog.caution(
+                                    "[VisualCapture] FlutterSurfaceView PixelCopy returned a black frame; " +
+                                        "switching this recording to Flutter's image-view capture path"
+                                )
+                                bitmap.recycle()
+                                windowCopyInFlight.set(false)
+                                mainHandler.post { captureFrame(force = true) }
+                            } else {
+                                useFlutterRendererCapture.set(true)
+                                DiagnosticLog.caution(
+                                    "[VisualCapture] FlutterSurfaceView PixelCopy returned a black frame; " +
+                                        "using renderer snapshot compatibility mode"
+                                )
+                                captureFlutterRendererFrame(
+                                    surfaceView = surfaceView,
+                                    decorView = decorView,
+                                    captureRoots = captureRoots,
+                                    bitmap = bitmap,
+                                    redactionRegions = redactionRegions,
+                                    keyboardPlaceholderRect = keyboardPlaceholderRect,
+                                    screenScale = screenScale,
+                                    frameStart = frameStart,
+                                    force = force
+                                )
+                            }
+                            return@post
+                        }
+
                         val canvas = Canvas(bitmap)
                         canvas.drawColor(Color.BLACK)
                         val surfaceLocation = IntArray(2)
@@ -514,33 +674,18 @@ class VisualCapture private constructor(private val context: Context) {
                         )
                         surfaceBitmap.recycle()
 
-                        for (root in captureRoots) {
-                            if (root === decorView) continue
-                            val offset = rootOffsetFromDecor(decorView, root)
-                            canvas.save()
-                            canvas.scale(1f / screenScale, 1f / screenScale)
-                            canvas.translate(offset.first.toFloat(), offset.second.toFloat())
-                            root.draw(canvas)
-                            canvas.restore()
-                        }
+                        drawSecondaryRoots(canvas, decorView, captureRoots, screenScale)
+                        flutterSurfaceCaptureCount.incrementAndGet()
+                        lastCaptureSource = "flutter_surface_pixel_copy"
 
-                        encodeExecutor.execute {
-                            try {
-                                processCapture(
-                                    bitmap,
-                                    redactionRegions + currentExternalRedactionRegions(),
-                                    keyboardPlaceholderRect,
-                                    screenScale,
-                                    frameStart,
-                                    force
-                                )
-                            } catch (e: Exception) {
-                                if (!bitmap.isRecycled) bitmap.recycle()
-                                DiagnosticLog.fault("Frame processing failed: ${e.message}")
-                            } finally {
-                                windowCopyInFlight.set(false)
-                            }
-                        }
+                        submitForEncoding(
+                            bitmap = bitmap,
+                            redactionRegions = redactionRegions,
+                            keyboardPlaceholderRect = keyboardPlaceholderRect,
+                            screenScale = screenScale,
+                            frameStart = frameStart,
+                            force = force
+                        )
                     } catch (e: Exception) {
                         if (!surfaceBitmap.isRecycled) surfaceBitmap.recycle()
                         if (!bitmap.isRecycled) bitmap.recycle()
@@ -554,6 +699,346 @@ class VisualCapture private constructor(private val context: Context) {
             bitmap.recycle()
             windowCopyInFlight.set(false)
             DiagnosticLog.fault("Flutter PixelCopy request failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Flutter's own Android screenshot tooling converts FlutterSurfaceView to
+     * FlutterImageView before copying the window. This avoids renderer bitmap
+     * snapshots on the main thread and is the preferred compatibility path
+     * after a device returns a false-success black SurfaceView PixelCopy.
+     */
+    private fun captureFlutterImageViewWithPixelCopy(
+        window: Window,
+        flutterView: FlutterView,
+        surfaceView: SurfaceView,
+        decorView: View,
+        captureRoots: List<View>,
+        bitmap: Bitmap,
+        redactionRegions: List<RedactionRegion>,
+        keyboardPlaceholderRect: Rect?,
+        screenScale: Float,
+        frameStart: Long,
+        force: Boolean,
+        acquisitionAttempt: Int = 0
+    ) {
+        try {
+            if (flutterView.acquireLatestImageViewFrame()) {
+                flutterImageViewHasFrame.set(true)
+            }
+
+            if (!flutterImageViewHasFrame.get()) {
+                if (acquisitionAttempt < MAX_FLUTTER_IMAGE_ACQUISITION_ATTEMPTS) {
+                    Choreographer.getInstance().postFrameCallback {
+                        captureFlutterImageViewWithPixelCopy(
+                            window,
+                            flutterView,
+                            surfaceView,
+                            decorView,
+                            captureRoots,
+                            bitmap,
+                            redactionRegions,
+                            keyboardPlaceholderRect,
+                            screenScale,
+                            frameStart,
+                            force,
+                            acquisitionAttempt + 1
+                        )
+                    }
+                    return
+                }
+
+                useFlutterImageViewCapture.set(false)
+                useFlutterRendererCapture.set(true)
+                DiagnosticLog.caution(
+                    "[VisualCapture] FlutterImageView did not produce a frame; " +
+                        "using renderer snapshot compatibility mode"
+                )
+                captureFlutterRendererFrame(
+                    surfaceView,
+                    decorView,
+                    captureRoots,
+                    bitmap,
+                    redactionRegions,
+                    keyboardPlaceholderRect,
+                    screenScale,
+                    frameStart,
+                    force
+                )
+                return
+            }
+
+            // Acquiring an ImageReader frame invalidates FlutterImageView.
+            // Wait for Android to composite it before copying the window.
+            Choreographer.getInstance().postFrameCallback {
+                Choreographer.getInstance().postFrameCallback {
+                    requestFlutterImageViewPixelCopy(
+                        window,
+                        surfaceView,
+                        decorView,
+                        captureRoots,
+                        bitmap,
+                        redactionRegions,
+                        keyboardPlaceholderRect,
+                        screenScale,
+                        frameStart,
+                        force
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            useFlutterImageViewCapture.set(false)
+            useFlutterRendererCapture.set(true)
+            DiagnosticLog.caution(
+                "[VisualCapture] FlutterImageView capture unavailable (${e.message}); " +
+                    "using renderer snapshot compatibility mode"
+            )
+            captureFlutterRendererFrame(
+                surfaceView,
+                decorView,
+                captureRoots,
+                bitmap,
+                redactionRegions,
+                keyboardPlaceholderRect,
+                screenScale,
+                frameStart,
+                force
+            )
+        }
+    }
+
+    private fun requestFlutterImageViewPixelCopy(
+        window: Window,
+        surfaceView: SurfaceView,
+        decorView: View,
+        captureRoots: List<View>,
+        bitmap: Bitmap,
+        redactionRegions: List<RedactionRegion>,
+        keyboardPlaceholderRect: Rect?,
+        screenScale: Float,
+        frameStart: Long,
+        force: Boolean
+    ) {
+        val readbackStartNanos = SystemClock.elapsedRealtimeNanos()
+        try {
+            PixelCopy.request(window, bitmap, { result ->
+                val readbackMicros =
+                    (SystemClock.elapsedRealtimeNanos() - readbackStartNanos).coerceAtLeast(0L) / 1_000L
+                if (result != PixelCopy.SUCCESS) {
+                    mainHandler.post {
+                        useFlutterImageViewCapture.set(false)
+                        useFlutterRendererCapture.set(true)
+                        DiagnosticLog.caution(
+                            "[VisualCapture] FlutterImageView window PixelCopy failed ($result); " +
+                                "using renderer snapshot compatibility mode"
+                        )
+                        captureFlutterRendererFrame(
+                            surfaceView,
+                            decorView,
+                            captureRoots,
+                            bitmap,
+                            redactionRegions,
+                            keyboardPlaceholderRect,
+                            screenScale,
+                            frameStart,
+                            force
+                        )
+                    }
+                    return@request
+                }
+
+                mainHandler.post {
+                    try {
+                        if (bitmapLooksEffectivelyBlack(bitmap) && flutterFrameProvider != null) {
+                            useFlutterImageViewCapture.set(false)
+                            useFlutterRendererCapture.set(true)
+                            DiagnosticLog.caution(
+                                "[VisualCapture] FlutterImageView window copy was black; " +
+                                    "using renderer snapshot compatibility mode"
+                            )
+                            captureFlutterRendererFrame(
+                                surfaceView,
+                                decorView,
+                                captureRoots,
+                                bitmap,
+                                redactionRegions,
+                                keyboardPlaceholderRect,
+                                screenScale,
+                                frameStart,
+                                force
+                            )
+                            return@post
+                        }
+
+                        drawSecondaryRoots(Canvas(bitmap), decorView, captureRoots, screenScale)
+                        val captureNumber = flutterImageViewCaptureCount.incrementAndGet()
+                        flutterImageViewReadbackMicros.addAndGet(readbackMicros)
+                        updateMaximum(flutterImageViewReadbackMaxMicros, readbackMicros)
+                        lastCaptureSource = "flutter_image_view_pixel_copy"
+                        if (captureNumber == 1L || captureNumber % 30L == 0L) {
+                            DiagnosticLog.trace(
+                                "[VisualCapture] Flutter image-view capture #$captureNumber " +
+                                    "readback=${readbackMicros / 1_000.0}ms " +
+                                    "avg=${averageMillis(flutterImageViewReadbackMicros.get(), captureNumber)}ms"
+                            )
+                        }
+
+                        submitForEncoding(
+                            bitmap,
+                            redactionRegions,
+                            keyboardPlaceholderRect,
+                            screenScale,
+                            frameStart,
+                            force
+                        )
+                    } catch (e: Exception) {
+                        if (!bitmap.isRecycled) bitmap.recycle()
+                        windowCopyInFlight.set(false)
+                        DiagnosticLog.fault("Flutter image-view composition failed: ${e.message}")
+                    }
+                }
+            }, pixelCopyHandler)
+        } catch (e: Exception) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            windowCopyInFlight.set(false)
+            DiagnosticLog.fault("Flutter image-view PixelCopy request failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Flutter's engine can render the last layer tree into a bitmap without
+     * reading back the Android SurfaceView. This is the compatibility path for
+     * renderers/devices where PixelCopy reports SUCCESS but returns only black.
+     *
+     * The provider must run on the main thread (FlutterJNI enforces this). The
+     * expensive scale, masking, JPEG encoding, and packaging remain off-main.
+     */
+    private fun captureFlutterRendererFrame(
+        surfaceView: SurfaceView,
+        decorView: View,
+        captureRoots: List<View>,
+        bitmap: Bitmap,
+        redactionRegions: List<RedactionRegion>,
+        keyboardPlaceholderRect: Rect?,
+        screenScale: Float,
+        frameStart: Long,
+        force: Boolean
+    ) {
+        var rendererBitmap: Bitmap? = null
+        try {
+            val provider = flutterFrameProvider
+            if (provider == null) {
+                bitmap.recycle()
+                windowCopyInFlight.set(false)
+                DiagnosticLog.fault("[VisualCapture] Flutter renderer capture provider is unavailable")
+                return
+            }
+
+            val readbackStartNanos = SystemClock.elapsedRealtimeNanos()
+            val flutterBitmap = provider()
+            rendererBitmap = flutterBitmap
+            val readbackMicros =
+                (SystemClock.elapsedRealtimeNanos() - readbackStartNanos).coerceAtLeast(0L) / 1_000L
+            flutterRendererReadbackMicros.addAndGet(readbackMicros)
+            updateMaximum(flutterRendererReadbackMaxMicros, readbackMicros)
+
+            if (flutterBitmap == null ||
+                flutterBitmap.isRecycled ||
+                flutterBitmap.width <= 0 ||
+                flutterBitmap.height <= 0) {
+                if (flutterBitmap != null && !flutterBitmap.isRecycled) flutterBitmap.recycle()
+                bitmap.recycle()
+                windowCopyInFlight.set(false)
+                DiagnosticLog.fault("[VisualCapture] Flutter renderer did not return a usable frame")
+                return
+            }
+
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.BLACK)
+            val surfaceLocation = IntArray(2)
+            surfaceView.getLocationInWindow(surfaceLocation)
+            val destination = RectF(
+                surfaceLocation[0] / screenScale,
+                surfaceLocation[1] / screenScale,
+                (surfaceLocation[0] + surfaceView.width) / screenScale,
+                (surfaceLocation[1] + surfaceView.height) / screenScale
+            )
+            val source = Rect(0, 0, flutterBitmap.width, flutterBitmap.height)
+            val samplingPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(flutterBitmap, source, destination, samplingPaint)
+            flutterBitmap.recycle()
+            rendererBitmap = null
+
+            drawSecondaryRoots(canvas, decorView, captureRoots, screenScale)
+            val rendererCaptureNumber = flutterRendererCaptureCount.incrementAndGet()
+            lastCaptureSource = "flutter_renderer"
+            if (rendererCaptureNumber == 1L || rendererCaptureNumber % 30L == 0L) {
+                DiagnosticLog.trace(
+                    "[VisualCapture] Flutter renderer capture #$rendererCaptureNumber " +
+                        "readback=${readbackMicros / 1_000.0}ms " +
+                        "avg=${averageMillis(flutterRendererReadbackMicros.get(), rendererCaptureNumber)}ms"
+                )
+            }
+
+            submitForEncoding(
+                bitmap = bitmap,
+                redactionRegions = redactionRegions,
+                keyboardPlaceholderRect = keyboardPlaceholderRect,
+                screenScale = screenScale,
+                frameStart = frameStart,
+                force = force
+            )
+        } catch (e: Exception) {
+            rendererBitmap?.let {
+                if (!it.isRecycled) it.recycle()
+            }
+            if (!bitmap.isRecycled) bitmap.recycle()
+            windowCopyInFlight.set(false)
+            DiagnosticLog.fault("Flutter renderer capture failed: ${e.message}")
+        }
+    }
+
+    private fun drawSecondaryRoots(
+        canvas: Canvas,
+        decorView: View,
+        captureRoots: List<View>,
+        screenScale: Float
+    ) {
+        for (root in captureRoots) {
+            if (root === decorView) continue
+            val offset = rootOffsetFromDecor(decorView, root)
+            canvas.save()
+            canvas.scale(1f / screenScale, 1f / screenScale)
+            canvas.translate(offset.first.toFloat(), offset.second.toFloat())
+            root.draw(canvas)
+            canvas.restore()
+        }
+    }
+
+    private fun submitForEncoding(
+        bitmap: Bitmap,
+        redactionRegions: List<RedactionRegion>,
+        keyboardPlaceholderRect: Rect?,
+        screenScale: Float,
+        frameStart: Long,
+        force: Boolean
+    ) {
+        encodeExecutor.execute {
+            try {
+                processCapture(
+                    bitmap,
+                    redactionRegions + currentExternalRedactionRegions(),
+                    keyboardPlaceholderRect,
+                    screenScale,
+                    frameStart,
+                    force
+                )
+            } catch (e: Exception) {
+                if (!bitmap.isRecycled) bitmap.recycle()
+                DiagnosticLog.fault("Frame processing failed: ${e.message}")
+            } finally {
+                windowCopyInFlight.set(false)
+            }
         }
     }
 
@@ -572,6 +1057,68 @@ class VisualCapture private constructor(private val context: Context) {
             }
         }
         return null
+    }
+
+    private fun findFlutterView(root: View, depth: Int = 0): FlutterView? {
+        if (depth > maxGpuSurfaceScanDepth) return null
+        if (root is FlutterView && root.isShown && root.width > 0 && root.height > 0) {
+            return root
+        }
+        if (root is ViewGroup) {
+            for (index in 0 until root.childCount) {
+                findFlutterView(root.getChildAt(index), depth + 1)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun ensureFlutterImageView(flutterView: FlutterView): Boolean {
+        if (convertedFlutterView?.get() === flutterView) return true
+        return switchToFlutterImageView(flutterView)
+    }
+
+    private fun switchToFlutterImageView(flutterView: FlutterView): Boolean {
+        return try {
+            flutterView.convertToImageView()
+            convertedFlutterView = WeakReference(flutterView)
+            flutterImageViewHasFrame.set(false)
+            useFlutterImageViewCapture.set(true)
+            useFlutterRendererCapture.set(false)
+            true
+        } catch (e: Exception) {
+            DiagnosticLog.caution(
+                "[VisualCapture] Could not convert FlutterSurfaceView to FlutterImageView: ${e.message}"
+            )
+            false
+        }
+    }
+
+    private fun restoreFlutterRenderSurface() {
+        val flutterView = convertedFlutterView?.get() ?: run {
+            convertedFlutterView = null
+            flutterImageViewHasFrame.set(false)
+            useFlutterImageViewCapture.set(false)
+            return
+        }
+        convertedFlutterView = null
+        flutterImageViewHasFrame.set(false)
+        useFlutterImageViewCapture.set(false)
+        val restore = {
+            try {
+                flutterView.revertImageView {
+                    DiagnosticLog.trace("[VisualCapture] Restored FlutterSurfaceView rendering")
+                }
+            } catch (e: Exception) {
+                DiagnosticLog.caution(
+                    "[VisualCapture] Could not restore FlutterSurfaceView rendering: ${e.message}"
+                )
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            restore()
+        } else {
+            mainHandler.post(restore)
+        }
     }
 
     private fun currentExternalRedactionRegions(): List<RedactionRegion> {
@@ -840,6 +1387,23 @@ class VisualCapture private constructor(private val context: Context) {
         return visibleCount == 0 || blackCount.toDouble() / visibleCount.toDouble() > 0.82
     }
 
+    private fun bitmapLooksEffectivelyBlack(bitmap: Bitmap): Boolean {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return true
+        val sampleSide = 24
+        val samples = IntArray(sampleSide * sampleSide)
+        var index = 0
+        for (y in 0 until sampleSide) {
+            val sourceY = ((bitmap.height * (y + 0.5f)) / sampleSide).toInt()
+                .coerceIn(0, bitmap.height - 1)
+            for (x in 0 until sampleSide) {
+                val sourceX = ((bitmap.width * (x + 0.5f)) / sampleSide).toInt()
+                    .coerceIn(0, bitmap.width - 1)
+                samples[index++] = bitmap.getPixel(sourceX, sourceY)
+            }
+        }
+        return FrameContentAnalyzer.isEffectivelyBlack(samples)
+    }
+
     private fun processCapture(
         bitmap: Bitmap,
         redactionRegions: List<RedactionRegion>,
@@ -891,6 +1455,11 @@ class VisualCapture private constructor(private val context: Context) {
         val data = stream.toByteArray()
         val captureTs = System.currentTimeMillis()
         val frameNum = frameCounter.incrementAndGet()
+        val captureMicros =
+            (SystemClock.elapsedRealtime() - frameStart).coerceAtLeast(0L) * 1_000L
+        captureSuccessCount.incrementAndGet()
+        totalCaptureMicros.addAndGet(captureMicros)
+        updateMaximum(maxCaptureMicros, captureMicros)
 
         if (ReplayOrchestrator.shared?.hierarchyCaptureEnabled == true) {
             ReplayOrchestrator.shared?.captureHierarchyForFrame(captureTs)
@@ -1273,6 +1842,17 @@ class VisualCapture private constructor(private val context: Context) {
             completion?.invoke(ok)
         }
     }
+
+    private fun averageMillis(totalMicros: Long, count: Long): Double {
+        return if (count <= 0L) 0.0 else totalMicros.toDouble() / count.toDouble() / 1_000.0
+    }
+
+    private fun updateMaximum(target: AtomicLong, candidate: Long) {
+        var current = target.get()
+        while (candidate > current && !target.compareAndSet(current, candidate)) {
+            current = target.get()
+        }
+    }
 }
 
 private enum class CaptureState {
@@ -1543,4 +2123,5 @@ private class RedactionMask {
             className == "RCTEditText" ||
             className.contains("TextInput", ignoreCase = true)
     }
+
 }

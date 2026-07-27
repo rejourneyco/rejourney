@@ -322,15 +322,19 @@ Install error handlers before `runApp`:
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Rejourney.init('pk_live_your_public_key');
-  final capture = RejourneyErrorCapture.install();
+  RejourneyErrorCapture.install();
 
-  RejourneyErrorCapture.runGuarded(() {
-    runApp(const App());
-  });
+  runApp(const App());
 }
 ```
 
-This records Flutter framework exceptions, platform-dispatcher errors, and guarded-zone errors, then preserves previously installed handlers. Native crash and Android ANR capture are separately controlled by `captureCrashes` and `captureAnrs`.
+This records Flutter framework exceptions and uncaught root-isolate errors,
+then preserves previously installed handlers. Do not initialize Flutter
+bindings in one Dart zone and call `runApp` in another. If the application
+already uses `runZonedGuarded`, put `WidgetsFlutterBinding.ensureInitialized`,
+Rejourney setup, and `runApp` inside that same guarded zone. Native crash and
+Android ANR capture are separately controlled by `captureCrashes` and
+`captureAnrs`.
 
 `Rejourney.debugCrash()` intentionally crashes the native process and `Rejourney.debugTriggerAnr()` intentionally blocks the native main thread. Use them only in a disposable debug build.
 
@@ -404,8 +408,34 @@ await Rejourney.init(
 - `Rejourney.onScroll(offset)` informs adaptive visual capture about scrolling.
 - `Rejourney.onOAuthStarted`, `onOAuthCompleted`, and `onExternalUrlOpened` handle external-screen boundaries.
 - `Rejourney.logFeedback(rating, message)` adds feedback to the timeline.
-- `Rejourney.getSdkMetrics()` exposes upload, retry, queue, eviction, crash, and session counters.
+- `Rejourney.getSdkMetrics()` exposes upload, retry, queue, eviction, crash, session, capture-source, fallback, and readback timing counters.
 - `Rejourney.nativeEvents` exposes native session lifecycle messages.
+
+## Android GPU Capture Compatibility
+
+Flutter normally renders Android content into a GPU-backed
+`FlutterSurfaceView`. Some renderer/device combinations can report a successful
+Android `PixelCopy` while returning an entirely black bitmap. Rejourney 0.2.0
+detects that false-success result automatically. During an affected recording,
+it switches the Flutter view to Flutter's supported image-backed render path;
+`Rejourney.stop()` restores the normal surface. You do not need to change the
+application's Flutter render mode.
+
+Use the SDK metrics when validating an affected device:
+
+```dart
+final metrics = await Rejourney.getSdkMetrics();
+debugPrint(
+  'source=${metrics.lastCaptureSource} '
+  'blackFallbacks=${metrics.flutterBlackFrameFallbackCount} '
+  'imageViewFrames=${metrics.flutterImageViewCaptureCount} '
+  'imageViewAvgMs=${metrics.averageFlutterImageViewReadbackMs}',
+);
+```
+
+`lastCaptureSource` is normally `flutter_surface_pixel_copy`. After the
+compatibility path activates it is `flutter_image_view_pixel_copy`. A renderer
+snapshot remains the final fallback if image-view capture cannot be used.
 
 ## Verify the Integration
 
@@ -424,6 +454,7 @@ The repository includes two working applications: the package example in `packag
 - **MissingPluginException:** stop the app completely, run `flutter clean`, fetch packages, and rebuild; hot reload cannot install a new native plugin.
 - **iOS deployment target error:** set the application deployment target to iOS 15.1 or newer and run `pod install` again.
 - **Android minSdk error:** set `minSdk` to 24 or newer.
+- **Android replay is black:** use Rejourney 0.2.0 or newer and inspect the capture-source metrics above. The SDK changes capture paths automatically; do not force texture mode as a permanent application workaround.
 - **No session starts:** check consent flow, `enabled`, `disableInDevelopment`, the dashboard kill switch, project sample rate, and network access.
 - **No route names:** assign names in `RouteSettings` or provide `routeNameResolver`.
 - **Network marker delayed:** consume or drain the streamed response; the wrapper records its final byte count when the stream completes.

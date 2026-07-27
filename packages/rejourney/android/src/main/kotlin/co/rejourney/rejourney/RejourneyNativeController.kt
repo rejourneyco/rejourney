@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
@@ -57,6 +58,17 @@ internal class RejourneyNativeController(
     private val metadata = LinkedHashMap<String, Any?>()
     private val backgroundRunnable = Runnable(::handleBackground)
     private var lifecycleRegistered = false
+    private var flutterFrameProvider: (() -> Bitmap?)? = null
+
+    fun setFlutterFrameProvider(provider: (() -> Bitmap?)?) {
+        val ownedProvider = flutterFrameProvider
+        flutterFrameProvider = provider
+        if (provider != null) {
+            VisualCapture.shared?.setFlutterFrameProvider(provider)
+        } else if (ownedProvider != null) {
+            VisualCapture.shared?.clearFlutterFrameProvider(ownedProvider)
+        }
+    }
 
     fun configure(arguments: Map<String, Any?>) {
         ensureInitialized()
@@ -70,10 +82,13 @@ internal class RejourneyNativeController(
     }
 
     fun setActivity(value: Activity?) {
+        val ownedActivity = activity
         activity = value
-        VisualCapture.shared?.setCurrentActivity(value)
-        ViewHierarchyScanner.shared.setCurrentActivity(value)
-        InteractionRecorder.shared?.setCurrentActivity(value)
+        if (value != null || ownedActivity != null) {
+            VisualCapture.shared?.setCurrentActivity(value)
+            ViewHierarchyScanner.shared.setCurrentActivity(value)
+            InteractionRecorder.shared?.setCurrentActivity(value)
+        }
     }
 
     fun start(completion: (Map<String, Any?>) -> Unit) {
@@ -231,7 +246,7 @@ internal class RejourneyNativeController(
     fun sdkMetrics(): Map<String, Any?> {
         return SegmentDispatcher.shared.sdkTelemetrySnapshot(
             TelemetryPipeline.shared?.getQueueDepth() ?: 0
-        )
+        ) + (VisualCapture.shared?.captureMetrics() ?: emptyMap())
     }
 
     fun destroy() {
@@ -241,6 +256,7 @@ internal class RejourneyNativeController(
             lifecycleRegistered = false
         }
         scope.cancel()
+        setFlutterFrameProvider(null)
         setActivity(null)
     }
 
@@ -319,7 +335,8 @@ internal class RejourneyNativeController(
             SegmentDispatcher.shared
             TelemetryPipeline.getInstance(applicationContext)
             ReplayOrchestrator.getInstance(applicationContext)
-            VisualCapture.getInstance(applicationContext)
+            val visualCapture = VisualCapture.getInstance(applicationContext)
+            flutterFrameProvider?.let(visualCapture::setFlutterFrameProvider)
             EventBuffer.getInstance(applicationContext)
             InteractionRecorder.getInstance(applicationContext)
             ViewHierarchyScanner.shared
@@ -583,7 +600,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.1.1"
+        const val SDK_VERSION = "0.2.0"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

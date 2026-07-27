@@ -1,6 +1,7 @@
 package co.rejourney.rejourney
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -16,9 +17,14 @@ class RejourneyPlugin :
     private lateinit var channel: MethodChannel
     private var controller: RejourneyNativeController? = null
     private var activity: Activity? = null
+    private var flutterFrameProvider: (() -> Bitmap?)? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(binding.binaryMessenger, CHANNEL_NAME)
+        flutterFrameProvider = {
+            @Suppress("DEPRECATION")
+            binding.flutterEngine.renderer.bitmap
+        }
         controller = RejourneyNativeController(binding.applicationContext) { event, arguments ->
             Handler(Looper.getMainLooper()).post {
                 channel.invokeMethod(event, arguments)
@@ -36,6 +42,9 @@ class RejourneyPlugin :
 
         when (call.method) {
             "configure" -> {
+                if (activity != null) {
+                    native.setFlutterFrameProvider(flutterFrameProvider)
+                }
                 native.configure(arguments)
                 native.setActivity(activity)
                 result.success(null)
@@ -129,12 +138,14 @@ class RejourneyPlugin :
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        controller?.setFlutterFrameProvider(flutterFrameProvider)
         controller?.setActivity(activity)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
         activity = null
         controller?.setActivity(null)
+        controller?.setFlutterFrameProvider(null)
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -144,12 +155,14 @@ class RejourneyPlugin :
     override fun onDetachedFromActivity() {
         activity = null
         controller?.setActivity(null)
+        controller?.setFlutterFrameProvider(null)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         controller?.destroy()
         controller = null
+        flutterFrameProvider = null
     }
 
     private companion object {

@@ -150,6 +150,40 @@ void main() {
     expect(await eventFuture, containsPair('sessionId', 'session_2'));
   });
 
+  test('capture diagnostics are parsed from native SDK metrics', () async {
+    fake.responses['getSdkMetrics'] = <Object?, Object?>{
+      'captureAttemptCount': 12,
+      'captureSuccessCount': 11,
+      'flutterSurfaceCaptureCount': 1,
+      'flutterImageViewCaptureCount': 9,
+      'flutterRendererCaptureCount': 1,
+      'flutterBlackFrameFallbackCount': 1,
+      'averageCaptureDurationMs': 18.25,
+      'maxCaptureDurationMs': 31.5,
+      'averageFlutterImageViewReadbackMs': 4.25,
+      'maxFlutterImageViewReadbackMs': 8.5,
+      'averageFlutterRendererReadbackMs': 7.75,
+      'maxFlutterRendererReadbackMs': 12.5,
+      'lastCaptureSource': 'flutter_renderer',
+    };
+
+    final metrics = await Rejourney.getSdkMetrics();
+
+    expect(metrics.captureAttemptCount, 12);
+    expect(metrics.captureSuccessCount, 11);
+    expect(metrics.flutterSurfaceCaptureCount, 1);
+    expect(metrics.flutterImageViewCaptureCount, 9);
+    expect(metrics.flutterRendererCaptureCount, 1);
+    expect(metrics.flutterBlackFrameFallbackCount, 1);
+    expect(metrics.averageCaptureDurationMs, 18.25);
+    expect(metrics.maxCaptureDurationMs, 31.5);
+    expect(metrics.averageFlutterImageViewReadbackMs, 4.25);
+    expect(metrics.maxFlutterImageViewReadbackMs, 8.5);
+    expect(metrics.averageFlutterRendererReadbackMs, 7.75);
+    expect(metrics.maxFlutterRendererReadbackMs, 12.5);
+    expect(metrics.lastCaptureSource, 'flutter_renderer');
+  });
+
   test('network byte sizes respect the capture-size privacy option', () async {
     await Rejourney.init(
       'pk_live_test',
