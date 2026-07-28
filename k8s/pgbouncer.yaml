@@ -17,7 +17,7 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0        # no surge: 3 pods across 3 nodes, no 4th node for a surge pod
+      maxSurge: 0
       maxUnavailable: 1  # one at a time; trafficDistribution:PreferClose handles the gap
   selector:
     matchLabels:
@@ -29,11 +29,15 @@ spec:
     spec:
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: pgbouncer
-              topologyKey: kubernetes.io/hostname
+          # Prefer one pooler per node, but keep the database entrypoint
+          # schedulable when a three-node cluster loses a node to pressure.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: pgbouncer
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.1-p0
@@ -73,7 +77,10 @@ spec:
               value: extra_float_digits
           resources:
             requests:
-              cpu: 250m
+              # PgBouncer is lightweight and bursts under the 1-core limit.
+              # A smaller reservation prevents batch-worker requests from
+              # deadlocking a recovery replica on otherwise idle nodes.
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: 1000m

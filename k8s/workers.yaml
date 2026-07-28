@@ -10,7 +10,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 8
+  # Match the HPA floor; autoscaling raises this only when real CPU load needs it.
+  replicas: 4
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -209,7 +210,10 @@ spec:
               value: "15000"
           resources:
             requests:
-              cpu: 750m
+              # Observed steady-state usage is below 50m. Keep ample reserved
+              # headroom while allowing replicas to schedule during a node loss;
+              # the 4-core limit still permits burst processing.
+              cpu: 250m
               memory: 512Mi
             limits:
               cpu: "4000m"
@@ -345,7 +349,10 @@ spec:
               value: "5"
           resources:
             requests:
-              cpu: 750m
+              # Typical replay processing uses under 100m. Reserving 750m per
+              # pod stranded replicas when one node was under disk pressure;
+              # the 3-core limit continues to allow burst catch-up.
+              cpu: 250m
               memory: 640Mi
             limits:
               cpu: "3"
@@ -811,7 +818,9 @@ spec:
                   value: "60"
               resources:
                 requests:
-                  cpu: 750m
+                  # Scheduling reservation only; the worker can still burst to
+                  # four cores while processing a research-lake backlog.
+                  cpu: 250m
                   memory: 768Mi
                 limits:
                   cpu: "4"
