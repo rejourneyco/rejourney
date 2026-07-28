@@ -31,6 +31,7 @@ import issueDetectionLeaksRoutes from './issueDetectionLeaks.js';
 import issueDetectionGithubRoutes from './issueDetectionGithub.js';
 import internalIssueDetectionRoutes from './internalIssueDetection.js';
 import conversionsRoutes from './conversions.js';
+import stabilityRoutes from './stability.js';
 
 const router = Router();
 
@@ -81,6 +82,7 @@ router.use('/', apiKeysRoutes); // /api/projects/:id/api-keys and /api/api-keys/
 router.use('/', crashesRoutes); // /api/projects/:id/crashes
 router.use('/', anrsRoutes); // /api/projects/:id/anrs
 router.use('/', errorsRoutes); // /api/projects/:id/errors
+router.use('/', stabilityRoutes); // /api/projects/:id/stability/*
 router.use('/', issuesRoutes); // /api/general
 router.use('/', alertsRoutes); // /api/projects/:projectId/alert-settings, /alert-recipients
 

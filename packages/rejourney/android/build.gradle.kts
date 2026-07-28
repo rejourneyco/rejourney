@@ -1,5 +1,5 @@
 group = "co.rejourney.rejourney"
-version = "0.2.1"
+version = "0.3.0"
 
 buildscript {
     val kotlinVersion = "2.3.20"
@@ -87,4 +87,5 @@ dependencies {
 
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
+    testImplementation("org.json:json:20250517")
 }

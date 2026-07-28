@@ -46,31 +46,7 @@ DROP TABLE IF EXISTS public.api_endpoint_daily_stats;
 
 ---
 
-## 4. Derived screenshot frame objects under root `sessions/`
-
-**Background:** Screenshot replay prewarming/materialization writes derived JPEG frame cache objects to:
-
-```text
-sessions/{sessionId}/frames/{timestamp}.jpg
-```
-
-These objects are useful for fast replay opens because the API can return direct signed JPEG URLs instead of repeatedly unpacking screenshot archives from the canonical tenant path. They are derived cache objects, not canonical recording artifacts.
-
-**Current gap:** routine session retention purges canonical storage under:
-
-```text
-tenant/{teamId}/project/{projectId}/sessions/{sessionId}/
-```
-
-but should also delete derived root-frame objects for the same session. Project hard-delete already deletes `sessions/{sessionId}/`, but normal retention should not leave derived frame caches behind.
-
-TODO: xplicitly delete `sessions/{sessionId}/` in the session retention purge path after canonical artifact deletion succeeds.
-
-Until this is fixed, do not treat root `sessions/{sessionId}/frames/` as source-of-truth storage. It can be rebuilt from canonical screenshot artifacts while those artifacts still exist.
-
----
-
-## 5. Legacy `recording_artifacts` event-rollup checkpoint nulls
+## 4. Legacy `recording_artifacts` event-rollup checkpoint nulls
 
 **Background:** event artifact rollup now uses two checkpoint columns on `recording_artifacts`:
 

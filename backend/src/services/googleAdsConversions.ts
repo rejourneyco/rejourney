@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { GoogleAuth } from 'google-auth-library';
-import { and, eq, inArray, lte } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { config } from '../config.js';
 import {
@@ -23,6 +23,7 @@ export const GOOGLE_ADS_CONSENT_VERSION = 'ads_measurement_v1';
 
 export const GOOGLE_ADS_UPLOAD_EVENT_NAMES = [
     'signup_started',
+    'signup_completed',
     'project_created',
     'sdk_setup_opened',
     'first_session_received',
@@ -349,6 +350,7 @@ function actionIdForEvent(eventName: string): string | null {
     const value = ({
         project_created: config.GOOGLE_ADS_PROJECT_CREATED_ACTION_ID,
         signup_started: config.GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID,
+        signup_completed: config.GOOGLE_ADS_SIGNUP_COMPLETED_ACTION_ID,
         sdk_setup_opened: config.GOOGLE_ADS_SDK_SETUP_OPENED_ACTION_ID,
         first_session_received: config.GOOGLE_ADS_FIRST_SESSION_RECEIVED_ACTION_ID,
         setup_completed: config.GOOGLE_ADS_SETUP_COMPLETED_ACTION_ID,
@@ -562,6 +564,39 @@ async function claimUploadRows(): Promise<ConversionEventRow[]> {
     return claimed;
 }
 
+async function reconcileMissingSignupCompletedRows(): Promise<void> {
+    const candidates = await db
+        .select({
+            userId: users.id,
+            signupCompletedAt: users.signupCompletedAt,
+        })
+        .from(users)
+        .leftJoin(
+            googleAdsConversionEvents,
+            eq(
+                googleAdsConversionEvents.transactionId,
+                sql`'signup_completed:' || ${users.id}::text`,
+            ),
+        )
+        .where(and(
+            isNotNull(users.signupCompletedAt),
+            isNull(googleAdsConversionEvents.id),
+        ))
+        .orderBy(users.signupCompletedAt)
+        .limit(config.GOOGLE_ADS_DATA_MANAGER_BATCH_SIZE);
+
+    for (const candidate of candidates) {
+        if (!candidate.signupCompletedAt) continue;
+        await recordGoogleAdsMilestone({
+            eventName: 'signup_completed',
+            userId: candidate.userId,
+            occurredAt: candidate.signupCompletedAt,
+            eventSource: 'WEB',
+            metadata: { reconciledFromSignupCompletedAt: true },
+        });
+    }
+}
+
 async function requeueConsentDeniedRowsForInitialTesting(): Promise<void> {
     if (!config.GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING) return;
 
@@ -644,6 +679,7 @@ export async function runGoogleAdsConversionDeliveryCycle(): Promise<{
         return { enabled: false, claimed: 0 };
     }
 
+    await reconcileMissingSignupCompletedRows();
     await requeueConsentDeniedRowsForInitialTesting();
     await pollAcceptedRows();
     const rows = await claimUploadRows();

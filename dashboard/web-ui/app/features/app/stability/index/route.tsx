@@ -29,14 +29,21 @@ import {
   type CrashOverviewGroup,
   type CrashReport,
   type ErrorOverviewGroup,
+  type StabilityDiagnosticState,
+  type StabilityIssuesResponse,
+  type StabilityOccurrence,
+  type StabilitySymbolicationState,
   getANRsOverview,
   getApiEndpointStats,
   getApiErrorSpikes,
   getCrashesOverview,
   getErrorsOverview,
+  getStabilityIssueOccurrences,
+  getStabilityIssues,
   getProjectAlertSettings,
   updateProjectAlertSettings,
 } from '~/shared/api/client';
+import { adaptStabilityIssues } from './stabilityIssueAdapters';
 import { platformLensToSessionPlatform, useSharedPlatformLens } from '~/shared/hooks/useSharedPlatformLens';
 import { formatAge, formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
@@ -46,6 +53,7 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
+import { KpiCardItem, KpiCardsGrid } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
@@ -63,6 +71,29 @@ type IgnoredEndpointOption = {
   errorRate: number;
 };
 
+type StabilityOccurrencePageState = {
+  items: StabilityOccurrence[];
+  total: number;
+  nextCursor: string | null;
+  isLoading: boolean;
+  error: string | null;
+};
+
+const EMPTY_STABILITY_SUMMARY: StabilityIssuesResponse['summary'] = {
+  issues: 0,
+  events: 0,
+  users: 0,
+  sessions: 0,
+  completeDiagnostics: 0,
+  incompleteDiagnostics: 0,
+  totalSessions: 0,
+  crashFreeSessions: 0,
+  crashFreeSessionRate: 100,
+  totalUsers: 0,
+  crashFreeUsers: 0,
+  crashFreeUserRate: 100,
+};
+
 type StabilityIssueRow =
   | {
       key: string;
@@ -73,6 +104,9 @@ type StabilityIssueRow =
       lastOccurred: string;
       eventCount: number;
       userCount: number;
+      sessionCount: number;
+      diagnosticState: StabilityDiagnosticState | null;
+      symbolicationState: StabilitySymbolicationState | null;
       deviceModel: string;
       deviceLabel: string;
       appVersion: string;
@@ -91,6 +125,9 @@ type StabilityIssueRow =
       lastOccurred: string;
       eventCount: number;
       userCount: number;
+      sessionCount: number;
+      diagnosticState: StabilityDiagnosticState | null;
+      symbolicationState: StabilitySymbolicationState | null;
       deviceModel: string;
       deviceLabel: string;
       appVersion: string;
@@ -110,6 +147,9 @@ type StabilityIssueRow =
       lastOccurred: string;
       eventCount: number;
       userCount: number;
+      sessionCount: number;
+      diagnosticState: StabilityDiagnosticState | null;
+      symbolicationState: StabilitySymbolicationState | null;
       deviceModel: string;
       deviceLabel: string;
       appVersion: string;
@@ -129,6 +169,9 @@ type StabilityIssueRow =
       lastOccurred: string;
       eventCount: number;
       userCount: number;
+      sessionCount: number;
+      diagnosticState: null;
+      symbolicationState: null;
       deviceModel: string;
       deviceLabel: string;
       appVersion: string;
@@ -297,7 +340,10 @@ const buildCrashRow = (group: CrashOverviewGroup): StabilityIssueRow => {
     firstSeen: group.firstSeen,
     lastOccurred: group.lastOccurred,
     eventCount: group.count || 0,
-    userCount: group.users.length,
+    userCount: group.userCount ?? group.users.length,
+    sessionCount: group.sessionCount ?? (group.sampleSessionId ? 1 : 0),
+    diagnosticState: group.diagnosticState || null,
+    symbolicationState: group.symbolicationState || null,
     deviceModel: topDevice,
     deviceLabel: formatDeviceModel(topDevice, 'Unknown'),
     appVersion: topVersion,
@@ -333,7 +379,10 @@ const buildErrorRow = (group: ErrorOverviewGroup): StabilityIssueRow => {
     firstSeen: group.firstSeen,
     lastOccurred: group.lastOccurred,
     eventCount: group.count || 0,
-    userCount: group.users.length,
+    userCount: group.userCount ?? group.users.length,
+    sessionCount: group.sessionCount ?? (sampleError?.sessionId ? 1 : 0),
+    diagnosticState: group.diagnosticState || null,
+    symbolicationState: group.symbolicationState || null,
     deviceModel: topDevice,
     deviceLabel: formatDeviceModel(topDevice, 'Unknown'),
     appVersion: topVersion,
@@ -370,6 +419,9 @@ const buildAnrRow = (anr: ANRRecord): StabilityIssueRow => {
     lastOccurred: anr.timestamp,
     eventCount: anr.occurrenceCount || 1,
     userCount: anr.userCount || 1,
+    sessionCount: anr.sessionCount ?? (anr.sessionId ? 1 : 0),
+    diagnosticState: anr.diagnosticState || null,
+    symbolicationState: anr.symbolicationState || null,
     deviceModel: rawDeviceModel,
     deviceLabel: formatDeviceModel(rawDeviceModel, 'Unknown'),
     appVersion,
@@ -402,6 +454,9 @@ const buildApiSpikeRow = (spike: ApiErrorSpikeRecord): StabilityIssueRow => ({
   lastOccurred: spike.detectedAt,
   eventCount: spike.affectedSessions,
   userCount: 0,
+  sessionCount: 0,
+  diagnosticState: null,
+  symbolicationState: null,
   deviceModel: '',
   deviceLabel: '',
   appVersion: '',
@@ -411,6 +466,11 @@ const buildApiSpikeRow = (spike: ApiErrorSpikeRecord): StabilityIssueRow => ({
   focusKeys: [spike.id],
   source: spike,
 });
+
+const getStabilityIssueId = (row: StabilityIssueRow): string | null => {
+  if (row.kind === 'api_spikes') return null;
+  return row.source.issueId || (row.kind === 'anrs' ? row.source.groupKey : null) || null;
+};
 
 // Inline sparkline SVG for the API error rate trend
 const ApiSpikeTrendline: React.FC<{ spike: ApiErrorSpikeRecord; height?: number }> = ({ spike, height = 32 }) => {
@@ -684,6 +744,9 @@ export const Stability: React.FC = () => {
   const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [anrs, setAnrs] = useState<ANRRecord[]>([]);
   const [apiSpikes, setApiSpikes] = useState<ApiErrorSpikeRecord[]>([]);
+  const [stabilitySummary, setStabilitySummary] = useState<StabilityIssuesResponse['summary']>(EMPTY_STABILITY_SUMMARY);
+  const [failedSections, setFailedSections] = useState<string[]>([]);
+  const [retryVersion, setRetryVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
   const [mobileIssueDetailSize, setMobileIssueDetailSize] = useState<MobileIssueDetailSize>('compact');
@@ -695,6 +758,7 @@ export const Stability: React.FC = () => {
   const [selectedEndpointPattern, setSelectedEndpointPattern] = useState('');
   const [isSavingIgnoredEndpoints, setIsSavingIgnoredEndpoints] = useState(false);
   const [ignoreSettingsError, setIgnoreSettingsError] = useState<string | null>(null);
+  const [occurrencePages, setOccurrencePages] = useState<Record<string, StabilityOccurrencePageState>>({});
 
   useEffect(() => {
     const projectId = currentProject?.id || (isDemoMode ? 'demo' : '');
@@ -703,6 +767,9 @@ export const Stability: React.FC = () => {
       setErrorGroups([]);
       setAnrs([]);
       setApiSpikes([]);
+      setStabilitySummary(EMPTY_STABILITY_SUMMARY);
+      setFailedSections([]);
+      setOccurrencePages({});
       setIgnoredEndpointPatterns([]);
       setRecordedEndpointOptions([]);
       setSelectedEndpointPattern('');
@@ -712,39 +779,76 @@ export const Stability: React.FC = () => {
 
     let cancelled = false;
     setIsLoading(true);
+    setOccurrencePages({});
+
+    const stabilityRequest = isDemoMode
+      ? Promise.all([
+          getCrashesOverview(projectId, timeRange, platform),
+          getErrorsOverview(projectId, timeRange, platform),
+          getANRsOverview(projectId, timeRange, platform),
+        ]).then(([crashesResponse, errorsResponse, anrsResponse]) => {
+          const issues = (crashesResponse.groups?.length || 0) + (errorsResponse.groups?.length || 0) + (anrsResponse.anrs?.length || 0);
+          const events = (crashesResponse.summary?.events || 0) + (errorsResponse.summary?.events || 0) + (anrsResponse.summary?.events || 0);
+          const totalSessions = 12_480;
+          const crashFreeSessions = 12_048;
+          const totalUsers = 8_236;
+          const crashFreeUsers = 7_942;
+
+          return {
+            crashGroups: crashesResponse.groups || [],
+            errorGroups: errorsResponse.groups || [],
+            anrs: anrsResponse.anrs || [],
+            summary: {
+              issues,
+              events,
+              users: (crashesResponse.summary?.users || 0) + (errorsResponse.summary?.users || 0) + (anrsResponse.summary?.users || 0),
+              sessions: 914,
+              completeDiagnostics: Math.max(0, issues - 2),
+              incompleteDiagnostics: Math.min(2, issues),
+              totalSessions,
+              crashFreeSessions,
+              crashFreeSessionRate: (crashFreeSessions / totalSessions) * 100,
+              totalUsers,
+              crashFreeUsers,
+              crashFreeUserRate: (crashFreeUsers / totalUsers) * 100,
+            },
+          };
+        })
+      : getStabilityIssues(projectId, timeRange, platform).then((response) => ({
+          ...adaptStabilityIssues(response.issues || []),
+          summary: response.summary,
+        }));
 
     Promise.allSettled([
-      getCrashesOverview(projectId, timeRange, platform),
-      getErrorsOverview(projectId, timeRange, platform),
-      getANRsOverview(projectId, timeRange, platform),
+      stabilityRequest,
       getApiErrorSpikes(projectId, timeRange),
       getApiEndpointStats(projectId, 'all'),
       isDemoMode
         ? Promise.resolve({ ignoredApiEndpoints: [] } as unknown as Awaited<ReturnType<typeof getProjectAlertSettings>>)
         : getProjectAlertSettings(projectId),
-    ]).then(([crashesResult, errorsResult, anrsResult, spikesResult, endpointStatsResult, alertSettingsResult]) => {
+    ]).then(([stabilityResult, spikesResult, endpointStatsResult, alertSettingsResult]) => {
       if (cancelled) return;
 
-      if (crashesResult.status === 'fulfilled') setCrashGroups(crashesResult.value.groups || []);
-      else {
-        console.error('Failed to fetch crashes overview:', crashesResult.reason);
+      const nextFailedSections: string[] = [];
+      if (stabilityResult.status === 'fulfilled') {
+        setCrashGroups(stabilityResult.value.crashGroups);
+        setErrorGroups(stabilityResult.value.errorGroups);
+        setAnrs(stabilityResult.value.anrs);
+        setStabilitySummary(stabilityResult.value.summary);
+      } else {
+        console.error('Failed to fetch Stability issues:', stabilityResult.reason);
         setCrashGroups([]);
-      }
-
-      if (errorsResult.status === 'fulfilled') setErrorGroups(errorsResult.value.groups || []);
-      else {
-        console.error('Failed to fetch errors overview:', errorsResult.reason);
         setErrorGroups([]);
-      }
-
-      if (anrsResult.status === 'fulfilled') setAnrs(anrsResult.value.anrs || []);
-      else {
-        console.error('Failed to fetch ANRs overview:', anrsResult.reason);
         setAnrs([]);
+        setStabilitySummary(EMPTY_STABILITY_SUMMARY);
+        nextFailedSections.push('crash, error, and ANR issues');
       }
 
       if (spikesResult.status === 'fulfilled') setApiSpikes(spikesResult.value.spikes || []);
-      else setApiSpikes([]);
+      else {
+        setApiSpikes([]);
+        nextFailedSections.push('API spikes');
+      }
 
       if (endpointStatsResult.status === 'fulfilled') {
         const seen = new Set<string>();
@@ -767,6 +871,7 @@ export const Stability: React.FC = () => {
         setRecordedEndpointOptions(options);
       } else {
         setRecordedEndpointOptions([]);
+        nextFailedSections.push('API endpoint catalog');
       }
 
       if (alertSettingsResult.status === 'fulfilled') {
@@ -775,7 +880,9 @@ export const Stability: React.FC = () => {
         setIgnoreSettingsError(null);
       } else {
         setIgnoredEndpointPatterns([]);
+        nextFailedSections.push('alert settings');
       }
+      setFailedSections(nextFailedSections);
     }).finally(() => {
       if (!cancelled) setIsLoading(false);
     });
@@ -783,7 +890,7 @@ export const Stability: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currentProject?.id, isDemoMode, manualRefreshVersion, timeRange, platform]);
+  }, [currentProject?.id, isDemoMode, manualRefreshVersion, timeRange, platform, retryVersion]);
 
   const allRows = useMemo<StabilityIssueRow[]>(() => {
     return [
@@ -874,6 +981,109 @@ export const Stability: React.FC = () => {
       });
   }, [crashDetails, currentProject?.id, expandedRow, isDemoMode]);
 
+  const expandedStabilityIssueId = expandedRow ? getStabilityIssueId(expandedRow) : null;
+
+  useEffect(() => {
+    if (!expandedRow || !expandedStabilityIssueId) return;
+    const projectId = currentProject?.id || (isDemoMode ? 'demo' : '');
+    if (!projectId || occurrencePages[expandedRow.key]) return;
+
+    let cancelled = false;
+    setOccurrencePages((current) => ({
+      ...current,
+      [expandedRow.key]: {
+        items: [],
+        total: 0,
+        nextCursor: null,
+        isLoading: true,
+        error: null,
+      },
+    }));
+
+    getStabilityIssueOccurrences(projectId, expandedStabilityIssueId, {
+      timeRange,
+      platform,
+      limit: 25,
+    }).then((page) => {
+      if (cancelled) return;
+      setOccurrencePages((current) => ({
+        ...current,
+        [expandedRow.key]: {
+          items: page.occurrences || [],
+          total: page.total || 0,
+          nextCursor: page.nextCursor,
+          isLoading: false,
+          error: null,
+        },
+      }));
+    }).catch((error) => {
+      if (cancelled) return;
+      console.error('Failed to fetch Stability occurrences:', error);
+      setOccurrencePages((current) => ({
+        ...current,
+        [expandedRow.key]: {
+          items: [],
+          total: 0,
+          nextCursor: null,
+          isLoading: false,
+          error: 'Could not load occurrences. Retry this issue.',
+        },
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentProject?.id,
+    expandedIssueKey,
+    expandedRow,
+    expandedStabilityIssueId,
+    isDemoMode,
+    platform,
+    timeRange,
+  ]);
+
+  const loadMoreOccurrences = async (row: StabilityIssueRow) => {
+    const projectId = currentProject?.id;
+    const issueId = getStabilityIssueId(row);
+    const currentPage = occurrencePages[row.key];
+    if (!projectId || !issueId || !currentPage?.nextCursor || currentPage.isLoading) return;
+
+    setOccurrencePages((current) => ({
+      ...current,
+      [row.key]: { ...currentPage, isLoading: true, error: null },
+    }));
+    try {
+      const page = await getStabilityIssueOccurrences(projectId, issueId, {
+        timeRange,
+        platform,
+        cursor: currentPage.nextCursor,
+        limit: 25,
+      });
+      setOccurrencePages((current) => ({
+        ...current,
+        [row.key]: {
+          items: [...(current[row.key]?.items || []), ...(page.occurrences || [])],
+          total: page.total || currentPage.total,
+          nextCursor: page.nextCursor,
+          isLoading: false,
+          error: null,
+        },
+      }));
+    } catch (error) {
+      console.error('Failed to load more Stability occurrences:', error);
+      setOccurrencePages((current) => ({
+        ...current,
+        [row.key]: {
+          ...(current[row.key] || currentPage),
+          isLoading: false,
+          error: 'Could not load more occurrences.',
+        },
+      }));
+    }
+  };
+
   const updateKindFilter = (nextKinds: StabilityIssueKind[]) => {
     const params = new URLSearchParams(searchParams);
     params.delete('tab');
@@ -961,32 +1171,212 @@ export const Stability: React.FC = () => {
     void saveIgnoredEndpointPatterns(ignoredEndpointPatterns.filter((item) => item.toLowerCase() !== pattern.toLowerCase()));
   };
 
-  const renderReplayCard = (row: StabilityIssueRow) => {
-    const meta = KIND_META[row.kind];
+  const renderIssueSummaryCard = (
+    row: Exclude<StabilityIssueRow, { kind: 'api_spikes' }>,
+    title: string,
+    additionalProperties: Array<{ label: string; value: React.ReactNode }> = [],
+  ) => {
+    const diagnosticLabel = row.diagnosticState
+      ? `${row.diagnosticState.charAt(0).toUpperCase()}${row.diagnosticState.slice(1)}`
+      : 'Unknown';
+    const symbolicationLabel: Record<StabilitySymbolicationState, string> = {
+      symbolicated: 'Symbolicated',
+      missing_symbols: 'Symbols missing',
+      raw: 'Raw stack',
+      not_applicable: 'Not applicable',
+    };
+
     return (
-      <NeoCard variant="flat" className={`p-4 shadow-sm ${meta.detailCardClass}`}>
-        <h4 className={`mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest ${meta.textClass}`}>
-          <Play size={14} className="fill-current" />
-          Session Replay
+      <NeoCard variant="flat" className="border-slate-200 bg-white p-4 shadow-sm">
+        <h4 className="mb-3 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {title}
         </h4>
-        <p className="mb-4 text-xs leading-relaxed text-slate-600">
-          Watch the sampled session around this {meta.label.toLowerCase()}.
-        </p>
-        {row.canOpenReplay && row.replaySessionId ? (
-          <NeoButton
-            variant="primary"
-            className="w-full justify-center border-0 bg-black py-2 text-white shadow-sm hover:bg-slate-800"
-            onClick={(event) => {
-              event.stopPropagation();
-              navigate(`${pathPrefix}/sessions/${row.replaySessionId}`);
-            }}
-          >
-            Play Session
-          </NeoButton>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            ['Occurrences', formatCompact(row.eventCount)],
+            ['Sessions', formatCompact(row.sessionCount)],
+            ['Users', formatCompact(row.userCount)],
+            ['App version', row.appVersion || '?'],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+              <p className="mt-0.5 truncate font-mono text-sm font-semibold text-slate-800" title={value}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+        <dl className="mt-4 space-y-3 border-t border-slate-100 pt-3 text-xs">
+          <div>
+            <dt className="mb-0.5 text-slate-500">First seen</dt>
+            <dd className="font-medium text-slate-800">{new Date(row.firstSeen).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt className="mb-0.5 text-slate-500">Latest event</dt>
+            <dd className="font-medium text-slate-800">{new Date(row.lastOccurred).toLocaleString()}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-slate-500">Diagnostics</dt>
+            <dd className={`rounded border px-2 py-0.5 text-[10px] font-bold ${
+              row.diagnosticState === 'complete'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : row.diagnosticState === 'incomplete'
+                  ? 'border-red-200 bg-red-50 text-red-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700'
+            }`}>
+              {diagnosticLabel}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-slate-500">Stack symbols</dt>
+            <dd className={`text-right text-[11px] font-semibold ${
+              row.symbolicationState === 'symbolicated' ? 'text-emerald-700' : 'text-slate-700'
+            }`}>
+              {row.symbolicationState ? symbolicationLabel[row.symbolicationState] : 'Unknown'}
+            </dd>
+          </div>
+          {additionalProperties.map((property) => (
+            <div key={property.label}>
+              <dt className="mb-0.5 text-slate-500">{property.label}</dt>
+              <dd className="break-words font-medium text-slate-800">{property.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </NeoCard>
+    );
+  };
+
+  const renderOccurrencesCard = (row: StabilityIssueRow) => {
+    const issueId = getStabilityIssueId(row);
+    if (!issueId) return null;
+    const page = occurrencePages[row.key];
+    const replayStateLabel: Record<StabilityOccurrence['replayState'], string> = {
+      available: 'Replay available',
+      expired: 'Replay expired',
+      deleted: 'Replay deleted',
+      unsampled: 'Not sampled',
+      unavailable: 'No replay',
+    };
+
+    return (
+      <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+          <div>
+            <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
+              <Clock size={14} className="text-sky-500" />
+              Occurrences &amp; Sessions
+            </h4>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Every captured occurrence is listed here; duplicate transports are merged.
+            </p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] font-semibold text-slate-600">
+            {page ? `${page.items.length} of ${page.total}` : `${row.eventCount} events`}
+          </span>
+        </div>
+
+        {!page || (page.isLoading && page.items.length === 0) ? (
+          <div className="flex items-center justify-center gap-2 px-6 py-10 text-sm text-slate-500">
+            <Loader size={17} className="animate-spin" />
+            Loading occurrences...
+          </div>
+        ) : page.error && page.items.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+            <p className="text-sm font-medium text-red-700">{page.error}</p>
+            <NeoButton
+              variant="ghost"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                setRetryVersion((version) => version + 1);
+              }}
+            >
+              Retry
+            </NeoButton>
+          </div>
         ) : (
-          <p className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs font-medium text-slate-700">
-            Replay unavailable for this sampled event.
-          </p>
+          <>
+            <div className="max-h-[420px] divide-y divide-slate-100 overflow-y-auto">
+              {page.items.map((occurrence) => (
+                <div key={occurrence.id} className="grid gap-3 px-4 py-3 text-xs sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:items-center">
+                  <div>
+                    <div className="font-semibold text-slate-800">{new Date(occurrence.timestamp).toLocaleString()}</div>
+                    <div className="mt-1 font-mono text-[10px] text-slate-400">
+                      {occurrence.id.slice(0, 12)}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+                        {occurrence.platform || 'Unknown platform'}
+                      </span>
+                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+                        {formatDeviceModel(occurrence.deviceModel, 'Unknown device')}
+                      </span>
+                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+                        v{occurrence.appVersion || '?'}
+                      </span>
+                      <span className={`rounded border px-1.5 py-0.5 font-semibold ${
+                        occurrence.diagnosticState === 'complete'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : occurrence.diagnosticState === 'incomplete'
+                            ? 'border-red-200 bg-red-50 text-red-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700'
+                      }`}>
+                        {occurrence.diagnosticState} diagnostics
+                      </span>
+                    </div>
+                    <p className="mt-1.5 truncate font-mono text-[11px] text-slate-500" title={occurrence.stackTrace || occurrence.message || ''}>
+                      {occurrence.stackTrace?.split('\n').find(Boolean) || occurrence.message || 'No stack captured'}
+                    </p>
+                    <p className="mt-1 truncate text-[10px] text-slate-400" title={occurrence.sessionId || ''}>
+                      Session: {occurrence.sessionId || 'Unavailable'} · {replayStateLabel[occurrence.replayState]}
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    {occurrence.canOpenReplay && occurrence.sessionId ? (
+                      <NeoButton
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<Play size={12} />}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate(`${pathPrefix}/sessions/${occurrence.sessionId}`);
+                        }}
+                        className="h-8 whitespace-nowrap text-xs"
+                      >
+                        Play
+                      </NeoButton>
+                    ) : (
+                      <span className="whitespace-nowrap text-[10px] font-medium text-slate-400">
+                        {replayStateLabel[occurrence.replayState]}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(page.nextCursor || page.error) && (
+              <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                {page.error ? <p className="text-xs font-medium text-red-700">{page.error}</p> : <span />}
+                {page.nextCursor && (
+                  <NeoButton
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={page.isLoading ? <Loader size={13} className="animate-spin" /> : undefined}
+                    disabled={page.isLoading}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void loadMoreOccurrences(row);
+                    }}
+                    className="h-8 text-xs"
+                  >
+                    Load more
+                  </NeoButton>
+                )}
+              </div>
+            )}
+          </>
         )}
       </NeoCard>
     );
@@ -1045,6 +1435,8 @@ export const Stability: React.FC = () => {
               )}
             </NeoCard>
 
+            {renderOccurrencesCard(row)}
+
             <div className="flex flex-wrap gap-4 text-xs">
               <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
                 <Smartphone size={12} className="text-slate-400" />
@@ -1062,26 +1454,7 @@ export const Stability: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-4 lg:col-span-1">
-            {renderReplayCard(row)}
-            <NeoCard variant="flat" className="flex-1 border-slate-200 bg-white p-4 shadow-sm">
-              <h4 className="mb-3 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Crash Properties
-              </h4>
-              <dl className="space-y-3 text-xs">
-                <div>
-                  <dt className="mb-0.5 text-slate-500">Last Event</dt>
-                  <dd className="font-medium text-slate-800">{new Date(detail?.timestamp || row.lastOccurred).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="mb-0.5 text-slate-500">App Version</dt>
-                  <dd className="font-medium text-slate-800">{detail?.deviceMetadata?.appVersion || row.appVersion}</dd>
-                </div>
-                <div>
-                  <dt className="mb-0.5 text-slate-500">Occurrences</dt>
-                  <dd className="font-medium text-slate-800">{formatCompact(row.eventCount)}</dd>
-                </div>
-              </dl>
-            </NeoCard>
+            {renderIssueSummaryCard(row, 'Crash Summary')}
           </div>
         </div>
       );
@@ -1133,6 +1506,8 @@ export const Stability: React.FC = () => {
               )}
             </NeoCard>
 
+            {renderOccurrencesCard(row)}
+
             <div className="flex flex-wrap gap-4 text-xs">
               <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
                 <Smartphone size={12} className="text-slate-400" />
@@ -1150,26 +1525,9 @@ export const Stability: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-4 lg:col-span-1">
-            {renderReplayCard(row)}
-            <NeoCard variant="flat" className="flex-1 border-slate-200 bg-white p-4 shadow-sm">
-              <h4 className="mb-3 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Error Properties
-              </h4>
-              <dl className="space-y-3 text-xs">
-                <div>
-                  <dt className="mb-0.5 text-slate-500">Last Event</dt>
-                  <dd className="font-medium text-slate-800">{new Date(sampleError?.timestamp || row.lastOccurred).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="mb-0.5 text-slate-500">App Version</dt>
-                  <dd className="font-medium text-slate-800">{row.appVersion}</dd>
-                </div>
-                <div>
-                  <dt className="mb-0.5 text-slate-500">Fingerprint</dt>
-                  <dd className="break-words font-medium text-slate-800">{row.source.fingerprint}</dd>
-                </div>
-              </dl>
-            </NeoCard>
+            {renderIssueSummaryCard(row, 'Error Summary', [
+              { label: 'Fingerprint', value: row.source.fingerprint },
+            ])}
           </div>
         </div>
       );
@@ -1363,6 +1721,8 @@ export const Stability: React.FC = () => {
             )}
           </NeoCard>
 
+          {renderOccurrencesCard(row)}
+
           <div className="flex flex-wrap gap-4 text-xs">
             <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
               <Smartphone size={12} className="text-slate-400" />
@@ -1378,26 +1738,9 @@ export const Stability: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-1">
-          {renderReplayCard(row)}
-          <NeoCard variant="flat" className="flex-1 border-slate-200 bg-white p-4 shadow-sm">
-            <h4 className="mb-3 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              ANR Properties
-            </h4>
-            <dl className="space-y-3 text-xs">
-              <div>
-                <dt className="mb-0.5 text-slate-500">Occurred At</dt>
-                <dd className="font-medium text-slate-800">{new Date(row.lastOccurred).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="mb-0.5 text-slate-500">App Version</dt>
-                <dd className="font-medium text-slate-800">{row.appVersion}</dd>
-              </div>
-              <div>
-                <dt className="mb-0.5 text-slate-500">Block Duration</dt>
-                <dd className="break-words font-medium text-slate-800">{row.durationMs}ms</dd>
-              </div>
-            </dl>
-          </NeoCard>
+          {renderIssueSummaryCard(row, 'ANR Summary', [
+            { label: 'Block duration', value: `${row.durationMs}ms` },
+          ])}
         </div>
       </div>
     );
@@ -1456,6 +1799,75 @@ export const Stability: React.FC = () => {
 
   const shouldShowInitialGhost = useInitialDashboardLoad(isLoading || projectsLoading);
 
+  const stabilityKpiCards = useMemo<KpiCardItem[]>(() => {
+    const sessionRate = stabilitySummary.totalSessions > 0
+      ? `${stabilitySummary.crashFreeSessionRate.toFixed(2)}%`
+      : '—';
+    const userRate = stabilitySummary.totalUsers > 0
+      ? `${stabilitySummary.crashFreeUserRate.toFixed(2)}%`
+      : '—';
+
+    return [
+      {
+        id: 'crash-free-sessions',
+        label: 'Crash-free sessions',
+        value: sessionRate,
+        sortValue: stabilitySummary.crashFreeSessionRate,
+        info: 'Share of sessions in the selected window without a captured native crash.',
+        comparisonText: stabilitySummary.totalSessions > 0
+          ? `${formatCompact(stabilitySummary.crashFreeSessions)} of ${formatCompact(stabilitySummary.totalSessions)} sessions`
+          : 'No sessions in this window',
+        comparisonClassName: stabilitySummary.totalSessions > 0 ? 'text-emerald-700' : 'text-slate-500',
+      },
+      {
+        id: 'crash-free-users',
+        label: 'Crash-free users',
+        value: userRate,
+        sortValue: stabilitySummary.crashFreeUserRate,
+        info: 'Share of identified or anonymous users in the selected window without a captured native crash.',
+        comparisonText: stabilitySummary.totalUsers > 0
+          ? `${formatCompact(stabilitySummary.crashFreeUsers)} of ${formatCompact(stabilitySummary.totalUsers)} users`
+          : 'No users in this window',
+        comparisonClassName: stabilitySummary.totalUsers > 0 ? 'text-emerald-700' : 'text-slate-500',
+      },
+      {
+        id: 'stability-issues',
+        label: 'Stability issues',
+        value: formatCompact(stabilitySummary.issues),
+        sortValue: stabilitySummary.issues,
+        info: 'Distinct crashes, runtime errors, and ANRs grouped by their canonical fingerprint.',
+        comparisonText: 'Grouped root-cause candidates',
+      },
+      {
+        id: 'stability-events',
+        label: 'Events',
+        value: formatCompact(stabilitySummary.events),
+        sortValue: stabilitySummary.events,
+        info: 'Captured Stability occurrences after duplicate delivery paths are merged.',
+        comparisonText: 'Deduplicated occurrences',
+        comparisonClassName: 'text-rose-700',
+      },
+      {
+        id: 'affected-sessions',
+        label: 'Affected sessions',
+        value: formatCompact(stabilitySummary.sessions),
+        sortValue: stabilitySummary.sessions,
+        info: 'Distinct sessions represented by the Stability issues in this window.',
+        comparisonText: 'Open any issue to inspect every session',
+        comparisonClassName: 'text-sky-700',
+      },
+      {
+        id: 'complete-diagnostics',
+        label: 'Complete diagnostics',
+        value: formatCompact(stabilitySummary.completeDiagnostics),
+        sortValue: stabilitySummary.completeDiagnostics,
+        info: 'Issues with a usable stack trace plus sufficient app, OS, and device context.',
+        comparisonText: `${formatCompact(stabilitySummary.completeDiagnostics)} of ${formatCompact(stabilitySummary.issues)} issues`,
+        comparisonClassName: stabilitySummary.incompleteDiagnostics > 0 ? 'text-amber-700' : 'text-emerald-700',
+      },
+    ];
+  }, [stabilitySummary]);
+
   if (shouldShowInitialGhost) {
     return <DashboardGhostLoader variant="list" />;
   }
@@ -1471,6 +1883,35 @@ export const Stability: React.FC = () => {
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] px-6 pt-6">
+        <KpiCardsGrid
+          cards={stabilityKpiCards}
+          timeRange={timeRange}
+          storageKey="stability-overview"
+          showControls={false}
+          className="mb-4"
+          gridClassName="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6"
+        />
+
+        {failedSections.length > 0 && (
+          <div role="alert" className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm sm:flex-row sm:items-center">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">Some Stability data could not be loaded</p>
+              <p className="mt-0.5 text-xs text-amber-800">
+                Unavailable: {failedSections.join(', ')}. Existing results are partial and are not being presented as “no issues.”
+              </p>
+            </div>
+            <NeoButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setRetryVersion((version) => version + 1)}
+              className="shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+            >
+              Retry
+            </NeoButton>
+          </div>
+        )}
+
         <NeoCard variant="flat" disablePadding className="overflow-hidden bg-white">
           <div className="flex items-center gap-3 overflow-x-auto border-b border-slate-200 bg-slate-50 px-4 py-3">
             <datalist id="stability-recorded-api-endpoints">
@@ -1619,12 +2060,13 @@ export const Stability: React.FC = () => {
               <div className="hidden w-24 text-right lg:block">Last Event</div>
               <div className="w-16 text-right">Events</div>
               <div className="w-16 text-right">Users</div>
+              <div className="hidden w-16 text-right xl:block">Sessions</div>
               <div className="w-8 shrink-0" />
             </div>
           </div>
 
           <div className="divide-y divide-slate-100 bg-white">
-            {filteredRows.length === 0 && (
+            {filteredRows.length === 0 && failedSections.length === 0 && (
               <div className="py-24 text-center text-slate-400">
                 <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
                 <p className="text-lg font-semibold text-slate-700">No stability issues found</p>
@@ -1668,6 +2110,16 @@ export const Stability: React.FC = () => {
                             {Math.round(row.durationMs / 100) / 10}s block
                           </span>
                         )}
+                        {row.diagnosticState === 'incomplete' && (
+                          <span className="hidden rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-700 xl:inline-block">
+                            Incomplete
+                          </span>
+                        )}
+                        {row.symbolicationState === 'missing_symbols' && (
+                          <span className="hidden rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700 xl:inline-block">
+                            Symbols missing
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 truncate text-xs text-slate-500" title={row.subtitle}>
                         {row.subtitle}
@@ -1708,6 +2160,12 @@ export const Stability: React.FC = () => {
                     <div className="w-16 text-right">
                       <span className="inline-block font-mono text-xs font-medium text-slate-600">
                         {formatCompact(row.userCount)}
+                      </span>
+                    </div>
+
+                    <div className="hidden w-16 text-right xl:block">
+                      <span className="inline-block font-mono text-xs font-medium text-slate-600">
+                        {formatCompact(row.sessionCount)}
                       </span>
                     </div>
 

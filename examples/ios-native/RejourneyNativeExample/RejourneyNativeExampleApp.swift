@@ -5,10 +5,19 @@ import SwiftUI
 struct RejourneyNativeExampleApp: App {
     @MainActor
     init() {
+        let environment = ProcessInfo.processInfo.environment
+        let apiURL = URL(
+            string: environment["REJOURNEY_API_URL"] ?? "https://api.rejourney.co"
+        )!
+        let observeOnly = environment["REJOURNEY_OBSERVE_ONLY"]?.lowercased() != "false"
+        let publicKey = environment["REJOURNEY_PUBLIC_KEY"]
+            ?? "rj_94f602bb3ff12873008b16fb2f3389cc"
+
         Rejourney.configure(
-            publicKey: "rj_94f602bb3ff12873008b16fb2f3389cc",
+            publicKey: publicKey,
             options: RejourneyOptions(
-                observeOnly: true,
+                apiURL: apiURL,
+                observeOnly: observeOnly,
                 autoTrackNetwork: true,
                 debug: true
             )
@@ -37,17 +46,6 @@ struct RejourneyNativeExampleView: View {
                     Text(status)
                 }
 
-                // These fields verify that all text inputs are masked in session
-                // replay by default (no text content captured, black overlay shown).
-                Section("Masked Inputs (privacy test)") {
-                    TextField("Username", text: $username)
-                        .textContentType(.username)
-                        .autocapitalization(.none)
-                    SecureField("Password", text: $password)
-                    TextEditor(text: $notes)
-                        .frame(minHeight: 80)
-                }
-
                 Section("Actions") {
                     Button("Start") {
                         Task { await startSession() }
@@ -69,6 +67,38 @@ struct RejourneyNativeExampleView: View {
                     Button("Stop") {
                         Task { await stopSession() }
                     }
+                }
+
+#if DEBUG
+                Section("Stability validation") {
+                    Button("Freeze Main Thread (7s)") {
+                        status = "ANR test scheduled"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            Thread.sleep(forTimeInterval: 7)
+                            status = "ANR test recovered"
+                        }
+                    }
+                    Button("Crash App") {
+                        status = "Crash test scheduled"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            NSException(
+                                name: NSExceptionName("RejourneyNativeExampleCrash"),
+                                reason: "Intentional native SDK crash validation"
+                            ).raise()
+                        }
+                    }
+                }
+#endif
+
+                // These fields verify that all text inputs are masked in session
+                // replay by default (no text content captured, black overlay shown).
+                Section("Masked Inputs (privacy test)") {
+                    TextField("Username", text: $username)
+                        .textContentType(.username)
+                        .autocapitalization(.none)
+                    SecureField("Password", text: $password)
+                    TextEditor(text: $notes)
+                        .frame(minHeight: 80)
                 }
             }
             .navigationTitle("Rejourney")

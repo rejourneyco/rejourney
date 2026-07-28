@@ -581,7 +581,15 @@ public final class TelemetryPipeline: NSObject {
         ])
     }
     
-    @objc public func recordJSErrorEvent(name: String, message: String, stack: String?) {
+    public func recordJSErrorEvent(
+        name: String,
+        message: String,
+        stack: String?,
+        incidentId: String? = nil,
+        exceptionCategory: String? = nil,
+        source: String? = nil,
+        handled: Bool? = nil
+    ) {
         var event: [String: Any] = [
             "type": "error",
             "timestamp": _ts(),
@@ -591,6 +599,18 @@ public final class TelemetryPipeline: NSObject {
         if let stack = stack {
             event["stack"] = stack
         }
+        if let incidentId {
+            event["incidentId"] = incidentId
+        }
+        if let exceptionCategory {
+            event["exceptionCategory"] = exceptionCategory
+        }
+        if let source {
+            event["source"] = source
+        }
+        if let handled {
+            event["handled"] = handled
+        }
         _enqueue(event)
         // Prioritize JS error delivery to reduce loss on fatal terminations.
         _serialWorker.async { [weak self] in
@@ -598,13 +618,16 @@ public final class TelemetryPipeline: NSObject {
         }
     }
     
-    @objc public func recordAnrEvent(durationMs: Int, stack: String?) {
+    @objc public func recordAnrEvent(durationMs: Int, stack: String?, incidentId: String? = nil) {
         var event: [String: Any] = [
             "type": "anr",
             "timestamp": _ts(),
             "durationMs": durationMs,
             "threadState": "blocked"
         ]
+        if let incidentId {
+            event["incidentId"] = incidentId
+        }
         if let stack = stack {
             event["stack"] = stack
         }

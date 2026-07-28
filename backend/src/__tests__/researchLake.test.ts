@@ -149,6 +149,32 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralClaimSql).not.toContain('PARTITION BY project_id');
     });
 
+    it('releases jobs claimed but not started at the runtime deadline', () => {
+        const releaseSql = __researchLakeTestInternals.buildReleaseUnstartedResearchJobsSql();
+        const serviceSource = readFileSync(
+            `${process.cwd()}/src/services/researchLake.ts`,
+            'utf8',
+        );
+
+        expect(releaseSql).toContain("status = 'pending'");
+        expect(releaseSql).toContain('attempts = GREATEST(attempts - 1, 0)');
+        expect(releaseSql).toContain('next_retry_at = NULL');
+        expect(releaseSql).toContain('id = ANY($1::uuid[])');
+        expect(releaseSql).toContain("status = 'processing'");
+        expect(serviceSource).toContain('jobs.slice(batchResult.startedCount)');
+        expect(serviceSource).toContain('releaseUnstartedResearchJobs(unstartedJobs)');
+    });
+
+    it('keeps the V1 prefix while enabling bounded upload concurrency', () => {
+        const manifest = readFileSync(
+            `${process.cwd()}/../k8s/workers.yaml`,
+            'utf8',
+        );
+
+        expect(manifest).toContain('- name: RESEARCH_LAKE_PREFIX\n                  value: "v1"');
+        expect(manifest).toContain('- name: RESEARCH_LAKE_UPLOAD_CONCURRENCY\n                  value: "3"');
+    });
+
     it('migration preserves interaction rows while replacing session-only uniqueness', () => {
         const migrationSql = readFileSync(
             `${process.cwd()}/drizzle/20260611140000_research_lake_lake_type_curated/migration.sql`,
@@ -221,9 +247,17 @@ describe('research lake anonymized payload shape', () => {
             eventCount: events.length,
         });
 
+        expect(manifest.schema_version).toBe(1);
+        expect(manifest.files.events).toMatch(/^v1\//);
         expect(manifest.lake).toBe('behavioral_outcomes');
         expect(manifest.files).not.toHaveProperty('ui_frames');
         expect(manifest.files).not.toHaveProperty('ui_skeleton');
+        expect(metrics).toMatchObject({
+            crash_count: 0,
+            anr_count: 0,
+            error_count: 1,
+        });
+        expect(labels.has_stability_failure).toBe(true);
         expect(manifest.geo).toMatchObject({
             country: 'United States',
             country_code: 'US',

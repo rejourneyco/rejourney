@@ -1037,6 +1037,7 @@ export const crashes = pgTable(
         id: uuid('id').primaryKey().defaultRandom(),
         sessionId: varchar('session_id', { length: 64 }).references(() => sessions.id, { onDelete: 'cascade' }),
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        incidentId: varchar('incident_id', { length: 128 }),
         timestamp: timestamp('timestamp').notNull(),
         exceptionName: varchar('exception_name', { length: 255 }).notNull(),
         reason: text('reason'),
@@ -1054,6 +1055,9 @@ export const crashes = pgTable(
         index('crashes_status_idx').on(table.status),
         index('crashes_timestamp_idx').on(table.timestamp),
         index('crashes_fingerprint_idx').on(table.fingerprint),
+        uniqueIndex('crashes_project_incident_unique')
+            .on(table.projectId, table.incidentId)
+            .where(sql`${table.incidentId} IS NOT NULL`),
     ]
 );
 
@@ -1067,6 +1071,7 @@ export const anrs = pgTable(
         id: uuid('id').primaryKey().defaultRandom(),
         sessionId: varchar('session_id', { length: 64 }).references(() => sessions.id, { onDelete: 'cascade' }),
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        incidentId: varchar('incident_id', { length: 128 }),
         timestamp: timestamp('timestamp').notNull(),
         durationMs: integer('duration_ms').notNull(), // How long the main thread was blocked
         threadState: text('thread_state'), // Main thread stack trace
@@ -1081,6 +1086,9 @@ export const anrs = pgTable(
         index('anrs_session_idx').on(table.sessionId),
         index('anrs_status_idx').on(table.status),
         index('anrs_timestamp_idx').on(table.timestamp),
+        uniqueIndex('anrs_project_incident_unique')
+            .on(table.projectId, table.incidentId)
+            .where(sql`${table.incidentId} IS NOT NULL`),
     ]
 );
 
@@ -1098,10 +1106,14 @@ export const errors = pgTable(
         id: uuid('id').primaryKey().defaultRandom(),
         sessionId: varchar('session_id', { length: 64 }).references(() => sessions.id, { onDelete: 'cascade' }),
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        incidentId: varchar('incident_id', { length: 128 }),
         timestamp: timestamp('timestamp').notNull(),
         // Error classification
         errorType: varchar('error_type', { length: 50 }).notNull(), // 'js_error', 'unhandled_exception', 'promise_rejection'
         errorName: varchar('error_name', { length: 255 }).notNull(), // e.g., 'TypeError', 'ReferenceError'
+        exceptionCategory: varchar('exception_category', { length: 255 }),
+        source: varchar('source', { length: 64 }),
+        isHandled: boolean('is_handled'),
         message: text('message').notNull(),
         stack: text('stack'),
         // Context
@@ -1127,6 +1139,9 @@ export const errors = pgTable(
         index('errors_status_idx').on(table.status),
         index('errors_fingerprint_idx').on(table.fingerprint),
         index('errors_error_type_idx').on(table.errorType),
+        uniqueIndex('errors_project_incident_unique')
+            .on(table.projectId, table.incidentId)
+            .where(sql`${table.incidentId} IS NOT NULL`),
     ]
 );
 

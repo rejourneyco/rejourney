@@ -2660,6 +2660,10 @@ export interface ANRRecord {
     groupKey?: string;
     canOpenReplay?: boolean;
     logs?: string[];
+    issueId?: string;
+    sessionCount?: number;
+    diagnosticState?: StabilityDiagnosticState;
+    symbolicationState?: StabilitySymbolicationState;
 }
 
 export interface ANRDetailRecord {
@@ -3051,6 +3055,11 @@ export interface ErrorOverviewGroup {
         canOpenReplay?: boolean;
         logs?: string[];
     } | null;
+    issueId?: string;
+    userCount?: number;
+    sessionCount?: number;
+    diagnosticState?: StabilityDiagnosticState;
+    symbolicationState?: StabilitySymbolicationState;
 }
 
 export interface ErrorsOverviewResponse {
@@ -3076,6 +3085,11 @@ export interface CrashOverviewGroup {
     affectedDevices: Record<string, number>;
     affectedVersions: Record<string, number>;
     logs?: string[];
+    issueId?: string;
+    userCount?: number;
+    sessionCount?: number;
+    diagnosticState?: StabilityDiagnosticState;
+    symbolicationState?: StabilitySymbolicationState;
 }
 
 export interface CrashesOverviewResponse {
@@ -3095,6 +3109,169 @@ export interface ANRsOverviewResponse {
         events: number;
         users: number;
     };
+}
+
+export type StabilityIssueType = 'crash' | 'error' | 'anr';
+export type StabilityDiagnosticState = 'complete' | 'partial' | 'incomplete';
+export type StabilitySymbolicationState = 'symbolicated' | 'missing_symbols' | 'raw' | 'not_applicable';
+export type StabilityReplayState = 'available' | 'expired' | 'deleted' | 'unsampled' | 'unavailable';
+
+export interface StabilityOccurrence {
+    id: string;
+    sourceIds: string[];
+    incidentId: string | null;
+    issueId: string;
+    type: StabilityIssueType;
+    projectId: string;
+    sessionId: string | null;
+    timestamp: string;
+    name: string;
+    message: string | null;
+    stackTrace: string | null;
+    rawStackTrace: string | null;
+    durationMs: number | null;
+    status: string;
+    occurrenceCount: number;
+    screenName: string | null;
+    platform: string | null;
+    deviceModel: string | null;
+    osVersion: string | null;
+    appVersion: string | null;
+    sdkVersion: string | null;
+    userId: string | null;
+    canOpenReplay: boolean;
+    replayState: StabilityReplayState;
+    diagnosticState: StabilityDiagnosticState;
+    symbolicationState: StabilitySymbolicationState;
+    deviceMetadata: Record<string, unknown>;
+    transportSources: string[];
+    fingerprint: string;
+}
+
+export interface StabilityIssue {
+    id: string;
+    type: StabilityIssueType;
+    fingerprint: string;
+    title: string;
+    culprit: string | null;
+    message: string | null;
+    status: string;
+    firstSeen: string;
+    lastSeen: string;
+    eventCount: number;
+    userCount: number;
+    sessionCount: number;
+    affectedDevices: Record<string, number>;
+    affectedVersions: Record<string, number>;
+    affectedPlatforms: Record<string, number>;
+    diagnosticState: StabilityDiagnosticState;
+    symbolicationState: StabilitySymbolicationState;
+    bestOccurrence: StabilityOccurrence;
+}
+
+export interface StabilityIssuesResponse {
+    issues: StabilityIssue[];
+    nextCursor: string | null;
+    summary: {
+        issues: number;
+        events: number;
+        users: number;
+        sessions: number;
+        completeDiagnostics: number;
+        incompleteDiagnostics: number;
+        totalSessions: number;
+        crashFreeSessions: number;
+        crashFreeSessionRate: number;
+        totalUsers: number;
+        crashFreeUsers: number;
+        crashFreeUserRate: number;
+    };
+}
+
+export interface StabilityOccurrencesResponse {
+    occurrences: StabilityOccurrence[];
+    total: number;
+    nextCursor: string | null;
+}
+
+export async function getStabilityIssues(
+    projectId: string,
+    timeRange?: string,
+    platform?: string,
+): Promise<StabilityIssuesResponse> {
+    const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
+    const allIssues: StabilityIssue[] = [];
+    let cursor: string | null = null;
+    let summary: StabilityIssuesResponse['summary'] = {
+        issues: 0,
+        events: 0,
+        users: 0,
+        sessions: 0,
+        completeDiagnostics: 0,
+        incompleteDiagnostics: 0,
+        totalSessions: 0,
+        crashFreeSessions: 0,
+        crashFreeSessionRate: 100,
+        totalUsers: 0,
+        crashFreeUsers: 0,
+        crashFreeUserRate: 100,
+    };
+
+    do {
+        const params = new URLSearchParams({ limit: '100' });
+        if (timeRange) params.set('timeRange', timeRange);
+        if (normalizedPlatform) params.set('platform', normalizedPlatform);
+        if (cursor) params.set('cursor', cursor);
+        const page = await fetchJson<StabilityIssuesResponse>(
+            `/api/projects/${projectId}/stability/issues?${params.toString()}`,
+            { cache: 'no-store' },
+        );
+        if (allIssues.length === 0) summary = page.summary;
+        allIssues.push(...(page.issues || []));
+        cursor = page.nextCursor;
+    } while (cursor);
+
+    return { issues: allIssues, nextCursor: null, summary };
+}
+
+export async function getStabilityIssueOccurrences(
+    projectId: string,
+    issueId: string,
+    options: {
+        timeRange?: string;
+        platform?: string;
+        cursor?: string | null;
+        limit?: number;
+    } = {},
+): Promise<StabilityOccurrencesResponse> {
+    if (isDemoMode()) {
+        const allOccurrences = demoApiData.getDemoStabilityOccurrences(issueId)
+            .filter((occurrence: StabilityOccurrence) => (
+                !options.platform ||
+                options.platform === 'all' ||
+                matchesPlatformFilter(occurrence.platform, options.platform)
+            ));
+        const offset = Math.max(0, Number.parseInt(options.cursor || '0', 10) || 0);
+        const limit = Math.min(Math.max(options.limit || 25, 1), 100);
+        const occurrences = allOccurrences.slice(offset, offset + limit);
+        const nextOffset = offset + occurrences.length;
+        return {
+            occurrences,
+            total: allOccurrences.length,
+            nextCursor: nextOffset < allOccurrences.length ? String(nextOffset) : null,
+        };
+    }
+
+    const params = new URLSearchParams({
+        limit: String(Math.min(Math.max(options.limit || 25, 1), 100)),
+    });
+    if (options.timeRange) params.set('timeRange', options.timeRange);
+    if (options.platform && options.platform !== 'all') params.set('platform', options.platform);
+    if (options.cursor) params.set('cursor', options.cursor);
+    return fetchJson<StabilityOccurrencesResponse>(
+        `/api/projects/${projectId}/stability/issues/${encodeURIComponent(issueId)}/occurrences?${params.toString()}`,
+        { cache: 'no-store' },
+    );
 }
 
 export interface FrictionHeatmap {
@@ -3563,10 +3740,21 @@ export async function getCrashesOverview(projectId: string, timeRange?: string, 
             (group: any) => !normalizedPlatform || matchesPlatformFilter(group.platform, normalizedPlatform),
         );
         return {
-            groups: groups.map((group: any) => ({
-                ...group,
-                canOpenReplay: group.canOpenReplay ?? Boolean(group.sampleSessionId),
-            })),
+            groups: groups.map((group: any) => {
+                const issueId = group.issueId || `demo:${group.id}`;
+                const occurrences = demoApiData.getDemoStabilityOccurrences(issueId);
+                const bestOccurrence = occurrences[0];
+                return {
+                    ...group,
+                    issueId,
+                    sampleSessionId: bestOccurrence?.sessionId || group.sampleSessionId,
+                    canOpenReplay: bestOccurrence?.canOpenReplay ?? group.canOpenReplay ?? Boolean(group.sampleSessionId),
+                    sessionCount: occurrences.length,
+                    userCount: group.users?.length || occurrences.length,
+                    diagnosticState: bestOccurrence?.diagnosticState || 'complete',
+                    symbolicationState: bestOccurrence?.symbolicationState || 'symbolicated',
+                };
+            }),
             summary: {
                 issues: groups.length,
                 events: groups.reduce((sum: number, group: CrashOverviewGroup) => sum + Number(group.count || 0), 0),
@@ -5495,6 +5683,8 @@ export const api = {
     getErrorsOverview,
     getCrashesOverview,
     getANRsOverview,
+    getStabilityIssues,
+    getStabilityIssueOccurrences,
     getApiErrorSpikes,
     getProjectAlertSettings,
     updateProjectAlertSettings,

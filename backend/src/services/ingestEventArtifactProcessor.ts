@@ -1,9 +1,11 @@
 import { createHash } from 'crypto';
 import { gunzipSync } from 'zlib';
 import { and, eq, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, anrs, errors, recordingArtifacts } from '../db/client.js';
+import { db, sessions, sessionMetrics, errors, recordingArtifacts } from '../db/client.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
+import { normalizeStabilityIncidentId } from './stabilityAnalytics.js';
+import { persistAnrOccurrence } from './stabilityIngest.js';
 import { normalizeIngestAppVersion, normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { normalizeHeatmapScreenName } from '../utils/heatmapScreens.js';
@@ -410,9 +412,13 @@ export async function processEventsArtifact(
 
     // Collect errors for batch insert
     const errorEvents: Array<{
+        incidentId?: string;
         timestamp: Date;
         errorType: string;
         errorName: string;
+        exceptionCategory?: string;
+        source?: string;
+        isHandled?: boolean;
         message: string;
         stack?: string;
         screenName?: string;
@@ -420,6 +426,7 @@ export async function processEventsArtifact(
 
     // Collect ANRs for batch insert
     const anrEvents: Array<{
+        incidentId?: string;
         timestamp: Date;
         durationMs: number;
         threadState?: string;
@@ -770,9 +777,13 @@ export async function processEventsArtifact(
                     : errorName.includes('Exception') ? 'unhandled_exception'
                         : 'js_error';
             errorEvents.push({
+                incidentId: normalizeStabilityIncidentId(event.incidentId) || undefined,
                 timestamp: new Date(event.timestamp || Date.now()),
                 errorType,
                 errorName,
+                exceptionCategory: typeof event.exceptionCategory === 'string' ? event.exceptionCategory : undefined,
+                source: typeof event.source === 'string' ? event.source : undefined,
+                isHandled: typeof event.handled === 'boolean' ? event.handled : undefined,
                 message: errorMessage,
                 stack: event.stack,
                 screenName: currentScreen || undefined,
@@ -793,6 +804,7 @@ export async function processEventsArtifact(
                 stack: event.stack,
             });
             anrEvents.push({
+                incidentId: normalizeStabilityIncidentId(event.incidentId) || undefined,
                 timestamp: new Date(event.timestamp || Date.now()),
                 durationMs: durationMs || 5000,
                 threadState: stackTrace || event.threadState || 'blocked',
@@ -981,15 +993,20 @@ export async function processEventsArtifact(
     if (errorEvents.length > 0) {
         for (const errorEvent of errorEvents) {
             // Create fingerprint for grouping similar errors
-            const fingerprintData = `${projectId}:${errorEvent.errorName}:${errorEvent.message} `;
+            const canonicalErrorName = errorEvent.exceptionCategory || errorEvent.errorName;
+            const fingerprintData = `${projectId}:${canonicalErrorName}:${errorEvent.message} `;
             const fingerprint = createHash('sha256').update(fingerprintData).digest('hex').slice(0, 64);
 
-            await db.insert(errors).values({
+            const [insertedError] = await db.insert(errors).values({
                 sessionId: job.sessionId,
                 projectId,
+                incidentId: errorEvent.incidentId,
                 timestamp: errorEvent.timestamp,
                 errorType: errorEvent.errorType,
                 errorName: errorEvent.errorName,
+                exceptionCategory: errorEvent.exceptionCategory,
+                source: errorEvent.source,
+                isHandled: errorEvent.isHandled,
                 message: errorEvent.message,
                 stack: errorEvent.stack,
                 screenName: errorEvent.screenName || undefined,
@@ -998,12 +1015,13 @@ export async function processEventsArtifact(
                 appVersion: deviceInfo?.appVersion ?? 'unknown',
                 fingerprint,
                 status: 'open',
-            });
+            }).onConflictDoNothing().returning({ id: errors.id });
+            if (!insertedError) continue;
 
             // Track as an issue for the Issues Feed
             trackErrorAsIssue({
                 projectId,
-                errorName: errorEvent.errorName,
+                errorName: canonicalErrorName,
                 message: errorEvent.message,
                 errorType: errorEvent.errorType,
                 stack: errorEvent.stack,
@@ -1014,6 +1032,7 @@ export async function processEventsArtifact(
                 osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
                 appVersion: deviceInfo?.appVersion,
                 fingerprint,
+                userId: session.userDisplayId || session.anonymousHash || session.deviceId || undefined,
             }).catch(() => { }); // Fire and forget
         }
         log.debug({ errorCount: errorEvents.length }, 'Error events saved to errors table');
@@ -1021,22 +1040,30 @@ export async function processEventsArtifact(
 
     // Batch insert ANRs into anrs table
     if (anrEvents.length > 0) {
+        let insertedAnrCount = 0;
         for (const anrEvent of anrEvents) {
-            await db.insert(anrs).values({
+            const deviceMetadata = mergeAnrDeviceMetadata({
+                platform: deviceInfo?.platform || session.platform,
+                model: deviceInfo?.model || session.deviceModel,
+                deviceModel: deviceInfo?.model || session.deviceModel,
+                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion || session.osVersion,
+                appVersion: deviceInfo?.appVersion || session.appVersion,
+                sdkVersion: deviceInfo?.sdkVersion || session.sdkVersion,
+                screenName: anrEvent.screenName,
+            }, anrEvent.stackTrace || anrEvent.threadState || null, anrEvent.rawThreadState);
+            const persisted = await persistAnrOccurrence({
                 sessionId: job.sessionId,
                 projectId,
+                incidentId: anrEvent.incidentId,
                 timestamp: anrEvent.timestamp,
                 durationMs: anrEvent.durationMs,
                 threadState: anrEvent.threadState || null,
-                deviceMetadata: mergeAnrDeviceMetadata({
-                    model: deviceInfo?.model,
-                    osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
-                    appVersion: deviceInfo?.appVersion,
-                    screenName: anrEvent.screenName,
-                }, anrEvent.stackTrace || anrEvent.threadState || null, anrEvent.rawThreadState),
+                deviceMetadata,
                 status: 'open',
                 occurrenceCount: 1,
             });
+            if (!persisted.inserted) continue;
+            insertedAnrCount += 1;
 
             trackANRAsIssue({
                 projectId,
@@ -1047,15 +1074,16 @@ export async function processEventsArtifact(
                 deviceModel: deviceInfo?.model,
                 osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
                 appVersion: deviceInfo?.appVersion,
+                userId: session.userDisplayId || session.anonymousHash || session.deviceId || undefined,
             }).catch(() => { }); // Fire and forget
         }
 
         // Update ANR count in session metrics
         await db.update(sessionMetrics)
-            .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${anrEvents.length}` })
+            .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${insertedAnrCount}` })
             .where(eq(sessionMetrics.sessionId, job.sessionId));
 
-        log.debug({ anrCount: anrEvents.length }, 'ANR events saved to anrs table');
+        log.debug({ anrCount: insertedAnrCount, receivedAnrCount: anrEvents.length }, 'ANR events saved to anrs table');
     }
 
     // Process custom events and metadata

@@ -384,6 +384,9 @@ function setupReactNativeErrorHandler(): void {
         message: error.message || String(error),
         stack: error.stack,
         name: error.name || 'Error',
+        exceptionCategory: error.name || 'Error',
+        source: 'react_native',
+        handled: false,
       });
 
       if (originalErrorHandler) {
@@ -424,6 +427,9 @@ function setupJSErrorHandler(): void {
         message: typeof message === 'string' ? message : 'Unknown error',
         stack: error?.stack || `${source}:${lineno}:${colno}`,
         name: error?.name || 'Error',
+        exceptionCategory: error?.name || 'Error',
+        source: 'javascript',
+        handled: false,
       });
 
       if (originalOnError) {
@@ -467,6 +473,9 @@ function setupPromiseRejectionHandler(): void {
             message: error?.message || String(error) || 'Unhandled Promise Rejection',
             stack: error?.stack,
             name: error?.name || 'UnhandledRejection',
+            exceptionCategory: error?.name || 'UnhandledRejection',
+            source: 'promise_rejection',
+            handled: false,
           });
         },
         onHandled: () => { /* no-op */ },
@@ -498,6 +507,9 @@ function setupPromiseRejectionHandler(): void {
           message: error?.message || String(error) || firstArg,
           stack: error?.stack,
           name: error?.name || 'UnhandledRejection',
+          exceptionCategory: error?.name || 'UnhandledRejection',
+          source: 'promise_rejection',
+          handled: false,
         });
       }
       // Always call through to original console.error
@@ -517,6 +529,9 @@ function setupPromiseRejectionHandler(): void {
         message: reason?.message || String(reason) || 'Unhandled Promise Rejection',
         stack: reason?.stack,
         name: reason?.name || 'UnhandledRejection',
+        exceptionCategory: reason?.name || 'UnhandledRejection',
+        source: 'promise_rejection',
+        handled: false,
       });
     };
 
@@ -591,6 +606,9 @@ function forwardErrorToNative(error: ErrorEvent): void {
       stack: error.stack,
       name: error.name || 'Error',
       timestamp: error.timestamp,
+      exceptionCategory: error.exceptionCategory || error.name || 'Error',
+      source: error.source,
+      handled: error.handled,
     }).catch(() => { });
   } catch {
     // Ignore native forwarding failures; SDK should never crash app code.
@@ -611,6 +629,9 @@ export function captureError(
     message,
     stack,
     name: name || 'Error',
+    exceptionCategory: name || 'Error',
+    source: 'manual_capture',
+    handled: true,
   });
 }
 

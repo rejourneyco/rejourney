@@ -238,6 +238,11 @@ router.get(
                 replayRetentionState: sessions.replayRetentionState,
                 recordingDeleted: sessions.recordingDeleted,
                 isReplayExpired: sessions.isReplayExpired,
+                platform: sessions.platform,
+                sessionDeviceModel: sessions.deviceModel,
+                sessionOsVersion: sessions.osVersion,
+                sessionAppVersion: sessions.appVersion,
+                sessionSdkVersion: sessions.sdkVersion,
             })
             .from(anrs)
             .leftJoin(sessions, eq(anrs.sessionId, sessions.id))
@@ -248,12 +253,28 @@ router.get(
             throw ApiError.notFound('ANR not found');
         }
         const anr = row.anr;
+        const eventMetadata = (
+            anr.deviceMetadata && typeof anr.deviceMetadata === 'object'
+                ? anr.deviceMetadata
+                : {}
+        ) as Record<string, unknown>;
+        const deviceMetadata = {
+            platform: row.platform,
+            model: row.sessionDeviceModel,
+            deviceModel: row.sessionDeviceModel,
+            systemVersion: row.sessionOsVersion,
+            osVersion: row.sessionOsVersion,
+            appVersion: row.sessionAppVersion,
+            sdkVersion: row.sessionSdkVersion,
+            ...eventMetadata,
+        };
         res.json({
             ...anr,
             threadState: resolveAnrStackTrace({
                 threadState: anr.threadState,
-                deviceMetadata: anr.deviceMetadata,
+                deviceMetadata,
             }),
+            deviceMetadata,
             canOpenReplay: canOpenReplayFromSessionFields(row),
         });
     })

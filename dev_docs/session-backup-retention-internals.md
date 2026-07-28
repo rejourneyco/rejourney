@@ -1,6 +1,6 @@
 # Session Backup + Retention Internals
 
-Last updated: 2026-06-02
+Last updated: 2026-07-27
 
 This is the internal/operator doc for how session backup and retention work in the backend and Kubernetes workers.
 
@@ -20,7 +20,8 @@ This is not the user-facing product story. It is the worker/runtime story.
 - A session is not backupable just because it exists. It must be finalized and its ready artifacts must match the expected profile.
 - The backup queue is fed both by session finalization and by a periodic queue seeder, then drained by the backup CronJob.
 - `session_backup_log` is the ledger that says "this session backup completed successfully for N planned/copied artifacts".
-- Retention is fail-safe. It does not purge normal sessions, including `observe_only` and `replay_quota_billing_exhausted` sessions, unless backup safety checks pass first.
+- Retention is deadline-authoritative. Research and archive backup status do not
+  extend a customer's configured recording-retention period.
 - Normal retention does not delete the `sessions` row. It deletes recording payloads and marks the row as replay-expired / recording-deleted.
 - Full `sessions` row deletion only happens in project/team hard-delete flows.
 
@@ -48,9 +49,9 @@ Main code paths:
   - [`scripts/k8s/session-backup.mjs`](../scripts/k8s/session-backup.mjs)
 - Deployed backup CronJob copy:
   - [`k8s/archive.yaml`](../k8s/archive.yaml)
-- Retention safety gate:
+- Archive backup coverage helper (not a retention prerequisite):
   - [`backend/src/services/sessionBackupGate.ts`](../backend/src/services/sessionBackupGate.ts)
-- Empty-session predicate:
+- Empty-session backup predicate:
   - [`backend/src/services/sessionRetentionEligibility.ts`](../backend/src/services/sessionRetentionEligibility.ts)
 - Retention worker:
   - [`backend/src/worker/retentionWorker.ts`](../backend/src/worker/retentionWorker.ts)
@@ -212,7 +213,8 @@ Important consequences:
 
 - the session is **not** marked backed up
 - no `session_backup_log` row is written
-- retention still will not purge it as a backed-up session
+- retention may still purge its canonical replay data when the configured
+  retention deadline passes
 - the row stops re-entering normal `pending` claim order, which prevents old impossible sessions from starving real backupable work
 
 If source storage is later repaired for one of these sessions, operators must move the queue row back to `pending` or delete/re-enqueue it.
@@ -314,30 +316,20 @@ A session is considered for retention expiry when:
 - `sessions.retention_tier = retentionPolicies.tier`
 - `sessions.started_at < now - retention_days`
 - `sessions.recording_deleted = false`
-- `sessions.status = 'ready'`
+- `sessions.status IN ('ready', 'completed')`
 - project is not deleted
+- no failed retention deletion was recorded for the session in the last 24 hours
 
-### Backup safety gate
+### Research and backup independence
 
-Before purge, retention partitions candidates into backed-up vs not-backed-up using [`partitionBackedUpSessions()`](../backend/src/services/sessionBackupGate.ts).
+Research Lake extraction/compaction is best-effort and is not a prerequisite for
+retention deletion. The retention candidate query does not inspect research jobs,
+research manifests, or `session_backup_log`, so a missing or delayed research copy
+does not hold expired replay data past the configured retention period.
 
-A session counts as safe to purge when either:
-
-1. it has a `session_backup_log` row whose counts cover all `recording_artifacts` rows, or
-2. it is provably empty by the empty-session predicate
-
-Important nuance:
-
-- retention is stricter than backup
-- backup copies only `ready` artifacts
-- retention compares `session_backup_log` counts against total `recording_artifacts` rows
-
-That means if a session still has extra non-ready artifact rows, retention may conservatively skip it even if the ready artifacts were already backed up.
-
-Important consequence:
-
-- `observe_only` and `replay_quota_billing_exhausted` sessions do not bypass this gate anymore
-- they must have a real `session_backup_log` row from the backup worker before retention can purge them
+This is deliberate: the customer-configured retention deadline is authoritative,
+and neither the V1 research format nor a future additive research format requires
+a retention backfill or a separate retention implementation.
 
 ### Repair path
 
@@ -345,7 +337,7 @@ Retention also has a repair path for sessions already marked expired/deleted but
 
 - `recordingDeleted = true` or `isReplayExpired = true`
 - still has `recording_artifacts`
-- still must pass the same backup safety gate first
+- its own `retention_days` period has expired
 
 That path is implemented in [`repairExpiredSessionArtifactsBatch()`](../backend/src/services/sessionArtifactPurge.ts).
 
@@ -357,10 +349,13 @@ That path is implemented in [`repairExpiredSessionArtifactsBatch()`](../backend/
 
 - canonical storage objects under:
   - `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/`
+- derived screenshot frame objects under:
+  - `sessions/{sessionId}/`
 - `recording_artifacts` rows
 - screenshot/hierarchy counters in `session_metrics`
 - replay/cache state on the `sessions` row
-- Redis cache entries for frames, replay manifests, hierarchy, timelines, and session-core views
+- fixed Redis cache entries for replay manifests, hierarchy, timelines, and
+  session-core views; individual frame payload keys have a hard 10-minute TTL
 
 It then marks the session row as:
 
@@ -381,19 +376,11 @@ Normal retention keeps:
 - the R2 backup copy for non-empty sessions
 - the `session_backup_log` row for non-empty sessions
 
-### When retention deletes backup copy + backup log too
+### Backup copies and backup logs
 
-Retention only deletes the backup R2 prefix and removes the `session_backup_log` row when the session is classified as truly empty.
-
-That is controlled by:
-
-- `deleteBackupCopy: purgeMetadata.empty_session`
-- `deleteBackupLogEntry: purgeMetadata.empty_session`
-
-So for a real backed-up recording session:
-
-- canonical runtime payloads are purged
-- archive backup stays
+Routine retention does not delete the archive backup prefix or
+`session_backup_log`. Project/team hard-delete flows remain responsible for
+removing those records and objects.
 
 ### When the actual session row is fully deleted
 
@@ -427,19 +414,7 @@ That session now:
 - will not be queued for backup
 - will not produce a manifest-only backup-log row
 
-### 2. Backup success and retention safety use different counts
-
-Backup success:
-
-- based on ready artifacts copied to R2
-
-Retention safety:
-
-- based on `session_backup_log` coverage vs total artifact rows
-
-This is intentionally conservative, but it means some sessions can remain ineligible for retention longer than expected.
-
-### 3. Analytics-only profiles are real backup profiles, not retention bypasses
+### 2. Analytics-only profiles are real backup profiles
 
 `observe_only` means "no screenshots by customer consent/configuration".
 `replay_quota_billing_exhausted` means "no screenshots/rrweb by replay quota".
@@ -448,9 +423,9 @@ Neither means "nothing to archive".
 - backup still runs
 - backup still writes a real manifest
 - backup still writes `session_backup_log`
-- retention still waits for that ledger row
+- retention remains independent of that ledger row
 
-### 4. Backup is fail-safe, not best-effort complete
+### 3. Backup is fail-safe, not best-effort complete
 
 If source objects are missing or the prefix parity check fails:
 
@@ -460,14 +435,14 @@ If source objects are missing or the prefix parity check fails:
 
 Parking a row as `source_missing` is not a success path. It is only an anti-starvation queue-control path.
 
-### 5. Retention is fail-safe too
+### 4. Retention fails closed per deletion attempt
 
-If `session_backup_log` is missing, or counts do not satisfy the safety gate:
+An S3 or database failure leaves the session eligible for a later run. Recent
+failed attempts receive a 24-hour backoff to avoid hammering a broken storage
+endpoint. Research/backup incompleteness is not a deletion failure and does not
+block expiry.
 
-- retention skips the session
-- the session is not purged
-
-### 6. Useful places to inspect
+### 5. Useful places to inspect
 
 - queue state:
   - `session_backup_queue`

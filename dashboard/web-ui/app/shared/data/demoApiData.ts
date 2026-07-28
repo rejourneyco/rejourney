@@ -2504,6 +2504,78 @@ export const demoCrashesOverview: any = {
     truncated: false,
 };
 
+export const getDemoStabilityOccurrences = (issueId: string): any[] => {
+    const groupIndex = demoCrashOverviewGroups.findIndex(
+        (group) => `demo:${group.id}` === issueId,
+    );
+    if (groupIndex < 0) return [];
+
+    const group = demoCrashOverviewGroups[groupIndex];
+    const report = demoCrashReports.find((candidate) => candidate.id === group.sampleCrashId);
+    if (!report) return [];
+
+    const devices = Object.keys(group.affectedDevices);
+    const versions = Object.keys(group.affectedVersions);
+    const occurrenceCount = Math.min(4, Math.max(1, DEMO_REPLAY_SESSION_IDS.length));
+
+    return Array.from({ length: occurrenceCount }, (_, occurrenceIndex) => {
+        const sessionId = DEMO_REPLAY_SESSION_IDS[(groupIndex + occurrenceIndex) % DEMO_REPLAY_SESSION_IDS.length];
+        const platform = group.platform === 'mobile'
+            ? occurrenceIndex % 2 === 0 ? 'ios' : 'android'
+            : group.platform;
+        const deviceModel = devices[occurrenceIndex % devices.length] || 'Unknown device';
+        const appVersion = versions[occurrenceIndex % versions.length] || '2.5.0';
+        const timestamp = new Date(
+            new Date(group.lastOccurred).getTime() - occurrenceIndex * 37 * 60 * 1000,
+        ).toISOString();
+        const diagnosticState = occurrenceIndex === occurrenceCount - 1 ? 'partial' : 'complete';
+
+        return {
+            id: `demo-occurrence-${groupIndex + 1}-${occurrenceIndex + 1}`,
+            sourceIds: [
+                `demo-fault-${groupIndex + 1}-${occurrenceIndex + 1}`,
+                `demo-event-${groupIndex + 1}-${occurrenceIndex + 1}`,
+            ],
+            incidentId: `demo-incident-${groupIndex + 1}-${occurrenceIndex + 1}`,
+            issueId,
+            type: 'crash',
+            projectId: 'demo-project-001',
+            sessionId,
+            timestamp,
+            name: group.name,
+            message: report.reason || null,
+            stackTrace: report.stackTrace || null,
+            rawStackTrace: report.stackTrace || null,
+            durationMs: null,
+            status: report.status || 'new',
+            occurrenceCount: 1,
+            screenName: occurrenceIndex % 2 === 0 ? 'Checkout' : 'Cart',
+            platform,
+            deviceModel,
+            osVersion: platform === 'ios'
+                ? occurrenceIndex === 0 ? 'iOS 18.1' : 'iOS 18.0'
+                : occurrenceIndex === 0 ? 'Android 15' : 'Android 14',
+            appVersion,
+            sdkVersion: occurrenceIndex === 0 ? '1.1.1' : '1.1.0',
+            userId: `demo-shopper-${groupIndex + 1}-${occurrenceIndex + 1}`,
+            canOpenReplay: true,
+            replayState: 'available',
+            diagnosticState,
+            symbolicationState: 'symbolicated',
+            deviceMetadata: {
+                platform,
+                deviceModel,
+                appVersion,
+                diagnosticSource: occurrenceIndex === occurrenceCount - 1 ? 'fault_recovery' : 'native_sdk',
+            },
+            transportSources: occurrenceIndex % 2 === 0
+                ? ['fault_recovery', 'events_artifact']
+                : ['fault_recovery'],
+            fingerprint: `demo:${group.id}`,
+        };
+    });
+};
+
 const demoErrorRecords = [
     {
         id: 'err-checkout-lineitems',

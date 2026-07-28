@@ -103,6 +103,23 @@ export async function trackIssue(data: IssueData): Promise<string | null> {
             .limit(1);
 
         if (existing) {
+            const identity = data.userId || data.sessionId;
+            let isNewIdentity = false;
+            if (identity) {
+                const identityCondition = data.userId
+                    ? eq(issueEvents.userId, data.userId)
+                    : eq(issueEvents.sessionId, data.sessionId!);
+                const [seenIdentity] = await db
+                    .select({ id: issueEvents.id })
+                    .from(issueEvents)
+                    .where(and(
+                        eq(issueEvents.issueId, existing.id),
+                        identityCondition,
+                    ))
+                    .limit(1);
+                isNewIdentity = !seenIdentity;
+            }
+
             // Update existing issue
             const dailyEvents = (existing.dailyEvents as Record<string, number>) || {};
             dailyEvents[dateStr] = (dailyEvents[dateStr] || 0) + 1;
@@ -133,6 +150,9 @@ export async function trackIssue(data: IssueData): Promise<string | null> {
                 .set({
                     lastSeen: data.timestamp > existing.lastSeen ? data.timestamp : existing.lastSeen,
                     eventCount: sql`${issues.eventCount} + 1`,
+                    userCount: isNewIdentity
+                        ? sql`${issues.userCount} + 1`
+                        : existing.userCount,
                     events24h: newEvents24h,
                     events90d: existing.events90d + 1,
                     dailyEvents,
@@ -263,6 +283,7 @@ export async function trackErrorAsIssue(params: {
     osVersion?: string;
     appVersion?: string;
     fingerprint?: string;
+    userId?: string;
 }): Promise<void> {
     const fingerprint = params.fingerprint || generateFingerprint('error', params.errorName, params.message);
 
@@ -282,6 +303,7 @@ export async function trackErrorAsIssue(params: {
         deviceModel: params.deviceModel,
         osVersion: params.osVersion,
         appVersion: params.appVersion,
+        userId: params.userId,
     });
 }
 
@@ -298,6 +320,7 @@ export async function trackCrashAsIssue(params: {
     deviceModel?: string;
     osVersion?: string;
     appVersion?: string;
+    userId?: string;
 }): Promise<void> {
     const fingerprint = generateFingerprint('crash', params.exceptionName, params.reason || '');
 
@@ -314,6 +337,7 @@ export async function trackCrashAsIssue(params: {
         deviceModel: params.deviceModel,
         osVersion: params.osVersion,
         appVersion: params.appVersion,
+        userId: params.userId,
     });
 
     // Trigger crash alert (rate limited by alertService)
@@ -345,6 +369,7 @@ export async function trackANRAsIssue(params: {
     deviceModel?: string;
     osVersion?: string;
     appVersion?: string;
+    userId?: string;
 }): Promise<void> {
     const stackTrace = params.stackTrace || params.threadState;
 
@@ -364,6 +389,7 @@ export async function trackANRAsIssue(params: {
         deviceModel: params.deviceModel,
         osVersion: params.osVersion,
         appVersion: params.appVersion,
+        userId: params.userId,
     });
 
     // Trigger ANR alert (rate limited by alertService)

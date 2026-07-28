@@ -18,6 +18,7 @@ import Foundation
 import MachO
 
 struct IncidentRecord: Codable {
+    let incidentId: String
     let sessionId: String
     let timestampMs: UInt64
     let category: String
@@ -25,6 +26,39 @@ struct IncidentRecord: Codable {
     let detail: String
     let frames: [String]
     let context: [String: String]
+
+    init(
+        incidentId: String = UUID().uuidString,
+        sessionId: String,
+        timestampMs: UInt64,
+        category: String,
+        identifier: String,
+        detail: String,
+        frames: [String],
+        context: [String: String]
+    ) {
+        self.incidentId = incidentId
+        self.sessionId = sessionId
+        self.timestampMs = timestampMs
+        self.category = category
+        self.identifier = identifier
+        self.detail = detail
+        self.frames = frames
+        self.context = context
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try values.decode(String.self, forKey: .sessionId)
+        timestampMs = try values.decode(UInt64.self, forKey: .timestampMs)
+        category = try values.decode(String.self, forKey: .category)
+        identifier = try values.decode(String.self, forKey: .identifier)
+        detail = try values.decode(String.self, forKey: .detail)
+        frames = try values.decode([String].self, forKey: .frames)
+        context = try values.decode([String: String].self, forKey: .context)
+        incidentId = try values.decodeIfPresent(String.self, forKey: .incidentId)
+            ?? String("legacy-\(sessionId)-\(timestampMs)-\(category)-\(identifier)".prefix(128))
+    }
 }
 
 private func _rjSignalHandler(_ signum: Int32) {
@@ -71,7 +105,9 @@ public final class StabilityMonitor: NSObject {
     @objc public var currentSessionId: String?
 
     private let _incidentStore: URL
+    private let _incidentStoreLock = NSLock()
     private let _workerQueue = DispatchQueue(label: "co.rejourney.stability", qos: .utility)
+    private var _uploadInFlight = false
 
     private static var _chainedExceptionHandler: NSUncaughtExceptionHandler?
     private static var _chainedSignalHandlers: [Int32: sig_t] = [:]
@@ -146,12 +182,67 @@ public final class StabilityMonitor: NSObject {
     }
 
     func persistIncidentSync(_ incident: IncidentRecord) {
+        _incidentStoreLock.lock()
+        defer { _incidentStoreLock.unlock() }
+
         do {
-            let data = try JSONEncoder().encode(incident)
+            let existing = Self.decodeStoredIncidents(
+                (try? Data(contentsOf: _incidentStore)) ?? Data()
+            )
+            let queued = Self.mergeStoredIncidents(existing, with: incident)
+            let data = try JSONEncoder().encode(queued)
             try data.write(to: _incidentStore, options: .atomic)
         } catch {
             DiagnosticLog.fault("[StabilityMonitor] Incident persist failed: \(error)")
         }
+    }
+
+    static func decodeStoredIncidents(_ data: Data) -> [IncidentRecord] {
+        guard !data.isEmpty else { return [] }
+        if let queued = try? JSONDecoder().decode([IncidentRecord].self, from: data) {
+            return queued
+        }
+        if let legacy = try? JSONDecoder().decode(IncidentRecord.self, from: data) {
+            return [legacy]
+        }
+        return []
+    }
+
+    static func mergeStoredIncidents(
+        _ existing: [IncidentRecord],
+        with incoming: IncidentRecord
+    ) -> [IncidentRecord] {
+        if existing.contains(where: {
+            $0.incidentId != incoming.incidentId
+                && !shouldReplaceStoredIncident($0, with: incoming)
+        }) {
+            return existing
+        }
+
+        var queued = existing.filter { $0.incidentId != incoming.incidentId }
+        if incoming.category.lowercased() == "exception" {
+            queued.removeAll {
+                $0.sessionId == incoming.sessionId
+                    && $0.category.lowercased() == "signal"
+            }
+        }
+        queued.append(incoming)
+        return queued
+    }
+
+    static func shouldReplaceStoredIncident(
+        _ existing: IncidentRecord,
+        with incoming: IncidentRecord
+    ) -> Bool {
+        let existingHasUsefulException = existing.sessionId == incoming.sessionId
+            && existing.category.lowercased() == "exception"
+            && !existing.frames.isEmpty
+
+        if existingHasUsefulException && incoming.category.lowercased() == "signal" {
+            return false
+        }
+
+        return true
     }
 
     private func _formatFrames(_ raw: [String]) -> [String] {
@@ -167,22 +258,44 @@ public final class StabilityMonitor: NSObject {
     }
 
     private func _persistIncident(_ incident: IncidentRecord) {
-        do {
-            let data = try JSONEncoder().encode(incident)
-            try data.write(to: _incidentStore, options: .atomic)
-        } catch {
-            DiagnosticLog.fault("[StabilityMonitor] Incident persist failed: \(error)")
-        }
+        persistIncidentSync(incident)
     }
 
     private func _uploadStoredIncidents() {
-        guard FileManager.default.fileExists(atPath: _incidentStore.path),
-              let data = try? Data(contentsOf: _incidentStore),
-              let incident = try? JSONDecoder().decode(IncidentRecord.self, from: data) else { return }
+        guard !_uploadInFlight else { return }
 
+        _incidentStoreLock.lock()
+        let incident = (try? Data(contentsOf: _incidentStore))
+            .map(Self.decodeStoredIncidents)?
+            .first
+        _incidentStoreLock.unlock()
+        guard let incident else { return }
+
+        _uploadInFlight = true
         _transmitIncident(incident) { [weak self] ok in
-            guard ok, let self else { return }
-            try? FileManager.default.removeItem(at: self._incidentStore)
+            guard let self else { return }
+            self._workerQueue.async {
+                self._uploadInFlight = false
+                guard ok else { return }
+
+                self._incidentStoreLock.lock()
+                var queued = (try? Data(contentsOf: self._incidentStore))
+                    .map(Self.decodeStoredIncidents) ?? []
+                queued.removeAll { $0.incidentId == incident.incidentId }
+                do {
+                    if queued.isEmpty {
+                        try? FileManager.default.removeItem(at: self._incidentStore)
+                    } else {
+                        let data = try JSONEncoder().encode(queued)
+                        try data.write(to: self._incidentStore, options: .atomic)
+                    }
+                } catch {
+                    DiagnosticLog.fault("[StabilityMonitor] Incident dequeue failed: \(error)")
+                }
+                self._incidentStoreLock.unlock()
+
+                self._uploadStoredIncidents()
+            }
         }
     }
 

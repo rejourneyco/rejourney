@@ -130,4 +130,8 @@ dependencies {
     // Lifecycle for ProcessLifecycleOwner (reliable app foreground/background detection)
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+
+    // Android's org.json implementation is a runtime stub in local JVM tests.
+    testImplementation("org.json:json:20250517")
+    testImplementation("junit:junit:4.13.2")
 }

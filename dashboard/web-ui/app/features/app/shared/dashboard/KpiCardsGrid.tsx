@@ -21,6 +21,8 @@ export type KpiCardItem = {
     value: string;
     info: string;
     detail?: string;
+    comparisonText?: string;
+    comparisonClassName?: string;
     sortValue?: number | null;
     delta?: KpiCardDelta;
 };
@@ -417,12 +419,20 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                                 {card.value}
                             </div>
 
-                            <div className="dashboard-kpi-comparison">
-                                <span className={`dashboard-kpi-delta ${getTrendToneClass(trendState)}`}>
-                                    {card.delta ? formatDelta(card.delta) : 'N/A'}
-                                </span>
-                                <span className="dashboard-kpi-comparison-label">{deltaLabel}</span>
-                            </div>
+                            {card.comparisonText ? (
+                                <div className="dashboard-kpi-comparison">
+                                    <span className={`dashboard-kpi-comparison-label ${card.comparisonClassName || ''}`}>
+                                        {card.comparisonText}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="dashboard-kpi-comparison">
+                                    <span className={`dashboard-kpi-delta ${getTrendToneClass(trendState)}`}>
+                                        {card.delta ? formatDelta(card.delta) : 'N/A'}
+                                    </span>
+                                    <span className="dashboard-kpi-comparison-label">{deltaLabel}</span>
+                                </div>
+                            )}
 
                             {showDetails && card.detail && (
                                 <div className="dashboard-kpi-detail">{card.detail}</div>

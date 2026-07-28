@@ -386,17 +386,17 @@ final class ReplayOrchestrator: NSObject {
         }
 
         let incidentPath = cacheDir.appendingPathComponent("rj_incidents.json")
-        guard let data = try? Data(contentsOf: incidentPath),
-              let incident = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let data = try? Data(contentsOf: incidentPath) else {
             return false
         }
 
-        let incidentSessionId = incident["sessionId"] as? String ?? ""
-        let category = (incident["category"] as? String ?? "").lowercased()
-        let crashLikeCategory = category == "signal" || category == "exception" || category == "crash"
-        let identifier = incident["identifier"] as? String ?? ""
-        let detail = incident["detail"] as? String ?? ""
-        return crashLikeCategory && incidentSessionId == sessionId && (!identifier.isEmpty || !detail.isEmpty)
+        return StabilityMonitor.decodeStoredIncidents(data).contains { incident in
+            let category = incident.category.lowercased()
+            let crashLikeCategory = category == "signal" || category == "exception" || category == "crash"
+            return crashLikeCategory
+                && incident.sessionId == sessionId
+                && (!incident.identifier.isEmpty || !incident.detail.isEmpty)
+        }
     }
 
     @objc func incrementFaultTally() { _crashCount += 1 }

@@ -1,17 +1,20 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, anrs, crashes } from '../db/client.js';
+import { db, sessions, sessionMetrics } from '../db/client.js';
 import { trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
+import { persistAnrOccurrence, persistCrashOccurrence } from './stabilityIngest.js';
 
-export async function processCrashesArtifact(job: any, _session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
+export async function processCrashesArtifact(job: any, session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
     const crashList = payload.crashes || (Array.isArray(payload) ? payload : [payload]);
 
     let crashSessionId = job.sessionId;
+    let crashSession = session;
     if (payload.sessionId && payload.sessionId.length > 0) {
         crashSessionId = payload.sessionId;
-        const [crashSession] = await db.select().from(sessions).where(eq(sessions.id, crashSessionId)).limit(1);
-        if (!crashSession) {
+        const [existingCrashSession] = await db.select().from(sessions).where(eq(sessions.id, crashSessionId)).limit(1);
+        crashSession = existingCrashSession;
+        if (!existingCrashSession) {
             await db.insert(sessions).values({
                 id: crashSessionId,
                 projectId,
@@ -19,15 +22,31 @@ export async function processCrashesArtifact(job: any, _session: any, projectId:
                 platform: 'ios',
             });
             await db.insert(sessionMetrics).values({ sessionId: crashSessionId });
+            crashSession = {
+                id: crashSessionId,
+                projectId,
+                platform: 'ios',
+            };
         }
     }
 
+    let insertedCrashCount = 0;
     for (const crash of crashList) {
         // Extract device info from crash metadata
         const deviceMeta = crash.deviceMetadata || {};
-        const deviceModel = deviceMeta.model || deviceMeta.deviceModel;
-        const osVersion = deviceMeta.systemVersion || deviceMeta.osVersion;
-        const appVersion = deviceMeta.appVersion;
+        const enrichedDeviceMeta = {
+            platform: crashSession?.platform,
+            model: crashSession?.deviceModel,
+            deviceModel: crashSession?.deviceModel,
+            systemVersion: crashSession?.osVersion,
+            osVersion: crashSession?.osVersion,
+            appVersion: crashSession?.appVersion,
+            sdkVersion: crashSession?.sdkVersion,
+            ...deviceMeta,
+        };
+        const deviceModel = enrichedDeviceMeta.model || enrichedDeviceMeta.deviceModel;
+        const osVersion = enrichedDeviceMeta.systemVersion || enrichedDeviceMeta.osVersion;
+        const appVersion = enrichedDeviceMeta.appVersion;
 
         // Format stack trace as string for display
         // iOS sends as array of frame strings, Android sends as single string
@@ -40,18 +59,21 @@ export async function processCrashesArtifact(job: any, _session: any, projectId:
             }
         }
 
-        await db.insert(crashes).values({
+        const persisted = await persistCrashOccurrence({
             sessionId: crashSessionId,
             projectId,
+            incidentId: crash.incidentId,
             timestamp: new Date(crash.timestamp || Date.now()),
             exceptionName: crash.exceptionName || 'Unknown Exception',
             reason: crash.reason,
             stackTrace: stackTraceStr,
             fingerprint: crash.fingerprint || null,
-            deviceMetadata: crash.deviceMetadata,
+            deviceMetadata: enrichedDeviceMeta,
             status: 'open',
-            occurrenceCount: 1
+            occurrenceCount: 1,
         });
+        if (!persisted.inserted) continue;
+        insertedCrashCount += 1;
 
         // Track as an issue for the Issues Feed
         trackCrashAsIssue({
@@ -64,30 +86,33 @@ export async function processCrashesArtifact(job: any, _session: any, projectId:
             deviceModel,
             osVersion,
             appVersion,
+            userId: crashSession?.userDisplayId || crashSession?.anonymousHash || crashSession?.deviceId,
         }).catch(() => { }); // Fire and forget
     }
 
     // Update crash count in session metrics
     await db.update(sessionMetrics)
-        .set({ crashCount: sql`${sessionMetrics.crashCount} + ${crashList.length} ` })
+        .set({ crashCount: sql`COALESCE(${sessionMetrics.crashCount}, 0) + ${insertedCrashCount}` })
         .where(eq(sessionMetrics.sessionId, crashSessionId));
 
 
-    log.debug({ crashCount: crashList.length }, 'Crashes artifact processed');
+    log.debug({ crashCount: insertedCrashCount, receivedCrashCount: crashList.length }, 'Crashes artifact processed');
 }
 
 /**
  * Process ANRs artifact - insert ANR records
  */
-export async function processAnrsArtifact(job: any, _session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
+export async function processAnrsArtifact(job: any, session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
     const anrList = payload.anrs || (Array.isArray(payload) ? payload : [payload]);
 
     let anrSessionId = job.sessionId;
+    let anrSession = session;
     if (payload.sessionId && payload.sessionId.length > 0) {
         anrSessionId = payload.sessionId;
-        const [anrSession] = await db.select().from(sessions).where(eq(sessions.id, anrSessionId)).limit(1);
-        if (!anrSession) {
+        const [existingAnrSession] = await db.select().from(sessions).where(eq(sessions.id, anrSessionId)).limit(1);
+        anrSession = existingAnrSession;
+        if (!existingAnrSession) {
             const inferredPlatform =
                 (anrList?.[0]?.platform as string | undefined) ||
                 (payload.platform as string | undefined) ||
@@ -99,15 +124,31 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
                 platform: inferredPlatform,
             });
             await db.insert(sessionMetrics).values({ sessionId: anrSessionId });
+            anrSession = {
+                id: anrSessionId,
+                projectId,
+                platform: inferredPlatform,
+            };
         }
     }
 
+    let insertedAnrCount = 0;
     for (const anr of anrList) {
         // Extract device info from ANR metadata
         const deviceMeta = anr.deviceMetadata || {};
-        const deviceModel = deviceMeta.model || deviceMeta.deviceModel;
-        const osVersion = deviceMeta.systemVersion || deviceMeta.osVersion;
-        const appVersion = deviceMeta.appVersion;
+        const enrichedDeviceMeta = {
+            platform: anrSession?.platform,
+            model: anrSession?.deviceModel,
+            deviceModel: anrSession?.deviceModel,
+            systemVersion: anrSession?.osVersion,
+            osVersion: anrSession?.osVersion,
+            appVersion: anrSession?.appVersion,
+            sdkVersion: anrSession?.sdkVersion,
+            ...deviceMeta,
+        };
+        const deviceModel = enrichedDeviceMeta.model || enrichedDeviceMeta.deviceModel;
+        const osVersion = enrichedDeviceMeta.systemVersion || enrichedDeviceMeta.osVersion;
+        const appVersion = enrichedDeviceMeta.appVersion;
         const stackTrace = resolveAnrStackTrace({
             threadState: anr.threadState,
             stack: anr.stackTrace,
@@ -115,16 +156,20 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
             deviceMetadata: anr.deviceMetadata,
         });
 
-        await db.insert(anrs).values({
+        const mergedDeviceMetadata = mergeAnrDeviceMetadata(enrichedDeviceMeta, stackTrace, anr.threadState);
+        const persisted = await persistAnrOccurrence({
             sessionId: anrSessionId,
             projectId,
+            incidentId: anr.incidentId,
             timestamp: new Date(anr.timestamp || Date.now()),
             durationMs: anr.durationMs || 5000,
             threadState: stackTrace,
-            deviceMetadata: mergeAnrDeviceMetadata(anr.deviceMetadata, stackTrace, anr.threadState),
+            deviceMetadata: mergedDeviceMetadata,
             status: 'open',
-            occurrenceCount: 1
+            occurrenceCount: 1,
         });
+        if (!persisted.inserted) continue;
+        insertedAnrCount += 1;
 
         // Track as an issue for the Issues Feed
         trackANRAsIssue({
@@ -136,6 +181,7 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
             deviceModel,
             osVersion,
             appVersion,
+            userId: anrSession?.userDisplayId || anrSession?.anonymousHash || anrSession?.deviceId,
         }).catch(() => { }); // Fire and forget
     }
 
@@ -146,11 +192,11 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
 
     // Update ANR count in session metrics
     const updateResult = await db.update(sessionMetrics)
-        .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${anrList.length} ` })
+        .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${insertedAnrCount}` })
         .where(eq(sessionMetrics.sessionId, anrSessionId));
 
-    log.info({ anrSessionId, anrCount: anrList.length, updateResult }, 'Updated session_metrics anrCount');
+    log.info({ anrSessionId, anrCount: insertedAnrCount, receivedAnrCount: anrList.length, updateResult }, 'Updated session_metrics anrCount');
 
 
-    log.info({ anrCount: anrList.length, anrSessionId, projectId }, 'ANRs artifact processed');
+    log.info({ anrCount: insertedAnrCount, receivedAnrCount: anrList.length, anrSessionId, projectId }, 'ANRs artifact processed');
 }

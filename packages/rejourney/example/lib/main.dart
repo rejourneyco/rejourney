@@ -185,6 +185,30 @@ class _DemoHomeState extends State<DemoHome> {
     }
   }
 
+  Future<void> _triggerAnr() async {
+    setState(() => _status = 'ANR test scheduled · UI will pause for 7s');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Rejourney.debugTriggerAnr(duration: const Duration(seconds: 7));
+    if (mounted) setState(() => _status = 'ANR test recovered');
+  }
+
+  void _triggerFlutterError() {
+    setState(() => _status = 'Flutter error test scheduled');
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      throw StateError('Intentional Flutter error capture validation');
+    });
+  }
+
+  void _triggerNativeCrash() {
+    setState(() => _status = 'Native crash test scheduled');
+    unawaited(
+      Future<void>.delayed(
+        const Duration(milliseconds: 500),
+        Rejourney.debugCrash,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -249,6 +273,32 @@ class _DemoHomeState extends State<DemoHome> {
             onPressed: () => Navigator.of(context).pushNamed('/checkout'),
             icon: const Icon(Icons.shopping_bag_outlined),
             label: const Text('Open checkout demo'),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Debug stability validation',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('trigger-anr'),
+            onPressed: _busy ? null : _triggerAnr,
+            icon: const Icon(Icons.hourglass_bottom),
+            label: const Text('Freeze native main thread (7s)'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('trigger-flutter-error'),
+            onPressed: _triggerFlutterError,
+            icon: const Icon(Icons.error_outline),
+            label: const Text('Trigger Flutter error'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            key: const Key('trigger-native-crash'),
+            onPressed: _triggerNativeCrash,
+            icon: const Icon(Icons.warning_amber),
+            label: const Text('Crash native app'),
           ),
           const SizedBox(height: 28),
           Text(

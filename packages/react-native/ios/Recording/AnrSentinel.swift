@@ -38,6 +38,9 @@ public final class AnrSentinel: NSObject {
     }
 
     @objc public func activate() {
+        if #available(iOS 14.0, *) {
+            RejourneyMetricKitDiagnostics.shared.activate()
+        }
         os_unfair_lock_lock(_stateLock)
         guard _watchThread == nil else {
             os_unfair_lock_unlock(_stateLock)
@@ -57,6 +60,9 @@ public final class AnrSentinel: NSObject {
     }
 
     @objc public func halt() {
+        if #available(iOS 14.0, *) {
+            RejourneyMetricKitDiagnostics.shared.deactivate()
+        }
         os_unfair_lock_lock(_stateLock)
         _volatile.running = false
         _watchThread = nil
@@ -126,25 +132,41 @@ public final class AnrSentinel: NSObject {
 
         ReplayOrchestrator.shared.incrementStalledTally()
 
-        let trace = Thread.callStackSymbols.joined(separator: "\n")
         let ms = Int(duration * 1000)
+        let incidentId = UUID().uuidString
+        let sessionId = StabilityMonitor.shared.currentSessionId
+            ?? ReplayOrchestrator.shared.replayId
+            ?? "unknown"
+        let timestampMs = UInt64(Date().timeIntervalSince1970 * 1000)
 
-        TelemetryPipeline.shared.recordAnrEvent(durationMs: ms, stack: trace)
+        if #available(iOS 14.0, *) {
+            RejourneyMetricKitDiagnostics.shared.noteLiveHang(
+                incidentId: incidentId,
+                sessionId: sessionId,
+                timestampMs: timestampMs,
+                durationMs: ms
+            )
+        }
+
+        // A watchdog thread cannot safely unwind another Swift thread.
+        // MetricKit supplies the blocked main-thread tree on a later launch.
+        TelemetryPipeline.shared.recordAnrEvent(durationMs: ms, stack: nil, incidentId: incidentId)
 
         // Persist ANR incident and send through /api/ingest/fault so ANRs survive
         // process termination/background upload loss, similar to crash recovery.
         let incident = IncidentRecord(
-            sessionId: StabilityMonitor.shared.currentSessionId ?? ReplayOrchestrator.shared.replayId ?? "unknown",
-            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            incidentId: incidentId,
+            sessionId: sessionId,
+            timestampMs: timestampMs,
             category: "anr",
             identifier: "MainThreadFrozen",
             detail: "Main thread unresponsive for \(ms)ms",
-            frames: trace
-                .split(separator: "\n")
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) },
+            frames: [],
             context: [
                 "durationMs": String(ms),
-                "threadState": "blocked"
+                "threadState": "blocked",
+                "diagnosticSource": "watchdog",
+                "diagnosticState": "awaiting_metrickit"
             ]
         )
         StabilityMonitor.shared.persistIncidentSync(incident)

@@ -9,8 +9,9 @@ import {
 import { getRedis, invalidateSessionEndpointCache, invalidateSessionExistsCache } from '../db/redis.js';
 import {
     classifyS3DeletionError,
-    deleteObjectsFromProjectStorage,
-    deletePrefixFromProjectStorage,
+    deleteObjectsFromStorageEndpoints,
+    deletePrefixFromStorageEndpoints,
+    resolveRetentionDeletionEndpoints,
 } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
@@ -18,9 +19,10 @@ import {
     beginRetentionDeletionLog,
     finalizeRetentionDeletionLog,
 } from './retentionAudit.js';
+import { runBoundedConcurrentBatch } from './retentionBatch.js';
 
 const FRAME_CACHE_PREFIX = 'screenshot_frames:';
-const FRAME_DATA_CACHE_PREFIX = 'screenshot_frame_data:';
+const FRAME_CACHE_V2_PREFIX = 'screenshot_frames:v2:';
 const SESSION_CORE_CACHE_PREFIX = 'session_core:';
 const SESSION_TIMELINE_CACHE_PREFIX = 'session_timeline:';
 const SESSION_HIERARCHY_CACHE_PREFIX = 'session_hierarchy:';
@@ -94,6 +96,10 @@ export function buildCanonicalSessionStoragePrefix(
     return `tenant/${teamId}/project/${projectId}/sessions/${sessionId}/`;
 }
 
+export function buildDerivedSessionStoragePrefix(sessionId: string): string {
+    return `sessions/${sessionId}/`;
+}
+
 export function buildCanonicalSessionBackupPrefix(
     teamId: string,
     projectId: string,
@@ -142,32 +148,21 @@ async function collectExpiredRepairCandidates(limit: number): Promise<{
 async function invalidatePurgedSessionCaches(sessionId: string): Promise<number> {
     try {
         const redis = getRedis();
-        await redis.del(
+        const deletedKeyCount = await redis.del(
             `${SESSION_CORE_CACHE_PREFIX}${sessionId}`,
             `${SESSION_TIMELINE_CACHE_PREFIX}${sessionId}`,
             `${SESSION_HIERARCHY_CACHE_PREFIX}${sessionId}`,
             `${FRAME_CACHE_PREFIX}${sessionId}`,
+            `${FRAME_CACHE_V2_PREFIX}${sessionId}`,
         );
 
-        const keysToDelete: string[] = [];
-        let cursor = '0';
-        do {
-            const [next, keys] = await redis.scan(
-                cursor,
-                'MATCH',
-                `${FRAME_DATA_CACHE_PREFIX}${sessionId}:*`,
-                'COUNT',
-                200,
-            );
-            cursor = next;
-            keysToDelete.push(...keys);
-        } while (cursor !== '0');
-
-        if (keysToDelete.length > 0) {
-            await redis.del(...keysToDelete);
-        }
-
-        return 4 + keysToDelete.length;
+        // Individual screenshot_frame_data keys already have a hard 10-minute
+        // TTL. Scanning the entire Redis keyspace once per expired session made
+        // retention O(expired sessions × Redis keys), and cross-region Sentinel
+        // failover turned each no-op scan into hundreds of network round trips.
+        // The session is marked replay-unavailable before this returns, so those
+        // short-lived payload keys are unreachable while they expire naturally.
+        return Number(deletedKeyCount);
     } catch (err) {
         logger.warn({ err, sessionId }, 'Failed to invalidate purged session caches');
         return 0;
@@ -175,35 +170,38 @@ async function invalidatePurgedSessionCaches(sessionId: string): Promise<number>
 }
 
 async function loadSessionPurgeContext(sessionId: string): Promise<SessionPurgeContext> {
-    const [sessionResult] = await db
-        .select({
-            sessionId: sessions.id,
-            projectId: sessions.projectId,
-            teamId: projects.teamId,
-            retentionTier: sessions.retentionTier,
-            retentionDays: sessions.retentionDays,
-            recordingDeleted: sessions.recordingDeleted,
-            isReplayExpired: sessions.isReplayExpired,
-        })
-        .from(sessions)
-        .innerJoin(projects, eq(sessions.projectId, projects.id))
-        .where(eq(sessions.id, sessionId))
-        .limit(1);
+    const [sessionRows, artifacts] = await Promise.all([
+        db
+            .select({
+                sessionId: sessions.id,
+                projectId: sessions.projectId,
+                teamId: projects.teamId,
+                retentionTier: sessions.retentionTier,
+                retentionDays: sessions.retentionDays,
+                recordingDeleted: sessions.recordingDeleted,
+                isReplayExpired: sessions.isReplayExpired,
+            })
+            .from(sessions)
+            .innerJoin(projects, eq(sessions.projectId, projects.id))
+            .where(eq(sessions.id, sessionId))
+            .limit(1),
+        db
+            .select({
+                id: recordingArtifacts.id,
+                kind: recordingArtifacts.kind,
+                s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
+                sizeBytes: recordingArtifacts.sizeBytes,
+                declaredSizeBytes: recordingArtifacts.declaredSizeBytes,
+            })
+            .from(recordingArtifacts)
+            .where(eq(recordingArtifacts.sessionId, sessionId)),
+    ]);
 
+    const [sessionResult] = sessionRows;
     if (!sessionResult) {
         throw new Error(`Session not found: ${sessionId}`);
     }
-
-    const artifacts = await db.select({
-            id: recordingArtifacts.id,
-            kind: recordingArtifacts.kind,
-            s3ObjectKey: recordingArtifacts.s3ObjectKey,
-            endpointId: recordingArtifacts.endpointId,
-            sizeBytes: recordingArtifacts.sizeBytes,
-            declaredSizeBytes: recordingArtifacts.declaredSizeBytes,
-        })
-            .from(recordingArtifacts)
-            .where(eq(recordingArtifacts.sessionId, sessionId));
 
     return {
         ...sessionResult,
@@ -254,6 +252,8 @@ export async function purgeSessionArtifacts(
         context.projectId,
         context.sessionId,
     );
+    const derivedPrefix = buildDerivedSessionStoragePrefix(context.sessionId);
+    const artifactEndpointIds = context.artifacts.map((artifact) => artifact.endpointId);
     const plannedArtifactBytes = context.artifacts.reduce(
         (total, artifact) => total + Number(artifact.sizeBytes ?? artifact.declaredSizeBytes ?? 0),
         0,
@@ -287,25 +287,44 @@ export async function purgeSessionArtifacts(
         }));
 
     try {
-        const deletionResult = await deletePrefixFromProjectStorage(
+        // Resolve the project + historical artifact endpoints once, then overlap
+        // the independent canonical, derived-cache, and misplaced-key deletes.
+        // This preserves the exact deletion set while avoiding repeated endpoint
+        // database lookups and serial S3 round trips for every expired session.
+        const deletionEndpoints = await resolveRetentionDeletionEndpoints(
             context.projectId,
-            canonicalPrefix,
-            context.artifacts.map((artifact) => artifact.endpointId),
+            artifactEndpointIds,
         );
-        const invalidArtifactDeletion = invalidArtifacts.length > 0
-            ? await deleteObjectsFromProjectStorage(
-                context.projectId,
-                invalidArtifacts.map((artifact) => artifact.s3ObjectKey),
-                invalidArtifacts.map((artifact) => artifact.endpointId),
-            )
-            : {
-                deletedObjectCount: 0,
-                deletedBytes: 0,
-                endpointResults: [],
-            };
-        const deletedStorageObjectCount = deletionResult.deletedObjectCount + invalidArtifactDeletion.deletedObjectCount;
-        const deletedStorageBytes = deletionResult.deletedBytes + invalidArtifactDeletion.deletedBytes;
-        const storageMissing = context.artifacts.length > 0 && deletedStorageObjectCount === 0;
+        const [
+            deletionResult,
+            derivedDeletionResult,
+            invalidArtifactDeletion,
+        ] = await Promise.all([
+            deletePrefixFromStorageEndpoints(
+                canonicalPrefix,
+                deletionEndpoints,
+            ),
+            deletePrefixFromStorageEndpoints(
+                derivedPrefix,
+                deletionEndpoints,
+            ),
+            invalidArtifacts.length > 0
+                ? deleteObjectsFromStorageEndpoints(
+                    invalidArtifacts.map((artifact) => artifact.s3ObjectKey),
+                    deletionEndpoints,
+                )
+                : Promise.resolve({
+                    deletedObjectCount: 0,
+                    deletedBytes: 0,
+                    endpointResults: [],
+                }),
+        ]);
+        const deletedCanonicalObjectCount = deletionResult.deletedObjectCount + invalidArtifactDeletion.deletedObjectCount;
+        const deletedStorageObjectCount = deletedCanonicalObjectCount + derivedDeletionResult.deletedObjectCount;
+        const deletedStorageBytes = deletionResult.deletedBytes
+            + invalidArtifactDeletion.deletedBytes
+            + derivedDeletionResult.deletedBytes;
+        const storageMissing = context.artifacts.length > 0 && deletedCanonicalObjectCount === 0;
 
         if (storageMissing && failOnMissingStorage && !allowMissingStorage) {
             await finalizeRetentionDeletionLog(logId, {
@@ -320,6 +339,7 @@ export async function purgeSessionArtifacts(
                     invalidArtifacts,
                     endpointResults: buildEndpointBreakdown([
                         ...deletionResult.endpointResults,
+                        ...derivedDeletionResult.endpointResults,
                         ...invalidArtifactDeletion.endpointResults,
                     ]),
                     errorClass: 'missing_source_prefix',
@@ -383,8 +403,12 @@ export async function purgeSessionArtifacts(
                 invalidArtifacts,
                 invalidArtifactDeletedObjectCount: invalidArtifactDeletion.deletedObjectCount,
                 invalidArtifactDeletedBytes: invalidArtifactDeletion.deletedBytes,
+                derivedStoragePrefix: derivedPrefix,
+                derivedDeletedObjectCount: derivedDeletionResult.deletedObjectCount,
+                derivedDeletedBytes: derivedDeletionResult.deletedBytes,
                 endpointResults: buildEndpointBreakdown([
                     ...deletionResult.endpointResults,
+                    ...derivedDeletionResult.endpointResults,
                     ...invalidArtifactDeletion.endpointResults,
                 ]),
                 durationMs: Date.now() - now.getTime(),
@@ -402,7 +426,8 @@ export async function purgeSessionArtifacts(
             deletedBytes: deletedStorageBytes,
             storageMissing,
             invalidArtifactCount: invalidArtifacts.length,
-        }, 'Purged canonical session artifacts and storage');
+            derivedDeletedObjectCount: derivedDeletionResult.deletedObjectCount,
+        }, 'Purged canonical and derived session artifacts and storage');
 
         return {
             sessionId: context.sessionId,
@@ -438,6 +463,11 @@ export async function repairExpiredSessionArtifactsBatch(
     runId: string,
     limit = 100,
     trigger = 'retention_repair',
+    options: {
+        concurrency?: number;
+        deadlineAtMs?: number;
+        now?: () => number;
+    } = {},
 ): Promise<ExpiredSessionArtifactRepairResult> {
     const {
         sessionsToRepair,
@@ -450,28 +480,36 @@ export async function repairExpiredSessionArtifactsBatch(
     let deletedObjectCount = 0;
     let deletedBytes = 0;
 
-    for (const session of sessionsToRepair) {
-        try {
-            const result = await purgeSessionArtifacts(session.sessionId, {
-                runId,
-                trigger,
-                allowMissingStorage: true,
-                retentionTier: session.retentionTier,
-                retentionDays: session.retentionDays,
-            });
-            repaired++;
-            deletedObjectCount += result.deletedObjectCount;
-            deletedBytes += result.deletedBytes;
-        } catch (err) {
-            failed++;
-            logger.error({ err, sessionId: session.sessionId }, 'Failed to repair expired session artifacts');
-        }
-    }
+    const batchResult = await runBoundedConcurrentBatch(
+        sessionsToRepair,
+        {
+            concurrency: options.concurrency ?? 1,
+            deadlineAtMs: options.deadlineAtMs,
+            now: options.now,
+        },
+        async (session) => {
+            try {
+                const result = await purgeSessionArtifacts(session.sessionId, {
+                    runId,
+                    trigger,
+                    allowMissingStorage: true,
+                    retentionTier: session.retentionTier,
+                    retentionDays: session.retentionDays,
+                });
+                repaired++;
+                deletedObjectCount += result.deletedObjectCount;
+                deletedBytes += result.deletedBytes;
+            } catch (err) {
+                failed++;
+                logger.error({ err, sessionId: session.sessionId }, 'Failed to repair expired session artifacts');
+            }
+        },
+    );
 
     if (repaired > 0 || failed > 0 || skippedNotBackedUp > 0) {
         logger.info({
             trigger,
-            attempted: sessionsToRepair.length,
+            attempted: batchResult.startedCount,
             repaired,
             failed,
             skippedNotBackedUp,
@@ -481,13 +519,13 @@ export async function repairExpiredSessionArtifactsBatch(
     }
 
     return {
-        attempted: sessionsToRepair.length,
+        attempted: batchResult.startedCount,
         repaired,
         failed,
         skippedNotBackedUp,
         deletedObjectCount,
         deletedBytes,
-        reachedProcessingCap,
+        reachedProcessingCap: reachedProcessingCap || batchResult.stoppedEarly,
     };
 }
 

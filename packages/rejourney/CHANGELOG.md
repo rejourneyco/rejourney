@@ -1,3 +1,30 @@
+## 0.3.0
+
+- Add stable incident identifiers shared across telemetry and fault-recovery
+  delivery so duplicate crash and ANR transports can be merged reliably.
+- Add iOS MetricKit crash and hang diagnostics with attributed call trees and
+  correlation to the session that first detected a main-thread freeze.
+- Mark incomplete live iOS watchdog reports accurately instead of presenting
+  the SDK watchdog thread as the blocked application thread.
+- Preserve pending crash and ANR records created by earlier Flutter SDK
+  versions.
+- Queue every pending native incident on Android and iOS and remove only the
+  successfully delivered record so diagnostics cannot overwrite one another.
+- Retry persisted iOS crash reports only after the configured API endpoint and
+  project key are available, including custom and local endpoints.
+- Preserve an uncaught iOS exception's original call stack when the process
+  later terminates through `SIGABRT`.
+- Report descriptive Flutter exception categories plus handled/source context
+  without relying on release-obfuscated runtime type names.
+- Preserve Flutter error incident IDs, exception categories, source, and
+  handled state through both native bridges.
+- Make the Android debug crash hook terminate through the uncaught-exception
+  path so crash persistence and next-launch delivery can be validated.
+- Persist Android crash frames as a JSON array so next-launch recovery keeps
+  the original Java/Kotlin stack trace.
+- Add Android, iOS, Dart, and integration coverage for incident correlation and
+  backward-compatible recovery.
+
 ## 0.2.1
 
 - Fix Android replays that remained black when a small native toast or overlay

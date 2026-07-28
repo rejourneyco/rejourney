@@ -311,7 +311,6 @@ final class RejourneyNativeController: NSObject {
             if let recoveredId {
                 DiagnosticLog.notice("[Rejourney] Recovered interrupted native session: \(recoveredId)")
             }
-            StabilityMonitor.shared.transmitStoredReport()
         }
     }
 
@@ -322,7 +321,11 @@ final class RejourneyNativeController: NSObject {
     func configure(publicKey: String, options: RejourneyOptions) {
         self.publicKey = publicKey
         self.options = options
-        RejourneyNetworkEventFilter.configure(apiURLString: options.apiURL.rejourneyAbsoluteString)
+        let apiURLString = options.apiURL.rejourneyAbsoluteString
+        RejourneyNetworkEventFilter.configure(apiURLString: apiURLString)
+        SegmentDispatcher.shared.endpoint = apiURLString
+        SegmentDispatcher.shared.apiToken = publicKey
+        StabilityMonitor.shared.transmitStoredReport()
         if let userId = options.userId, !userId.isEmpty {
             currentUserIdentity = userId
             sessionContext.setUserId(userId)

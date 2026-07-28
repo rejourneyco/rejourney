@@ -189,7 +189,11 @@ internal class RejourneyNativeController(
             "error" -> TelemetryPipeline.shared?.recordJSErrorEvent(
                 properties["name"]?.toString() ?: "Error",
                 properties["message"]?.toString() ?: "Unknown error",
-                properties["stack"]?.toString()
+                properties["stack"]?.toString(),
+                properties["incidentId"]?.toString(),
+                properties["exceptionCategory"]?.toString(),
+                properties["source"]?.toString(),
+                properties["handled"] as? Boolean
             )
             "log" -> TelemetryPipeline.shared?.recordConsoleLogEvent(
                 properties["level"]?.toString() ?: "log",
@@ -607,7 +611,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.2.1"
+        const val SDK_VERSION = "0.3.0"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

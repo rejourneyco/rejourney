@@ -330,7 +330,6 @@ final class RejourneyNativeController: NSObject {
             if let recoveredId {
                 DiagnosticLog.notice("[Rejourney] Recovered interrupted native session: \(recoveredId)")
             }
-            StabilityMonitor.shared.transmitStoredReport()
         }
     }
 
@@ -341,7 +340,11 @@ final class RejourneyNativeController: NSObject {
     func configure(publicKey: String, options: RejourneyOptions) {
         self.publicKey = publicKey
         self.options = options
-        RejourneyNetworkEventFilter.configure(apiURLString: options.apiURL.rejourneyAbsoluteString)
+        let apiURLString = options.apiURL.rejourneyAbsoluteString
+        RejourneyNetworkEventFilter.configure(apiURLString: apiURLString)
+        SegmentDispatcher.shared.endpoint = apiURLString
+        SegmentDispatcher.shared.apiToken = publicKey
+        StabilityMonitor.shared.transmitStoredReport()
         if let userId = options.userId, !userId.isEmpty {
             currentUserIdentity = userId
             sessionContext.setUserId(userId)
@@ -531,7 +534,15 @@ final class RejourneyNativeController: NSObject {
             let message = object["message"] as? String ?? "Unknown error"
             let errorName = object["name"] as? String ?? "Error"
             let stack = object["stack"] as? String
-            TelemetryPipeline.shared.recordJSErrorEvent(name: errorName, message: message, stack: stack)
+            TelemetryPipeline.shared.recordJSErrorEvent(
+                name: errorName,
+                message: message,
+                stack: stack,
+                incidentId: object["incidentId"] as? String,
+                exceptionCategory: object["exceptionCategory"] as? String,
+                source: object["source"] as? String,
+                handled: object["handled"] as? Bool
+            )
         case "log":
             let level = object["level"] as? String ?? "log"
             let message = object["message"] as? String ?? ""

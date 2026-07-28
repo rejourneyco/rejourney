@@ -305,6 +305,12 @@ export interface ErrorEvent {
   stack?: string;
   /** Error type/name */
   name?: string;
+  /** Runtime source that observed the error */
+  source?: string;
+  /** Whether application code deliberately captured the error */
+  handled?: boolean;
+  /** Runtime-specific exception classification */
+  exceptionCategory?: string;
 }
 
 export interface NetworkRequestEvent {

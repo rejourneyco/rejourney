@@ -99,6 +99,11 @@ router.get(
                 replayRetentionState: sessions.replayRetentionState,
                 recordingDeleted: sessions.recordingDeleted,
                 isReplayExpired: sessions.isReplayExpired,
+                platform: sessions.platform,
+                sessionDeviceModel: sessions.deviceModel,
+                sessionOsVersion: sessions.osVersion,
+                sessionAppVersion: sessions.appVersion,
+                sessionSdkVersion: sessions.sdkVersion,
             })
             .from(crashes)
             .leftJoin(sessions, eq(crashes.sessionId, sessions.id))
@@ -109,10 +114,25 @@ router.get(
             throw ApiError.notFound('Crash not found');
         }
         const crash = row.crash;
+        const eventMetadata = (
+            crash.deviceMetadata && typeof crash.deviceMetadata === 'object'
+                ? crash.deviceMetadata
+                : {}
+        ) as Record<string, unknown>;
 
         res.json({
             ...crash,
             stackTrace: crash.stackTrace || null,
+            deviceMetadata: {
+                platform: row.platform,
+                model: row.sessionDeviceModel,
+                deviceModel: row.sessionDeviceModel,
+                systemVersion: row.sessionOsVersion,
+                osVersion: row.sessionOsVersion,
+                appVersion: row.sessionAppVersion,
+                sdkVersion: row.sessionSdkVersion,
+                ...eventMetadata,
+            },
             canOpenReplay: canOpenReplayFromSessionFields(row),
         });
     })

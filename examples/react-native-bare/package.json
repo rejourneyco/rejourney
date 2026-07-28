@@ -17,7 +17,7 @@
     "react-native": "0.83.1",
     "react-native-gesture-handler": "^2.29.1",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "^4.19.0",
+    "react-native-screens": "4.19.0",
     "rejourney": "file:../../packages/react-native"
   },
   "devDependencies": {

@@ -50,6 +50,30 @@ type OAuthAdsMeasurement = {
     consentGranted: boolean;
 };
 
+async function recordSignupCompletedConversion(input: {
+    userId: string;
+    teamId?: string | null;
+    occurredAt: Date;
+    provider: 'otp' | 'github';
+}): Promise<void> {
+    try {
+        await recordGoogleAdsMilestone({
+            eventName: 'signup_completed',
+            userId: input.userId,
+            teamId: input.teamId,
+            occurredAt: input.occurredAt,
+            eventSource: 'WEB',
+            metadata: { provider: input.provider },
+        });
+    } catch (error) {
+        logger.error({
+            error,
+            userId: input.userId,
+            provider: input.provider,
+        }, 'Failed to enqueue Google Ads signup completion');
+    }
+}
+
 function encodeOAuthAttribution(value: OAuthAdsMeasurement): string {
     return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
@@ -382,11 +406,12 @@ router.post(
         await db.delete(otpTokens).where(eq(otpTokens.id, otpToken.id));
 
         const accountActivated = !(await hasPriorSuccessfulLogin(otpToken.user!.id));
+        const signupCompletedAt = accountActivated ? new Date() : null;
 
         if (accountActivated || otpToken.googleAdsConsentGrantedAt) {
             await db.update(users)
                 .set({
-                    ...(accountActivated ? { signupCompletedAt: new Date() } : {}),
+                    ...(signupCompletedAt ? { signupCompletedAt } : {}),
                     ...(otpToken.googleAdsConsentGrantedAt ? {
                         googleAdsAttribution: otpToken.googleAdsAttribution,
                         googleAdsConsentGrantedAt: otpToken.googleAdsConsentGrantedAt,
@@ -433,6 +458,14 @@ router.post(
             id: userSessions.id,
             expiresAt: userSessions.expiresAt,
         });
+
+        if (signupCompletedAt) {
+            await recordSignupCompletedConversion({
+                userId: otpToken.user!.id,
+                occurredAt: signupCompletedAt,
+                provider: 'otp',
+            });
+        }
 
         // Set session cookie
         res.cookie('session', sessionToken, getSessionCookieOptions(req, SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000));
@@ -758,6 +791,7 @@ router.get(
             let linkedGithubToExistingUser = false;
             let createdUserFromGithub = false;
             let defaultTeamId: string | null = null;
+            let signupCompletedAt: Date | null = null;
 
             // Exchange code for access token
             const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
@@ -923,6 +957,7 @@ router.get(
                 const userAgent = req.headers['user-agent'] || '';
                 const parser = new UAParser(userAgent);
                 const parsedPlatform = `${parser.getOS().name || 'Unknown'} ${parser.getOS().version || ''} / ${parser.getBrowser().name || 'Unknown'}`.trim();
+                signupCompletedAt = new Date();
 
                 [existingUser] = await db.insert(users).values({
                     email: normalizedEmail,
@@ -942,7 +977,7 @@ router.get(
                     googleAdsConsentVersion: googleAdsMeasurement.consentGranted
                         ? GOOGLE_ADS_CONSENT_VERSION
                         : null,
-                    signupCompletedAt: new Date(),
+                    signupCompletedAt,
                 }).returning();
                 createdUserFromGithub = true;
 
@@ -985,6 +1020,9 @@ router.get(
             }
 
             const accountActivated = !(await hasPriorSuccessfulLogin(existingUser.id));
+            if (accountActivated && !signupCompletedAt) {
+                signupCompletedAt = new Date();
+            }
 
             if (googleAdsMeasurement.consentGranted && !createdUserFromGithub) {
                 await db.update(users)
@@ -992,13 +1030,13 @@ router.get(
                         googleAdsAttribution: googleAdsMeasurement.attribution,
                         googleAdsConsentGrantedAt: new Date(),
                         googleAdsConsentVersion: GOOGLE_ADS_CONSENT_VERSION,
-                        ...(accountActivated ? { signupCompletedAt: new Date() } : {}),
+                        ...(signupCompletedAt ? { signupCompletedAt } : {}),
                         updatedAt: new Date(),
                     })
                     .where(eq(users.id, existingUser.id));
-            } else if (accountActivated && !createdUserFromGithub) {
+            } else if (signupCompletedAt && !createdUserFromGithub) {
                 await db.update(users)
-                    .set({ signupCompletedAt: new Date(), updatedAt: new Date() })
+                    .set({ signupCompletedAt, updatedAt: new Date() })
                     .where(eq(users.id, existingUser.id));
             }
 
@@ -1016,6 +1054,15 @@ router.get(
                 id: userSessions.id,
                 expiresAt: userSessions.expiresAt,
             });
+
+            if (accountActivated && signupCompletedAt) {
+                await recordSignupCompletedConversion({
+                    userId: existingUser.id,
+                    teamId: defaultTeamId,
+                    occurredAt: signupCompletedAt,
+                    provider: 'github',
+                });
+            }
 
             // Set session cookie
             res.cookie('session', sessionToken, getSessionCookieOptions(req, SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000));

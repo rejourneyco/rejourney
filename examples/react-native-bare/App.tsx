@@ -11,7 +11,7 @@
  * @format
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StatusBar,
   StyleSheet,
@@ -25,7 +25,13 @@ import {
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { initRejourney, startRejourney, useNavigationTracking, Mask } from 'rejourney';
+import {
+  captureError,
+  initRejourney,
+  startRejourney,
+  useNavigationTracking,
+  Mask,
+} from 'rejourney';
 
 const Stack = createNativeStackNavigator();
 
@@ -43,6 +49,52 @@ function getApiUrl(): string {
 // Home Screen
 function HomeScreen({ navigation }: any) {
   const isDarkMode = useColorScheme() === 'dark';
+  const [sessionId, setSessionId] = useState<string>('Starting…');
+  const [status, setStatus] = useState<string>('Recording startup requested');
+
+  useEffect(() => {
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts += 1;
+      NativeModules.Rejourney?.getSessionId()
+        .then((id: string | null) => {
+          if (id) {
+            setSessionId(id);
+            setStatus('Recording active');
+            clearInterval(interval);
+          } else if (attempts >= 20) {
+            setSessionId('No active session');
+            setStatus('Recording unavailable');
+            clearInterval(interval);
+          }
+        })
+        .catch((error: unknown) => {
+          setStatus(`Session lookup failed: ${String(error)}`);
+          clearInterval(interval);
+        });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const triggerAnr = () => {
+    setStatus('ANR test scheduled · UI will pause for 9s');
+    setTimeout(() => {
+      NativeModules.Rejourney?.debugTriggerANR(9000);
+      setStatus('ANR test recovered');
+    }, 500);
+  };
+
+  const triggerCrash = () => {
+    setStatus('Native crash test scheduled');
+    setTimeout(() => NativeModules.Rejourney?.debugCrash(), 500);
+  };
+
+  const triggerHandledError = () => {
+    const error = new Error('React Native manual stability test error');
+    captureError(error.message, error.stack, 'ManualReactNativeError');
+    setStatus('Handled JavaScript error captured');
+  };
 
   return (
     <SafeAreaView style={[styles.container, isDarkMode && styles.darkContainer]}>
@@ -52,6 +104,9 @@ function HomeScreen({ navigation }: any) {
         </Text>
         <Text style={[styles.subtitle, isDarkMode && styles.darkText]}>
           Rejourney SDK is tracking this screen
+        </Text>
+        <Text style={[styles.sessionText, isDarkMode && styles.darkText]}>
+          {status}{'\n'}Session: {sessionId}
         </Text>
 
         <TouchableOpacity
@@ -66,6 +121,27 @@ function HomeScreen({ navigation }: any) {
           onPress={() => navigation.navigate('Settings')}
         >
           <Text style={styles.buttonText}>Go to Settings ⚙️</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, styles.anrButton]}
+          onPress={triggerAnr}
+        >
+          <Text style={styles.buttonText}>Freeze native main thread (9s)</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, styles.secondaryButton]}
+          onPress={triggerHandledError}
+        >
+          <Text style={styles.buttonText}>Capture handled JS error</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, styles.crashButton]}
+          onPress={triggerCrash}
+        >
+          <Text style={styles.buttonText}>Crash native app</Text>
         </TouchableOpacity>
 
         <View style={styles.infoBox}>
@@ -166,23 +242,10 @@ function App() {
   useEffect(() => {
     try {
       console.log('[App] Initializing Rejourney SDK...');
-      initRejourney('rj_054c62bfc50b9e1afd18bfdf8c389dc2', {
+      initRejourney('rj_63bf781af9fc20fad303abaa4325eed0', {
         apiUrl: getApiUrl(),
         debug: true,
       });
-
-      // Enable debug logging to see all SDK logs
-      if (NativeModules.Rejourney) {
-        NativeModules.Rejourney.setLogLevel('DEBUG', (success: boolean) => {
-          if (success) {
-            console.log('[App] Rejourney debug logging enabled');
-          } else {
-            console.warn('[App] Failed to enable debug logging');
-          }
-        });
-      } else {
-        console.warn('[App] Rejourney module not found');
-      }
 
       startRejourney();
       console.log('[App] Rejourney SDK started');
@@ -257,6 +320,12 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     textAlign: 'center',
   },
+  sessionText: {
+    fontSize: 13,
+    color: '#555',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
   button: {
     backgroundColor: '#007AFF',
     paddingHorizontal: 30,
@@ -268,6 +337,12 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#5856D6',
+  },
+  anrButton: {
+    backgroundColor: '#B45309',
+  },
+  crashButton: {
+    backgroundColor: '#BE123C',
   },
   buttonText: {
     color: '#fff',

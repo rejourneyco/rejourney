@@ -4,6 +4,186 @@ import XCTest
 @testable import Rejourney
 
 final class RejourneyTests: XCTestCase {
+    @available(iOS 14.0, *)
+    func testMetricKitHangFramesUseAttributedMainThreadTree() {
+        let payload: [String: Any] = [
+            "callStackTree": [
+                "callStackPerThread": true,
+                "callStacks": [
+                    [
+                        "threadAttributed": false,
+                        "callStackRootFrames": [
+                            [
+                                "binaryName": "Rejourney",
+                                "address": 4_096,
+                                "offsetIntoBinaryTextSegment": 16
+                            ]
+                        ]
+                    ],
+                    [
+                        "threadAttributed": true,
+                        "callStackRootFrames": [
+                            [
+                                "binaryName": "LightWars",
+                                "binaryUUID": "70B89F27-1634-3580-A695-57CDB41D7743",
+                                "address": 8_192,
+                                "offsetIntoBinaryTextSegment": 128,
+                                "subFrames": [
+                                    [
+                                        "binaryName": "Flutter",
+                                        "address": 12_288,
+                                        "offsetIntoBinaryTextSegment": 256
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        let frames = RejourneyMetricKitDiagnostics.frames(fromJSONObject: payload)
+
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertTrue(frames[0].contains("LightWars 0x2000 + 128"))
+        XCTAssertTrue(frames[1].contains("Flutter 0x3000 + 256"))
+        XCTAssertFalse(frames.joined(separator: "\n").contains("Rejourney 0x1000"))
+    }
+
+    @available(iOS 14.0, *)
+    func testMetricKitHangCorrelationUsesOriginalSessionAndClosestDuration() {
+        let pending = [
+            RejourneyMetricKitDiagnostics.PendingLiveHang(
+                incidentId: "outside-window",
+                sessionId: "session-old",
+                timestampMs: 900,
+                durationMs: 6_550
+            ),
+            RejourneyMetricKitDiagnostics.PendingLiveHang(
+                incidentId: "closest-duration",
+                sessionId: "session-correct",
+                timestampMs: 1_800,
+                durationMs: 6_575
+            ),
+            RejourneyMetricKitDiagnostics.PendingLiveHang(
+                incidentId: "farther-duration",
+                sessionId: "session-other",
+                timestampMs: 1_900,
+                durationMs: 8_000
+            ),
+        ]
+
+        let match = RejourneyMetricKitDiagnostics.bestPendingHang(
+            pending,
+            durationMs: 6_600,
+            payloadStartMs: 1_000,
+            payloadEndMs: 2_000
+        )
+
+        XCTAssertEqual(match?.incidentId, "closest-duration")
+        XCTAssertEqual(match?.sessionId, "session-correct")
+        XCTAssertEqual(match?.timestampMs, 1_800)
+    }
+
+    func testUncaughtExceptionStackIsNotReplacedByFollowingAbortSignal() {
+        let exception = IncidentRecord(
+            incidentId: "exception-id",
+            sessionId: "session-crash",
+            timestampMs: 1_000,
+            category: "exception",
+            identifier: "CheckoutFailure",
+            detail: "Invalid total",
+            frames: ["CheckoutView.submit()", "Cart.total()"],
+            context: [:]
+        )
+        let abortSignal = IncidentRecord(
+            incidentId: "signal-id",
+            sessionId: "session-crash",
+            timestampMs: 1_001,
+            category: "signal",
+            identifier: "SIGABRT",
+            detail: "Signal 6 received",
+            frames: ["_rjSignalHandler"],
+            context: [:]
+        )
+
+        XCTAssertFalse(
+            StabilityMonitor.shouldReplaceStoredIncident(exception, with: abortSignal)
+        )
+        XCTAssertTrue(
+            StabilityMonitor.shouldReplaceStoredIncident(abortSignal, with: exception)
+        )
+    }
+
+    func testStoredIncidentQueuePreservesLegacyFilesAndMultipleDiagnostics() throws {
+        let legacy = IncidentRecord(
+            incidentId: "legacy-id",
+            sessionId: "legacy-session",
+            timestampMs: 1_000,
+            category: "exception",
+            identifier: "LegacyCrash",
+            detail: "legacy",
+            frames: ["Legacy.crash()"],
+            context: [:]
+        )
+        let diagnostic = IncidentRecord(
+            incidentId: "diagnostic-id",
+            sessionId: "diagnostic-session",
+            timestampMs: 2_000,
+            category: "anr",
+            identifier: "MetricKitHang",
+            detail: "hang",
+            frames: ["Checkout.render()"],
+            context: [:]
+        )
+
+        let decodedLegacy = StabilityMonitor.decodeStoredIncidents(
+            try JSONEncoder().encode(legacy)
+        )
+        XCTAssertEqual(decodedLegacy.map(\.incidentId), ["legacy-id"])
+
+        let queued = StabilityMonitor.mergeStoredIncidents(
+            decodedLegacy,
+            with: diagnostic
+        )
+        XCTAssertEqual(queued.map(\.incidentId), ["legacy-id", "diagnostic-id"])
+
+        let decodedQueue = StabilityMonitor.decodeStoredIncidents(
+            try JSONEncoder().encode(queued)
+        )
+        XCTAssertEqual(decodedQueue.map(\.incidentId), ["legacy-id", "diagnostic-id"])
+    }
+
+    func testStoredIncidentQueueReplacesAbortSignalWithUsefulException() {
+        let signal = IncidentRecord(
+            incidentId: "signal-id",
+            sessionId: "session-crash",
+            timestampMs: 1_000,
+            category: "signal",
+            identifier: "SIGABRT",
+            detail: "Signal 6 received",
+            frames: ["_rjSignalHandler"],
+            context: [:]
+        )
+        let exception = IncidentRecord(
+            incidentId: "exception-id",
+            sessionId: "session-crash",
+            timestampMs: 999,
+            category: "exception",
+            identifier: "CheckoutFailure",
+            detail: "Invalid total",
+            frames: ["CheckoutView.submit()"],
+            context: [:]
+        )
+
+        let queued = StabilityMonitor.mergeStoredIncidents([signal], with: exception)
+        XCTAssertEqual(queued.map(\.incidentId), ["exception-id"])
+        XCTAssertEqual(
+            StabilityMonitor.mergeStoredIncidents(queued, with: signal).map(\.incidentId),
+            ["exception-id"]
+        )
+    }
+
     func testNetworkEventFilterIgnoresRejourneyInternalUrls() throws {
         RejourneyNetworkEventFilter.configure(apiURLString: "https://api.rejourney.co")
 

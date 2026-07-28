@@ -23,6 +23,7 @@ import com.rejourney.engine.DiagnosticLog
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 import kotlin.concurrent.thread
 
 /**
@@ -124,7 +125,8 @@ class AnrSentinel private constructor() {
             // Route ANR through TelemetryPipeline so it arrives in the events
             // batch and the backend ingest worker can insert it into the anrs table
             val stackStr = frames.joinToString("\n")
-            TelemetryPipeline.shared?.recordAnrEvent(durationMs, stackStr)
+            val incidentId = UUID.randomUUID().toString()
+            TelemetryPipeline.shared?.recordAnrEvent(durationMs, stackStr, incidentId)
 
             // Persist ANR incident and send through /api/ingest/fault so ANRs survive
             // process termination/background upload loss, similar to crash recovery.
@@ -132,6 +134,7 @@ class AnrSentinel private constructor() {
                 ?: ReplayOrchestrator.shared?.replayId
                 ?: "unknown"
             val incident = IncidentRecord(
+                incidentId = incidentId,
                 sessionId = sessionId,
                 timestampMs = System.currentTimeMillis(),
                 category = "anr",

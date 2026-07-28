@@ -29,12 +29,18 @@ import {
     releaseRetentionRunLock,
     tryAcquireRetentionRunLock,
 } from '../services/retentionRunLock.js';
+import {
+    interleaveBatches,
+    runBoundedConcurrentBatch,
+} from '../services/retentionBatch.js';
 
 const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = Math.max(1, Math.trunc(config.RETENTION_BATCH_SIZE));
 const REPAIR_BATCH_SIZE = Math.max(1, Math.trunc(config.RETENTION_REPAIR_BATCH_SIZE));
 const MAX_RUNTIME_MS = Math.max(30_000, Math.trunc(config.RETENTION_MAX_RUNTIME_MS));
+const SESSION_CONCURRENCY = Math.max(1, Math.trunc(config.RETENTION_SESSION_CONCURRENCY));
 const LOCK_HEARTBEAT_INTERVAL_MS = 30 * 1000;
+const CACHE_SCAN_COUNT = 5_000;
 
 let isRunning = true;
 
@@ -54,6 +60,8 @@ type RetentionRunSummary = {
     deletedBytes: number;
     heatmapCacheKeyCount: number;
     rounds: number;
+    durationMs: number;
+    purgedSessionsPerMinute: number;
     skippedReason?: string;
     error?: string;
 };
@@ -78,7 +86,13 @@ async function invalidateHeatmapCaches(): Promise<number> {
         const keysToDelete: string[] = [];
         let cursor = '0';
         do {
-            const [next, keys] = await redis.scan(cursor, 'MATCH', 'insights:*heatmap*', 'COUNT', 200);
+            const [next, keys] = await redis.scan(
+                cursor,
+                'MATCH',
+                'insights:*heatmap*',
+                'COUNT',
+                CACHE_SCAN_COUNT,
+            );
             cursor = next;
             keysToDelete.push(...keys);
         } while (cursor !== '0');
@@ -176,7 +190,11 @@ async function collectExpiredSessionsReadyForPurge(
     };
 }
 
-async function processExpiredSessions(runId: string, trigger: string): Promise<{
+async function processExpiredSessions(
+    runId: string,
+    trigger: string,
+    deadlineAtMs = Number.POSITIVE_INFINITY,
+): Promise<{
     processedCount: number;
     attemptedCount: number;
     failedCount: number;
@@ -199,35 +217,39 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
             tier: retentionPolicies.tier,
             days: retentionPolicies.retentionDays,
         })
-        .from(retentionPolicies);
+        .from(retentionPolicies)
+        .orderBy(retentionPolicies.tier);
 
+    const tierBatches: ExpiredSessionCandidate[][] = [];
     for (const tierConfig of policies) {
+        if (Date.now() >= deadlineAtMs) {
+            reachedProcessingCap = true;
+            break;
+        }
+
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
         const tierResult = await collectExpiredSessionsReadyForPurge(tierConfig, expiryDate, BATCH_SIZE);
-        const { sessionsToPurge } = tierResult;
-        attemptedCount += sessionsToPurge.length;
         skippedNotBackedUpCount += tierResult.skippedNotBackedUpCount;
         reachedProcessingCap ||= tierResult.reachedProcessingCap;
+        tierBatches.push(tierResult.sessionsToPurge);
+    }
 
-
-        for (const session of sessionsToPurge) {
+    const sessionsToPurge = interleaveBatches(tierBatches);
+    const batchResult = await runBoundedConcurrentBatch(
+        sessionsToPurge,
+        {
+            concurrency: SESSION_CONCURRENCY,
+            deadlineAtMs,
+        },
+        async (session) => {
             try {
-                let result = await purgeSessionArtifacts(session.id, {
+                const result = await purgeSessionArtifacts(session.id, {
                     runId,
                     trigger,
                     retentionTier: session.retentionTier,
                     retentionDays: session.retentionDays,
                 });
-                if (result.storageMissing) {
-                    result = await purgeSessionArtifacts(session.id, {
-                        runId,
-                        trigger: `${trigger}_retry_missing_storage`,
-                        allowMissingStorage: true,
-                        retentionTier: session.retentionTier,
-                        retentionDays: session.retentionDays,
-                    });
-                }
                 processedCount++;
                 deletedObjectCount += result.deletedObjectCount;
                 deletedBytes += result.deletedBytes;
@@ -249,21 +271,23 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                             { sessionId: session.id, trigger },
                             'Recovered retention purge via allowMissingStorage after canonical storage was already gone',
                         );
-                        continue;
+                        return;
                     } catch (repairErr) {
                         failedCount++;
                         logger.error(
                             { err: repairErr, sessionId: session.id },
                             'Failed to recover expired session after canonical storage was already missing',
                         );
-                        continue;
+                        return;
                     }
                 }
                 failedCount++;
                 logger.error({ err, sessionId: session.id }, 'Failed to process expired session');
             }
-        }
-    }
+        },
+    );
+    attemptedCount += batchResult.startedCount;
+    reachedProcessingCap ||= batchResult.stoppedEarly;
 
     if (processedCount > 0 || failedCount > 0 || skippedNotBackedUpCount > 0) {
         logger.info({
@@ -338,6 +362,8 @@ async function runRetentionCycle(options: {
             deletedBytes: 0,
             heatmapCacheKeyCount: 0,
             rounds: 0,
+            durationMs: 0,
+            purgedSessionsPerMinute: 0,
             skippedReason: 'lock_held',
         };
         await writeRetentionHeartbeat(summary);
@@ -377,10 +403,13 @@ async function runRetentionCycle(options: {
         deletedBytes: 0,
         heatmapCacheKeyCount: 0,
         rounds: 0,
+        durationMs: 0,
+        purgedSessionsPerMinute: 0,
     };
+    const startedAtMs = Date.now();
 
     try {
-        const startedAtMs = Date.now();
+        const deadlineAtMs = startedAtMs + MAX_RUNTIME_MS;
         while (true) {
             const runtimeMs = Date.now() - startedAtMs;
             if (runtimeMs >= MAX_RUNTIME_MS) {
@@ -391,10 +420,36 @@ async function runRetentionCycle(options: {
             const expiryTrigger = buildTriggerName(options.trigger, 'retention_expiry');
             const repairTrigger = buildTriggerName(options.trigger, 'retention_repair');
 
-            const expiredResult = await processExpiredSessions(options.runId, expiryTrigger);
-            const repairResult = await repairExpiredSessionArtifactsBatch(options.runId, REPAIR_BATCH_SIZE, repairTrigger);
-            const identityScrubResult = await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE);
-            const deletedProjectCount = await processDeletedProjects();
+            const expiredResult = await processExpiredSessions(options.runId, expiryTrigger, deadlineAtMs);
+            const repairResult = Date.now() < deadlineAtMs
+                ? await repairExpiredSessionArtifactsBatch(
+                    options.runId,
+                    REPAIR_BATCH_SIZE,
+                    repairTrigger,
+                    {
+                        concurrency: SESSION_CONCURRENCY,
+                        deadlineAtMs,
+                    },
+                )
+                : {
+                    attempted: 0,
+                    repaired: 0,
+                    failed: 0,
+                    skippedNotBackedUp: 0,
+                    deletedObjectCount: 0,
+                    deletedBytes: 0,
+                    reachedProcessingCap: true,
+                };
+            const identityScrubResult = Date.now() < deadlineAtMs
+                ? await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE)
+                : {
+                    scrubbed: 0,
+                    linkedRowsScrubbed: 0,
+                    reachedProcessingCap: true,
+                };
+            const deletedProjectCount = Date.now() < deadlineAtMs
+                ? await processDeletedProjects()
+                : 0;
 
             summary.rounds += 1;
             summary.expiredCount += expiredResult.processedCount;
@@ -419,6 +474,15 @@ async function runRetentionCycle(options: {
                 identityScrubResult.reachedProcessingCap ||
                 deletedProjectCount >= BATCH_SIZE;
 
+            if (Date.now() >= deadlineAtMs) {
+                logger.warn({
+                    runId: options.runId,
+                    runtimeMs: Date.now() - startedAtMs,
+                    maxRuntimeMs: MAX_RUNTIME_MS,
+                }, 'Retention cycle reached runtime cap');
+                break;
+            }
+
             if (!options.drainBacklog || !madeProgress || !maybeMoreWork) {
                 break;
             }
@@ -428,6 +492,11 @@ async function runRetentionCycle(options: {
             summary.heatmapCacheKeyCount = await invalidateHeatmapCaches();
         }
 
+        summary.durationMs = Date.now() - startedAtMs;
+        const totalPurgedSessions = summary.expiredCount + summary.repairedCount;
+        summary.purgedSessionsPerMinute = summary.durationMs > 0
+            ? Math.round((totalPurgedSessions / summary.durationMs) * 60_000 * 100) / 100
+            : 0;
         await writeRetentionHeartbeat(summary);
         const extraMetrics: WorkerMetric[] = [
             {
@@ -450,12 +519,22 @@ async function runRetentionCycle(options: {
                 help: 'Total bytes deleted in the current run',
                 value: summary.deletedBytes,
             },
+            {
+                name: 'rejourney_retention_cycle_duration_seconds',
+                help: 'Duration of the current retention cycle in seconds',
+                value: summary.durationMs / 1000,
+            },
+            {
+                name: 'rejourney_retention_purged_sessions_per_minute',
+                help: 'Average expired and repaired sessions purged per minute in the current run',
+                value: summary.purgedSessionsPerMinute,
+            },
         ];
 
         await pingWorker(
             'retentionWorker',
             'up',
-            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},skipped=${summary.skippedNotBackedUpCount},bytes=${summary.deletedBytes}`,
+            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},skipped=${summary.skippedNotBackedUpCount},bytes=${summary.deletedBytes},durationMs=${summary.durationMs},purgedPerMinute=${summary.purgedSessionsPerMinute}`,
             undefined,
             extraMetrics,
         );
@@ -465,6 +544,7 @@ async function runRetentionCycle(options: {
     } catch (err) {
         summary.status = 'failed';
         summary.error = err instanceof Error ? err.message : String(err);
+        summary.durationMs = Date.now() - startedAtMs;
         await writeRetentionHeartbeat(summary);
         await pingWorker('retentionWorker', 'down', summary.error).catch(() => {});
         throw err;
@@ -511,7 +591,7 @@ process.on('SIGINT', () => {
 const runOnce = parseFlag('--once');
 const trigger = parseOption('--trigger') ?? (runOnce ? 'scheduled' : 'loop');
 const requestedDrainBacklog = parseFlag('--drain-backlog');
-const drainBacklog = requestedDrainBacklog && trigger !== 'scheduled';
+const drainBacklog = requestedDrainBacklog;
 
 logger.info({
     runOnce,
@@ -521,6 +601,7 @@ logger.info({
     batchSize: BATCH_SIZE,
     repairBatchSize: REPAIR_BATCH_SIZE,
     maxRuntimeMs: MAX_RUNTIME_MS,
+    sessionConcurrency: SESSION_CONCURRENCY,
 }, 'Retention worker started');
 
 if (runOnce) {

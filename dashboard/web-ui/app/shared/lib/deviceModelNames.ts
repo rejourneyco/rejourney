@@ -1,3 +1,5 @@
+import { ANDROID_DEVICE_MODEL_NAMES } from './androidDeviceModelNames.generated';
+
 const DEVICE_MODEL_NAMES: Record<string, string> = {
     i386: 'iOS Simulator',
     x86_64: 'iOS Simulator',
@@ -189,11 +191,20 @@ const GENERIC_IDENTIFIER_LABELS: Array<[RegExp, string]> = [
     [/^realitydevice\d+,\d+$/i, 'Apple Vision'],
 ];
 
+const ANDROID_EMULATOR_IDENTIFIERS = [
+    /^(?:sdk|aosp|generic)(?:[\s_-]|$)/i,
+    /^android sdk built for\b/i,
+    /(?:^|[\s_-])emulator(?:[\s_-]|$)/i,
+];
+
 export const normalizeDeviceModelIdentifier = (value: string): string =>
     value
         .trim()
         .replace(/\s*,\s*/g, ',')
         .replace(/^(iPhone|iPad|iPod|Watch|AppleTV|AudioAccessory|RealityDevice)\s+(?=\d+,)/i, '$1');
+
+export const normalizeAndroidDeviceModelIdentifier = (value: string): string =>
+    value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 export const formatDeviceModel = (
     model: string | null | undefined,
@@ -207,6 +218,16 @@ export const formatDeviceModel = (
     const normalized = normalizeDeviceModelIdentifier(raw);
     const mapped = DEVICE_MODEL_NAMES_BY_KEY.get(normalized.toLowerCase());
     if (mapped) return mapped;
+
+    if (ANDROID_EMULATOR_IDENTIFIERS.some((pattern) => pattern.test(raw))) {
+        return 'Android Emulator';
+    }
+
+    const androidModel = normalizeAndroidDeviceModelIdentifier(raw);
+    const androidMapped = Object.prototype.hasOwnProperty.call(ANDROID_DEVICE_MODEL_NAMES, androidModel)
+        ? ANDROID_DEVICE_MODEL_NAMES[androidModel]
+        : undefined;
+    if (androidMapped) return androidMapped;
 
     const generic = GENERIC_IDENTIFIER_LABELS.find(([pattern]) => pattern.test(normalized));
     return generic?.[1] || raw;

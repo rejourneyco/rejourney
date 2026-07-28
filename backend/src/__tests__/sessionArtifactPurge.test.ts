@@ -21,8 +21,9 @@ const mocks = vi.hoisted(() => ({
         del: vi.fn(),
         scan: vi.fn(),
     },
-    deletePrefixFromProjectStorage: vi.fn(),
-    deleteObjectsFromProjectStorage: vi.fn(),
+    resolveRetentionDeletionEndpoints: vi.fn(),
+    deletePrefixFromStorageEndpoints: vi.fn(),
+    deleteObjectsFromStorageEndpoints: vi.fn(),
     classifyS3DeletionError: vi.fn(() => 'unexpected'),
     beginRetentionDeletionLog: vi.fn(),
     finalizeRetentionDeletionLog: vi.fn(),
@@ -55,8 +56,9 @@ vi.mock('../db/redis.js', () => ({
 }));
 
 vi.mock('../db/s3.js', () => ({
-    deletePrefixFromProjectStorage: mocks.deletePrefixFromProjectStorage,
-    deleteObjectsFromProjectStorage: mocks.deleteObjectsFromProjectStorage,
+    resolveRetentionDeletionEndpoints: mocks.resolveRetentionDeletionEndpoints,
+    deletePrefixFromStorageEndpoints: mocks.deletePrefixFromStorageEndpoints,
+    deleteObjectsFromStorageEndpoints: mocks.deleteObjectsFromStorageEndpoints,
     classifyS3DeletionError: mocks.classifyS3DeletionError,
 }));
 
@@ -210,31 +212,55 @@ describe('sessionArtifactPurge', () => {
         mocks.beginRetentionDeletionLog.mockResolvedValueOnce('canonical_log');
         mocks.finalizeRetentionDeletionLog.mockResolvedValue(undefined);
 
-        mocks.deletePrefixFromProjectStorage.mockResolvedValue({
-            prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
-            deletedObjectCount: 3,
-            deletedBytes: 900,
-            endpointResults: [
-                {
-                    endpointId: 'endpoint_1',
-                    endpointUrl: 'https://storage-1.local',
-                    projectId: 'project_1',
-                    shadow: false,
-                    active: true,
-                    deletedObjectCount: 3,
-                    deletedBytes: 900,
-                },
-            ],
-        });
+        const deletionEndpoints = [
+            { id: 'endpoint_1' },
+            { id: 'endpoint_2' },
+        ];
+        mocks.resolveRetentionDeletionEndpoints.mockResolvedValue(deletionEndpoints);
+        mocks.deletePrefixFromStorageEndpoints.mockImplementation(async (
+            prefix: string,
+        ) => prefix === 'sessions/session_1/'
+            ? {
+                prefix,
+                deletedObjectCount: 2,
+                deletedBytes: 240,
+                endpointResults: [
+                    {
+                        endpointId: 'endpoint_1',
+                        endpointUrl: 'https://storage-1.local',
+                        projectId: 'project_1',
+                        shadow: false,
+                        active: true,
+                        deletedObjectCount: 2,
+                        deletedBytes: 240,
+                    },
+                ],
+            }
+            : {
+                prefix,
+                deletedObjectCount: 3,
+                deletedBytes: 900,
+                endpointResults: [
+                    {
+                        endpointId: 'endpoint_1',
+                        endpointUrl: 'https://storage-1.local',
+                        projectId: 'project_1',
+                        shadow: false,
+                        active: true,
+                        deletedObjectCount: 3,
+                        deletedBytes: 900,
+                    },
+                ],
+            });
 
-        mocks.deleteObjectsFromProjectStorage.mockResolvedValue({
+        mocks.deleteObjectsFromStorageEndpoints.mockResolvedValue({
             deletedObjectCount: 0,
             deletedBytes: 0,
             endpointResults: [],
         });
     });
 
-    it('purges canonical storage and deletes narrow DB rows', async () => {
+    it('purges canonical and derived storage and deletes narrow DB rows', async () => {
         const now = new Date('2026-03-27T12:00:00.000Z');
 
         const result = await purgeSessionArtifacts('session_1', {
@@ -248,17 +274,31 @@ describe('sessionArtifactPurge', () => {
             projectId: 'project_1',
             teamId: 'team_1',
             deletedArtifactCount: 3,
-            deletedObjectCount: 3,
-            deletedBytes: 900,
+            deletedObjectCount: 5,
+            deletedBytes: 1140,
             plannedArtifactCount: 3,
             plannedArtifactBytes: 505,
             storageMissing: false,
         });
 
-        expect(mocks.deletePrefixFromProjectStorage).toHaveBeenCalledWith(
+        expect(mocks.resolveRetentionDeletionEndpoints).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveRetentionDeletionEndpoints).toHaveBeenCalledWith(
             'project_1',
-            'tenant/team_1/project/project_1/sessions/session_1/',
             ['endpoint_1', null, 'endpoint_2'],
+        );
+        expect(mocks.deletePrefixFromStorageEndpoints).toHaveBeenCalledWith(
+            'tenant/team_1/project/project_1/sessions/session_1/',
+            expect.arrayContaining([
+                expect.objectContaining({ id: 'endpoint_1' }),
+                expect.objectContaining({ id: 'endpoint_2' }),
+            ]),
+        );
+        expect(mocks.deletePrefixFromStorageEndpoints).toHaveBeenCalledWith(
+            'sessions/session_1/',
+            expect.arrayContaining([
+                expect.objectContaining({ id: 'endpoint_1' }),
+                expect.objectContaining({ id: 'endpoint_2' }),
+            ]),
         );
 
         expect(tx.metricsSetPayload).toMatchObject({
@@ -276,6 +316,14 @@ describe('sessionArtifactPurge', () => {
             replayStorageBytes: 0,
             updatedAt: now,
         });
+        expect(mocks.mockRedis.del).toHaveBeenCalledWith(
+            'session_core:session_1',
+            'session_timeline:session_1',
+            'session_hierarchy:session_1',
+            'screenshot_frames:session_1',
+            'screenshot_frames:v2:session_1',
+        );
+        expect(mocks.mockRedis.scan).not.toHaveBeenCalled();
 
         expect(mocks.beginRetentionDeletionLog).toHaveBeenCalledTimes(1);
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
@@ -284,15 +332,20 @@ describe('sessionArtifactPurge', () => {
                 status: 'completed',
                 deletedArtifactRowCount: 3,
                 deletedIngestJobCount: 0,
-                deletedObjectCount: 3,
-                deletedBytes: 900,
+                deletedObjectCount: 5,
+                deletedBytes: 1140,
+                details: expect.objectContaining({
+                    derivedStoragePrefix: 'sessions/session_1/',
+                    derivedDeletedObjectCount: 2,
+                    derivedDeletedBytes: 240,
+                }),
             }),
         );
     });
 
 
     it('treats already-missing canonical storage as completed cleanup by default', async () => {
-        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+        mocks.deletePrefixFromStorageEndpoints.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
             deletedObjectCount: 0,
             deletedBytes: 0,
@@ -316,7 +369,7 @@ describe('sessionArtifactPurge', () => {
     });
 
     it('can still fail closed on missing storage when explicitly requested', async () => {
-        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+        mocks.deletePrefixFromStorageEndpoints.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
             deletedObjectCount: 0,
             deletedBytes: 0,
@@ -340,7 +393,7 @@ describe('sessionArtifactPurge', () => {
     });
 
     it('allows repair mode to clean leftover rows even if storage is already gone', async () => {
-        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+        mocks.deletePrefixFromStorageEndpoints.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
             deletedObjectCount: 0,
             deletedBytes: 0,
@@ -388,13 +441,13 @@ describe('sessionArtifactPurge', () => {
             .mockImplementationOnce(() => createSimpleSelectResult([nonCanonicalArtifact]))
             .mockImplementationOnce(() => createSimpleSelectResult([{ id: 'job_1' }]));
 
-        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+        mocks.deletePrefixFromStorageEndpoints.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
             deletedObjectCount: 0,
             deletedBytes: 0,
             endpointResults: [],
         });
-        mocks.deleteObjectsFromProjectStorage.mockResolvedValueOnce({
+        mocks.deleteObjectsFromStorageEndpoints.mockResolvedValueOnce({
             deletedObjectCount: 1,
             deletedBytes: 55,
             endpointResults: [
@@ -416,12 +469,11 @@ describe('sessionArtifactPurge', () => {
             trigger: 'retention_expiry',
         });
 
-        expect(result.deletedObjectCount).toBe(1);
-        expect(result.deletedBytes).toBe(55);
-        expect(mocks.deleteObjectsFromProjectStorage).toHaveBeenCalledWith(
-            'project_1',
+        expect(result.deletedObjectCount).toBe(3);
+        expect(result.deletedBytes).toBe(295);
+        expect(mocks.deleteObjectsFromStorageEndpoints).toHaveBeenCalledWith(
             ['tenant/team_1/project/project_1/misplaced/session_1/events.json.gz'],
-            ['endpoint_9'],
+            expect.any(Array),
         );
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',

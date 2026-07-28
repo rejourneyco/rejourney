@@ -50,6 +50,7 @@ vi.mock('@aws-sdk/client-s3', () => {
 });
 
 import {
+    deleteObjectsFromStorageEndpoints,
     deletePrefixFromStorageEndpoints,
     normalizeStorageEndpointForS3Client,
     type StorageEndpoint,
@@ -121,5 +122,35 @@ describe('S3 retention deletion', () => {
             missingPrefix: true,
             listStatus: 'missing',
         });
+    });
+
+    it('checks explicit misplaced keys across storage endpoints concurrently', async () => {
+        const releaseHeadRequests: Array<() => void> = [];
+        mocks.send.mockImplementation((command: { input: Record<string, unknown> }) => {
+            if ('Key' in command.input) {
+                return new Promise((resolve) => {
+                    releaseHeadRequests.push(() => resolve({ ContentLength: 25 }));
+                });
+            }
+            return Promise.resolve({});
+        });
+
+        const deletion = deleteObjectsFromStorageEndpoints(
+            ['tenant/team/project/misplaced/session.json.gz'],
+            [
+                endpoint({ id: 'endpoint_1', bucket: 'bucket_1' }),
+                endpoint({ id: 'endpoint_2', bucket: 'bucket_2' }),
+            ],
+        );
+
+        await vi.waitFor(() => {
+            expect(releaseHeadRequests).toHaveLength(2);
+        });
+        releaseHeadRequests.forEach((release) => release());
+
+        const result = await deletion;
+        expect(result.deletedObjectCount).toBe(2);
+        expect(result.deletedBytes).toBe(50);
+        expect(result.endpointResults).toHaveLength(2);
     });
 });

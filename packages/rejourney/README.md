@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.2.1
+  rejourney: ^0.3.0
 ```
 
 Then install packages:

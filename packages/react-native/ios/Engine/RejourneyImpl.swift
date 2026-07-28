@@ -21,7 +21,7 @@ import CommonCrypto
 @objc(RejourneyImpl)
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
-    @objc public static var sdkVersion = "1.3.1"
+    @objc public static var sdkVersion = "1.4.0"
 
     // MARK: - State Machine
 
@@ -64,7 +64,6 @@ public final class RejourneyImpl: NSObject {
             if let recoveredId = recoveredId {
                 DiagnosticLog.notice("[Rejourney] Recovered crashed session: \(recoveredId)")
             }
-            StabilityMonitor.shared.transmitStoredReport()
         }
     }
 
@@ -414,7 +413,9 @@ public final class RejourneyImpl: NSObject {
             RejourneyNetworkEventFilter.configure(apiURLString: apiUrl)
             TelemetryPipeline.shared.endpoint = apiUrl
             SegmentDispatcher.shared.endpoint = apiUrl
+            SegmentDispatcher.shared.apiToken = publicKey
             DeviceRegistrar.shared.endpoint = apiUrl
+            StabilityMonitor.shared.transmitStoredReport()
 
             // Activate native network interception
             RejourneyURLProtocol.enable()
@@ -623,7 +624,17 @@ public final class RejourneyImpl: NSObject {
             let message = details["message"] as? String ?? "Unknown error"
             let name = details["name"] as? String ?? "Error"
             let stack = details["stack"] as? String
-            TelemetryPipeline.shared.recordJSErrorEvent(name: name, message: message, stack: stack)
+            let exceptionCategory = details["exceptionCategory"] as? String
+            let source = details["source"] as? String
+            let handled = details["handled"] as? Bool
+            TelemetryPipeline.shared.recordJSErrorEvent(
+                name: name,
+                message: message,
+                stack: stack,
+                exceptionCategory: exceptionCategory,
+                source: source,
+                handled: handled
+            )
             resolve(["success": true])
             return
         }

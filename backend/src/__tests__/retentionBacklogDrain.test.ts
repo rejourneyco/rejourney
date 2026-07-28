@@ -40,7 +40,37 @@ describe('retention backlog drain', () => {
 
         expect(block).toContain('expiredResult.reachedProcessingCap ||');
         expect(block).toContain('repairResult.reachedProcessingCap ||');
+        expect(block).toContain('deadlineAtMs');
         expect(block).not.toContain('expiredResult.processedCount >= BATCH_SIZE');
+    });
+
+    it('interleaves tiers and uses bounded session concurrency', () => {
+        const worker = readWorkspaceFile('../worker/retentionWorker.ts');
+        const block = extractFunctionBlock(worker, 'processExpiredSessions');
+
+        expect(block).toContain('.orderBy(retentionPolicies.tier)');
+        expect(block).toContain('interleaveBatches(tierBatches)');
+        expect(block).toContain('runBoundedConcurrentBatch(');
+        expect(block).toContain('concurrency: SESSION_CONCURRENCY');
+        expect(block).toContain('deadlineAtMs');
+    });
+
+    it('enables backlog draining for the production CronJob', () => {
+        const manifest = readWorkspaceFile('../../../k8s/workers.yaml');
+
+        expect(manifest).toContain('- --trigger=scheduled');
+        expect(manifest).toContain('- --drain-backlog');
+        expect(manifest).toContain('- name: RETENTION_SESSION_CONCURRENCY');
+    });
+
+    it('uses a high-count cursor scan for the once-per-run heatmap invalidation', () => {
+        const worker = readWorkspaceFile('../worker/retentionWorker.ts');
+        const block = extractFunctionBlock(worker, 'invalidateHeatmapCaches');
+
+        expect(worker).toContain('const CACHE_SCAN_COUNT = 5_000');
+        expect(block).toContain("'insights:*heatmap*'");
+        expect(block).toContain('CACHE_SCAN_COUNT');
+        expect(block).not.toContain("'COUNT', 200");
     });
 
     it('keeps expired-repair cleanup bound to the current retention period', () => {

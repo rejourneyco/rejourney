@@ -600,7 +600,7 @@ final class TelemetryPipeline: NSObject {
         }
     }
     
-    @objc func recordAnrEvent(durationMs: Int, stack: String?) {
+    @objc func recordAnrEvent(durationMs: Int, stack: String?, incidentId: String? = nil) {
         var event: [String: Any] = [
             "type": "anr",
             "timestamp": _ts(),
@@ -609,6 +609,9 @@ final class TelemetryPipeline: NSObject {
         ]
         if let stack = stack {
             event["stack"] = stack
+        }
+        if let incidentId {
+            event["incidentId"] = incidentId
         }
         _enqueue(event)
         // Prioritize ANR delivery while the process is still alive.

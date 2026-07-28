@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
-import { gzipSync } from 'node:zlib';
+import { gzip } from 'node:zlib';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ZipArchive } from 'archiver';
 import { pool } from '../db/client.js';
@@ -19,6 +19,11 @@ import {
     extractMobileHierarchySnapshotsFromArtifact,
     type MobileHierarchySnapshot,
 } from '../utils/mobileAttentionHeatmap.js';
+import {
+    countCanonicalStabilityOccurrences,
+    type LegacyStabilityRow,
+} from './stabilityAnalytics.js';
+import { runBoundedConcurrentBatch } from './retentionBatch.js';
 
 const RESEARCH_SCHEMA_VERSION = 1;
 const RESEARCH_ANONYMIZATION_VERSION = 1;
@@ -201,6 +206,8 @@ export type RevenueOutcomeExportSummary = {
 
 export interface ResearchLakeCycleSummary extends ResearchLakeLaneSummary {
     recoveredStaleProcessing: number;
+    durationMs: number;
+    attemptedPerMinute: number;
     byLake: Record<ResearchLakeType, ResearchLakeLaneSummary>;
     revenueOutcomes: RevenueOutcomeExportSummary;
 }
@@ -256,13 +263,20 @@ function jsonlBuffer(rows: unknown[]): Buffer {
     return Buffer.from(rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
 }
 
-function jsonlGzipBuffer(rows: unknown[]): Buffer {
-    return gzipSync(Buffer.from(rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8'));
+function gzipBuffer(buffer: Buffer): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        gzip(buffer, (err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+        });
+    });
 }
 
 function createZipArchiveBuffer(files: { name: string; buffer: Buffer }[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-        const archive = new ZipArchive({ zlib: { level: 9 } });
+        // Level 6 keeps the same ZIP/file contract while avoiding the steep CPU
+        // cost of maximum compression on every exported research sample.
+        const archive = new ZipArchive({ zlib: { level: 6 } });
         const buffers: Buffer[] = [];
         archive.on('data', (data: Buffer) => buffers.push(data));
         archive.on('end', () => resolve(Buffer.concat(buffers)));
@@ -281,6 +295,36 @@ async function putResearchObject(key: string, body: Buffer, contentType: string)
         Body: body,
         ContentType: contentType,
     }));
+}
+
+type ResearchObjectUpload = {
+    key: string;
+    body: Buffer;
+    contentType: string;
+};
+
+async function putResearchObjects(objects: readonly ResearchObjectUpload[]): Promise<void> {
+    const concurrency = Math.max(
+        1,
+        Math.min(Math.trunc(config.RESEARCH_LAKE_UPLOAD_CONCURRENCY || 1), objects.length || 1),
+    );
+    let nextIndex = 0;
+    let firstError: unknown = null;
+
+    const worker = async (): Promise<void> => {
+        while (nextIndex < objects.length && firstError === null) {
+            const object = objects[nextIndex];
+            nextIndex += 1;
+            try {
+                await putResearchObject(object.key, object.body, object.contentType);
+            } catch (err) {
+                firstError ??= err;
+            }
+        }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    if (firstError !== null) throw firstError;
 }
 
 function asEvents(value: unknown): Record<string, unknown>[] {
@@ -2314,24 +2358,28 @@ async function buildVisualRows(
     interactions: ResearchInteractionRow[],
     projectKey: string,
 ): Promise<ResearchVisualRows> {
-    const screenshotRows = await buildScreenshotVisualRows(
-        session,
-        artifacts.filter((artifact) => artifact.kind === 'screenshots'),
-        interactions,
-        projectKey,
-    );
-    const hierarchyRows = await buildHierarchyVisualRows(
-        session,
-        artifacts.filter((artifact) => artifact.kind === 'hierarchy'),
-        interactions,
-        projectKey,
-    );
-    const rrwebRows = await buildRrwebVisualRows(
-        session,
-        artifacts.filter((artifact) => artifact.kind === 'rrweb'),
-        interactions,
-        projectKey,
-    );
+    // Each modality owns independent source indexes and is concatenated in the
+    // same V1 order below, so its downloads/parsing can overlap safely.
+    const [screenshotRows, hierarchyRows, rrwebRows] = await Promise.all([
+        buildScreenshotVisualRows(
+            session,
+            artifacts.filter((artifact) => artifact.kind === 'screenshots'),
+            interactions,
+            projectKey,
+        ),
+        buildHierarchyVisualRows(
+            session,
+            artifacts.filter((artifact) => artifact.kind === 'hierarchy'),
+            interactions,
+            projectKey,
+        ),
+        buildRrwebVisualRows(
+            session,
+            artifacts.filter((artifact) => artifact.kind === 'rrweb'),
+            interactions,
+            projectKey,
+        ),
+    ]);
 
     return {
         frames: [...screenshotRows.frames, ...hierarchyRows.frames, ...rrwebRows.frames],
@@ -2751,6 +2799,8 @@ function createCycleSummary(): ResearchLakeCycleSummary {
         rejected: 0,
         failed: 0,
         recoveredStaleProcessing: 0,
+        durationMs: 0,
+        attemptedPerMinute: 0,
         byLake: {
             interaction: createLaneSummary(),
             behavioral_outcomes: createLaneSummary(),
@@ -3142,8 +3192,14 @@ async function loadSessionContext(sessionId: string): Promise<{
 
     const session = sessionResult.rows[0];
 
-    const artifactsResult = await pool.query<ArtifactContext>(
-        `
+    const [
+        artifactsResult,
+        transactionsResult,
+        connectionResult,
+        stabilityResult,
+    ] = await Promise.all([
+        pool.query<ArtifactContext>(
+            `
         SELECT
             id,
             kind,
@@ -3160,52 +3216,100 @@ async function loadSessionContext(sessionId: string): Promise<{
           AND status = 'ready'
         ORDER BY created_at, id
         `,
-        [sessionId],
-    );
-
-    const transactionsResult = await pool.query<{
-        amount_cents: number;
-        reporting_category: string;
-        type: string;
-    }>(
-        `
+            [sessionId],
+        ),
+        pool.query<{
+            amount_cents: number;
+            reporting_category: string;
+            type: string;
+        }>(
+            `
         SELECT amount_cents AS "amount_cents", reporting_category AS "reporting_category", type
         FROM revenue_provider_transactions
         WHERE project_id = $1 AND (external_source_id = $2 OR metadata->>'sessionId' = $2)
         `,
-        [session.project_id, sessionId]
-    );
-
-    const connectionResult = await pool.query<{
-        custom_event_config: any;
-    }>(
-        `
+            [session.project_id, sessionId],
+        ),
+        pool.query<{
+            custom_event_config: any;
+        }>(
+            `
         SELECT custom_event_config AS "custom_event_config"
         FROM project_revenue_connections
         WHERE project_id = $1 AND provider = 'custom_events' AND status = 'connected'
         LIMIT 1
         `,
-        [session.project_id]
-    );
+            [session.project_id],
+        ),
+        // Keep the V1 research contract unchanged while preventing duplicate
+        // telemetry/artifact transports from inflating newly exported counts.
+        pool.query<LegacyStabilityRow>(
+            `
+        SELECT
+            id::text AS id,
+            'crash'::text AS type,
+            project_id::text AS "projectId",
+            session_id AS "sessionId",
+            incident_id AS "incidentId",
+            timestamp,
+            exception_name AS name,
+            reason AS message,
+            stack_trace AS "stackTrace",
+            fingerprint,
+            NULL::int AS "durationMs",
+            status,
+            occurrence_count AS "occurrenceCount"
+        FROM crashes
+        WHERE session_id = $1
+
+        UNION ALL
+
+        SELECT
+            id::text AS id,
+            'anr'::text AS type,
+            project_id::text AS "projectId",
+            session_id AS "sessionId",
+            incident_id AS "incidentId",
+            timestamp,
+            'ANR'::text AS name,
+            NULL::text AS message,
+            thread_state AS "stackTrace",
+            NULL::varchar AS fingerprint,
+            duration_ms AS "durationMs",
+            status,
+            occurrence_count AS "occurrenceCount"
+        FROM anrs
+        WHERE session_id = $1
+
+        UNION ALL
+
+        SELECT
+            id::text AS id,
+            'error'::text AS type,
+            project_id::text AS "projectId",
+            session_id AS "sessionId",
+            incident_id AS "incidentId",
+            timestamp,
+            error_name AS name,
+            message,
+            stack AS "stackTrace",
+            fingerprint,
+            NULL::int AS "durationMs",
+            status,
+            occurrence_count AS "occurrenceCount"
+        FROM errors
+        WHERE session_id = $1
+        `,
+            [sessionId],
+        ),
+    ]);
 
     const customEventConfig = connectionResult.rows[0]?.custom_event_config || null;
+    const stabilityCounts = countCanonicalStabilityOccurrences(stabilityResult.rows);
 
-    const crashesResult = await pool.query<{ count: number }>(
-        'SELECT COUNT(*)::int AS count FROM crashes WHERE session_id = $1',
-        [sessionId]
-    );
-    const anrsResult = await pool.query<{ count: number }>(
-        'SELECT COUNT(*)::int AS count FROM anrs WHERE session_id = $1',
-        [sessionId]
-    );
-    const errorsResult = await pool.query<{ count: number }>(
-        'SELECT COUNT(*)::int AS count FROM errors WHERE session_id = $1',
-        [sessionId]
-    );
-
-    session.crash_count = crashesResult.rows[0]?.count ?? 0;
-    session.anr_count = anrsResult.rows[0]?.count ?? 0;
-    session.error_count = errorsResult.rows[0]?.count ?? 0;
+    session.crash_count = stabilityCounts.crash;
+    session.anr_count = stabilityCounts.anr;
+    session.error_count = stabilityCounts.error;
 
     return {
         session,
@@ -3274,6 +3378,28 @@ async function failJob(job: ResearchJobRow, err: unknown): Promise<void> {
         `,
         [job.id, retryMinutes, message.slice(0, 2000)],
     );
+}
+
+function buildReleaseUnstartedResearchJobsSql(): string {
+    return `
+        UPDATE research_extraction_jobs
+        SET
+            status = 'pending',
+            attempts = GREATEST(attempts - 1, 0),
+            next_retry_at = NULL,
+            updated_at = NOW()
+        WHERE id = ANY($1::uuid[])
+          AND status = 'processing'
+    `;
+}
+
+async function releaseUnstartedResearchJobs(jobs: readonly ResearchJobRow[]): Promise<number> {
+    if (jobs.length === 0) return 0;
+    const result = await pool.query(
+        buildReleaseUnstartedResearchJobsSql(),
+        [jobs.map((job) => job.id)],
+    );
+    return result.rowCount ?? 0;
 }
 
 type RevenueOutcomeRow = {
@@ -4329,25 +4455,35 @@ async function processInteractionJob(
 
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const interactionsBuf = jsonlGzipBuffer(interactions);
-    const uiFramesBuf = jsonlGzipBuffer(visualRows.frames);
-    const uiSkeletonBuf = jsonlGzipBuffer(skeleton);
-
-    await putResearchObject(`${basePath}/manifest.json`, manifestBuf, 'application/json');
-    await putResearchObject(`${basePath}/quality.json`, qualityBuf, 'application/json');
-    await putResearchObject(`${basePath}/interactions.jsonl.gz`, interactionsBuf, 'application/jsonl+gzip');
-    await putResearchObject(`${basePath}/ui_frames.jsonl.gz`, uiFramesBuf, 'application/jsonl+gzip');
-    await putResearchObject(`${basePath}/ui_skeleton.jsonl.gz`, uiSkeletonBuf, 'application/jsonl+gzip');
-
+    const interactionsJsonlBuf = jsonlBuffer(interactions);
+    const uiFramesJsonlBuf = jsonlBuffer(visualRows.frames);
+    const uiSkeletonJsonlBuf = jsonlBuffer(skeleton);
     const zipFiles = [
         { name: 'manifest.json', buffer: manifestBuf },
         { name: 'quality.json', buffer: qualityBuf },
-        { name: 'interactions.jsonl', buffer: jsonlBuffer(interactions) },
-        { name: 'ui_frames.jsonl', buffer: jsonlBuffer(visualRows.frames) },
-        { name: 'ui_skeleton.jsonl', buffer: jsonlBuffer(skeleton) },
+        { name: 'interactions.jsonl', buffer: interactionsJsonlBuf },
+        { name: 'ui_frames.jsonl', buffer: uiFramesJsonlBuf },
+        { name: 'ui_skeleton.jsonl', buffer: uiSkeletonJsonlBuf },
     ];
-    const zipBuffer = await createZipArchiveBuffer(zipFiles);
-    await putResearchObject(`${basePath}.zip`, zipBuffer, 'application/zip');
+    const [
+        interactionsBuf,
+        uiFramesBuf,
+        uiSkeletonBuf,
+        zipBuffer,
+    ] = await Promise.all([
+        gzipBuffer(interactionsJsonlBuf),
+        gzipBuffer(uiFramesJsonlBuf),
+        gzipBuffer(uiSkeletonJsonlBuf),
+        createZipArchiveBuffer(zipFiles),
+    ]);
+    await putResearchObjects([
+        { key: `${basePath}/manifest.json`, body: manifestBuf, contentType: 'application/json' },
+        { key: `${basePath}/quality.json`, body: qualityBuf, contentType: 'application/json' },
+        { key: `${basePath}/interactions.jsonl.gz`, body: interactionsBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/ui_frames.jsonl.gz`, body: uiFramesBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/ui_skeleton.jsonl.gz`, body: uiSkeletonBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
+    ]);
 
     await completeJob(job, {
         status: 'exported',
@@ -4434,25 +4570,29 @@ async function processBehavioralJob(
 
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const eventsBuf = jsonlGzipBuffer(events);
+    const eventsJsonlBuf = jsonlBuffer(events);
     const metricsBuf = jsonBuffer(metrics);
     const labelsBuf = jsonBuffer(labels);
-
-    await putResearchObject(`${basePath}/manifest.json`, manifestBuf, 'application/json');
-    await putResearchObject(`${basePath}/quality.json`, qualityBuf, 'application/json');
-    await putResearchObject(`${basePath}/events.jsonl.gz`, eventsBuf, 'application/jsonl+gzip');
-    await putResearchObject(`${basePath}/session_metrics.json`, metricsBuf, 'application/json');
-    await putResearchObject(`${basePath}/labels.json`, labelsBuf, 'application/json');
 
     const zipFiles = [
         { name: 'manifest.json', buffer: manifestBuf },
         { name: 'quality.json', buffer: qualityBuf },
-        { name: 'events.jsonl', buffer: jsonlBuffer(events) },
+        { name: 'events.jsonl', buffer: eventsJsonlBuf },
         { name: 'session_metrics.json', buffer: metricsBuf },
         { name: 'labels.json', buffer: labelsBuf },
     ];
-    const zipBuffer = await createZipArchiveBuffer(zipFiles);
-    await putResearchObject(`${basePath}.zip`, zipBuffer, 'application/zip');
+    const [eventsBuf, zipBuffer] = await Promise.all([
+        gzipBuffer(eventsJsonlBuf),
+        createZipArchiveBuffer(zipFiles),
+    ]);
+    await putResearchObjects([
+        { key: `${basePath}/manifest.json`, body: manifestBuf, contentType: 'application/json' },
+        { key: `${basePath}/quality.json`, body: qualityBuf, contentType: 'application/json' },
+        { key: `${basePath}/events.jsonl.gz`, body: eventsBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/session_metrics.json`, body: metricsBuf, contentType: 'application/json' },
+        { key: `${basePath}/labels.json`, body: labelsBuf, contentType: 'application/json' },
+        { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
+    ]);
 
     await completeJob(job, {
         status: 'exported',
@@ -4488,18 +4628,20 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
 
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_BATCH_SIZE));
     const seedMultiplier = Math.max(1, Math.trunc(config.RESEARCH_LAKE_SEED_MULTIPLIER));
+    const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_MAX_RUNTIME_MS));
     summary.recoveredStaleProcessing = await recoverStaleProcessingJobs();
     for (const lakeType of RESEARCH_LAKE_TYPES) {
         summary.byLake[lakeType].seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
     }
     addLaneSummaryTotals(summary);
     const startedAt = Date.now();
+    const deadlineAtMs = startedAt + maxRuntimeMs;
 
-    while (Date.now() - startedAt < config.RESEARCH_LAKE_MAX_RUNTIME_MS) {
+    while (Date.now() < deadlineAtMs) {
         let claimedThisRound = 0;
 
         for (const lakeType of RESEARCH_LAKE_TYPES) {
-            if (Date.now() - startedAt >= config.RESEARCH_LAKE_MAX_RUNTIME_MS) break;
+            if (Date.now() >= deadlineAtMs) break;
 
             const jobs = await claimResearchJobs(lakeType, batchSize);
             claimedThisRound += jobs.length;
@@ -4513,13 +4655,13 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
                 jobs.push(...seededJobs);
             }
 
-            const concurrency = Math.max(1, Math.min(config.RESEARCH_LAKE_CONCURRENCY, jobs.length));
-            let nextIndex = 0;
-
-            async function worker(): Promise<void> {
-                while (nextIndex < jobs.length) {
-                    if (Date.now() - startedAt >= config.RESEARCH_LAKE_MAX_RUNTIME_MS) break;
-                    const job = jobs[nextIndex++];
+            const batchResult = await runBoundedConcurrentBatch(
+                jobs,
+                {
+                    concurrency: Math.max(1, Math.trunc(config.RESEARCH_LAKE_CONCURRENCY)),
+                    deadlineAtMs,
+                },
+                async (job) => {
                     const lane = summary.byLake[job.lake_type];
                     lane.attempted++;
                     try {
@@ -4536,10 +4678,19 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
                             lakeType: job.lake_type,
                         }, 'Research lake extraction failed');
                     }
-                }
-            }
+                },
+            );
 
-            await Promise.all(Array.from({ length: concurrency }, () => worker()));
+            if (batchResult.stoppedEarly) {
+                const unstartedJobs = jobs.slice(batchResult.startedCount);
+                const released = await releaseUnstartedResearchJobs(unstartedJobs);
+                logger.info({
+                    lakeType,
+                    claimed: jobs.length,
+                    started: batchResult.startedCount,
+                    released,
+                }, 'Released research lake jobs that were claimed at the runtime deadline');
+            }
         }
 
         addLaneSummaryTotals(summary);
@@ -4555,6 +4706,10 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     }
 
     addLaneSummaryTotals(summary);
+    summary.durationMs = Date.now() - startedAt;
+    summary.attemptedPerMinute = summary.durationMs > 0
+        ? Math.round((summary.attempted / summary.durationMs) * 60_000 * 100) / 100
+        : 0;
     logger.info(summary, 'Research lake extraction cycle completed');
     return summary;
 }
@@ -4584,6 +4739,7 @@ export const __researchLakeTestInternals = {
     buildClaimResearchJobsSql,
     buildFairClaimResearchJobsSql,
     buildFifoClaimResearchJobsSql,
+    buildReleaseUnstartedResearchJobsSql,
     interactionSeedCandidatePredicateSql,
     behavioralSeedCandidatePredicateSql,
     funnelTransitionAliases: FUNNEL_TRANSITION_ALIASES,

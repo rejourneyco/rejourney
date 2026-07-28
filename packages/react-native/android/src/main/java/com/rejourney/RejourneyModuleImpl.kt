@@ -75,7 +75,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.3.1"
+        var sdkVersion = "1.4.0"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
@@ -801,7 +801,17 @@ class RejourneyModuleImpl(
             val message = detailsMap["message"]?.toString() ?: "Unknown error"
             val name = detailsMap["name"]?.toString() ?: "Error"
             val stack = detailsMap["stack"]?.toString()
-            TelemetryPipeline.shared?.recordJSErrorEvent(name, message, stack)
+            val exceptionCategory = detailsMap["exceptionCategory"]?.toString()
+            val source = detailsMap["source"]?.toString()
+            val handled = detailsMap["handled"] as? Boolean
+            TelemetryPipeline.shared?.recordJSErrorEvent(
+                name,
+                message,
+                stack,
+                exceptionCategory = exceptionCategory,
+                source = source,
+                handled = handled
+            )
             promise.resolve(createResultMap(true))
             return
         }

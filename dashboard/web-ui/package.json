@@ -13,6 +13,7 @@
     "typegen": "react-router typegen",
     "typecheck": "npm run typegen && tsc --noEmit",
     "lint": "npm run typecheck",
+    "generate:android-device-names": "node scripts/generate-android-device-model-names.mjs",
     "seo:audit": "node scripts/seo-audit.mjs",
     "check": "npm run typecheck && npm run seo:audit && npm run build",
     "clean:generated": "rm -rf .react-router build"

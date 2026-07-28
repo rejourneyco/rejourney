@@ -18,6 +18,7 @@ change, old high-volume project backlogs could monopolize the worker.
 4. Temporarily increase worker catch-up capacity:
    - `RESEARCH_LAKE_BATCH_SIZE`
    - `RESEARCH_LAKE_CONCURRENCY`
+   - `RESEARCH_LAKE_UPLOAD_CONCURRENCY`
    - `RESEARCH_LAKE_MAX_RUNTIME_MS`
    - `RESEARCH_LAKE_SEED_MULTIPLIER`
 5. Run manual worker jobs until pending interaction jobs are low and projects
@@ -51,3 +52,16 @@ Check these after each catch-up wave:
 - Top interaction reject reasons.
 - Raw exported dates vs curated parquet dates.
 - Current compactor job duration and whether it exits before the deadline.
+- `rejourney_research_lake_attempted_jobs_per_minute` before and after worker
+  tuning.
+- `rejourney_research_lake_cycle_duration_seconds` and the count of stale
+  `processing` jobs. Jobs claimed but not started at the runtime deadline are
+  returned to `pending` immediately and should not wait for stale-job recovery.
+
+## V1 Compatibility
+
+Worker throughput tuning must keep `RESEARCH_LAKE_PREFIX=v1`. Bounded upload
+concurrency, parallel context reads, parallel visual-modality extraction, and
+lower ZIP compression cost change execution timing and compressed bytes only.
+They do not change manifest fields, JSON/JSONL row shapes, object names, sample
+partitioning, anonymization rules, or schema/anonymization version numbers.

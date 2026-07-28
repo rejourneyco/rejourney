@@ -532,9 +532,17 @@ export async function resolveRetentionDeletionEndpoints(
         endpointMap.set(endpoint.id, endpoint);
     }
 
-    for (const endpointId of extraEndpointIds) {
-        if (!endpointId || endpointMap.has(endpointId)) continue;
-        const endpoint = await getEndpointById(endpointId);
+    const missingEndpointIds = Array.from(new Set(extraEndpointIds))
+        .filter((endpointId): endpointId is string => Boolean(
+            endpointId && !endpointMap.has(endpointId),
+        ));
+    const historicalEndpoints = await Promise.all(
+        missingEndpointIds.map((endpointId) => getEndpointById(endpointId)),
+    );
+
+    for (let index = 0; index < historicalEndpoints.length; index += 1) {
+        const endpointId = missingEndpointIds[index];
+        const endpoint = historicalEndpoints[index];
         if (!endpoint) continue;
         if (endpoint.projectId !== null && endpoint.projectId !== projectId) {
             logger.warn(
@@ -1475,18 +1483,31 @@ export async function deleteObjectsFromStorageEndpoints(
     }
 
     const endpointResults: S3ObjectDeletionEndpointResult[] = [];
-    for (const endpoint of dedupedEndpoints.values()) {
-        const { client, bucket } = getS3ClientForEndpoint(endpoint);
-        endpointResults.push(await deleteObjectsWithClient({
-            client,
-            bucket,
-            endpointId: endpoint.id,
-            endpointUrl: endpoint.endpointUrl,
-            projectId: endpoint.projectId,
-            shadow: endpoint.shadow,
-            active: endpoint.active,
-        }, normalizedKeys));
+    const endpointList = Array.from(dedupedEndpoints.values());
+    const concurrency = Math.max(
+        1,
+        Math.min(config.RETENTION_S3_CONCURRENCY, endpointList.length || 1),
+    );
+    let nextIndex = 0;
+
+    async function worker(): Promise<void> {
+        while (nextIndex < endpointList.length) {
+            const endpoint = endpointList[nextIndex];
+            nextIndex += 1;
+            const { client, bucket } = getS3ClientForEndpoint(endpoint);
+            endpointResults.push(await deleteObjectsWithClient({
+                client,
+                bucket,
+                endpointId: endpoint.id,
+                endpointUrl: endpoint.endpointUrl,
+                projectId: endpoint.projectId,
+                shadow: endpoint.shadow,
+                active: endpoint.active,
+            }, normalizedKeys));
+        }
     }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
     return {
         deletedObjectCount: endpointResults.reduce((total, result) => total + result.deletedObjectCount, 0),

@@ -135,6 +135,8 @@ spec:
               value: "240000"
             - name: RETENTION_S3_CONCURRENCY
               value: "4"
+            - name: RETENTION_SESSION_CONCURRENCY
+              value: "8"
             - name: SMTP_HOST
               valueFrom:
                 secretKeyRef:
@@ -636,6 +638,8 @@ spec:
                   optional: true
             - name: RESEARCH_LAKE_PREFIX
               value: "v1"
+            - name: RESEARCH_LAKE_UPLOAD_CONCURRENCY
+              value: "3"
           resources:
             requests:
               cpu: 10m

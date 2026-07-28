@@ -470,7 +470,15 @@ class TelemetryPipeline private constructor(private val context: Context) {
         ))
     }
     
-    fun recordJSErrorEvent(name: String, message: String, stack: String?) {
+    fun recordJSErrorEvent(
+        name: String,
+        message: String,
+        stack: String?,
+        incidentId: String? = null,
+        exceptionCategory: String? = null,
+        source: String? = null,
+        handled: Boolean? = null
+    ) {
         val event = mutableMapOf<String, Any>(
             "type" to "error",
             "timestamp" to ts(),
@@ -480,18 +488,33 @@ class TelemetryPipeline private constructor(private val context: Context) {
         if (stack != null) {
             event["stack"] = stack
         }
+        if (incidentId != null) {
+            event["incidentId"] = incidentId
+        }
+        if (exceptionCategory != null) {
+            event["exceptionCategory"] = exceptionCategory
+        }
+        if (source != null) {
+            event["source"] = source
+        }
+        if (handled != null) {
+            event["handled"] = handled
+        }
         enqueue(event)
         // Prioritize JS error delivery to reduce loss on fatal terminations.
         serialWorker.execute { shipPendingEvents() }
     }
     
-    fun recordAnrEvent(durationMs: Long, stack: String?) {
+    fun recordAnrEvent(durationMs: Long, stack: String?, incidentId: String? = null) {
         val event = mutableMapOf<String, Any>(
             "type" to "anr",
             "timestamp" to ts(),
             "durationMs" to durationMs,
             "threadState" to "blocked"
         )
+        if (incidentId != null) {
+            event["incidentId"] = incidentId
+        }
         if (stack != null) {
             event["stack"] = stack
         }

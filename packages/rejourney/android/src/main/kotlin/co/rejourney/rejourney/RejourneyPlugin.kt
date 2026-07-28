@@ -143,9 +143,16 @@ class RejourneyPlugin :
             }
             "debugCrash" -> {
                 if (BuildConfig.DEBUG) {
-                    throw RuntimeException("Rejourney Flutter debug crash triggered")
+                    result.success(null)
+                    // Throw after MethodChannel returns. A synchronous exception is
+                    // converted into PlatformException by Flutter and does not test
+                    // the SDK's uncaught-crash persistence or next-launch retry.
+                    Handler(Looper.getMainLooper()).post {
+                        throw RuntimeException("Rejourney Flutter debug crash triggered")
+                    }
+                } else {
+                    result.error("debug_only", "debugCrash is available only in debug builds", null)
                 }
-                result.error("debug_only", "debugCrash is available only in debug builds", null)
             }
             "debugTriggerAnr" -> {
                 if (BuildConfig.DEBUG) {

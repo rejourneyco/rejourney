@@ -16,6 +16,8 @@ type ResearchLakeCycleSummary = {
     rejected: number;
     failed: number;
     recoveredStaleProcessing: number;
+    durationMs: number;
+    attemptedPerMinute: number;
     byLake: Record<'interaction' | 'behavioral_outcomes', {
         seeded: number;
         attempted: number;
@@ -97,6 +99,16 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
             value: summary.recoveredStaleProcessing,
         },
         {
+            name: 'rejourney_research_lake_cycle_duration_seconds',
+            help: 'Duration of the current research lake extraction cycle in seconds',
+            value: summary.durationMs / 1000,
+        },
+        {
+            name: 'rejourney_research_lake_attempted_jobs_per_minute',
+            help: 'Average attempted research lake jobs per minute in the current run',
+            value: summary.attemptedPerMinute,
+        },
+        {
             name: 'rejourney_research_lake_revenue_outcomes_attempted_total',
             help: 'Total project-day revenue outcome rows attempted in the current research lake run',
             value: summary.revenueOutcomes.attempted,
@@ -146,7 +158,7 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
     await pingWorker(
         'researchLakeWorker',
         'up',
-        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing},revenueMode=${summary.revenueOutcomes.mode},revenueExported=${summary.revenueOutcomes.exported},revenueFailed=${summary.revenueOutcomes.failed}`,
+        `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing},durationMs=${summary.durationMs},attemptedPerMinute=${summary.attemptedPerMinute},revenueMode=${summary.revenueOutcomes.mode},revenueExported=${summary.revenueOutcomes.exported},revenueFailed=${summary.revenueOutcomes.failed}`,
         undefined,
         extraMetrics,
     );

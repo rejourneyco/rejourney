@@ -12,9 +12,9 @@ module.exports = {
         packageImportPath: 'import com.rejourney.RejourneyPackage;',
         packageInstance: 'new RejourneyPackage()',
       },
-      ios: {
-        podspecPath: './rejourney.podspec',
-      },
+      // Current React Native CLI versions discover the root podspec
+      // automatically. Only user-overridable iOS options belong here.
+      ios: {},
     },
   },
 };

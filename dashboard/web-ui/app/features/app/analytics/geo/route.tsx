@@ -25,6 +25,10 @@ import {
     type GeoNavigationState,
     type GeoViewportState,
 } from './geoNavigationState';
+import {
+    configureGeoMapZoomSensitivity,
+    getGeoMapWheelZoomDelta,
+} from './geoMapZoom';
 // @ts-ignore: react-map-gl typing can fail under current tsconfig
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -1512,8 +1516,7 @@ export const Geo: React.FC = () => {
             if (!isInsideMapHost(event)) return;
 
             stopBrowserZoom(event);
-            const normalizedDelta = Math.max(-2.4, Math.min(2.4, event.deltaY / 100));
-            zoomMapAroundEvent(event, -normalizedDelta * 0.44);
+            zoomMapAroundEvent(event, getGeoMapWheelZoomDelta(event.deltaY, event.deltaMode));
         };
         const handleGestureStart = (event: Event & { scale?: number; clientX?: number; clientY?: number }) => {
             if (!isInsideMapHost(event)) return;
@@ -2447,6 +2450,7 @@ export const Geo: React.FC = () => {
                                 onLoad={(event: any) => {
                                     mapRef.current = event.target;
                                     applyGeoMapConfig(event.target);
+                                    configureGeoMapZoomSensitivity(event.target);
                                     setIsMapReady(true);
                                 }}
                             >

@@ -19,6 +19,7 @@ package com.rejourney.recording
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.util.AtomicFile
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -457,16 +458,17 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
     private fun hasStoredCrashIncidentForSession(sessionId: String): Boolean {
         val incidentFile = File(context.cacheDir, "rj_incidents.json")
-        if (!incidentFile.exists()) return false
+        if (!incidentFile.exists() && !File("${incidentFile.path}.bak").exists()) return false
 
         return try {
-            val incident = JSONObject(incidentFile.readText())
-            val incidentSessionId = incident.optString("sessionId", "")
-            val category = incident.optString("category", "").lowercase()
-            val crashLikeCategory = category == "signal" || category == "exception" || category == "crash"
-            val hasSignalDetail = incident.optString("identifier", "").isNotBlank()
-                || incident.optString("detail", "").isNotBlank()
-            crashLikeCategory && incidentSessionId == sessionId && hasSignalDetail
+            val data = AtomicFile(incidentFile).openRead().bufferedReader().use { it.readText() }
+            IncidentRecord.listFromJson(data).any { incident ->
+                val category = incident.category.lowercase()
+                val crashLikeCategory = category == "signal" || category == "exception" || category == "crash"
+                crashLikeCategory &&
+                    incident.sessionId == sessionId &&
+                    (incident.identifier.isNotBlank() || incident.detail.isNotBlank())
+            }
         } catch (_: Exception) {
             false
         }

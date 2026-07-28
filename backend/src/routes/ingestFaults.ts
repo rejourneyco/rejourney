@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
-import { db, anrs, crashes, sessionMetrics } from '../db/client.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, sessionMetrics } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import { ingestFaultProjectRateLimiter } from '../middleware/rateLimit.js';
@@ -9,6 +9,7 @@ import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js'
 import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from '../services/anrStack.js';
 import { normalizeClientEpochMsForSession } from '../services/sessionClock.js';
+import { persistAnrOccurrence, persistCrashOccurrence } from '../services/stabilityIngest.js';
 
 const router = Router();
 
@@ -48,6 +49,15 @@ router.post(
             : typeof incident.frames === 'string'
                 ? incident.frames
                 : null;
+        const sessionMetadata = {
+            platform: faultSession.platform,
+            model: faultSession.deviceModel,
+            deviceModel: faultSession.deviceModel,
+            osVersion: faultSession.osVersion,
+            systemVersion: faultSession.osVersion,
+            appVersion: faultSession.appVersion,
+            sdkVersion: faultSession.sdkVersion,
+        };
 
         if (isAnrIncident) {
             const durationMs = incident.context?.durationMs
@@ -59,35 +69,26 @@ router.post(
                 deviceMetadata: incident.context,
             });
 
-            const dedupeWindowMs = 30_000;
-            const minTs = new Date(timestamp.getTime() - dedupeWindowMs);
-            const maxTs = new Date(timestamp.getTime() + dedupeWindowMs);
-            const [existingAnr] = await db
-                .select({ id: anrs.id })
-                .from(anrs)
-                .where(and(
-                    eq(anrs.sessionId, sessionId),
-                    gte(anrs.timestamp, minTs),
-                    lte(anrs.timestamp, maxTs),
-                    sql`ABS(COALESCE(${anrs.durationMs}, 0) - ${durationMs}) <= 500`,
-                ))
-                .limit(1);
-            if (existingAnr) {
+            const deviceMetadata = {
+                ...sessionMetadata,
+                ...mergeAnrDeviceMetadata(incident.context, stackTrace, incident.context?.threadState),
+            };
+            const persisted = await persistAnrOccurrence({
+                sessionId,
+                projectId,
+                incidentId: incident.incidentId,
+                timestamp,
+                durationMs,
+                threadState: stackTrace,
+                deviceMetadata,
+                status: 'open',
+                occurrenceCount: 1,
+            });
+            if (!persisted.inserted) {
                 logger.info({ projectId, sessionId, category: normalizedCategory, durationMs }, 'Fault report deduplicated');
                 res.json({ ok: true, deduplicated: true });
                 return;
             }
-
-            await db.insert(anrs).values({
-                sessionId,
-                projectId,
-                timestamp,
-                durationMs,
-                threadState: stackTrace,
-                deviceMetadata: mergeAnrDeviceMetadata(incident.context, stackTrace, incident.context?.threadState),
-                status: 'open',
-                occurrenceCount: 1,
-            });
 
             await db.update(sessionMetrics)
                 .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + 1` })
@@ -99,21 +100,38 @@ router.post(
                 stackTrace: stackTrace || undefined,
                 timestamp,
                 sessionId,
+                deviceModel: faultSession.deviceModel || undefined,
+                osVersion: faultSession.osVersion || undefined,
+                appVersion: faultSession.appVersion || undefined,
+                userId: faultSession.userDisplayId || faultSession.anonymousHash || faultSession.deviceId || undefined,
             }).catch(() => {});
 
             logger.info({ projectId, sessionId, category: normalizedCategory, durationMs }, 'Fault report ingested');
         } else {
-            await db.insert(crashes).values({
+            const deviceMetadata = {
+                ...sessionMetadata,
+                ...(incident.context && typeof incident.context === 'object' ? incident.context : {}),
+            };
+            const persisted = await persistCrashOccurrence({
                 sessionId,
                 projectId,
+                incidentId: incident.incidentId,
                 timestamp,
                 exceptionName: incident.identifier || 'Unknown',
                 reason: incident.detail || null,
                 stackTrace,
-                deviceMetadata: incident.context || null,
+                deviceMetadata,
                 status: 'open',
                 occurrenceCount: 1,
             });
+            if (!persisted.inserted) {
+                logger.info(
+                    { projectId, sessionId, category: normalizedCategory, identifier: incident.identifier },
+                    'Fault report deduplicated',
+                );
+                res.json({ ok: true, deduplicated: true });
+                return;
+            }
 
             await db.update(sessionMetrics)
                 .set({ crashCount: sql`COALESCE(${sessionMetrics.crashCount}, 0) + 1` })
@@ -126,6 +144,10 @@ router.post(
                 stackTrace: stackTrace || undefined,
                 timestamp,
                 sessionId,
+                deviceModel: faultSession.deviceModel || undefined,
+                osVersion: faultSession.osVersion || undefined,
+                appVersion: faultSession.appVersion || undefined,
+                userId: faultSession.userDisplayId || faultSession.anonymousHash || faultSession.deviceId || undefined,
             }).catch(() => {});
 
             logger.info({ projectId, sessionId, category: normalizedCategory, identifier: incident.identifier }, 'Fault report ingested');
