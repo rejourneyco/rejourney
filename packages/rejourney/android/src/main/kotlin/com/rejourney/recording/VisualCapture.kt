@@ -106,6 +106,7 @@ class VisualCapture private constructor(private val context: Context) {
     private val windowCopyInFlight = AtomicBoolean(false)
     private val useFlutterImageViewCapture = AtomicBoolean(false)
     private val useFlutterRendererCapture = AtomicBoolean(false)
+    private val allowUnfocusedCaptureForTesting = AtomicBoolean(false)
     private val forceFlutterImageViewCaptureForTest = AtomicBoolean(false)
     private val flutterImageViewHasFrame = AtomicBoolean(false)
     private val placeholderFillColor = Color.WHITE
@@ -356,6 +357,7 @@ class VisualCapture private constructor(private val context: Context) {
 
     fun forceFlutterLayerCaptureForTesting(enabled: Boolean) {
         useFlutterRendererCapture.set(enabled)
+        allowUnfocusedCaptureForTesting.set(enabled)
         if (enabled) {
             useFlutterImageViewCapture.set(false)
             restoreFlutterRenderSurface()
@@ -455,7 +457,11 @@ class VisualCapture private constructor(private val context: Context) {
             val window = activity.window ?: return
             val decorView = window.decorView
             val captureRoots = captureRoots(activity, decorView)
-            if (!activity.hasWindowFocus() && !hasCapturableNativeSheetRoot(decorView, captureRoots)) {
+            if (!shouldAttemptCapture(
+                    hasWindowFocus = activity.hasWindowFocus(),
+                    allowUnfocusedCaptureForTesting = allowUnfocusedCaptureForTesting.get(),
+                    hasCapturableNativeSheet = hasCapturableNativeSheetRoot(decorView, captureRoots)
+                )) {
                 DiagnosticLog.trace("[VisualCapture] captureFrame skipped - activity not in foreground")
                 return
             }
@@ -2001,6 +2007,14 @@ class VisualCapture private constructor(private val context: Context) {
             current = target.get()
         }
     }
+}
+
+internal fun shouldAttemptCapture(
+    hasWindowFocus: Boolean,
+    allowUnfocusedCaptureForTesting: Boolean,
+    hasCapturableNativeSheet: Boolean
+): Boolean {
+    return hasWindowFocus || allowUnfocusedCaptureForTesting || hasCapturableNativeSheet
 }
 
 private enum class CaptureState {

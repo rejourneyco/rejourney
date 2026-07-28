@@ -623,10 +623,42 @@ wait_for_daemonset() {
   fi
 
   log "Waiting for rollout: ${name}"
-  if ! kubectl rollout status daemonset/"${name}" -n "${NAMESPACE}" --timeout=300s; then
-    dump_workload_diagnostics daemonset "${name}"
-    exit 1
-  fi
+  local deadline=$(( $(date +%s) + 300 ))
+  while [ "$(date +%s)" -lt "${deadline}" ]; do
+    local desired ready available updated healthy target
+    desired=$(kubectl get daemonset "${name}" -n "${NAMESPACE}" \
+      -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+    ready=$(kubectl get daemonset "${name}" -n "${NAMESPACE}" \
+      -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+    available=$(kubectl get daemonset "${name}" -n "${NAMESPACE}" \
+      -o jsonpath='{.status.numberAvailable}' 2>/dev/null || echo "0")
+    updated=$(kubectl get daemonset "${name}" -n "${NAMESPACE}" \
+      -o jsonpath='{.status.updatedNumberScheduled}' 2>/dev/null || echo "0")
+    healthy=$(healthy_node_count)
+    target="${desired:-0}"
+    if [ "${healthy:-0}" -gt 0 ] && [ "${healthy}" -lt "${target}" ]; then
+      target="${healthy}"
+    fi
+
+    if [ "${target}" -gt 0 ] &&
+      [ "${ready:-0}" -ge "${target}" ] &&
+      [ "${available:-0}" -ge "${target}" ] &&
+      [ "${updated:-0}" -ge "${target}" ]; then
+      log "✅ ${name}: ${ready}/${desired} ready (${target} healthy nodes required)"
+      return
+    fi
+
+    log "  ${name}: ready=${ready:-0}/${desired:-0}, healthy-node target=${target:-0}..."
+    sleep 5
+  done
+
+  dump_workload_diagnostics daemonset "${name}"
+  exit 1
+}
+
+healthy_node_count() {
+  kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{" "}{range .status.conditions[?(@.type=="DiskPressure")]}{.status}{end}{"\n"}{end}' |
+    awk '$2 == "True" && $3 != "True" { count += 1 } END { print count + 0 }'
 }
 
 # Pull the new API and web images onto every node before triggering the rolling
@@ -701,12 +733,13 @@ spec:
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits:   { cpu: 200m, memory: 256Mi }
-      # Minimal main container — just keeps the pod Running so we can count Ready pods
+      # Keep the pod Ready longer than the bounded wait. A short-lived container
+      # causes healthy prepull pods to restart while a pressured node is skipped.
       containers:
         - name: done
           image: ${api_image}
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "sleep 60"]
+          command: ["/bin/sh", "-c", "sleep 600"]
           resources:
             requests: { cpu: 1m, memory: 4Mi }
             limits:   { cpu: 50m, memory: 32Mi }
@@ -724,17 +757,30 @@ YAML
   if [ "${desired:-0}" -eq 0 ]; then
     log "⚠️  Could not determine desired node count for pre-pull DaemonSet; skipping wait."
   else
-    log "Waiting for image pre-pull on ${desired} nodes (up to 300s)..."
+    local healthy target
+    healthy=$(healthy_node_count)
+    target="${desired}"
+    if [ "${healthy:-0}" -gt 0 ] && [ "${healthy}" -lt "${target}" ]; then
+      target="${healthy}"
+    fi
+    log "Waiting for image pre-pull on ${target}/${desired} nodes (healthy nodes only, up to 300s)..."
     local deadline=$(( $(date +%s) + 300 ))
     while [ "$(date +%s)" -lt "${deadline}" ]; do
-      local ready
+      local ready current_desired
       ready=$(kubectl get daemonset "${ds_name}" -n "${NAMESPACE}" \
         -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
-      if [ "${ready:-0}" -ge "${desired}" ]; then
-        log "✅ Image pre-pull complete — ${ready}/${desired} nodes warmed"
+      current_desired=$(kubectl get daemonset "${ds_name}" -n "${NAMESPACE}" \
+        -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "${desired}")
+      healthy=$(healthy_node_count)
+      target="${current_desired:-${desired}}"
+      if [ "${healthy:-0}" -gt 0 ] && [ "${healthy}" -lt "${target}" ]; then
+        target="${healthy}"
+      fi
+      if [ "${target:-0}" -gt 0 ] && [ "${ready:-0}" -ge "${target}" ]; then
+        log "✅ Image pre-pull complete — ${ready}/${current_desired} nodes warmed (${target} healthy required)"
         break
       fi
-      log "  Pre-pull: ${ready:-0}/${desired} nodes ready..."
+      log "  Pre-pull: ${ready:-0}/${current_desired:-0} nodes ready, healthy-node target=${target:-0}..."
       sleep 10
     done
   fi

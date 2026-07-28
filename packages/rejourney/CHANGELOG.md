@@ -1,3 +1,11 @@
+## 0.3.1
+
+- Make the debug-only retained-layer integration hook deterministic on headless
+  Android emulators whose test activity can render without receiving window
+  focus, while preserving the production foreground-capture guard.
+- Add Android unit coverage for foreground, native-sheet, and debug-only
+  headless capture eligibility.
+
 ## 0.3.0
 
 - Add stable incident identifiers shared across telemetry and fault-recovery
