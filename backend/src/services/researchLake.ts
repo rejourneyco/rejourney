@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { gzip } from 'node:zlib';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ZipArchive } from 'archiver';
 import { pool } from '../db/client.js';
 import {
@@ -24,8 +24,17 @@ import {
     type LegacyStabilityRow,
 } from './stabilityAnalytics.js';
 import { runBoundedConcurrentBatch } from './retentionBatch.js';
+import {
+    cleanupExpiredResearchLakeV2State,
+    expireResearchLakeV2VisualHold,
+    isResearchLakeV2SchemaActive,
+    markResearchLakeV2VisualExportComplete,
+    prepareResearchLakeV2Session,
+} from './researchLakeV2Lifecycle.js';
+import { discardSmartCaptureVisualArtifacts } from './smartCapture.js';
 
 const RESEARCH_SCHEMA_VERSION = 1;
+const RESEARCH_SCHEMA_VERSION_V2 = 2;
 const RESEARCH_ANONYMIZATION_VERSION = 1;
 const PHONE_PORTRAIT_GRID = { columns: 64, rows: 128 } as const;
 const PHONE_LANDSCAPE_GRID = { columns: 128, rows: 64 } as const;
@@ -44,6 +53,7 @@ const RRWEB_INCREMENTAL_MUTATION = 0;
 const RRWEB_INCREMENTAL_SCROLL = 3;
 const RRWEB_INCREMENTAL_VIEWPORT_RESIZE = 4;
 const RESEARCH_LAKE_TYPES = ['interaction', 'behavioral_outcomes'] as const;
+const RESEARCH_LAKE_V2_TYPES = ['interaction', 'behavioral_outcomes', 'forward_outcomes'] as const;
 const STALE_PROCESSING_BUFFER_MS = 10 * 60 * 1000;
 
 const require = createRequire(import.meta.url);
@@ -56,6 +66,7 @@ const jpeg = require('jpeg-js') as {
 };
 
 export type ResearchLakeType = typeof RESEARCH_LAKE_TYPES[number];
+export type ResearchLakeV2Type = typeof RESEARCH_LAKE_V2_TYPES[number];
 
 type ScreenOrientation = 'portrait' | 'landscape';
 type ScreenFormFactor = 'phone' | 'tablet';
@@ -69,11 +80,14 @@ type FeatureGridSpec = {
 type ResearchJobRow = {
     id: string;
     session_id: string;
-    lake_type: ResearchLakeType;
+    lake_type: ResearchLakeType | ResearchLakeV2Type;
     project_id: string;
     team_id: string;
     due_at: Date;
     attempts: number;
+    schema_version: number;
+    job_lane: string;
+    created_at?: Date;
 };
 
 type SessionContext = {
@@ -85,6 +99,8 @@ type SessionContext = {
     sdk_version: string | null;
     started_at: Date;
     ended_at: Date | null;
+    explicit_ended_at: Date | null;
+    close_source: string | null;
     duration_seconds: number | null;
     retention_days: number;
     events: unknown;
@@ -146,6 +162,8 @@ type ArtifactContext = {
     end_time: number | null;
     frame_count: number | null;
 };
+
+type ArtifactDataCache = Map<string, Buffer | null>;
 
 type ResearchInteractionRow = Record<string, unknown> & {
     index: number;
@@ -210,6 +228,13 @@ export interface ResearchLakeCycleSummary extends ResearchLakeLaneSummary {
     attemptedPerMinute: number;
     byLake: Record<ResearchLakeType, ResearchLakeLaneSummary>;
     revenueOutcomes: RevenueOutcomeExportSummary;
+}
+
+export interface ResearchLakeV2CycleSummary extends ResearchLakeLaneSummary {
+    recoveredStaleProcessing: number;
+    cleanedVisualHolds: number;
+    expiredPanelRows: number;
+    byLake: Record<ResearchLakeV2Type, ResearchLakeLaneSummary>;
 }
 
 let researchLakeClient: S3Client | null = null;
@@ -325,6 +350,41 @@ async function putResearchObjects(objects: readonly ResearchObjectUpload[]): Pro
 
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     if (firstError !== null) throw firstError;
+}
+
+async function putVerifiedResearchObject(key: string, body: Buffer, contentType: string): Promise<void> {
+    const checksum = hmacBuffer('research-v2-object:', body, 40);
+    await getResearchLakeClient().send(new PutObjectCommand({
+        Bucket: config.RESEARCH_LAKE_BUCKET,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        Metadata: {
+            'research-checksum': checksum,
+        },
+    }));
+    const stored = await getResearchLakeClient().send(new HeadObjectCommand({
+        Bucket: config.RESEARCH_LAKE_BUCKET,
+        Key: key,
+    }));
+    if (
+        stored.ContentLength !== body.length
+        || stored.Metadata?.['research-checksum'] !== checksum
+    ) {
+        throw new Error(`Research lake object verification failed for ${key}`);
+    }
+}
+
+async function downloadArtifactData(
+    projectId: string,
+    artifact: ArtifactContext,
+    cache?: ArtifactDataCache,
+): Promise<Buffer | null> {
+    if (!artifact.s3ObjectKey) return null;
+    if (cache?.has(artifact.id)) return cache.get(artifact.id) ?? null;
+    const data = await downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId);
+    cache?.set(artifact.id, data);
+    return data;
 }
 
 function asEvents(value: unknown): Record<string, unknown>[] {
@@ -2025,6 +2085,7 @@ async function buildHierarchyVisualRows(
     hierarchyArtifacts: ArtifactContext[],
     interactions: ResearchInteractionRow[],
     projectKey: string,
+    includeExactTiming = false,
 ): Promise<ResearchVisualRows> {
     const frames: ResearchUiFrameRow[] = [];
     const skeleton: ResearchUiElementRow[] = [];
@@ -2091,6 +2152,7 @@ async function buildHierarchyVisualRows(
                 source_artifact_kind: artifact.kind,
                 source_snapshot_index: snapshotIndex,
                 elapsed_ms_bucket: elapsedMsBucket,
+                ...(includeExactTiming ? { elapsed_ms: exactElapsedMs(numberValue(snapshot.timestamp), session) } : {}),
                 screen_key: screen,
                 source_timing: 'hierarchy_snapshot',
                 hierarchy_snapshot_sparse: null,
@@ -2123,6 +2185,8 @@ async function buildScreenshotVisualRows(
     screenshotArtifacts: ArtifactContext[],
     interactions: ResearchInteractionRow[],
     projectKey: string,
+    includeExactTiming = false,
+    artifactDataCache?: ArtifactDataCache,
 ): Promise<ResearchVisualRows> {
     const frames: ResearchUiFrameRow[] = [];
     const skeleton: ResearchUiElementRow[] = [];
@@ -2142,7 +2206,7 @@ async function buildScreenshotVisualRows(
         const artifact = sortedArtifacts[artifactIndex];
         if (!artifact.s3ObjectKey) continue;
 
-        const archiveData = await downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId);
+        const archiveData = await downloadArtifactData(session.project_id, artifact, artifactDataCache);
         if (!archiveData) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download screenshot artifact');
             continue;
@@ -2172,6 +2236,7 @@ async function buildScreenshotVisualRows(
                 source_artifact_kind: artifact.kind,
                 source_frame_index: frame.index,
                 elapsed_ms_bucket: elapsedMsBucket,
+                ...(includeExactTiming ? { elapsed_ms: exactElapsedMs(frame.timestamp, session) } : {}),
                 screen_key: screenKey,
                 width_bucket: bucketNumber(features?.width ?? null, 64, 0, 8192),
                 height_bucket: bucketNumber(features?.height ?? null, 64, 0, 8192),
@@ -2207,6 +2272,7 @@ async function buildRrwebVisualRows(
     rrwebArtifacts: ArtifactContext[],
     interactions: ResearchInteractionRow[],
     projectKey: string,
+    includeExactTiming = false,
 ): Promise<ResearchVisualRows> {
     const frames: ResearchUiFrameRow[] = [];
     const skeleton: ResearchUiElementRow[] = [];
@@ -2334,6 +2400,7 @@ async function buildRrwebVisualRows(
                 rrweb_incremental_source: incrementalSource,
                 rrweb_event_kind: kind,
                 elapsed_ms_bucket: elapsedMsBucket,
+                ...(includeExactTiming ? { elapsed_ms: exactElapsedMs(timestamp, session) } : {}),
                 screen_key: screenKey,
                 page_width_bucket: bucketNumber(currentDimensions.pageWidth, 64, 0, 20_000),
                 page_height_bucket: bucketNumber(currentDimensions.pageHeight, 64, 0, 200_000),
@@ -2357,6 +2424,8 @@ async function buildVisualRows(
     artifacts: ArtifactContext[],
     interactions: ResearchInteractionRow[],
     projectKey: string,
+    includeExactTiming = false,
+    screenshotDataCache?: ArtifactDataCache,
 ): Promise<ResearchVisualRows> {
     // Each modality owns independent source indexes and is concatenated in the
     // same V1 order below, so its downloads/parsing can overlap safely.
@@ -2366,18 +2435,22 @@ async function buildVisualRows(
             artifacts.filter((artifact) => artifact.kind === 'screenshots'),
             interactions,
             projectKey,
+            includeExactTiming,
+            screenshotDataCache,
         ),
         buildHierarchyVisualRows(
             session,
             artifacts.filter((artifact) => artifact.kind === 'hierarchy'),
             interactions,
             projectKey,
+            includeExactTiming,
         ),
         buildRrwebVisualRows(
             session,
             artifacts.filter((artifact) => artifact.kind === 'rrweb'),
             interactions,
             projectKey,
+            includeExactTiming,
         ),
     ]);
 
@@ -2962,6 +3035,7 @@ ${lanePredicate}
                   FROM research_extraction_jobs rej
                   WHERE rej.session_id = s.id
                     AND rej.lake_type = $3
+                    AND rej.schema_version = 1
               )
         ),
         candidates AS (
@@ -2970,10 +3044,10 @@ ${lanePredicate}
             ORDER BY project_rank, project_oldest_due_at, project_id, due_at, session_id
             LIMIT $2
         )
-        INSERT INTO research_extraction_jobs (session_id, project_id, team_id, due_at, lake_type)
-        SELECT session_id, project_id, team_id, due_at, $3
+        INSERT INTO research_extraction_jobs (session_id, project_id, team_id, due_at, lake_type, schema_version, job_lane)
+        SELECT session_id, project_id, team_id, due_at, $3, 1, 'retention'
         FROM candidates
-        ON CONFLICT (session_id, lake_type) DO NOTHING
+        ON CONFLICT DO NOTHING
         `;
 }
 
@@ -2999,6 +3073,7 @@ async function recoverStaleProcessingJobs(): Promise<number> {
             last_error = 'Recovered stale processing research-lake job after worker deadline',
             updated_at = NOW()
         WHERE status = 'processing'
+          AND schema_version = 1
           AND updated_at < NOW() - ($1 * INTERVAL '1 minute')
         `,
         [staleMinutes],
@@ -3012,6 +3087,7 @@ function buildFifoClaimResearchJobsSql(): string {
             SELECT id
             FROM research_extraction_jobs
             WHERE status IN ('pending', 'failed')
+              AND schema_version = 1
               AND lake_type = $2
               AND (next_retry_at IS NULL OR next_retry_at <= NOW())
               AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
@@ -3026,7 +3102,7 @@ function buildFifoClaimResearchJobsSql(): string {
             updated_at = NOW()
         FROM candidates
         WHERE rej.id = candidates.id
-        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts
+        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts, rej.schema_version, rej.job_lane
         `;
 }
 
@@ -3038,6 +3114,7 @@ function buildFairClaimResearchJobsSql(): string {
                 MIN(due_at) AS project_oldest_due_at
             FROM research_extraction_jobs
             WHERE status IN ('pending', 'failed')
+              AND schema_version = 1
               AND lake_type = $2
               AND (next_retry_at IS NULL OR next_retry_at <= NOW())
               AND due_at <= NOW() + ($1 * INTERVAL '1 hour')
@@ -3065,6 +3142,7 @@ function buildFairClaimResearchJobsSql(): string {
                     SELECT id, project_id, due_at, created_at
                     FROM research_extraction_jobs
                     WHERE status IN ('pending', 'failed')
+                      AND schema_version = 1
                       AND lake_type = $2
                       AND project_id = active_projects.project_id
                       AND (next_retry_at IS NULL OR next_retry_at <= NOW())
@@ -3089,7 +3167,7 @@ function buildFairClaimResearchJobsSql(): string {
             updated_at = NOW()
         FROM candidates
         WHERE rej.id = candidates.id
-        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts
+        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts, rej.schema_version, rej.job_lane
         `;
 }
 
@@ -3128,6 +3206,8 @@ async function loadSessionContext(sessionId: string): Promise<{
             s.sdk_version,
             s.started_at,
             s.ended_at,
+            s.explicit_ended_at,
+            s.close_source,
             s.duration_seconds,
             s.retention_days,
             s.events,
@@ -3400,6 +3480,35 @@ async function releaseUnstartedResearchJobs(jobs: readonly ResearchJobRow[]): Pr
         [jobs.map((job) => job.id)],
     );
     return result.rowCount ?? 0;
+}
+
+function v2RetryWindowExhausted(job: ResearchJobRow, now = new Date()): boolean {
+    const dueAt = new Date(job.due_at).getTime();
+    const createdAt = job.created_at ? new Date(job.created_at).getTime() : dueAt;
+    const retryStartedAt = Math.max(dueAt, createdAt);
+    const retryWindowMs = Math.max(1, config.RESEARCH_LAKE_V2_RETRY_WINDOW_HOURS) * 60 * 60 * 1000;
+    return now.getTime() >= retryStartedAt + retryWindowMs;
+}
+
+async function failV2Job(job: ResearchJobRow, err: unknown): Promise<void> {
+    if (!v2RetryWindowExhausted(job)) {
+        await failJob(job, err);
+        return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    await pool.query(
+        `
+        UPDATE research_extraction_jobs
+        SET status = 'rejected', next_retry_at = NULL,
+            reject_reason = 'v2_retry_window_exhausted', last_error = $2,
+            processed_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND schema_version = 2
+        `,
+        [job.id, message.slice(0, 2000)],
+    );
+    if (job.lake_type === 'interaction') {
+        await expireResearchLakeV2VisualHold(job.session_id);
+    }
 }
 
 type RevenueOutcomeRow = {
@@ -4607,6 +4716,679 @@ async function processBehavioralJob(
     return 'exported';
 }
 
+type V2CaptureContext = {
+    capture_tier: string;
+    sampling_bucket: number;
+    inclusion_probability_ppm: number;
+    tier_assignment_probability_ppm: number;
+    source_sample_rate_bps: number | null;
+    policy_version: number;
+    smart_capture_status: string | null;
+    smart_capture_reason: string | null;
+    smart_capture_rule_key: string | null;
+    evaluation_quarantined: boolean;
+};
+
+type V2FrameIndexRow = {
+    frame_key: string;
+    archive_key: string;
+    source_artifact_index: number;
+    source_frame_index: number;
+    source_filename_key: string;
+    timestamp_utc: string;
+    elapsed_ms: number;
+    width: number | null;
+    height: number | null;
+    image_bytes: number;
+    frame_checksum_key: string;
+};
+
+function v2Prefix(): string {
+    return config.RESEARCH_LAKE_V2_PREFIX.replace(/^\/+|\/+$/g, '') || 'v2';
+}
+
+function exactElapsedMs(rawTimestamp: number | null, session: SessionContext): number | null {
+    if (rawTimestamp === null) return null;
+    const elapsed = rawTimestamp > session.started_at.getTime() - 60_000
+        ? rawTimestamp - session.started_at.getTime()
+        : rawTimestamp;
+    return Math.max(0, Math.min(86_400_000, Math.round(elapsed)));
+}
+
+function latencyBucket(value: number | null): string | null {
+    if (value === null || value < 0) return null;
+    if (value < 50) return '0_50';
+    if (value < 100) return '50_100';
+    if (value < 200) return '100_200';
+    if (value < 400) return '200_400';
+    if (value < 800) return '400_800';
+    if (value < 1600) return '800_1600';
+    return '1600_plus';
+}
+
+function addV2ExactInteractionTiming(
+    session: SessionContext,
+    interactions: ResearchInteractionRow[],
+    frameElapsed: number[],
+    domMutationElapsed: number[],
+): ResearchInteractionRow[] {
+    const events = asEvents(session.events);
+    return interactions.map((interaction) => {
+        const event = events[interaction.index] ?? {};
+        const rawTimestamp = numberValue(event.timestamp ?? event.time ?? event.ts);
+        const elapsedMs = exactElapsedMs(
+            rawTimestamp ?? numberValue(event.elapsedMs ?? event.elapsed_ms),
+            session,
+        );
+        const nextFrame = elapsedMs === null ? null : frameElapsed.find((value) => value >= elapsedMs) ?? null;
+        const nextMutation = elapsedMs === null ? null : domMutationElapsed.find((value) => value >= elapsedMs) ?? null;
+        const frameLatency = elapsedMs === null || nextFrame === null ? null : nextFrame - elapsedMs;
+        const mutationLatency = elapsedMs === null || nextMutation === null ? null : nextMutation - elapsedMs;
+        const isInputAction = ['tap', 'input', 'gesture', 'scroll'].includes(String(interaction.kind));
+        return {
+            ...interaction,
+            elapsed_ms: elapsedMs,
+            input_to_next_frame_ms_bucket: isInputAction ? latencyBucket(frameLatency) : null,
+            input_to_dom_mutation_ms_bucket: isInputAction ? latencyBucket(mutationLatency) : null,
+            main_thread_blocked: null,
+            timing_provenance: elapsedMs === null ? 'unavailable' : 'observed',
+            input_latency_provenance: !isInputAction
+                ? 'not_applicable'
+                : frameLatency === null && mutationLatency === null ? 'unavailable' : 'derived',
+            main_thread_blocked_provenance: 'unavailable',
+        };
+    });
+}
+
+function addV2FrameTiming(
+    frames: ResearchUiFrameRow[],
+    frameIndex: V2FrameIndexRow[],
+): ResearchUiFrameRow[] {
+    const screenshotTiming = new Map(frameIndex.map((row) => [`${row.source_artifact_index}:${row.source_frame_index}`, row]));
+    return frames.map((frame) => {
+        const key = `${numberValue(frame.source_artifact_index) ?? -1}:${numberValue(frame.source_frame_index) ?? -1}`;
+        const exact = frame.source_kind === 'screenshots'
+            ? screenshotTiming.get(key)?.elapsed_ms ?? numberValue(frame.elapsed_ms)
+            : numberValue(frame.elapsed_ms);
+        return {
+            ...frame,
+            elapsed_ms: exact,
+            exact_timing_provenance: exact === null ? 'unavailable' : 'observed',
+            media_archive_key: frame.source_kind === 'screenshots' ? screenshotTiming.get(key)?.archive_key ?? null : null,
+            media_frame_checksum_key: frame.source_kind === 'screenshots' ? screenshotTiming.get(key)?.frame_checksum_key ?? null : null,
+        };
+    });
+}
+
+function structuralElementToken(element: ResearchUiElementRow): string {
+    return [
+        stringValue(element.source_kind),
+        stringValue(element.role),
+        stringValue(element.type_family ?? element.tag_class),
+        String(element.hierarchy_depth_bucket ?? element.depth_bucket ?? ''),
+        String(element.child_count_bucket ?? ''),
+        String(element.x_norm_bucket ?? ''),
+        String(element.y_norm_bucket ?? ''),
+        String(element.width_bucket ?? ''),
+        String(element.height_bucket ?? ''),
+    ].join(':');
+}
+
+function buildV2ScreenVersions(
+    frames: ResearchUiFrameRow[],
+    skeleton: ResearchUiElementRow[],
+    projectKey: string,
+): Record<string, unknown>[] {
+    const elementsByFrame = new Map<string, ResearchUiElementRow[]>();
+    for (const element of skeleton) {
+        const frameKey = stringValue(element.frame_key);
+        if (!frameKey) continue;
+        const items = elementsByFrame.get(frameKey) ?? [];
+        items.push(element);
+        elementsByFrame.set(frameKey, items);
+    }
+
+    const versions: Record<string, unknown>[] = [];
+    const previousByScreen = new Map<string, { signature: string; tokens: Set<string> }>();
+    const orderedFrames = [...frames].sort((a, b) => (
+        (numberValue(a.elapsed_ms) ?? numberValue(a.elapsed_ms_bucket) ?? 0)
+        - (numberValue(b.elapsed_ms) ?? numberValue(b.elapsed_ms_bucket) ?? 0)
+    ));
+    for (const frame of orderedFrames) {
+        const frameKey = stringValue(frame.frame_key);
+        const screen = stringValue(frame.screen_key);
+        if (!frameKey || !screen) continue;
+        const tokens = new Set((elementsByFrame.get(frameKey) ?? []).map(structuralElementToken).sort());
+        const signature = hmac(`${projectKey}:screen-structure:${screen}:${[...tokens].join('|')}`, 24);
+        const previous = previousByScreen.get(screen);
+        if (previous?.signature === signature) continue;
+        const added = previous ? [...tokens].filter((token) => !previous.tokens.has(token)).length : tokens.size;
+        const removed = previous ? [...previous.tokens].filter((token) => !tokens.has(token)).length : 0;
+        versions.push({
+            screen_key: screen,
+            frame_key: frameKey,
+            elapsed_ms: frame.elapsed_ms ?? null,
+            elapsed_ms_bucket: frame.elapsed_ms_bucket ?? null,
+            structural_signature_key: signature,
+            previous_structural_signature_key: previous?.signature ?? null,
+            structural_tokens_added_bucket: bucketNumber(added, 2, 0, 20_000),
+            structural_tokens_removed_bucket: bucketNumber(removed, 2, 0, 20_000),
+            derivation: 'privacy_safe_structure',
+        });
+        previousByScreen.set(screen, { signature, tokens });
+    }
+    return versions;
+}
+
+function buildV2FlowEdges(interactions: ResearchInteractionRow[]): Record<string, unknown>[] {
+    const edges: Record<string, unknown>[] = [];
+    for (let index = 1; index < interactions.length; index++) {
+        const previous = interactions[index - 1];
+        const current = interactions[index];
+        if (previous.screen_key === current.screen_key) continue;
+        edges.push({
+            edge_index: edges.length,
+            from_screen_key: previous.screen_key,
+            to_screen_key: current.screen_key,
+            action_event_index: previous.index,
+            action_kind: previous.kind,
+            action_target_key: previous.target_key,
+            funnel_transition: previous.funnel_transition ?? null,
+            action_elapsed_ms: previous.elapsed_ms ?? null,
+            transition_elapsed_ms: current.elapsed_ms ?? null,
+            transition_elapsed_ms_bucket: current.elapsed_ms_bucket,
+            evidence_source: 'observed_event_order',
+        });
+    }
+    return edges;
+}
+
+function buildV2Lifecycle(session: SessionContext, labels: Record<string, unknown>): Record<string, unknown> {
+    if ((session.crash_count ?? 0) > 0) {
+        return { session_end_taxonomy: 'crashed', confidence: 'high', evidence: 'crash_record' };
+    }
+    if (session.explicit_ended_at) {
+        return { session_end_taxonomy: 'completed', confidence: 'high', evidence: 'explicit_session_end' };
+    }
+    if (session.close_source && /successor|supersed|interrupt/i.test(session.close_source)) {
+        return { session_end_taxonomy: 'interrupted', confidence: 'medium', evidence: 'server_close_source' };
+    }
+    if (session.ended_at && labels.is_conversion_session === false) {
+        return { session_end_taxonomy: 'abandoned', confidence: 'low', evidence: 'inferred_non_conversion_end' };
+    }
+    return { session_end_taxonomy: 'unknown', confidence: 'low', evidence: 'insufficient_evidence' };
+}
+
+async function loadV2CaptureContext(sessionId: string): Promise<V2CaptureContext | null> {
+    const result = await pool.query<V2CaptureContext>(
+        `
+        SELECT capture_tier, sampling_bucket, inclusion_probability_ppm,
+               tier_assignment_probability_ppm, source_sample_rate_bps,
+               policy_version, smart_capture_status, smart_capture_reason, smart_capture_rule_key,
+               evaluation_quarantined
+        FROM research_capture_decisions
+        WHERE session_id = $1 AND schema_version = 2
+        LIMIT 1
+        `,
+        [sessionId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+        ...row,
+        smart_capture_reason: row.smart_capture_reason
+            ? hmac(`v2:smart-capture-reason:${row.smart_capture_reason}`, 24)
+            : null,
+    };
+}
+
+async function copyV2ScreenshotArchives(
+    session: SessionContext,
+    artifacts: ArtifactContext[],
+    basePath: string,
+    projectKey: string,
+    artifactDataCache: ArtifactDataCache,
+): Promise<{ archives: Record<string, unknown>[]; frameIndex: V2FrameIndexRow[] }> {
+    const archives: Record<string, unknown>[] = [];
+    const frameIndex: V2FrameIndexRow[] = [];
+    const screenshotArtifacts = artifacts
+        .filter((artifact) => artifact.kind === 'screenshots' && artifact.s3ObjectKey)
+        .sort((left, right) => (left.start_time ?? 0) - (right.start_time ?? 0));
+    const upperBound = session.ended_at ? session.ended_at.getTime() + 5_000 : Number.POSITIVE_INFINITY;
+
+    for (let artifactIndex = 0; artifactIndex < screenshotArtifacts.length; artifactIndex++) {
+        const artifact = screenshotArtifacts[artifactIndex];
+        const data = await downloadArtifactData(session.project_id, artifact, artifactDataCache);
+        if (!data) {
+            throw new Error(`V2 screenshot source unavailable for artifact ${artifact.id}`);
+        }
+        const archiveKey = `${basePath}/screenshot_archives/artifact-${String(artifactIndex).padStart(4, '0')}.gz`;
+        const frames = (await extractFramesFromArchive(data, session.started_at.getTime())).filter((frame) => (
+            frame.timestamp >= session.started_at.getTime() && frame.timestamp <= upperBound
+        ));
+        for (const frame of frames) {
+            const dimensions = jpegDimensions(frame.data);
+            const digest = hmacBuffer(`${projectKey}:v2-frame-checksum:`, frame.data, 40);
+            frameIndex.push({
+                frame_key: hmac(`${projectKey}:screenshot-frame:${artifactIndex}:${frame.index}:${frame.timestamp}:${hmacBuffer(`${projectKey}:source-frame`, frame.data, 24)}`, 24),
+                archive_key: archiveKey,
+                source_artifact_index: artifactIndex,
+                source_frame_index: frame.index,
+                source_filename_key: hmac(`${projectKey}:frame-name:${frame.filename}`, 20),
+                timestamp_utc: new Date(frame.timestamp).toISOString(),
+                elapsed_ms: Math.max(0, Math.round(frame.timestamp - session.started_at.getTime())),
+                width: dimensions?.width ?? null,
+                height: dimensions?.height ?? null,
+                image_bytes: frame.data.length,
+                frame_checksum_key: digest,
+            });
+        }
+        await putVerifiedResearchObject(archiveKey, data, 'application/gzip');
+        archives.push({
+            archive_key: archiveKey,
+            source_artifact_index: artifactIndex,
+            archive_bytes: data.length,
+            archive_checksum_key: hmacBuffer(`${projectKey}:v2-archive-checksum:`, data, 40),
+            frame_count: frames.length,
+            source_format: 'original_post_redaction_archive',
+        });
+    }
+    return { archives, frameIndex };
+}
+
+async function processV2InteractionJob(
+    job: ResearchJobRow,
+    session: SessionContext,
+    artifacts: ArtifactContext[],
+    transactions: { amount_cents: number; reporting_category: string; type: string; }[],
+    customEventConfig: any | null,
+): Promise<'exported' | 'rejected'> {
+    const projectKey = hmac(`project:${session.project_id}`, 20);
+    const lakeSampleKey = hmac(`v2:sample:${session.project_id}:${session.id}`, 32);
+    const date = datePart(session.started_at);
+    const basePath = `${v2Prefix()}/lake=interaction/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
+    const rawInteractions = buildInteractions(session, projectKey, customEventConfig);
+    const screenshotDataCache: ArtifactDataCache = new Map();
+    const rawVisualRows = await buildVisualRows(session, artifacts, rawInteractions, projectKey, true, screenshotDataCache);
+    const rejection = interactionRejectReason(artifacts, rawInteractions, rawVisualRows.frames);
+    if (rejection) {
+        await completeJob(job, {
+            status: 'rejected', rejectReason: rejection, sourceArtifactCount: artifacts.length,
+            interactionEventCount: rawInteractions.length, uiFrameCount: rawVisualRows.frames.length,
+            uiSkeletonElementCount: rawVisualRows.skeleton.length,
+        });
+        return 'rejected';
+    }
+
+    if (containsIdentifierRisk({
+        release_id: session.app_version,
+        interactions: rawInteractions,
+        uiFrames: rawVisualRows.frames,
+        skeleton: rawVisualRows.skeleton,
+    })) {
+        await completeJob(job, {
+            status: 'rejected', rejectReason: 'identifier_risk_detected_before_media_copy', sourceArtifactCount: artifacts.length,
+            interactionEventCount: rawInteractions.length, uiFrameCount: rawVisualRows.frames.length,
+            uiSkeletonElementCount: rawVisualRows.skeleton.length,
+        });
+        return 'rejected';
+    }
+
+    const media = await copyV2ScreenshotArchives(session, artifacts, basePath, projectKey, screenshotDataCache);
+    const frameElapsed = media.frameIndex.map((row) => row.elapsed_ms).sort((a, b) => a - b);
+    const domMutationElapsed = rawVisualRows.frames
+        .filter((frame) => frame.source_kind === 'rrweb' && frame.rrweb_event_kind === 'mutation')
+        .map((frame) => numberValue(frame.elapsed_ms) ?? numberValue(frame.elapsed_ms_bucket))
+        .filter((value): value is number => value !== null)
+        .sort((a, b) => a - b);
+    const interactions = addV2ExactInteractionTiming(session, rawInteractions, frameElapsed, domMutationElapsed);
+    const hierarchyCaptureProfile = buildHierarchyCaptureProfile(rawVisualRows.frames);
+    const annotated = annotateHierarchyCaptureProfile(rawVisualRows, hierarchyCaptureProfile);
+    const visualRows = { ...annotated, frames: addV2FrameTiming(annotated.frames, media.frameIndex) };
+    const missingMediaReference = visualRows.frames.some((frame) => (
+        frame.source_kind === 'screenshots'
+        && (!frame.media_archive_key || !frame.media_frame_checksum_key)
+    ));
+    if (missingMediaReference) {
+        throw new Error('V2 screenshot frame is missing its verified media archive reference');
+    }
+    const skeleton = [...visualRows.skeleton, ...buildInteractionSkeleton(interactions)];
+    const screenVersions = buildV2ScreenVersions(visualRows.frames, skeleton, projectKey);
+    const flowEdges = buildV2FlowEdges(interactions);
+    const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
+    const labels = buildBehavioralLabels(session, businessContext);
+    const metrics = buildSessionMetrics(session);
+    const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
+    const capture = await loadV2CaptureContext(session.id);
+    const lifecycle = buildV2Lifecycle(session, labels);
+    const captureProfile = {
+        hierarchy: hierarchyCaptureProfile,
+        rrweb: buildRrwebCaptureProfile(visualRows.frames, skeleton),
+        masking: buildMaskingCaptureProfile(session, visualRows.frames, skeleton),
+    };
+    const manifest = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2,
+        anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'interaction',
+        project_key: projectKey,
+        sample_key: lakeSampleKey,
+        sample_date: date,
+        session_start_ts_utc: session.started_at.toISOString(),
+        platform: session.platform || 'unknown',
+        release_id: session.app_version || null,
+        app_version_bucket: coarseAppVersion(session.app_version),
+        sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
+        retention_days: session.retention_days,
+        source: artifactSummary(artifacts),
+        capture,
+        capture_profile: captureProfile,
+        lifecycle,
+        visitor_context: {
+            is_bounced: (session.duration_seconds || 0) < 15 && (session.total_events || 0) < 5,
+            screens_visited_count: (session.screens_visited || []).length,
+            screen_path_keys: screenPathKeys,
+        },
+        metrics,
+        geo: buildGeoContext(session),
+        business_context: {
+            currency: businessContext.currency,
+            has_discount_applied: businessContext.has_discount_applied,
+            total_cart_additions_bucket: businessContext.total_cart_additions_bucket,
+            session_metadata_keys: businessContext.session_metadata_keys,
+            funnel_steps_configured: businessContext.funnel_steps_configured,
+        },
+        labels,
+        provenance: {
+            interactions: 'observed', screenshots: media.archives.length > 0 ? 'observed' : 'unavailable',
+            screen_versions: 'derived', flow_edges: 'derived', lifecycle: lifecycle.evidence === 'insufficient_evidence' ? 'unavailable' : 'inferred',
+            experiment_assignment: 'unavailable', authored_copy: 'unavailable',
+        },
+        files: {
+            interactions: `${basePath}/interactions.jsonl.gz`, ui_frames: `${basePath}/ui_frames.jsonl.gz`,
+            ui_skeleton: `${basePath}/ui_skeleton.jsonl.gz`, screen_versions: `${basePath}/screen_versions.jsonl.gz`,
+            flow_edges: `${basePath}/flow_edges.jsonl.gz`, frame_index: `${basePath}/frame_index.jsonl.gz`,
+            quality: `${basePath}/quality.json`, zip: `${basePath}.zip`, screenshot_archives: media.archives,
+        },
+    };
+    const warnings = [
+        ...interactionQualityWarnings(interactions, visualRows.frames),
+        ...hierarchyCaptureWarnings(hierarchyCaptureProfile),
+        ...(capture ? [] : ['capture_propensity_unavailable']),
+        ...(media.archives.length > 0 ? [] : ['full_resolution_screenshot_archive_unavailable']),
+    ];
+    const quality = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2,
+        quality_tier: 'usable', pii_scan: 'passed', source_artifact_count: artifacts.length,
+        interaction_event_count: interactions.length, ui_frame_count: visualRows.frames.length,
+        screenshot_frame_count: media.frameIndex.length, full_resolution_archive_count: media.archives.length,
+        full_resolution_frame_index_count: media.frameIndex.length, ui_skeleton_element_count: skeleton.length,
+        screen_version_count: screenVersions.length, flow_edge_count: flowEdges.length,
+        capture_profile: captureProfile, provenance: manifest.provenance, warnings,
+    };
+    if (containsIdentifierRisk({ manifest, quality, interactions, uiFrames: visualRows.frames, skeleton, screenVersions, flowEdges, frameIndex: media.frameIndex })) {
+        await completeJob(job, {
+            status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: artifacts.length,
+            interactionEventCount: interactions.length, uiFrameCount: visualRows.frames.length, uiSkeletonElementCount: skeleton.length,
+        });
+        return 'rejected';
+    }
+
+    const manifestBuf = jsonBuffer(manifest);
+    const qualityBuf = jsonBuffer(quality);
+    const interactionsJsonlBuf = jsonlBuffer(interactions);
+    const uiFramesJsonlBuf = jsonlBuffer(visualRows.frames);
+    const uiSkeletonJsonlBuf = jsonlBuffer(skeleton);
+    const screenVersionsJsonlBuf = jsonlBuffer(screenVersions);
+    const flowEdgesJsonlBuf = jsonlBuffer(flowEdges);
+    const frameIndexJsonlBuf = jsonlBuffer(media.frameIndex);
+    const [
+        interactionsBuf,
+        uiFramesBuf,
+        uiSkeletonBuf,
+        screenVersionsBuf,
+        flowEdgesBuf,
+        frameIndexBuf,
+        zipBuffer,
+    ] = await Promise.all([
+        gzipBuffer(interactionsJsonlBuf),
+        gzipBuffer(uiFramesJsonlBuf),
+        gzipBuffer(uiSkeletonJsonlBuf),
+        gzipBuffer(screenVersionsJsonlBuf),
+        gzipBuffer(flowEdgesJsonlBuf),
+        gzipBuffer(frameIndexJsonlBuf),
+        createZipArchiveBuffer([
+            { name: 'manifest.json', buffer: manifestBuf },
+            { name: 'quality.json', buffer: qualityBuf },
+            { name: 'interactions.jsonl', buffer: interactionsJsonlBuf },
+            { name: 'ui_frames.jsonl', buffer: uiFramesJsonlBuf },
+            { name: 'ui_skeleton.jsonl', buffer: uiSkeletonJsonlBuf },
+            { name: 'screen_versions.jsonl', buffer: screenVersionsJsonlBuf },
+            { name: 'flow_edges.jsonl', buffer: flowEdgesJsonlBuf },
+            { name: 'frame_index.jsonl', buffer: frameIndexJsonlBuf },
+        ]),
+    ]);
+    await putResearchObjects([
+        { key: `${basePath}/manifest.json`, body: manifestBuf, contentType: 'application/json' },
+        { key: `${basePath}/quality.json`, body: qualityBuf, contentType: 'application/json' },
+        { key: `${basePath}/interactions.jsonl.gz`, body: interactionsBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/ui_frames.jsonl.gz`, body: uiFramesBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/ui_skeleton.jsonl.gz`, body: uiSkeletonBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/screen_versions.jsonl.gz`, body: screenVersionsBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/flow_edges.jsonl.gz`, body: flowEdgesBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/frame_index.jsonl.gz`, body: frameIndexBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
+    ]);
+    await completeJob(job, {
+        status: 'exported', lakePath: basePath, qualityTier: 'usable', sourceArtifactCount: artifacts.length,
+        interactionEventCount: interactions.length, uiFrameCount: visualRows.frames.length, uiSkeletonElementCount: skeleton.length,
+    });
+    await markResearchLakeV2VisualExportComplete(session.id);
+    return 'exported';
+}
+
+async function processV2BehavioralJob(
+    job: ResearchJobRow,
+    session: SessionContext,
+    transactions: { amount_cents: number; reporting_category: string; type: string; }[],
+    customEventConfig: any | null,
+): Promise<'exported' | 'rejected'> {
+    const projectKey = hmac(`project:${session.project_id}`, 20);
+    const lakeSampleKey = hmac(`v2:sample:${session.project_id}:${session.id}`, 32);
+    const rawInteractions = buildInteractions(session, projectKey, customEventConfig);
+    const interactions = addV2ExactInteractionTiming(session, rawInteractions, [], []);
+    const events = buildBehavioralEvents(session, interactions, projectKey).map((event, index) => ({
+        ...event, elapsed_ms: interactions[index]?.elapsed_ms ?? null, timing_provenance: interactions[index]?.timing_provenance ?? 'unavailable',
+    }));
+    const metrics = buildSessionMetrics(session);
+    const hasMeaningfulSignal = hasMeaningfulBehavioralSignal(session, events);
+    const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
+    const labels = buildBehavioralLabels(session, businessContext);
+    const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
+    const capture = await loadV2CaptureContext(session.id);
+    const lifecycle = buildV2Lifecycle(session, labels);
+    const date = datePart(session.started_at);
+    const basePath = `${v2Prefix()}/lake=behavioral_outcomes/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
+    const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT
+        ? 'usable'
+        : hasMeaningfulSignal ? 'metrics_only' : 'metadata_only';
+    const manifest = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2, anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'behavioral_outcomes', project_key: projectKey, sample_key: lakeSampleKey, sample_date: date,
+        session_start_ts_utc: session.started_at.toISOString(), platform: session.platform || 'unknown',
+        release_id: session.app_version || null, app_version_bucket: coarseAppVersion(session.app_version),
+        sdk_version_bucket: coarseAppVersion(session.sdk_version), duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 86_400),
+        retention_days: session.retention_days,
+        source: {
+            reason: behavioralSourceReason(session),
+            has_visual_source: false,
+            source_event_count: events.length,
+        },
+        capture,
+        lifecycle,
+        visitor_context: {
+            is_bounced: (session.duration_seconds || 0) < 15 && (session.total_events || 0) < 5,
+            screens_visited_count: (session.screens_visited || []).length,
+            screen_path_keys: screenPathKeys,
+        },
+        metrics,
+        geo: buildGeoContext(session),
+        business_context: {
+            currency: businessContext.currency,
+            has_discount_applied: businessContext.has_discount_applied,
+            total_cart_additions_bucket: businessContext.total_cart_additions_bucket,
+            session_metadata_keys: businessContext.session_metadata_keys,
+            funnel_steps_configured: businessContext.funnel_steps_configured,
+        },
+        labels,
+        provenance: { events: events.length > 0 ? 'observed' : 'unavailable', metrics: 'observed', lifecycle: 'inferred', experiment_assignment: 'unavailable' },
+        files: { events: `${basePath}/events.jsonl.gz`, session_metrics: `${basePath}/session_metrics.json`, labels: `${basePath}/labels.json`, quality: `${basePath}/quality.json`, zip: `${basePath}.zip` },
+    };
+    const quality = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2, quality_tier: qualityTier, source_artifact_count: 0,
+        event_count: events.length,
+        metrics_only: qualityTier === 'metrics_only',
+        metadata_only: qualityTier === 'metadata_only',
+        pii_scan: 'passed',
+        provenance: manifest.provenance,
+        warnings: [
+            ...(capture ? [] : ['capture_propensity_unavailable']),
+            ...(qualityTier === 'metadata_only' ? ['no_behavioral_events_or_metrics'] : []),
+        ],
+    };
+    if (containsIdentifierRisk({ manifest, quality, events, metrics, labels })) {
+        await completeJob(job, {
+            status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: 0,
+            interactionEventCount: events.length, uiFrameCount: 0, uiSkeletonElementCount: 0,
+        });
+        return 'rejected';
+    }
+    const manifestBuf = jsonBuffer(manifest);
+    const qualityBuf = jsonBuffer(quality);
+    const eventsJsonlBuf = jsonlBuffer(events);
+    const metricsBuf = jsonBuffer(metrics);
+    const labelsBuf = jsonBuffer(labels);
+    const [eventsBuf, zipBuffer] = await Promise.all([
+        gzipBuffer(eventsJsonlBuf),
+        createZipArchiveBuffer([
+            { name: 'manifest.json', buffer: manifestBuf },
+            { name: 'quality.json', buffer: qualityBuf },
+            { name: 'events.jsonl', buffer: eventsJsonlBuf },
+            { name: 'session_metrics.json', buffer: metricsBuf },
+            { name: 'labels.json', buffer: labelsBuf },
+        ]),
+    ]);
+    await putResearchObjects([
+        { key: `${basePath}/manifest.json`, body: manifestBuf, contentType: 'application/json' },
+        { key: `${basePath}/quality.json`, body: qualityBuf, contentType: 'application/json' },
+        { key: `${basePath}/events.jsonl.gz`, body: eventsBuf, contentType: 'application/jsonl+gzip' },
+        { key: `${basePath}/session_metrics.json`, body: metricsBuf, contentType: 'application/json' },
+        { key: `${basePath}/labels.json`, body: labelsBuf, contentType: 'application/json' },
+        { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
+    ]);
+    await completeJob(job, {
+        status: 'exported', lakePath: basePath, qualityTier, sourceArtifactCount: 0,
+        interactionEventCount: events.length, uiFrameCount: 0, uiSkeletonElementCount: 0,
+    });
+    return 'exported';
+}
+
+async function processV2ForwardOutcomesJob(job: ResearchJobRow, session: SessionContext): Promise<'exported' | 'rejected'> {
+    const observation = await pool.query<{
+        panel_key: string | null; started_at: Date; event_families: string[]; revenue_amount_bucket: number | null;
+        refund_count: number; renewal_count: number; cancellation_count: number; created_at: Date;
+    }>(
+        `SELECT panel_key, started_at, event_families, revenue_amount_bucket, refund_count, renewal_count, cancellation_count, created_at FROM research_panel_observations WHERE session_id = $1 LIMIT 1`,
+        [session.id],
+    );
+    const target = observation.rows[0];
+    if (!target) {
+        await completeJob(job, {
+            status: 'rejected', rejectReason: 'panel_observation_unavailable', sourceArtifactCount: 0,
+            interactionEventCount: 0, uiFrameCount: 0, uiSkeletonElementCount: 0,
+        });
+        return 'rejected';
+    }
+    const followups = target.panel_key ? await pool.query<{
+        active_d7: boolean; active_d30: boolean; revenue_amount_bucket: number | null;
+        refund_count: number; renewal_count: number; cancellation_count: number;
+    }>(
+        `
+        SELECT
+            COALESCE(bool_or(started_at > $3 AND started_at <= $3 + INTERVAL '7 days'), false) AS active_d7,
+            COALESCE(bool_or(started_at > $3 AND started_at <= $3 + INTERVAL '30 days'), false) AS active_d30,
+            SUM(revenue_amount_bucket)::int AS revenue_amount_bucket,
+            COALESCE(SUM(refund_count), 0)::int AS refund_count,
+            COALESCE(SUM(renewal_count), 0)::int AS renewal_count,
+            COALESCE(SUM(cancellation_count), 0)::int AS cancellation_count
+        FROM research_panel_observations
+        WHERE project_id = $1 AND panel_key = $2 AND started_at > $3 AND started_at <= $3 + INTERVAL '30 days'
+        `,
+        [session.project_id, target.panel_key, target.started_at],
+    ) : { rows: [] };
+    const followup = followups.rows[0];
+    const projectKey = hmac(`project:${session.project_id}`, 20);
+    const sampleKey = hmac(`v2:sample:${session.project_id}:${session.id}`, 32);
+    const capture = await loadV2CaptureContext(session.id);
+    const date = datePart(session.started_at);
+    const basePath = `${v2Prefix()}/lake=forward_outcomes/project_key=${projectKey}/date=${date}/sample_key=${sampleKey}`;
+    const linkageAvailable = Boolean(target.panel_key);
+    const completeWindow = linkageAvailable
+        && target.created_at.getTime() <= target.started_at.getTime() + 7 * 24 * 60 * 60 * 1000;
+    const observedD7 = Boolean(followup?.active_d7);
+    const observedD30 = Boolean(followup?.active_d30);
+    const observedRefunds = followup?.refund_count ?? 0;
+    const observedRenewals = followup?.renewal_count ?? 0;
+    const observedCancellations = followup?.cancellation_count ?? 0;
+    const outcomes = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2, project_key: projectKey, sample_key: sampleKey, sample_date: date,
+        observation_window_days: 30,
+        observation_window_start_utc: target.started_at.toISOString(),
+        observation_window_end_utc: new Date(target.started_at.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        label_as_of_utc: new Date().toISOString(),
+        linkage_available: linkageAvailable,
+        observation_window_complete: completeWindow,
+        active_d7: !linkageAvailable ? null : observedD7 ? true : completeWindow ? false : null,
+        active_d30: !linkageAvailable ? null : observedD30 ? true : completeWindow ? false : null,
+        followup_revenue_amount_bucket: linkageAvailable ? followup?.revenue_amount_bucket ?? null : null,
+        followup_refund_count: !linkageAvailable ? null : observedRefunds > 0 || completeWindow ? observedRefunds : null,
+        followup_renewal_count: !linkageAvailable ? null : observedRenewals > 0 || completeWindow ? observedRenewals : null,
+        followup_cancellation_count: !linkageAvailable ? null : observedCancellations > 0 || completeWindow ? observedCancellations : null,
+        censoring: !linkageAvailable
+            ? 'identity_linkage_unavailable'
+            : completeWindow ? 'complete_30d_window' : 'retained_source_only',
+        provenance: {
+            activity: !linkageAvailable ? 'unavailable' : completeWindow ? 'derived' : observedD7 || observedD30 ? 'derived_partial_retained_source' : 'unavailable',
+            financial_events: !linkageAvailable ? 'unavailable' : completeWindow ? 'derived_existing_custom_events' : 'derived_partial_existing_custom_events',
+        },
+    };
+    const manifest = {
+        schema_version: RESEARCH_SCHEMA_VERSION_V2, anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
+        lake: 'forward_outcomes', project_key: projectKey, sample_key: sampleKey, sample_date: date,
+        platform: session.platform || 'unknown', release_id: session.app_version || null,
+        capture,
+        files: { outcomes: `${basePath}/outcomes.json`, quality: `${basePath}/quality.json` },
+    };
+    const quality = { schema_version: RESEARCH_SCHEMA_VERSION_V2, quality_tier: target.panel_key ? 'linked' : 'unlinked', pii_scan: 'passed', warnings: target.panel_key ? [] : ['forward_identity_linkage_unavailable'] };
+    if (containsIdentifierRisk({ manifest, outcomes, quality })) throw new Error('identifier risk detected in V2 forward outcome');
+    await putResearchObject(`${basePath}/manifest.json`, jsonBuffer(manifest), 'application/json');
+    await putResearchObject(`${basePath}/outcomes.json`, jsonBuffer(outcomes), 'application/json');
+    await putResearchObject(`${basePath}/quality.json`, jsonBuffer(quality), 'application/json');
+    await completeJob(job, {
+        status: 'exported', lakePath: basePath, qualityTier: target.panel_key ? 'linked' : 'unlinked',
+        sourceArtifactCount: 0, interactionEventCount: 0, uiFrameCount: 0, uiSkeletonElementCount: 0,
+    });
+    return 'exported';
+}
+
+async function processV2Job(job: ResearchJobRow): Promise<'exported' | 'rejected'> {
+    const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
+    if (!session) return rejectMissingSession(job);
+    if (job.lake_type === 'forward_outcomes') return processV2ForwardOutcomesJob(job, session);
+    if (job.lake_type === 'behavioral_outcomes') return processV2BehavioralJob(job, session, transactions, customEventConfig);
+    return processV2InteractionJob(job, session, artifacts, transactions, customEventConfig);
+}
+
 async function processJob(job: ResearchJobRow): Promise<'exported' | 'rejected'> {
     const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
     if (!session) return rejectMissingSession(job);
@@ -4662,7 +5444,7 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
                     deadlineAtMs,
                 },
                 async (job) => {
-                    const lane = summary.byLake[job.lake_type];
+                    const lane = summary.byLake[job.lake_type as ResearchLakeType];
                     lane.attempted++;
                     try {
                         const status = await processJob(job);
@@ -4714,6 +5496,335 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     return summary;
 }
 
+function createV2CycleSummary(): ResearchLakeV2CycleSummary {
+    return {
+        seeded: 0,
+        attempted: 0,
+        exported: 0,
+        rejected: 0,
+        failed: 0,
+        recoveredStaleProcessing: 0,
+        cleanedVisualHolds: 0,
+        expiredPanelRows: 0,
+        byLake: {
+            interaction: createLaneSummary(),
+            behavioral_outcomes: createLaneSummary(),
+            forward_outcomes: createLaneSummary(),
+        },
+    };
+}
+
+function addV2LaneSummaryTotals(summary: ResearchLakeV2CycleSummary): void {
+    summary.seeded = 0;
+    summary.attempted = 0;
+    summary.exported = 0;
+    summary.rejected = 0;
+    summary.failed = 0;
+    for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
+        const lane = summary.byLake[lakeType];
+        summary.seeded += lane.seeded;
+        summary.attempted += lane.attempted;
+        summary.exported += lane.exported;
+        summary.rejected += lane.rejected;
+        summary.failed += lane.failed;
+    }
+}
+
+type V2BackfillSession = {
+    id: string;
+    project_id: string;
+    team_id: string;
+    sample_rate: number | null;
+    started_at: Date;
+    platform: string | null;
+    app_version: string | null;
+    device_id: string | null;
+    anonymous_hash: string | null;
+    user_display_id: string | null;
+    events: unknown;
+    is_sampled_in: boolean | null;
+    smart_capture_status: string;
+    smart_capture_reason: string | null;
+    smart_capture_rule_id: string | null;
+    has_replay_artifacts: boolean;
+};
+
+async function seedV2BackfillSessionState(limit: number): Promise<{ sessions: number; interaction: number }> {
+    if (limit <= 0) return { sessions: 0, interaction: 0 };
+    const result = await pool.query<V2BackfillSession>(
+        `
+        WITH ranked AS (
+            SELECT
+                s.id, s.project_id, p.team_id, p.sample_rate, s.started_at, s.platform, s.app_version,
+                s.device_id, s.anonymous_hash, s.user_display_id, s.events, s.is_sampled_in,
+                s.smart_capture_status, s.smart_capture_reason, s.smart_capture_rule_id,
+                EXISTS (
+                    SELECT 1 FROM recording_artifacts ra
+                    WHERE ra.session_id = s.id AND ra.status = 'ready' AND ra.kind IN ('screenshots', 'hierarchy', 'rrweb')
+                ) AS has_replay_artifacts,
+                ROW_NUMBER() OVER (PARTITION BY s.project_id ORDER BY s.started_at DESC, s.id) AS project_rank
+            FROM sessions s
+            INNER JOIN projects p ON p.id = s.project_id
+            WHERE p.deleted_at IS NULL
+              AND s.status IN ('ready', 'completed')
+              AND s.identity_scrubbed_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM research_capture_decisions rcd
+                  WHERE rcd.session_id = s.id AND rcd.schema_version = 2
+              )
+        )
+        SELECT * FROM ranked
+        ORDER BY project_rank, started_at DESC, project_id, id
+        LIMIT $1
+        `,
+        [limit],
+    );
+    let seeded = 0;
+    let interaction = 0;
+    let cursor = 0;
+    const concurrency = Math.max(1, Math.min(config.RESEARCH_LAKE_V2_CONCURRENCY, result.rows.length));
+    async function worker(): Promise<void> {
+        while (cursor < result.rows.length) {
+            const row = result.rows[cursor++];
+            const decision = await prepareResearchLakeV2Session({
+                session: {
+                    id: row.id,
+                    projectId: row.project_id,
+                    startedAt: row.started_at,
+                    platform: row.platform,
+                    appVersion: row.app_version,
+                    deviceId: row.device_id,
+                    anonymousHash: row.anonymous_hash,
+                    userDisplayId: row.user_display_id,
+                    events: row.events,
+                    isSampledIn: row.is_sampled_in,
+                },
+                project: { id: row.project_id, teamId: row.team_id, sampleRate: row.sample_rate },
+                capture: {
+                    status: row.smart_capture_status,
+                    reason: row.smart_capture_reason,
+                    ruleId: row.smart_capture_rule_id,
+                    shouldDiscardVisualArtifacts: row.smart_capture_status === 'discarded',
+                },
+                hasReplayArtifacts: row.has_replay_artifacts,
+                jobLane: 'backfill',
+            });
+            if (row.smart_capture_status === 'discarded' && !decision?.preserveVisualArtifacts) {
+                await discardSmartCaptureVisualArtifacts(row.id);
+            }
+            seeded++;
+            if (decision?.interactionJobCreated) interaction++;
+        }
+    }
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    return { sessions: seeded, interaction };
+}
+
+async function recoverStaleV2Jobs(): Promise<number> {
+    const staleMinutes = Math.max(15, Math.ceil((config.RESEARCH_LAKE_V2_MAX_RUNTIME_MS + STALE_PROCESSING_BUFFER_MS) / 60_000));
+    const result = await pool.query(
+        `
+        UPDATE research_extraction_jobs
+        SET status = 'failed', next_retry_at = NOW(),
+            last_error = 'Recovered stale processing research-lake V2 job after worker deadline', updated_at = NOW()
+        WHERE schema_version = 2 AND status = 'processing'
+          AND updated_at < NOW() - ($1 * INTERVAL '1 minute')
+        `,
+        [staleMinutes],
+    );
+    return result.rowCount ?? 0;
+}
+
+function buildClaimV2JobsSql(): string {
+    return `
+        WITH active_projects AS (
+            SELECT project_id, MIN(due_at) AS oldest_due_at
+            FROM research_extraction_jobs
+            WHERE schema_version = 2 AND lake_type = $1 AND job_lane = $2
+              AND status IN ('pending', 'failed')
+              AND (next_retry_at IS NULL OR next_retry_at <= NOW()) AND due_at <= NOW()
+            GROUP BY project_id
+        ), ranked AS (
+            SELECT jobs.id, jobs.project_id, jobs.due_at, jobs.created_at,
+                   ROW_NUMBER() OVER (PARTITION BY jobs.project_id ORDER BY jobs.due_at, jobs.created_at, jobs.id) AS project_rank,
+                   active_projects.oldest_due_at
+            FROM research_extraction_jobs jobs
+            INNER JOIN active_projects ON active_projects.project_id = jobs.project_id
+            WHERE jobs.schema_version = 2 AND jobs.lake_type = $1 AND jobs.job_lane = $2
+              AND jobs.status IN ('pending', 'failed')
+              AND (jobs.next_retry_at IS NULL OR jobs.next_retry_at <= NOW()) AND jobs.due_at <= NOW()
+        ), candidates AS (
+            SELECT rej.id
+            FROM ranked
+            INNER JOIN research_extraction_jobs rej ON rej.id = ranked.id
+            ORDER BY ranked.project_rank, ranked.oldest_due_at, ranked.project_id, ranked.due_at, ranked.created_at, ranked.id
+            LIMIT $3
+            FOR UPDATE OF rej SKIP LOCKED
+        )
+        UPDATE research_extraction_jobs rej
+        SET status = 'processing', attempts = attempts + 1, updated_at = NOW()
+        FROM candidates
+        WHERE rej.id = candidates.id
+        RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at,
+                  rej.attempts, rej.schema_version, rej.job_lane, rej.created_at
+    `;
+}
+
+async function claimV2Jobs(lakeType: ResearchLakeV2Type, lane: 'fresh' | 'backfill', limit: number): Promise<ResearchJobRow[]> {
+    if (limit <= 0) return [];
+    const result = await pool.query<ResearchJobRow>(buildClaimV2JobsSql(), [lakeType, lane, limit]);
+    return result.rows;
+}
+
+async function v2FreshJobsLagging(): Promise<boolean> {
+    const result = await pool.query<{ lagging: boolean }>(
+        `
+        SELECT EXISTS (
+            SELECT 1 FROM research_extraction_jobs
+            WHERE schema_version = 2 AND job_lane = 'fresh' AND status IN ('pending', 'failed')
+              AND due_at <= NOW() - INTERVAL '10 minutes'
+        ) AS lagging
+        `,
+    );
+    return Boolean(result.rows[0]?.lagging);
+}
+
+function v2MemoryPressureHigh(): boolean {
+    const limitBytes = Math.max(256, config.RESEARCH_LAKE_V2_MEMORY_LIMIT_MB) * 1024 * 1024;
+    return process.memoryUsage().rss >= limitBytes * 0.7;
+}
+
+let previousV2CpuSample: { at: number; usage: NodeJS.CpuUsage } | null = null;
+
+function v2CpuPressureHigh(): boolean {
+    const current = { at: Date.now(), usage: process.cpuUsage() };
+    const previous = previousV2CpuSample;
+    previousV2CpuSample = current;
+    if (!previous || current.at <= previous.at) return false;
+    const elapsedMicros = (current.at - previous.at) * 1_000;
+    const usedMicros = (current.usage.user - previous.usage.user) + (current.usage.system - previous.usage.system);
+    const availableMicros = elapsedMicros * Math.max(0.25, config.RESEARCH_LAKE_V2_CPU_LIMIT_CORES);
+    return usedMicros / availableMicros >= 0.7;
+}
+
+async function refreshV2ReleaseAdoptionMilestones(): Promise<void> {
+    await pool.query(
+        `
+        WITH totals AS (
+            SELECT project_id, COALESCE(platform, 'unknown') AS platform, COUNT(*)::numeric AS total
+            FROM sessions
+            WHERE started_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY project_id, COALESCE(platform, 'unknown')
+        ), versions AS (
+            SELECT project_id, COALESCE(platform, 'unknown') AS platform, app_version AS release_id, COUNT(*)::numeric AS count
+            FROM sessions
+            WHERE started_at >= NOW() - INTERVAL '24 hours' AND app_version IS NOT NULL
+            GROUP BY project_id, COALESCE(platform, 'unknown'), app_version
+        )
+        UPDATE research_release_registry registry
+        SET adoption_10_at = CASE WHEN versions.count / NULLIF(totals.total, 0) >= 0.10 THEN COALESCE(registry.adoption_10_at, NOW()) ELSE registry.adoption_10_at END,
+            adoption_25_at = CASE WHEN versions.count / NULLIF(totals.total, 0) >= 0.25 THEN COALESCE(registry.adoption_25_at, NOW()) ELSE registry.adoption_25_at END,
+            adoption_50_at = CASE WHEN versions.count / NULLIF(totals.total, 0) >= 0.50 THEN COALESCE(registry.adoption_50_at, NOW()) ELSE registry.adoption_50_at END,
+            adoption_75_at = CASE WHEN versions.count / NULLIF(totals.total, 0) >= 0.75 THEN COALESCE(registry.adoption_75_at, NOW()) ELSE registry.adoption_75_at END,
+            adoption_90_at = CASE WHEN versions.count / NULLIF(totals.total, 0) >= 0.90 THEN COALESCE(registry.adoption_90_at, NOW()) ELSE registry.adoption_90_at END,
+            updated_at = NOW()
+        FROM versions INNER JOIN totals USING (project_id, platform)
+        WHERE registry.project_id = versions.project_id AND registry.platform = versions.platform AND registry.release_id = versions.release_id
+        `,
+    );
+}
+
+function shouldRefreshV2ReleaseAdoption(now = new Date()): boolean {
+    return now.getUTCMinutes() < 5;
+}
+
+export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2CycleSummary> {
+    const summary = createV2CycleSummary();
+    if (!await isResearchLakeV2SchemaActive()) {
+        logger.info('Research lake V2 awaiting schema activation; V1 remains active');
+        return summary;
+    }
+
+    const cleanup = await cleanupExpiredResearchLakeV2State();
+    summary.cleanedVisualHolds = cleanup.visualHolds;
+    summary.expiredPanelRows = cleanup.panelRows;
+    if (!config.RESEARCH_LAKE_V2_ENABLED) {
+        logger.info(summary, 'Research lake V2 extraction disabled; completed cleanup only and left V1 active');
+        return summary;
+    }
+    summary.recoveredStaleProcessing = await recoverStaleV2Jobs();
+    if (shouldRefreshV2ReleaseAdoption()) {
+        await refreshV2ReleaseAdoptionMilestones();
+    }
+
+    const batchSize = Math.max(2, Math.trunc(config.RESEARCH_LAKE_V2_BATCH_SIZE));
+    const backfillPercent = Math.max(0, Math.min(20, Math.trunc(config.RESEARCH_LAKE_V2_BACKFILL_PERCENT)));
+    const totalBackfillLimit = Math.floor(batchSize * backfillPercent / 100);
+    const totalFreshLimit = batchSize - totalBackfillLimit;
+    const freshLimit = Math.max(1, Math.ceil(totalFreshLimit / RESEARCH_LAKE_V2_TYPES.length));
+    const backfillLimit = Math.floor(totalBackfillLimit / RESEARCH_LAKE_V2_TYPES.length);
+    const seedLimit = totalBackfillLimit * Math.max(1, Math.trunc(config.RESEARCH_LAKE_V2_SEED_MULTIPLIER));
+    const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_V2_MAX_RUNTIME_MS));
+    const startedAt = Date.now();
+    const deadlineAtMs = startedAt + maxRuntimeMs;
+
+    while (Date.now() < deadlineAtMs) {
+        const pauseBackfill = summary.failed > 0 || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
+        let seededThisRound = 0;
+        if (!pauseBackfill && seedLimit > 0) {
+            const seeded = await seedV2BackfillSessionState(seedLimit);
+            seededThisRound = seeded.sessions;
+            summary.byLake.interaction.seeded += seeded.interaction;
+            summary.byLake.behavioral_outcomes.seeded += seeded.sessions;
+            summary.byLake.forward_outcomes.seeded += seeded.sessions;
+        }
+        let claimed = 0;
+        for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
+            if (Date.now() >= deadlineAtMs) break;
+            const freshJobs = await claimV2Jobs(lakeType, 'fresh', freshLimit);
+            const backfillJobs = pauseBackfill ? [] : await claimV2Jobs(lakeType, 'backfill', backfillLimit);
+            const jobs = [...freshJobs, ...backfillJobs];
+            claimed += jobs.length;
+            const batchResult = await runBoundedConcurrentBatch(
+                jobs,
+                {
+                    concurrency: Math.max(1, Math.trunc(config.RESEARCH_LAKE_V2_CONCURRENCY)),
+                    deadlineAtMs,
+                },
+                async (job) => {
+                    const lane = summary.byLake[job.lake_type as ResearchLakeV2Type];
+                    lane.attempted++;
+                    try {
+                        const status = await processV2Job(job);
+                        if (status === 'exported') lane.exported++;
+                        else lane.rejected++;
+                    } catch (err) {
+                        lane.failed++;
+                        await failV2Job(job, err);
+                        logger.error({ err, jobId: job.id, sessionId: job.session_id, lakeType: job.lake_type, jobLane: job.job_lane }, 'Research lake V2 extraction failed');
+                    }
+                },
+            );
+            if (batchResult.stoppedEarly) {
+                const unstartedJobs = jobs.slice(batchResult.startedCount);
+                const released = await releaseUnstartedResearchJobs(unstartedJobs);
+                logger.info({
+                    lakeType,
+                    claimed: jobs.length,
+                    started: batchResult.startedCount,
+                    released,
+                }, 'Released research lake V2 jobs that were claimed at the runtime deadline');
+            }
+        }
+        addV2LaneSummaryTotals(summary);
+        if (claimed === 0 && (pauseBackfill || seedLimit === 0)) break;
+        if (claimed === 0 && seededThisRound === 0) break;
+    }
+    addV2LaneSummaryTotals(summary);
+    logger.info(summary, 'Research lake V2 extraction cycle completed independently of V1');
+    return summary;
+}
+
 export const __researchLakeTestInternals = {
     containsIdentifierRisk,
     visualGridSpecForDimensions,
@@ -4744,4 +5855,11 @@ export const __researchLakeTestInternals = {
     behavioralSeedCandidatePredicateSql,
     funnelTransitionAliases: FUNNEL_TRANSITION_ALIASES,
     researchLakeTypes: RESEARCH_LAKE_TYPES,
+    researchLakeV2Types: RESEARCH_LAKE_V2_TYPES,
+    latencyBucket,
+    buildV2ScreenVersions,
+    buildV2FlowEdges,
+    buildClaimV2JobsSql,
+    v2RetryWindowExhausted,
+    shouldRefreshV2ReleaseAdoption,
 };

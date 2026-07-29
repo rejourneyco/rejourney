@@ -2,6 +2,12 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { __researchLakeTestInternals } from '../services/researchLake.js';
+import {
+    __researchLakeV2LifecycleTestInternals,
+    researchLakeV2CaptureTier,
+    researchLakeV2SamplingBucket,
+    summarizeExistingV2Outcomes,
+} from '../services/researchLakeV2Lifecycle.js';
 
 const require = createRequire(import.meta.url);
 const jpeg = require('jpeg-js') as {
@@ -126,7 +132,9 @@ describe('research lake anonymized payload shape', () => {
 
         expect(interactionSql).toContain("ra.kind IN ('screenshots', 'hierarchy', 'rrweb')");
         expect(interactionSql).toContain('rej.lake_type = $3');
-        expect(interactionSql).toContain('ON CONFLICT (session_id, lake_type) DO NOTHING');
+        expect(interactionSql).toContain('rej.schema_version = 1');
+        expect(interactionSql).toContain("SELECT session_id, project_id, team_id, due_at, $3, 1, 'retention'");
+        expect(interactionSql).toContain('ON CONFLICT DO NOTHING');
         expect(interactionSql).toContain('PARTITION BY s.project_id');
         expect(interactionSql).toContain('project_rank, project_oldest_due_at, project_id');
 
@@ -136,6 +144,7 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralSql).toContain('jsonb_array_length(s.events) > 0');
 
         expect(__researchLakeTestInternals.researchLakeTypes).toEqual(['interaction', 'behavioral_outcomes']);
+        expect(__researchLakeTestInternals.researchLakeV2Types).toEqual(['interaction', 'behavioral_outcomes', 'forward_outcomes']);
         expect(interactionClaimSql).toContain("status IN ('pending', 'failed')");
         expect(interactionClaimSql).toContain('lake_type = $2');
         expect(interactionClaimSql).toContain('CROSS JOIN LATERAL');
@@ -147,6 +156,7 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralClaimSql).toContain("status IN ('pending', 'failed')");
         expect(behavioralClaimSql).toContain('ORDER BY due_at, created_at, id');
         expect(behavioralClaimSql).not.toContain('PARTITION BY project_id');
+        expect(interactionClaimSql).toContain('schema_version = 1');
     });
 
     it('releases jobs claimed but not started at the runtime deadline', () => {
@@ -173,6 +183,9 @@ describe('research lake anonymized payload shape', () => {
 
         expect(manifest).toContain('- name: RESEARCH_LAKE_PREFIX\n                  value: "v1"');
         expect(manifest).toContain('- name: RESEARCH_LAKE_UPLOAD_CONCURRENCY\n                  value: "3"');
+        expect(manifest.match(/- name: RESEARCH_LAKE_V2_ENABLED/g)).toHaveLength(4);
+        expect(manifest).toContain('name: research-lake-v2-worker');
+        expect(manifest).toContain('name: research-lake-v2-compactor');
     });
 
     it('migration preserves interaction rows while replacing session-only uniqueness', () => {
@@ -196,6 +209,167 @@ describe('research lake anonymized payload shape', () => {
 
         expect(migrationSql).toContain('CREATE INDEX IF NOT EXISTS "research_extraction_jobs_fair_claim_idx"');
         expect(migrationSql).toContain('("lake_type", "status", "project_id", "due_at", "created_at")');
+    });
+
+    it('adds V2 tables and schema-versioned uniqueness without disabling V1', () => {
+        const migrationSql = readFileSync(
+            `${process.cwd()}/drizzle/20260729120000_research_lake_v2/migration.sql`,
+            'utf8',
+        );
+        const concurrentIndexSql = readFileSync(
+            `${process.cwd()}/drizzle/manual/research-lake-v2-indexes-concurrent.sql`,
+            'utf8',
+        );
+        const activationSql = readFileSync(
+            `${process.cwd()}/drizzle/manual/research-lake-v2-activate.sql`,
+            'utf8',
+        );
+
+        expect(migrationSql).toContain("SET lock_timeout = '5s'");
+        expect(migrationSql).toContain("SET statement_timeout = '2min'");
+        expect(migrationSql).not.toContain('CREATE UNIQUE INDEX IF NOT EXISTS "research_extraction_jobs_session_lake_schema_unique"');
+        expect(migrationSql).not.toContain('CREATE INDEX IF NOT EXISTS "research_extraction_jobs_v2_claim_idx"');
+        expect(migrationSql).not.toContain('DROP INDEX IF EXISTS "research_extraction_jobs_session_lake_unique"');
+        expect(migrationSql).not.toContain('DROP INDEX IF EXISTS "research_extraction_jobs_claim_idx"');
+        expect(migrationSql).toContain('CREATE TABLE IF NOT EXISTS "research_capture_decisions"');
+        expect(migrationSql).toContain('CREATE TABLE IF NOT EXISTS "research_panel_observations"');
+        expect(migrationSql).toContain('CREATE TABLE IF NOT EXISTS "research_release_registry"');
+        expect(migrationSql).not.toContain('DROP TABLE');
+        expect(migrationSql).not.toContain('DELETE FROM research_extraction_jobs');
+        expect(migrationSql).not.toContain('category');
+        expect(migrationSql).not.toContain('business_model');
+        expect(migrationSql.indexOf('ALTER TABLE "research_extraction_jobs"')).toBeGreaterThan(
+            migrationSql.indexOf('CREATE INDEX IF NOT EXISTS "research_release_registry_project_seen_idx"'),
+        );
+        expect(concurrentIndexSql).toContain('\\set ON_ERROR_STOP on');
+        expect(concurrentIndexSql).toContain('CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "research_extraction_jobs_session_lake_schema_unique"');
+        expect(concurrentIndexSql).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS "research_extraction_jobs_v2_claim_idx"');
+        expect(concurrentIndexSql).not.toContain('DROP INDEX');
+        expect(activationSql).toContain('\\set ON_ERROR_STOP on');
+        expect(activationSql).toContain('indisvalid');
+        expect(activationSql).toContain("ARRAY['session_id', 'lake_type', 'schema_version']");
+        expect(activationSql).toContain(
+            "ARRAY['lake_type', 'job_lane', 'status', 'next_retry_at', 'due_at', 'session_id']",
+        );
+        expect(activationSql).toContain('actual_columns IS DISTINCT FROM expected_columns');
+        expect(activationSql).toContain('research_extraction_jobs_v2_fair_claim_idx');
+        expect(activationSql).toContain('DROP INDEX CONCURRENTLY IF EXISTS "research_extraction_jobs_session_lake_unique"');
+    });
+
+    it('builds deterministic V2 sampling and keeps spine separate from uniform', () => {
+        const first = researchLakeV2SamplingBucket('project-a', 'session-a', 1);
+        const second = researchLakeV2SamplingBucket('project-a', 'session-a', 1);
+        expect(first).toBe(second);
+        expect(first).toBeGreaterThanOrEqual(0);
+        expect(first).toBeLessThan(10_000);
+        expect(researchLakeV2CaptureTier(0, 'discarded')).toEqual({
+            tier: 'spine',
+            inclusionProbabilityPpm: 50_000,
+            tierAssignmentProbabilityPpm: 30_000,
+        });
+        expect(researchLakeV2CaptureTier(299, 'discarded').tier).toBe('spine');
+        expect(researchLakeV2CaptureTier(300, 'discarded')).toEqual({
+            tier: 'uniform',
+            inclusionProbabilityPpm: 50_000,
+            tierAssignmentProbabilityPpm: 20_000,
+        });
+        expect(researchLakeV2CaptureTier(499, 'discarded').tier).toBe('uniform');
+        expect(researchLakeV2CaptureTier(0, 'kept').inclusionProbabilityPpm).toBe(1_000_000);
+        expect(researchLakeV2CaptureTier(500, 'kept')).toMatchObject({
+            tier: 'selected',
+            inclusionProbabilityPpm: 1_000_000,
+            tierAssignmentProbabilityPpm: 950_000,
+        });
+        expect(researchLakeV2CaptureTier(500, 'not_applicable').tier).toBe('selected');
+        expect(researchLakeV2CaptureTier(500, 'pending').tier).toBe('metadata_only');
+        expect(researchLakeV2CaptureTier(500, 'discarded')).toMatchObject({
+            tier: 'metadata_only',
+            inclusionProbabilityPpm: 0,
+            tierAssignmentProbabilityPpm: 950_000,
+        });
+    });
+
+    it('derives only supported existing-event outcomes for the V2 panel', () => {
+        const summary = summarizeExistingV2Outcomes([
+            { name: 'purchase_complete', properties: { value: 49.99 } },
+            { name: 'subscription_renewed' },
+            { name: 'refund_processed' },
+            { name: 'cancel_confirmed' },
+            { name: 'variant_selected', properties: { variant: 'not-an-experiment' } },
+        ]);
+
+        expect(summary).toEqual({
+            eventFamilies: ['cancellation', 'refund', 'renewal', 'revenue'],
+            revenueAmountBucket: 50,
+            refundCount: 1,
+            renewalCount: 1,
+            cancellationCount: 1,
+        });
+    });
+
+    it('does not create a shared panel key from empty identity fields', () => {
+        expect(__researchLakeV2LifecycleTestInternals.panelKeyForSession({
+            projectId: 'project-a',
+            deviceId: '  ',
+            anonymousHash: '',
+            userDisplayId: null,
+        } as any)).toBeNull();
+    });
+
+    it('builds V2 latency buckets, screen versions, and action-conditioned flows', () => {
+        expect([0, 49, 50, 99, 100, 1599, 1600].map(__researchLakeTestInternals.latencyBucket)).toEqual([
+            '0_50', '0_50', '50_100', '50_100', '100_200', '800_1600', '1600_plus',
+        ]);
+        const frames = [
+            { frame_key: 'f1', source_kind: 'hierarchy', source_index: 0, elapsed_ms: 100, elapsed_ms_bucket: 0, screen_key: 'home' },
+            { frame_key: 'f2', source_kind: 'hierarchy', source_index: 1, elapsed_ms: 200, elapsed_ms_bucket: 0, screen_key: 'home' },
+        ] as any;
+        const skeleton = [
+            { element_key: 'e1', frame_key: 'f1', screen_key: 'home', role: 'control', type_family: 'button', hierarchy_depth_bucket: 0, child_count_bucket: 0 },
+            { element_key: 'e2', frame_key: 'f2', screen_key: 'home', role: 'control', type_family: 'button', hierarchy_depth_bucket: 0, child_count_bucket: 0 },
+            { element_key: 'e3', frame_key: 'f2', screen_key: 'home', role: 'text', type_family: 'text', hierarchy_depth_bucket: 0, child_count_bucket: 0 },
+        ] as any;
+        const versions = __researchLakeTestInternals.buildV2ScreenVersions(frames, skeleton, 'project-key');
+        expect(versions).toHaveLength(2);
+        expect(versions[0]).toHaveProperty('structural_signature_key');
+        expect(versions[1].structural_tokens_added_bucket).toBe(2);
+
+        const edges = __researchLakeTestInternals.buildV2FlowEdges([
+            { index: 0, kind: 'tap', elapsed_ms: 10, elapsed_ms_bucket: 0, screen_key: 'home', target_key: 'a' },
+            { index: 1, kind: 'screen', elapsed_ms: 20, elapsed_ms_bucket: 0, screen_key: 'checkout', target_key: 'b' },
+        ] as any);
+        expect(edges).toEqual([expect.objectContaining({
+            from_screen_key: 'home',
+            to_screen_key: 'checkout',
+            action_kind: 'tap',
+            action_target_key: 'a',
+            evidence_source: 'observed_event_order',
+        })]);
+    });
+
+    it('bounds V2 retries to 24 hours from the later of creation or due time', () => {
+        const job = {
+            due_at: new Date('2026-07-01T12:00:00Z'),
+            created_at: new Date('2026-06-01T12:00:00Z'),
+        } as any;
+
+        expect(__researchLakeTestInternals.v2RetryWindowExhausted(
+            job,
+            new Date('2026-07-02T11:59:59Z'),
+        )).toBe(false);
+        expect(__researchLakeTestInternals.v2RetryWindowExhausted(
+            job,
+            new Date('2026-07-02T12:00:00Z'),
+        )).toBe(true);
+    });
+
+    it('refreshes release adoption once per hour instead of on every worker run', () => {
+        expect(__researchLakeTestInternals.shouldRefreshV2ReleaseAdoption(
+            new Date('2026-07-29T12:02:00Z'),
+        )).toBe(true);
+        expect(__researchLakeTestInternals.shouldRefreshV2ReleaseAdoption(
+            new Date('2026-07-29T12:07:00Z'),
+        )).toBe(false);
     });
 
     it('builds behavioral outcome rows without UI files or raw product identifiers', () => {

@@ -21,6 +21,7 @@ import {
 } from './sessionEvidence.js';
 import { computeSessionDurationSeconds, hasStoredClosedTiming, resolveAuthoritativeSessionClose, selectMaxObservabilityMinutes } from './sessionTiming.js';
 import { loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
+import { prepareResearchLakeV2Session } from './researchLakeV2Lifecycle.js';
 
 export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
 
@@ -147,6 +148,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         smartCapturePreset: projects.smartCapturePreset,
         smartCaptureRules: projects.smartCaptureRules,
         smartCaptureDecisionWindowHours: projects.smartCaptureDecisionWindowHours,
+        sampleRate: projects.sampleRate,
     })
         .from(projects)
         .where(eq(projects.id, session.projectId))
@@ -288,7 +290,28 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
             .where(eq(sessionMetrics.sessionId, sessionId));
     });
 
-    if (replayRetention.shouldDiscardVisualArtifacts) {
+    let preserveForResearchLakeV2 = false;
+    if (shouldFinalize && project) {
+        try {
+            const researchDecision = await prepareResearchLakeV2Session({
+                session,
+                project,
+                capture: {
+                    status: smartCaptureDecision.status,
+                    reason: smartCaptureDecision.reason,
+                    ruleId: smartCaptureDecision.ruleId,
+                    shouldDiscardVisualArtifacts: replayRetention.shouldDiscardVisualArtifacts,
+                },
+                hasReplayArtifacts,
+                now,
+            });
+            preserveForResearchLakeV2 = Boolean(researchDecision?.preserveVisualArtifacts);
+        } catch (err) {
+            logger.error({ err, sessionId }, 'Failed to prepare finalized session for research-lake V2');
+        }
+    }
+
+    if (replayRetention.shouldDiscardVisualArtifacts && !preserveForResearchLakeV2) {
         await discardSmartCaptureVisualArtifacts(sessionId);
     }
 

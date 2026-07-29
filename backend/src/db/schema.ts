@@ -868,16 +868,104 @@ export const researchExtractionJobs = pgTable(
         uiSkeletonElementCount: integer('ui_skeleton_element_count').default(0).notNull(),
         anonymizationVersion: integer('anonymization_version').default(1).notNull(),
         schemaVersion: integer('schema_version').default(1).notNull(),
+        jobLane: varchar('job_lane', { length: 32 }).default('retention').notNull(),
         processedAt: timestamp('processed_at'),
         lastError: text('last_error'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },
     (table) => [
-        uniqueIndex('research_extraction_jobs_session_lake_unique').on(table.sessionId, table.lakeType),
+        uniqueIndex('research_extraction_jobs_session_lake_schema_unique').on(table.sessionId, table.lakeType, table.schemaVersion),
         index('research_extraction_jobs_claim_idx').on(table.lakeType, table.status, table.nextRetryAt, table.dueAt, table.sessionId),
         index('research_extraction_jobs_fair_claim_idx').on(table.lakeType, table.status, table.projectId, table.dueAt, table.createdAt),
         index('research_extraction_jobs_project_status_idx').on(table.projectId, table.lakeType, table.status, table.dueAt),
+        index('research_extraction_jobs_v2_claim_idx')
+            .on(table.lakeType, table.jobLane, table.status, table.nextRetryAt, table.dueAt, table.sessionId)
+            .where(sql`${table.schemaVersion} = 2`),
+        index('research_extraction_jobs_v2_fair_claim_idx')
+            .on(table.lakeType, table.jobLane, table.status, table.projectId, table.dueAt, table.createdAt)
+            .where(sql`${table.schemaVersion} = 2`),
+        index('research_extraction_jobs_v2_project_status_idx')
+            .on(table.projectId, table.lakeType, table.status, table.dueAt)
+            .where(sql`${table.schemaVersion} = 2`),
+    ],
+);
+
+export const researchCaptureDecisions = pgTable(
+    'research_capture_decisions',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+        schemaVersion: integer('schema_version').default(2).notNull(),
+        policyVersion: integer('policy_version').notNull(),
+        samplingBucket: integer('sampling_bucket').notNull(),
+        captureTier: varchar('capture_tier', { length: 32 }).notNull(),
+        inclusionProbabilityPpm: integer('inclusion_probability_ppm').notNull(),
+        tierAssignmentProbabilityPpm: integer('tier_assignment_probability_ppm').notNull(),
+        sourceSampleRateBps: integer('source_sample_rate_bps'),
+        smartCaptureStatus: varchar('smart_capture_status', { length: 32 }),
+        smartCaptureReason: varchar('smart_capture_reason', { length: 120 }),
+        smartCaptureRuleKey: varchar('smart_capture_rule_key', { length: 64 }),
+        smartCaptureWouldDiscard: boolean('smart_capture_would_discard').default(false).notNull(),
+        preserveVisualSource: boolean('preserve_visual_source').default(false).notNull(),
+        evaluationQuarantined: boolean('evaluation_quarantined').default(false).notNull(),
+        sourceCleanupState: varchar('source_cleanup_state', { length: 32 }).default('not_required').notNull(),
+        sourceCleanupDueAt: timestamp('source_cleanup_due_at'),
+        decidedAt: timestamp('decided_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('research_capture_decisions_session_schema_unique').on(table.sessionId, table.schemaVersion),
+        index('research_capture_decisions_cleanup_idx').on(table.schemaVersion, table.sourceCleanupState, table.sourceCleanupDueAt),
+        index('research_capture_decisions_project_tier_idx').on(table.projectId, table.schemaVersion, table.captureTier, table.decidedAt),
+    ],
+);
+
+export const researchPanelObservations = pgTable(
+    'research_panel_observations',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        panelKey: varchar('panel_key', { length: 64 }),
+        startedAt: timestamp('started_at').notNull(),
+        eventFamilies: text('event_families').array().default(sql`ARRAY[]::text[]`).notNull(),
+        revenueAmountBucket: integer('revenue_amount_bucket'),
+        refundCount: integer('refund_count').default(0).notNull(),
+        renewalCount: integer('renewal_count').default(0).notNull(),
+        cancellationCount: integer('cancellation_count').default(0).notNull(),
+        expiresAt: timestamp('expires_at').notNull(),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('research_panel_observations_session_unique').on(table.sessionId),
+        index('research_panel_observations_panel_started_idx').on(table.projectId, table.panelKey, table.startedAt),
+        index('research_panel_observations_expiry_idx').on(table.expiresAt),
+    ],
+);
+
+export const researchReleaseRegistry = pgTable(
+    'research_release_registry',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        platform: varchar('platform', { length: 20 }).notNull(),
+        releaseId: varchar('release_id', { length: 80 }).notNull(),
+        firstSeenAt: timestamp('first_seen_at').notNull(),
+        lastSeenAt: timestamp('last_seen_at').notNull(),
+        observedSessionCount: bigint('observed_session_count', { mode: 'number' }).default(0).notNull(),
+        adoption10At: timestamp('adoption_10_at'),
+        adoption25At: timestamp('adoption_25_at'),
+        adoption50At: timestamp('adoption_50_at'),
+        adoption75At: timestamp('adoption_75_at'),
+        adoption90At: timestamp('adoption_90_at'),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('research_release_registry_project_platform_release_unique').on(table.projectId, table.platform, table.releaseId),
+        index('research_release_registry_project_seen_idx').on(table.projectId, table.lastSeenAt),
     ],
 );
 

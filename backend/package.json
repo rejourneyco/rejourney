@@ -29,6 +29,8 @@
         "retention:backfill:expired-artifacts": "node dist/worker/retentionWorker.js --once --drain-backlog --trigger=manual_backfill",
         "research-lake:worker": "tsx src/worker/researchLakeWorker.ts",
         "research-lake:worker:once": "tsx src/worker/researchLakeWorker.ts --once",
+        "research-lake:v2:worker": "tsx src/worker/researchLakeV2Worker.ts",
+        "research-lake:v2:worker:once": "tsx src/worker/researchLakeV2Worker.ts --once",
         "clickhouse:anonymize-identity": "node --import tsx scripts/anonymizeClickHouseIdentity.ts",
         "storage:endpoint:sync": "tsx scripts/syncStorageEndpoint.ts",
         "clickhouse:backfill:api-rollups": "node --import tsx scripts/backfillClickHouseApiEndpointRollups.ts",

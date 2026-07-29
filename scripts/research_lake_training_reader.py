@@ -61,7 +61,7 @@ def reshape_visual_grid(row: dict[str, Any], field: str) -> list[list[int]]:
     return [values[offset:offset + columns] for offset in range(0, expected, columns)]
 
 
-def validate_ui_frame(row: dict[str, Any]) -> None:
+def validate_ui_frame(row: dict[str, Any], schema_version: int = 1) -> None:
     family = encoder_family(row)
     if family == "visual_grid":
         columns = _positive_int(row.get("grid_columns"), "grid_columns")
@@ -73,6 +73,13 @@ def validate_ui_frame(row: dict[str, Any]) -> None:
                 raise ResearchLakeValidationError(f"{field} must be a list")
             if len(values) != expected:
                 raise ResearchLakeValidationError(f"{field} has {len(values)} cells, expected {expected}")
+        if schema_version >= 2:
+            if not row.get("media_archive_key"):
+                raise ResearchLakeValidationError("media_archive_key is required for V2 screenshot rows")
+            if not row.get("media_frame_checksum_key"):
+                raise ResearchLakeValidationError("media_frame_checksum_key is required for V2 screenshot rows")
+            if not isinstance(row.get("elapsed_ms"), int) or row["elapsed_ms"] < 0:
+                raise ResearchLakeValidationError("elapsed_ms is required for V2 screenshot rows")
         return
 
     if family == "mobile_hierarchy":
@@ -108,11 +115,21 @@ def iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
             yield row
 
 
-def validate_file(path: Path) -> int:
+def validate_file(
+    path: Path,
+    schema_version: int = 1,
+    include_evaluation: bool = False,
+    include_quarantined: bool = False,
+) -> int:
     count = 0
     for row in iter_jsonl(path):
-        validate_ui_frame(row)
-        count += 1
+        validate_ui_frame(row, schema_version=schema_version)
+        if eligible_for_training(
+            row,
+            include_evaluation=include_evaluation,
+            include_quarantined=include_quarantined,
+        ):
+            count += 1
     return count
 
 
@@ -122,14 +139,42 @@ def _positive_int(value: Any, field: str) -> int:
     return value
 
 
+def eligible_for_training(
+    row: dict[str, Any],
+    include_evaluation: bool = False,
+    include_quarantined: bool = False,
+) -> bool:
+    """Keep evaluation spine/quarantined rows out of model training by default."""
+    if row.get("dataset_role") == "quarantined" or bool(row.get("evaluation_quarantined")):
+        return include_quarantined
+    if row.get("dataset_role") is not None:
+        if row.get("dataset_role") == "evaluation":
+            return include_evaluation
+        return (
+            row.get("dataset_role") == "general"
+            and row.get("capture_tier") in {"uniform", "selected", "metadata_only"}
+        )
+    if row.get("capture_tier") == "spine":
+        return include_evaluation
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="+", type=Path)
+    parser.add_argument("--schema-version", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--include-evaluation", action="store_true")
+    parser.add_argument("--include-quarantined", action="store_true")
     args = parser.parse_args()
 
     total = 0
     for path in args.paths:
-        total += validate_file(path)
+        total += validate_file(
+            path,
+            schema_version=args.schema_version,
+            include_evaluation=args.include_evaluation,
+            include_quarantined=args.include_quarantined,
+        )
     print(json.dumps({"rows": total}, sort_keys=True))
 
 

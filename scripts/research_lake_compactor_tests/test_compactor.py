@@ -142,6 +142,12 @@ def test_interaction_sample_builds_ui_and_combined_rows():
     assert rows[("combined", "event_fact")][0]["touch_grid_rows"] == 128
     assert rows[("combined", "event_fact")][0]["screen_form_factor"] == "phone"
     assert rows[("combined", "event_fact")][0]["viewport_source"] == "event"
+    assert "schema_version" not in rows[("interaction", "session_fact")][0]
+    assert "release_id" not in rows[("interaction", "session_fact")][0]
+    assert "elapsed_ms" not in rows[("interaction", "event_fact")][0]
+    assert "provenance" not in rows[("interaction", "quality_fact")][0]
+    assert "capture_tier" not in rows[("interaction", "ui_frame_fact")][0]
+    assert "evaluation_quarantined" not in rows[("interaction", "ui_skeleton_fact")][0]
 
 
 def test_behavioral_sample_builds_behavioral_tables_without_ui_rows():
@@ -174,6 +180,101 @@ def test_behavioral_sample_builds_behavioral_tables_without_ui_rows():
     assert ("behavioral_outcomes", "ui_frame_fact") not in rows
     assert ("behavioral_outcomes", "ui_skeleton_fact") not in rows
     assert "product_key" not in rows[("combined", "event_fact")][0]
+
+
+def test_v2_interaction_builds_capture_release_screen_and_flow_facts():
+    manifest = base_manifest("interaction")
+    manifest.update({
+        "schema_version": 2,
+        "release_id": "2.4.1",
+        "capture": {
+            "capture_tier": "uniform",
+            "sampling_bucket": 340,
+            "inclusion_probability_ppm": 20000,
+            "evaluation_quarantined": False,
+        },
+        "lifecycle": {
+            "session_end_taxonomy": "completed",
+            "confidence": "high",
+        },
+        "traffic_scale_bucket": "10k_100k",
+        "traffic_scale_window_days": 30,
+        "traffic_scale_observed_days": 30,
+        "traffic_scale_provenance": "derived_from_v2_behavioral_exports",
+    })
+    sample = {
+        "manifest": manifest,
+        "quality": {"quality_tier": "usable", "pii_scan": "passed", "provenance": {"screenshots": "observed"}},
+        "interactions": [{
+            "index": 0, "kind": "tap", "elapsed_ms": 123, "elapsed_ms_bucket": 0,
+            "screen_key": "home", "target_key": "button", "input_to_next_frame_ms_bucket": "0_50",
+        }],
+        "ui_frames": [{
+            "frame_key": "frame", "source_kind": "screenshots", "source_index": 0,
+            "elapsed_ms": 140, "media_archive_key": "v2/archive.gz", "media_frame_checksum_key": "checksum",
+        }],
+        "ui_skeleton": [],
+        "screen_versions": [{"screen_key": "home", "structural_signature_key": "structure"}],
+        "flow_edges": [{"from_screen_key": "home", "to_screen_key": "checkout", "action_kind": "tap"}],
+        "frame_index": [{
+            "frame_key": "frame", "archive_key": "v2/archive.gz", "source_artifact_index": 0,
+            "source_frame_index": 0, "timestamp_utc": "2026-06-11T00:00:00.140Z", "elapsed_ms": 140,
+            "width": 390, "height": 844, "frame_checksum_key": "checksum",
+        }],
+    }
+
+    rows = compactor.rows_from_sample("interaction", sample)
+
+    assert rows[("interaction", "capture_fact")][0]["capture_tier"] == "uniform"
+    assert rows[("interaction", "release_observation_fact")][0]["release_id"] == "2.4.1"
+    assert rows[("interaction", "screen_version_fact")][0]["structural_signature_key"] == "structure"
+    assert rows[("interaction", "screen_version_fact")][0]["capture_tier"] == "uniform"
+    assert rows[("interaction", "flow_edge_fact")][0]["to_screen_key"] == "checkout"
+    assert rows[("interaction", "flow_edge_fact")][0]["evaluation_quarantined"] is False
+    assert rows[("interaction", "media_reference_fact")][0]["archive_key"] == "v2/archive.gz"
+    assert rows[("interaction", "media_reference_fact")][0]["capture_tier"] == "uniform"
+    assert rows[("interaction", "event_fact")][0]["elapsed_ms"] == 123
+    assert rows[("interaction", "ui_frame_fact")][0]["media_archive_key"] == "v2/archive.gz"
+    assert rows[("interaction", "session_fact")][0]["session_end_taxonomy"] == "completed"
+    assert rows[("interaction", "session_fact")][0]["traffic_scale_bucket"] == "10k_100k"
+    assert rows[("interaction", "session_fact")][0]["traffic_scale_observed_days"] == 30
+
+    grouped = compactor.group_rows_by_output(rows)
+    assert (
+        "interaction",
+        "ui_frame_fact",
+        ("dataset_role=general", "date=2026-06-11", "platform=ios"),
+    ) in grouped
+    assert rows[("interaction", "ui_frame_fact")][0]["dataset_role"] == "general"
+
+
+def test_v2_forward_outcomes_builds_only_forward_fact():
+    sample = {
+        "manifest": {
+            "schema_version": 2,
+            "lake": "forward_outcomes",
+            "project_key": "project_hash",
+            "sample_key": "sample_hash",
+            "sample_date": "2026-06-11",
+            "platform": "ios",
+            "release_id": "2.4.1",
+            "capture": {"capture_tier": "spine", "evaluation_quarantined": True},
+        },
+        "quality": {"quality_tier": "linked", "pii_scan": "passed"},
+        "outcomes": {
+            "active_d7": True,
+            "active_d30": True,
+            "followup_refund_count": 1,
+            "censoring": "complete_30d_window",
+        },
+    }
+
+    rows = compactor.rows_from_sample("forward_outcomes", sample)
+
+    assert rows[("forward_outcomes", "forward_outcome_fact")][0]["active_d30"] is True
+    assert rows[("forward_outcomes", "forward_outcome_fact")][0]["capture_tier"] == "spine"
+    assert rows[("forward_outcomes", "forward_outcome_fact")][0]["evaluation_quarantined"] is True
+    assert ("forward_outcomes", "session_fact") not in rows
 
 
 def test_revenue_outcome_sample_builds_aggregate_fact_only():
@@ -312,6 +413,25 @@ def test_table_chunk_rows_caps_heavy_visual_tables():
     assert compactor.table_chunk_rows("ui_frame_fact", 100) == 100
 
 
+def test_v2_dataset_roles_are_physically_partitioned_without_changing_v1_paths():
+    assert compactor.dataset_role_for_row({"capture_tier": "spine", "evaluation_quarantined": False}) == "evaluation"
+    assert compactor.dataset_role_for_row({"capture_tier": "uniform", "evaluation_quarantined": False}) == "general"
+    assert compactor.dataset_role_for_row({"capture_tier": "selected", "evaluation_quarantined": True}) == "quarantined"
+    assert compactor.dataset_role_for_row({"capture_tier": None, "evaluation_quarantined": False}) == "unclassified"
+    assert compactor.dataset_role_for_row({"sample_date": "2026-06-11"}) is None
+
+    assert compactor.partition_parts("session_fact", {
+        "sample_date": "2026-06-11",
+        "platform": "ios",
+        "capture_tier": "spine",
+        "evaluation_quarantined": False,
+    }) == ["dataset_role=evaluation", "date=2026-06-11", "platform=ios"]
+    assert compactor.partition_parts("session_fact", {
+        "sample_date": "2026-06-11",
+        "platform": "ios",
+    }) == ["date=2026-06-11", "platform=ios"]
+
+
 def test_date_range_handles_inclusive_and_empty_ranges():
     assert compactor.date_range("2026-06-10", "2026-06-12") == [
         "2026-06-10",
@@ -319,6 +439,38 @@ def test_date_range_handles_inclusive_and_empty_ranges():
         "2026-06-12",
     ]
     assert compactor.date_range("2026-06-12", "2026-06-10") == []
+
+
+def test_v2_traffic_scale_uses_behavioral_manifests_only_and_a_30_day_window():
+    keys_by_date = {
+        "2026-06-01": {
+            "behavioral_outcomes": [
+                "v2/lake=behavioral_outcomes/project_key=a/date=2026-06-01/sample_key=old/manifest.json",
+            ],
+            "interaction": [],
+        },
+        "2026-07-01": {
+            "behavioral_outcomes": [
+                "v2/lake=behavioral_outcomes/project_key=a/date=2026-07-01/sample_key=one/manifest.json",
+                "v2/lake=behavioral_outcomes/project_key=b/date=2026-07-01/sample_key=two/manifest.json",
+            ],
+            "interaction": [
+                "v2/lake=interaction/project_key=a/date=2026-07-01/sample_key=one/manifest.json",
+            ],
+        },
+    }
+
+    scales = compactor.project_traffic_scale_by_key(keys_by_date, "2026-07-01")
+
+    assert scales["a"] == {
+        "traffic_scale_bucket": "under_1k",
+        "traffic_scale_window_days": 30,
+        "traffic_scale_observed_days": 1,
+        "traffic_scale_provenance": "derived_from_v2_behavioral_exports",
+    }
+    assert scales["b"]["traffic_scale_bucket"] == "under_1k"
+    assert compactor.traffic_scale_bucket(1_000) == "1k_10k"
+    assert compactor.traffic_scale_bucket(100_000) == "100k_1m"
 
 
 def test_discover_manifest_keys_by_date_lists_exact_date_prefixes():

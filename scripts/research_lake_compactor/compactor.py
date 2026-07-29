@@ -15,7 +15,9 @@ from collections import defaultdict
 from typing import Any, Iterable
 
 
-RAW_LAKES = ("interaction", "behavioral_outcomes", "revenue_outcomes")
+V1_RAW_LAKES = ("interaction", "behavioral_outcomes", "revenue_outcomes")
+V2_RAW_LAKES = ("interaction", "behavioral_outcomes", "forward_outcomes")
+RAW_LAKES = V1_RAW_LAKES
 TABLE_CHUNK_ROW_LIMITS = {
     # Raster feature-grid rows can contain 3 dense grid arrays. Keep these
     # row groups intentionally small so catch-up compactions do not OOM.
@@ -125,6 +127,20 @@ def safe_partition_value(value: Any, fallback: str = "unknown") -> str:
     return raw[:80] or fallback
 
 
+def dataset_role_for_row(row: dict[str, Any]) -> str | None:
+    has_v2_capture_fields = "capture_tier" in row or "evaluation_quarantined" in row
+    if not has_v2_capture_fields:
+        return None
+    if bool(row.get("evaluation_quarantined")):
+        return "quarantined"
+    capture_tier = row.get("capture_tier")
+    if capture_tier == "spine":
+        return "evaluation"
+    if capture_tier in {"uniform", "selected", "metadata_only"}:
+        return "general"
+    return "unclassified"
+
+
 def read_json_bytes(data: bytes) -> dict[str, Any]:
     return json.loads(data.decode("utf-8"))
 
@@ -145,7 +161,7 @@ def flatten_session_fact(source_lake: str, manifest: dict[str, Any], quality: di
     visitor = manifest.get("visitor_context") if isinstance(manifest.get("visitor_context"), dict) else {}
     source = manifest.get("source") if isinstance(manifest.get("source"), dict) else {}
     labels = manifest.get("labels") if isinstance(manifest.get("labels"), dict) else {}
-    return {
+    row = {
         "source_lake": source_lake,
         "project_key": manifest.get("project_key"),
         "sample_key": manifest.get("sample_key"),
@@ -176,6 +192,20 @@ def flatten_session_fact(source_lake: str, manifest: dict[str, Any], quality: di
         "max_funnel_stage_reached": labels.get("max_funnel_stage_reached"),
         "is_conversion_session": labels.get("is_conversion_session"),
     }
+    if int(manifest.get("schema_version", 1)) >= 2:
+        row.update({
+            "schema_version": manifest.get("schema_version"),
+            "release_id": manifest.get("release_id"),
+            "traffic_scale_bucket": manifest.get("traffic_scale_bucket"),
+            "traffic_scale_window_days": manifest.get("traffic_scale_window_days"),
+            "traffic_scale_observed_days": manifest.get("traffic_scale_observed_days"),
+            "traffic_scale_provenance": manifest.get("traffic_scale_provenance"),
+            "session_end_taxonomy": (manifest.get("lifecycle") or {}).get("session_end_taxonomy"),
+            "session_end_confidence": (manifest.get("lifecycle") or {}).get("confidence"),
+            "capture_tier": (manifest.get("capture") or {}).get("capture_tier"),
+            "evaluation_quarantined": bool((manifest.get("capture") or {}).get("evaluation_quarantined")),
+        })
+    return row
 
 
 def quality_fact(source_lake: str, manifest: dict[str, Any], quality: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
@@ -183,7 +213,7 @@ def quality_fact(source_lake: str, manifest: dict[str, Any], quality: dict[str, 
     hierarchy_profile = capture_profile.get("hierarchy") if isinstance(capture_profile, dict) and isinstance(capture_profile.get("hierarchy"), dict) else {}
     rrweb_profile = capture_profile.get("rrweb") if isinstance(capture_profile, dict) and isinstance(capture_profile.get("rrweb"), dict) else {}
     masking_profile = capture_profile.get("masking") if isinstance(capture_profile, dict) and isinstance(capture_profile.get("masking"), dict) else {}
-    return {
+    row = {
         "source_lake": source_lake,
         "project_key": manifest.get("project_key"),
         "sample_key": manifest.get("sample_key"),
@@ -233,6 +263,14 @@ def quality_fact(source_lake: str, manifest: dict[str, Any], quality: dict[str, 
         "rrweb_media_surface_count": masking_profile.get("rrweb_media_surface_count"),
         "compaction_warnings": warnings,
     }
+    if int(manifest.get("schema_version", 1)) >= 2:
+        row.update({
+            "schema_version": manifest.get("schema_version"),
+            "provenance": quality.get("provenance") or manifest.get("provenance"),
+            "capture_tier": (manifest.get("capture") or {}).get("capture_tier"),
+            "evaluation_quarantined": bool((manifest.get("capture") or {}).get("evaluation_quarantined")),
+        })
+    return row
 
 
 def event_fact_rows(source_lake: str, manifest: dict[str, Any], rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -241,7 +279,7 @@ def event_fact_rows(source_lake: str, manifest: dict[str, Any], rows: Iterable[d
         event_family = row.get("event_family")
         if not event_family:
             event_family = "funnel" if row.get("funnel_transition") else row.get("kind") or "event"
-        out.append({
+        event_row = {
             "source_lake": source_lake,
             "project_key": manifest.get("project_key"),
             "sample_key": manifest.get("sample_key"),
@@ -271,12 +309,23 @@ def event_fact_rows(source_lake: str, manifest: dict[str, Any], rows: Iterable[d
             "plan_key": row.get("plan_key"),
             "price_key": row.get("price_key"),
             "event_shape_key": row.get("event_shape_key"),
-        })
+        }
+        if int(manifest.get("schema_version", 1)) >= 2:
+            capture = manifest.get("capture") if isinstance(manifest.get("capture"), dict) else {}
+            event_row.update({
+                "elapsed_ms": row.get("elapsed_ms"),
+                "input_to_next_frame_ms_bucket": row.get("input_to_next_frame_ms_bucket"),
+                "input_to_dom_mutation_ms_bucket": row.get("input_to_dom_mutation_ms_bucket"),
+                "main_thread_blocked": row.get("main_thread_blocked"),
+                "capture_tier": capture.get("capture_tier"),
+                "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+            })
+        out.append(event_row)
     return out
 
 
 def label_rows(source_lake: str, manifest: dict[str, Any], labels: dict[str, Any]) -> list[dict[str, Any]]:
-    return [{
+    row = {
         "source_lake": source_lake,
         "project_key": manifest.get("project_key"),
         "sample_key": manifest.get("sample_key"),
@@ -293,7 +342,13 @@ def label_rows(source_lake: str, manifest: dict[str, Any], labels: dict[str, Any
         "has_rage_or_dead_tap": labels.get("has_rage_or_dead_tap"),
         "abandoned_after_paywall": labels.get("abandoned_after_paywall"),
         "abandoned_after_checkout": labels.get("abandoned_after_checkout"),
-    }]
+    }
+    if int(manifest.get("schema_version", 1)) >= 2:
+        row.update({
+            "capture_tier": (manifest.get("capture") or {}).get("capture_tier"),
+            "evaluation_quarantined": bool((manifest.get("capture") or {}).get("evaluation_quarantined")),
+        })
+    return [row]
 
 
 def revenue_outcome_row(source_lake: str, manifest: dict[str, Any], daily_revenue: dict[str, Any]) -> dict[str, Any]:
@@ -315,6 +370,18 @@ def common_rows(rows: Iterable[dict[str, Any]], fields: tuple[str, ...]) -> list
     return [{key: row.get(key) for key in fields} for row in rows]
 
 
+def common_rows_for_manifest(rows: Iterable[dict[str, Any]], fields: tuple[str, ...], manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    output = common_rows(rows, fields)
+    if int(manifest.get("schema_version", 1)) >= 2:
+        capture = manifest.get("capture") if isinstance(manifest.get("capture"), dict) else {}
+        for row in output:
+            row.update({
+                "capture_tier": capture.get("capture_tier"),
+                "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+            })
+    return output
+
+
 def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str, str], list[dict[str, Any]]]:
     manifest = sample.get("manifest") or {}
     quality = sample.get("quality") or {}
@@ -330,18 +397,62 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
             rows[(source_lake, "daily_revenue_fact")].append(revenue_outcome_row(source_lake, manifest, daily_revenue))
         return rows
 
+    if source_lake == "forward_outcomes":
+        outcomes = sample.get("outcomes") or {}
+        if outcomes:
+            row = dict(outcomes)
+            row.update({
+                "source_lake": source_lake,
+                "project_key": manifest.get("project_key"),
+                "sample_key": manifest.get("sample_key"),
+                "sample_date": manifest.get("sample_date"),
+                "platform": manifest.get("platform") or "unknown",
+                "release_id": manifest.get("release_id"),
+                "capture_tier": (manifest.get("capture") or {}).get("capture_tier"),
+                "evaluation_quarantined": bool((manifest.get("capture") or {}).get("evaluation_quarantined")),
+            })
+            rows[(source_lake, "forward_outcome_fact")].append(row)
+        return rows
+
     session_row = flatten_session_fact(source_lake, manifest, quality)
     rows[(source_lake, "session_fact")].append(session_row)
     rows[(source_lake, "quality_fact")].append(quality_fact(source_lake, manifest, quality, warnings))
-    rows[("combined", "session_fact")].append({key: session_row.get(key) for key in COMMON_SESSION_FIELDS})
+    rows[("combined", "session_fact")].extend(common_rows_for_manifest([session_row], COMMON_SESSION_FIELDS, manifest))
+
+    capture = manifest.get("capture") if isinstance(manifest.get("capture"), dict) else {}
+    if capture:
+        capture_row = dict(capture)
+        capture_row.update({
+            "source_lake": source_lake,
+            "project_key": manifest.get("project_key"),
+            "sample_key": manifest.get("sample_key"),
+            "sample_date": manifest.get("sample_date"),
+            "platform": manifest.get("platform") or "unknown",
+        })
+        rows[(source_lake, "capture_fact")].append(capture_row)
+
+    if manifest.get("release_id"):
+        rows[(source_lake, "release_observation_fact")].append({
+            "source_lake": source_lake,
+            "project_key": manifest.get("project_key"),
+            "sample_key": manifest.get("sample_key"),
+            "sample_date": manifest.get("sample_date"),
+            "platform": manifest.get("platform") or "unknown",
+            "release_id": manifest.get("release_id"),
+            "capture_tier": capture.get("capture_tier"),
+            "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+        })
 
     if source_lake == "interaction":
         interactions = sample.get("interactions") or []
         ui_frames = sample.get("ui_frames") or []
         ui_skeleton = sample.get("ui_skeleton") or []
+        screen_versions = sample.get("screen_versions") or []
+        flow_edges = sample.get("flow_edges") or []
+        frame_index = sample.get("frame_index") or []
         events = event_fact_rows(source_lake, manifest, interactions)
         rows[(source_lake, "event_fact")].extend(events)
-        rows[("combined", "event_fact")].extend(common_rows(events, COMMON_EVENT_FIELDS))
+        rows[("combined", "event_fact")].extend(common_rows_for_manifest(events, COMMON_EVENT_FIELDS, manifest))
         for frame in ui_frames:
             frame_row = dict(frame)
             frame_row.update({
@@ -351,6 +462,11 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
                 "sample_date": manifest.get("sample_date"),
                 "platform": manifest.get("platform") or "unknown",
             })
+            if int(manifest.get("schema_version", 1)) >= 2:
+                frame_row.update({
+                    "capture_tier": capture.get("capture_tier"),
+                    "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+                })
             rows[(source_lake, "ui_frame_fact")].append(frame_row)
         for element in ui_skeleton:
             element_row = dict(element)
@@ -361,19 +477,64 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
                 "sample_date": manifest.get("sample_date"),
                 "platform": manifest.get("platform") or "unknown",
             })
+            if int(manifest.get("schema_version", 1)) >= 2:
+                element_row.update({
+                    "capture_tier": capture.get("capture_tier"),
+                    "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+                })
             rows[(source_lake, "ui_skeleton_fact")].append(element_row)
+        for version in screen_versions:
+            version_row = dict(version)
+            version_row.update({
+                "source_lake": source_lake,
+                "project_key": manifest.get("project_key"),
+                "sample_key": manifest.get("sample_key"),
+                "sample_date": manifest.get("sample_date"),
+                "platform": manifest.get("platform") or "unknown",
+            })
+            version_row.update({
+                "capture_tier": capture.get("capture_tier"),
+                "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+            })
+            rows[(source_lake, "screen_version_fact")].append(version_row)
+        for edge in flow_edges:
+            edge_row = dict(edge)
+            edge_row.update({
+                "source_lake": source_lake,
+                "project_key": manifest.get("project_key"),
+                "sample_key": manifest.get("sample_key"),
+                "sample_date": manifest.get("sample_date"),
+                "platform": manifest.get("platform") or "unknown",
+            })
+            edge_row.update({
+                "capture_tier": capture.get("capture_tier"),
+                "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+            })
+            rows[(source_lake, "flow_edge_fact")].append(edge_row)
+        for media_reference in frame_index:
+            media_row = dict(media_reference)
+            media_row.update({
+                "source_lake": source_lake,
+                "project_key": manifest.get("project_key"),
+                "sample_key": manifest.get("sample_key"),
+                "sample_date": manifest.get("sample_date"),
+                "platform": manifest.get("platform") or "unknown",
+                "capture_tier": capture.get("capture_tier"),
+                "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+            })
+            rows[(source_lake, "media_reference_fact")].append(media_row)
         labels_rows = label_rows(source_lake, manifest, manifest.get("labels") or {})
         rows[(source_lake, "training_labels")].extend(labels_rows)
-        rows[("combined", "training_labels")].extend(common_rows(labels_rows, COMMON_LABEL_FIELDS))
+        rows[("combined", "training_labels")].extend(common_rows_for_manifest(labels_rows, COMMON_LABEL_FIELDS, manifest))
     else:
         events = event_fact_rows(source_lake, manifest, sample.get("events") or [])
         metrics = sample.get("session_metrics") or {}
         labels = sample.get("labels") or manifest.get("labels") or {}
         rows[(source_lake, "event_fact")].extend(events)
-        rows[("combined", "event_fact")].extend(common_rows(events, COMMON_EVENT_FIELDS))
+        rows[("combined", "event_fact")].extend(common_rows_for_manifest(events, COMMON_EVENT_FIELDS, manifest))
         labels_rows = label_rows(source_lake, manifest, labels)
         rows[(source_lake, "training_labels")].extend(labels_rows)
-        rows[("combined", "training_labels")].extend(common_rows(labels_rows, COMMON_LABEL_FIELDS))
+        rows[("combined", "training_labels")].extend(common_rows_for_manifest(labels_rows, COMMON_LABEL_FIELDS, manifest))
         rows[(source_lake, "stability_fact")].append({
             "source_lake": source_lake,
             "project_key": manifest.get("project_key"),
@@ -402,6 +563,12 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
             "is_constrained": metrics.get("is_constrained"),
             "is_expensive": metrics.get("is_expensive"),
         })
+        if int(manifest.get("schema_version", 1)) >= 2:
+            for table in ("stability_fact", "network_fact"):
+                rows[(source_lake, table)][-1].update({
+                    "capture_tier": capture.get("capture_tier"),
+                    "evaluation_quarantined": bool(capture.get("evaluation_quarantined")),
+                })
 
     return rows
 
@@ -409,23 +576,28 @@ def rows_from_sample(source_lake: str, sample: dict[str, Any]) -> dict[tuple[str
 def partition_parts(table: str, row: dict[str, Any]) -> list[str]:
     date = safe_partition_value(row.get("sample_date"), "unknown_date")
     platform = safe_partition_value(row.get("platform"), "unknown")
+    dataset_role = dataset_role_for_row(row)
+    role_partition = [f"dataset_role={dataset_role}"] if dataset_role else []
     if table == "event_fact":
-        return [f"date={date}", f"event_family={safe_partition_value(row.get('event_family'), 'event')}"]
+        return [*role_partition, f"date={date}", f"event_family={safe_partition_value(row.get('event_family'), 'event')}"]
     if table == "daily_revenue_fact":
         provider = safe_partition_value(row.get("provider"), "unknown")
         currency = safe_partition_value(row.get("currency"), "unknown")
-        return [f"date={date}", f"provider={provider}", f"currency={currency}"]
+        return [*role_partition, f"date={date}", f"provider={provider}", f"currency={currency}"]
     if table == "training_labels":
-        return [f"date={date}", f"label_family={safe_partition_value(row.get('label_family'), 'all')}"]
-    if table in {"session_fact", "ui_frame_fact", "ui_skeleton_fact", "stability_fact", "network_fact"}:
-        return [f"date={date}", f"platform={platform}"]
-    return [f"date={date}"]
+        return [*role_partition, f"date={date}", f"label_family={safe_partition_value(row.get('label_family'), 'all')}"]
+    if table in {"session_fact", "ui_frame_fact", "ui_skeleton_fact", "stability_fact", "network_fact", "capture_fact", "screen_version_fact", "flow_edge_fact", "media_reference_fact", "release_observation_fact", "forward_outcome_fact"}:
+        return [*role_partition, f"date={date}", f"platform={platform}"]
+    return [*role_partition, f"date={date}"]
 
 
 def group_rows_by_output(rows: dict[tuple[str, str], list[dict[str, Any]]]) -> dict[tuple[str, str, tuple[str, ...]], list[dict[str, Any]]]:
     grouped: dict[tuple[str, str, tuple[str, ...]], list[dict[str, Any]]] = defaultdict(list)
     for (source_lake, table), table_rows in rows.items():
         for row in table_rows:
+            dataset_role = dataset_role_for_row(row)
+            if dataset_role:
+                row["dataset_role"] = dataset_role
             grouped[(source_lake, table, tuple(partition_parts(table, row)))].append(row)
     return grouped
 
@@ -514,10 +686,16 @@ def load_sample_from_s3(client, bucket: str, manifest_key: str, source_lake: str
         optional_jsonl_gz("interactions", "interactions.jsonl.gz")
         optional_jsonl_gz("ui_frames", "ui_frames.jsonl.gz")
         optional_jsonl_gz("ui_skeleton", "ui_skeleton.jsonl.gz")
+        if int(manifest.get("schema_version", 1)) >= 2:
+            optional_jsonl_gz("screen_versions", "screen_versions.jsonl.gz")
+            optional_jsonl_gz("flow_edges", "flow_edges.jsonl.gz")
+            optional_jsonl_gz("frame_index", "frame_index.jsonl.gz")
     elif source_lake == "behavioral_outcomes":
         optional_jsonl_gz("events", "events.jsonl.gz")
         optional_json("session_metrics", "session_metrics.json")
         optional_json("labels", "labels.json")
+    elif source_lake == "forward_outcomes":
+        optional_json("outcomes", "outcomes.json")
     else:
         optional_json("daily_revenue", "daily_revenue.json")
 
@@ -547,6 +725,56 @@ def date_allowed(
 def manifest_date(manifest_key: str) -> str | None:
     match = re.search(r"/date=([0-9]{4}-[0-9]{2}-[0-9]{2})/", manifest_key)
     return match.group(1) if match else None
+
+
+def manifest_project_key(manifest_key: str) -> str | None:
+    match = re.search(r"/project_key=([^/]+)/", manifest_key)
+    return match.group(1) if match else None
+
+
+def traffic_scale_bucket(observed_sessions_30d: int) -> str:
+    if observed_sessions_30d < 1_000:
+        return "under_1k"
+    if observed_sessions_30d < 10_000:
+        return "1k_10k"
+    if observed_sessions_30d < 100_000:
+        return "10k_100k"
+    if observed_sessions_30d < 1_000_000:
+        return "100k_1m"
+    return "1m_plus"
+
+
+def project_traffic_scale_by_key(
+    keys_by_date: dict[str, dict[str, list[str]]],
+    observation_end_date: str,
+    window_days: int = 30,
+) -> dict[str, dict[str, Any]]:
+    end = dt.date.fromisoformat(observation_end_date)
+    start = end - dt.timedelta(days=max(1, window_days) - 1)
+    samples_by_project: dict[str, set[str]] = defaultdict(set)
+    dates_by_project: dict[str, set[str]] = defaultdict(set)
+
+    # Behavioral exports provide a much less biased scale signal than the visual
+    # sample while keeping project metadata out of the transactional database.
+    for sample_date, keys_by_lake in keys_by_date.items():
+        parsed_date = dt.date.fromisoformat(sample_date)
+        if parsed_date < start or parsed_date > end:
+            continue
+        for key in keys_by_lake.get("behavioral_outcomes", []):
+            project_key = manifest_project_key(key)
+            if project_key:
+                samples_by_project[project_key].add(key.rsplit("/manifest.json", 1)[0])
+                dates_by_project[project_key].add(sample_date)
+
+    return {
+        project_key: {
+            "traffic_scale_bucket": traffic_scale_bucket(len(sample_keys)),
+            "traffic_scale_window_days": window_days,
+            "traffic_scale_observed_days": len(dates_by_project[project_key]),
+            "traffic_scale_provenance": "derived_from_v2_behavioral_exports",
+        }
+        for project_key, sample_keys in samples_by_project.items()
+    }
 
 
 def eligible_manifest_keys_by_date(
@@ -592,12 +820,13 @@ def discover_manifest_keys_by_date(
     bucket: str,
     raw_prefix: str,
     candidate_dates: Iterable[str],
+    raw_lakes: tuple[str, ...] = RAW_LAKES,
 ) -> tuple[dict[str, dict[str, list[str]]], dict[str, int]]:
-    keys_by_date: dict[str, dict[str, list[str]]] = defaultdict(lambda: {source_lake: [] for source_lake in RAW_LAKES})
-    discovered_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
+    keys_by_date: dict[str, dict[str, list[str]]] = defaultdict(lambda: {source_lake: [] for source_lake in raw_lakes})
+    discovered_by_lake = {source_lake: 0 for source_lake in raw_lakes}
     dates = list(candidate_dates)
 
-    for source_lake in RAW_LAKES:
+    for source_lake in raw_lakes:
         lake_prefix = f"{raw_prefix}/lake={source_lake}/"
         project_prefixes = list(list_common_prefixes(client, bucket, lake_prefix))
         for project_prefix in project_prefixes:
@@ -655,6 +884,8 @@ def write_manifest_keys_chunked_to_s3(
     curated_prefix: str,
     keys_by_lake: dict[str, list[str]],
     chunk_rows: int,
+    raw_lakes: tuple[str, ...] = RAW_LAKES,
+    traffic_scale_by_project: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[int, int]:
     run_id = uuid.uuid4().hex
     buffers: dict[tuple[str, str, tuple[str, ...]], list[dict[str, Any]]] = defaultdict(list)
@@ -679,9 +910,13 @@ def write_manifest_keys_chunked_to_s3(
         buffers[group_key] = []
         gc.collect()
 
-    for source_lake in RAW_LAKES:
+    for source_lake in raw_lakes:
         for key in keys_by_lake.get(source_lake, []):
             sample = load_sample_from_s3(client, bucket, key, source_lake)
+            manifest = sample.get("manifest") or {}
+            if int(manifest.get("schema_version", 1)) >= 2 and traffic_scale_by_project:
+                project_key = manifest_project_key(key)
+                manifest.update(traffic_scale_by_project.get(project_key or "", {}))
             grouped = group_rows_by_output(rows_from_sample(source_lake, sample))
             for group_key, rows in grouped.items():
                 buffers[group_key].extend(rows)
@@ -701,6 +936,8 @@ def main() -> None:
 
     raw_prefix = normalize_prefix(env("RESEARCH_LAKE_PREFIX", "v1") or "v1")
     curated_prefix = normalize_prefix(env("RESEARCH_LAKE_CURATED_PREFIX", "v1_curated") or "v1_curated")
+    schema_version = int(env("RESEARCH_LAKE_SCHEMA_VERSION", "1") or "1")
+    raw_lakes = V2_RAW_LAKES if schema_version >= 2 else V1_RAW_LAKES
     explicit_date = env("RESEARCH_LAKE_COMPACTOR_DATE")
     explicit_date_start = env("RESEARCH_LAKE_COMPACTOR_DATE_START")
     explicit_date_end = env("RESEARCH_LAKE_COMPACTOR_DATE_END")
@@ -737,9 +974,15 @@ def main() -> None:
         bucket,
         raw_prefix,
         candidate_dates,
+        raw_lakes,
+    )
+    traffic_scale_by_project = (
+        project_traffic_scale_by_key(keys_by_date, max(candidate_dates), 30)
+        if schema_version >= 2 and candidate_dates
+        else {}
     )
 
-    loaded_by_lake = {source_lake: 0 for source_lake in RAW_LAKES}
+    loaded_by_lake = {source_lake: 0 for source_lake in raw_lakes}
     processed_dates = 0
     total_row_groups = 0
     total_rows = 0
@@ -764,8 +1007,10 @@ def main() -> None:
             curated_prefix,
             keys_by_date[date],
             chunk_rows,
+            raw_lakes,
+            traffic_scale_by_project,
         )
-        for source_lake in RAW_LAKES:
+        for source_lake in raw_lakes:
             loaded_by_lake[source_lake] += len(keys_by_date[date][source_lake])
         processed_dates += 1
         total_row_groups += date_row_groups
@@ -785,6 +1030,7 @@ def main() -> None:
         "skipped_dates": skipped_dates,
         "deferred_dates": deferred_dates,
         "curated_prefix": curated_prefix,
+        "schema_version": schema_version,
     }, sort_keys=True))
 
 

@@ -96,3 +96,56 @@ def test_validate_file_reads_jsonl_and_gzip(tmp_path):
 
     assert reader.validate_file(plain) == 1
     assert reader.validate_file(gzipped) == 1
+
+
+def test_v2_screenshot_rows_require_media_reference_and_exact_timing():
+    row = screenshot_row(4, 2)
+    row.update({
+        "media_archive_key": "v2/lake=interaction/archive.gz",
+        "media_frame_checksum_key": "abc123",
+        "elapsed_ms": 250,
+    })
+    reader.validate_ui_frame(row, schema_version=2)
+
+    missing = screenshot_row(4, 2)
+    with pytest.raises(reader.ResearchLakeValidationError, match="media_archive_key"):
+        reader.validate_ui_frame(missing, schema_version=2)
+
+
+def test_training_filter_excludes_spine_and_quarantined_by_default():
+    assert reader.eligible_for_training({"capture_tier": "selected"}) is True
+    assert reader.eligible_for_training({"capture_tier": "spine"}) is False
+    assert reader.eligible_for_training({"capture_tier": "uniform", "evaluation_quarantined": True}) is False
+    assert reader.eligible_for_training({"capture_tier": "spine"}, include_evaluation=True) is True
+    assert reader.eligible_for_training(
+        {"capture_tier": "uniform", "evaluation_quarantined": True},
+        include_evaluation=True,
+    ) is False
+    assert reader.eligible_for_training(
+        {"capture_tier": "uniform", "evaluation_quarantined": True},
+        include_quarantined=True,
+    ) is True
+    assert reader.eligible_for_training({"dataset_role": "general", "capture_tier": "spine"}) is False
+    assert reader.eligible_for_training({"dataset_role": "general", "capture_tier": "uniform"}) is True
+    assert reader.eligible_for_training({"dataset_role": "general"}) is False
+    assert reader.eligible_for_training({"dataset_role": "evaluation", "capture_tier": "uniform"}) is False
+    assert reader.eligible_for_training({"dataset_role": "quarantined"}) is False
+    assert reader.eligible_for_training({"dataset_role": "quarantined"}, include_evaluation=True) is False
+    assert reader.eligible_for_training({"dataset_role": "quarantined"}, include_quarantined=True) is True
+    assert reader.eligible_for_training({"dataset_role": "unclassified"}) is False
+
+
+def test_validate_file_counts_only_training_eligible_v2_rows_by_default(tmp_path):
+    path = tmp_path / "ui_frames.jsonl"
+    selected = screenshot_row(4, 2)
+    selected.update({
+        "capture_tier": "uniform",
+        "media_archive_key": "v2/archive.gz",
+        "media_frame_checksum_key": "selected",
+        "elapsed_ms": 100,
+    })
+    spine = dict(selected, capture_tier="spine", media_frame_checksum_key="spine")
+    path.write_text(f"{json.dumps(selected)}\n{json.dumps(spine)}\n", encoding="utf-8")
+
+    assert reader.validate_file(path, schema_version=2) == 1
+    assert reader.validate_file(path, schema_version=2, include_evaluation=True) == 2

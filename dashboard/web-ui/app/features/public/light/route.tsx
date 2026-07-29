@@ -22,13 +22,16 @@ import {
 const locale = MARKETING_LOCALES.en;
 const copy = getMarketingHomeCopy(locale);
 const canonicalUrl = `${SITE_URL}/light`;
-const socialPreviewImage = `${SITE_URL}/images/heatmaps.png`;
+const pageTitle = "Lightweight Session Replay for Web & Mobile | Rejourney";
+const pageDescription =
+    "Lightweight session replay for web and mobile apps with console, network, error, and revenue-flow context. Start with 5,000 replays free each month.";
+const socialPreviewImage = `${SITE_URL}/images/session-replay-preview.webp`;
 
 export const meta: Route.MetaFunction = () => [
-    { title: `Rejourney Classic | ${locale.metaTitle}` },
+    { title: pageTitle },
     {
         name: "description",
-        content: locale.metaDescription,
+        content: pageDescription,
     },
     {
         name: "keywords",
@@ -37,20 +40,20 @@ export const meta: Route.MetaFunction = () => [
     { name: "robots", content: "noindex, follow, max-image-preview:large" },
     { httpEquiv: "Content-Language", content: locale.languageTag },
     { property: "og:locale", content: locale.ogLocale },
-    { property: "og:title", content: `Rejourney Classic | ${locale.metaTitle}` },
-    { property: "og:description", content: locale.metaDescription },
+    { property: "og:title", content: pageTitle },
+    { property: "og:description", content: pageDescription },
     { property: "og:url", content: canonicalUrl },
     { property: "og:type", content: "website" },
     { property: "og:image", content: socialPreviewImage },
     { property: "og:image:width", content: "998" },
     { property: "og:image:height", content: "794" },
-    { property: "og:image:alt", content: "Rejourney heatmaps preview" },
-    { property: "og:image:type", content: "image/png" },
+    { property: "og:image:alt", content: "Rejourney lightweight session replay preview" },
+    { property: "og:image:type", content: "image/webp" },
     { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: `Rejourney Classic | ${locale.metaTitle}` },
-    { name: "twitter:description", content: locale.metaDescription },
+    { name: "twitter:title", content: pageTitle },
+    { name: "twitter:description", content: pageDescription },
     { name: "twitter:image", content: socialPreviewImage },
-    { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
+    { name: "twitter:image:alt", content: "Rejourney lightweight session replay preview" },
     { tagName: "link", rel: "canonical", href: canonicalUrl },
 ];
 

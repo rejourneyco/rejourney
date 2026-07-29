@@ -146,6 +146,23 @@ const envSchema = z.object({
     RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED: z.string().transform(v => v !== 'false').default('true'),
     RESEARCH_LAKE_REVENUE_OUTCOMES_BATCH_SIZE: z.string().transform(Number).default('500'),
     RESEARCH_LAKE_HASH_SECRET: z.string().optional(),
+    // Schema V2 runs beside V1. These settings never disable or redirect V1.
+    RESEARCH_LAKE_V2_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    RESEARCH_LAKE_V2_PREFIX: z.string().default('v2'),
+    RESEARCH_LAKE_V2_BATCH_SIZE: z.string().transform(Number).default('120'),
+    RESEARCH_LAKE_V2_CONCURRENCY: z.string().transform(Number).default('4'),
+    RESEARCH_LAKE_V2_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
+    RESEARCH_LAKE_V2_BACKFILL_PERCENT: z.string().transform(Number).default('20'),
+    RESEARCH_LAKE_V2_SEED_MULTIPLIER: z.string().transform(Number).default('2'),
+    RESEARCH_LAKE_V2_SPINE_RATE_BPS: z.string().transform(Number).default('300'),
+    RESEARCH_LAKE_V2_UNIFORM_RATE_BPS: z.string().transform(Number).default('200'),
+    RESEARCH_LAKE_V2_POLICY_VERSION: z.string().transform(Number).default('1'),
+    RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS: z.string().transform(Number).default('24'),
+    RESEARCH_LAKE_V2_RETRY_WINDOW_HOURS: z.string().transform(Number).default('24'),
+    RESEARCH_LAKE_V2_PANEL_TTL_DAYS: z.string().transform(Number).default('62'),
+    RESEARCH_LAKE_V2_MEMORY_LIMIT_MB: z.string().transform(Number).default('4096'),
+    RESEARCH_LAKE_V2_CPU_LIMIT_CORES: z.string().transform(Number).default('2'),
+    RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS: z.string().default(''),
 
     // Auth
     JWT_SECRET: z.string().min(32),

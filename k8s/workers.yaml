@@ -153,6 +153,26 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: RESEARCH_LAKE_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_HASH_SECRET
+                  optional: true
+            - name: RESEARCH_LAKE_V2_ENABLED
+              value: "true"
+            - name: RESEARCH_LAKE_V2_SPINE_RATE_BPS
+              value: "300"
+            - name: RESEARCH_LAKE_V2_UNIFORM_RATE_BPS
+              value: "200"
+            - name: RESEARCH_LAKE_V2_POLICY_VERSION
+              value: "1"
+            - name: RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS
+              value: "24"
+            - name: RESEARCH_LAKE_V2_PANEL_TTL_DAYS
+              value: "62"
+            - name: RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS
+              value: ""
             # Monitoring
             - name: PUSHGATEWAY_URL
               value: "http://pushgateway.rejourney.svc.cluster.local:9091"
@@ -333,6 +353,26 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: RESEARCH_LAKE_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_HASH_SECRET
+                  optional: true
+            - name: RESEARCH_LAKE_V2_ENABLED
+              value: "true"
+            - name: RESEARCH_LAKE_V2_SPINE_RATE_BPS
+              value: "300"
+            - name: RESEARCH_LAKE_V2_UNIFORM_RATE_BPS
+              value: "200"
+            - name: RESEARCH_LAKE_V2_POLICY_VERSION
+              value: "1"
+            - name: RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS
+              value: "24"
+            - name: RESEARCH_LAKE_V2_PANEL_TTL_DAYS
+              value: "62"
+            - name: RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS
+              value: ""
             - name: PUSHGATEWAY_URL
               value: "http://pushgateway.rejourney.svc.cluster.local:9091"
             - name: PUBLIC_DASHBOARD_URL
@@ -481,6 +521,26 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: RESEARCH_LAKE_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: research-lake-secret
+                  key: RESEARCH_LAKE_HASH_SECRET
+                  optional: true
+            - name: RESEARCH_LAKE_V2_ENABLED
+              value: "true"
+            - name: RESEARCH_LAKE_V2_SPINE_RATE_BPS
+              value: "300"
+            - name: RESEARCH_LAKE_V2_UNIFORM_RATE_BPS
+              value: "200"
+            - name: RESEARCH_LAKE_V2_POLICY_VERSION
+              value: "1"
+            - name: RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS
+              value: "24"
+            - name: RESEARCH_LAKE_V2_PANEL_TTL_DAYS
+              value: "62"
+            - name: RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS
+              value: ""
             - name: PUSHGATEWAY_URL
               value: "http://pushgateway.rejourney.svc.cluster.local:9091"
             - name: GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
@@ -827,6 +887,195 @@ spec:
                   memory: 4Gi
 
 ---
+# Research Lake V2 Worker CronJob
+# Runs beside the V1 worker and writes only schema-version 2 jobs under v2/.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: research-lake-v2-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "2-59/5 * * * *"
+  startingDeadlineSeconds: 300
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 7200
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: research-lake-v2-worker
+        spec:
+          restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: worker
+              image: ghcr.io/rejourneyco/rejourney/api:latest
+              imagePullPolicy: Always
+              command:
+                - node
+                - dist/worker/researchLakeV2Worker.js
+                - --once
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: PGBOUNCER_URL
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_URL
+                - name: REDIS_SENTINEL_HOST
+                  value: "redis.rejourney.svc.cluster.local"
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_PASSWORD
+                      optional: true
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ENDPOINT
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_BUCKET
+                - name: S3_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_REGION
+                - name: S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ACCESS_KEY_ID
+                - name: S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_SECRET_ACCESS_KEY
+                - name: JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: JWT_SECRET
+                - name: INGEST_HMAC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: INGEST_HMAC_SECRET
+                - name: STORAGE_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: STORAGE_ENCRYPTION_KEY
+                - name: SHARE_LINK_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: SHARE_LINK_SECRET
+                      optional: true
+                - name: RESEARCH_LAKE_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ENDPOINT
+                - name: RESEARCH_LAKE_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_BUCKET
+                - name: RESEARCH_LAKE_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_REGION
+                      optional: true
+                - name: RESEARCH_LAKE_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ACCESS_KEY_ID
+                - name: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                - name: RESEARCH_LAKE_HASH_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_HASH_SECRET
+                      optional: true
+                - name: RESEARCH_LAKE_V2_ENABLED
+                  value: "true"
+                - name: RESEARCH_LAKE_V2_PREFIX
+                  value: "v2"
+                - name: RESEARCH_LAKE_V2_BATCH_SIZE
+                  value: "120"
+                - name: RESEARCH_LAKE_V2_CONCURRENCY
+                  value: "4"
+                - name: RESEARCH_LAKE_V2_MAX_RUNTIME_MS
+                  value: "5400000"
+                - name: RESEARCH_LAKE_V2_BACKFILL_PERCENT
+                  value: "20"
+                - name: RESEARCH_LAKE_V2_SEED_MULTIPLIER
+                  value: "2"
+                - name: RESEARCH_LAKE_V2_SPINE_RATE_BPS
+                  value: "300"
+                - name: RESEARCH_LAKE_V2_UNIFORM_RATE_BPS
+                  value: "200"
+                - name: RESEARCH_LAKE_V2_POLICY_VERSION
+                  value: "1"
+                - name: RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS
+                  value: "24"
+                - name: RESEARCH_LAKE_V2_RETRY_WINDOW_HOURS
+                  value: "24"
+                - name: RESEARCH_LAKE_V2_PANEL_TTL_DAYS
+                  value: "62"
+                - name: RESEARCH_LAKE_V2_MEMORY_LIMIT_MB
+                  value: "4096"
+                - name: RESEARCH_LAKE_V2_CPU_LIMIT_CORES
+                  value: "2"
+                - name: RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS
+                  value: ""
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 768Mi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+
+---
 # Research Lake Compactor CronJob
 # Compacts raw research-lake JSON/JSONL objects into query-friendly Parquet tables.
 apiVersion: batch/v1
@@ -906,6 +1155,103 @@ spec:
                   value: "v1_curated"
                 - name: RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS
                   value: "21"
+                - name: RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES
+                  value: "50000"
+                - name: RESEARCH_LAKE_COMPACTOR_MAX_DATES
+                  value: "3"
+                - name: RESEARCH_LAKE_COMPACTOR_DATE_ORDER
+                  value: "newest"
+                - name: RESEARCH_LAKE_COMPACTOR_CHUNK_ROWS
+                  value: "5000"
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+
+---
+# Research Lake V2 Compactor CronJob
+# Reads only v2/ and writes only v2_curated/; the V1 compactor remains unchanged.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: research-lake-v2-compactor
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "47 */2 * * *"
+  startingDeadlineSeconds: 600
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 21600
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: research-lake-v2-compactor
+        spec:
+          restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: compactor
+              image: ghcr.io/rejourneyco/rejourney/research-lake-compactor:latest
+              imagePullPolicy: Always
+              env:
+                - name: RESEARCH_LAKE_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ENDPOINT
+                - name: RESEARCH_LAKE_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_BUCKET
+                - name: RESEARCH_LAKE_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_REGION
+                      optional: true
+                - name: RESEARCH_LAKE_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_ACCESS_KEY_ID
+                - name: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: research-lake-secret
+                      key: RESEARCH_LAKE_SECRET_ACCESS_KEY
+                - name: RESEARCH_LAKE_SCHEMA_VERSION
+                  value: "2"
+                - name: RESEARCH_LAKE_PREFIX
+                  value: "v2"
+                - name: RESEARCH_LAKE_CURATED_PREFIX
+                  value: "v2_curated"
+                - name: RESEARCH_LAKE_COMPACTOR_LOOKBACK_DAYS
+                  value: "120"
                 - name: RESEARCH_LAKE_COMPACTOR_MAX_SAMPLES
                   value: "50000"
                 - name: RESEARCH_LAKE_COMPACTOR_MAX_DATES
