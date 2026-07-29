@@ -101,7 +101,8 @@ def test_validate_file_reads_jsonl_and_gzip(tmp_path):
 def test_v2_screenshot_rows_require_media_reference_and_exact_timing():
     row = screenshot_row(4, 2)
     row.update({
-        "media_archive_key": "v2/lake=interaction/archive.gz",
+        "media_archive_key": "v2/lake=interaction/archive.zip",
+        "media_archive_entry": "frames/frame-000000-000000125ms.jpg",
         "media_frame_checksum_key": "abc123",
         "elapsed_ms": 250,
     })
@@ -140,7 +141,8 @@ def test_validate_file_counts_only_training_eligible_v2_rows_by_default(tmp_path
     selected = screenshot_row(4, 2)
     selected.update({
         "capture_tier": "uniform",
-        "media_archive_key": "v2/archive.gz",
+        "media_archive_key": "v2/archive.zip",
+        "media_archive_entry": "frames/frame-000000-000000125ms.jpg",
         "media_frame_checksum_key": "selected",
         "elapsed_ms": 100,
     })

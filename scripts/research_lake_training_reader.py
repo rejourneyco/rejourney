@@ -76,6 +76,8 @@ def validate_ui_frame(row: dict[str, Any], schema_version: int = 1) -> None:
         if schema_version >= 2:
             if not row.get("media_archive_key"):
                 raise ResearchLakeValidationError("media_archive_key is required for V2 screenshot rows")
+            if not row.get("media_archive_entry"):
+                raise ResearchLakeValidationError("media_archive_entry is required for V2 screenshot rows")
             if not row.get("media_frame_checksum_key"):
                 raise ResearchLakeValidationError("media_frame_checksum_key is required for V2 screenshot rows")
             if not isinstance(row.get("elapsed_ms"), int) or row["elapsed_ms"] < 0:

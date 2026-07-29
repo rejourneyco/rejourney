@@ -297,11 +297,16 @@ function gzipBuffer(buffer: Buffer): Promise<Buffer> {
     });
 }
 
-function createZipArchiveBuffer(files: { name: string; buffer: Buffer }[]): Promise<Buffer> {
+function createZipArchiveBuffer(
+    files: { name: string; buffer: Buffer }[],
+    options: { store?: boolean } = {},
+): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-        // Level 6 keeps the same ZIP/file contract while avoiding the steep CPU
-        // cost of maximum compression on every exported research sample.
-        const archive = new ZipArchive({ zlib: { level: 6 } });
+        // JPEG media is already compressed, so store mode avoids needless CPU.
+        // Metadata uses deflate level 6 to balance compression and worker load.
+        const archive = new ZipArchive(
+            options.store ? { store: true } : { zlib: { level: 6 } },
+        );
         const buffers: Buffer[] = [];
         archive.on('data', (data: Buffer) => buffers.push(data));
         archive.on('end', () => resolve(Buffer.concat(buffers)));
@@ -4732,6 +4737,7 @@ type V2CaptureContext = {
 type V2FrameIndexRow = {
     frame_key: string;
     archive_key: string;
+    archive_entry: string;
     source_artifact_index: number;
     source_frame_index: number;
     source_filename_key: string;
@@ -4745,6 +4751,10 @@ type V2FrameIndexRow = {
 
 function v2Prefix(): string {
     return config.RESEARCH_LAKE_V2_PREFIX.replace(/^\/+|\/+$/g, '') || 'v2';
+}
+
+function v2ScreenshotArchiveEntry(frameIndex: number, elapsedMs: number): string {
+    return `frames/frame-${String(frameIndex).padStart(6, '0')}-${String(elapsedMs).padStart(9, '0')}ms.jpg`;
 }
 
 function exactElapsedMs(rawTimestamp: number | null, session: SessionContext): number | null {
@@ -4815,6 +4825,7 @@ function addV2FrameTiming(
             elapsed_ms: exact,
             exact_timing_provenance: exact === null ? 'unavailable' : 'observed',
             media_archive_key: frame.source_kind === 'screenshots' ? screenshotTiming.get(key)?.archive_key ?? null : null,
+            media_archive_entry: frame.source_kind === 'screenshots' ? screenshotTiming.get(key)?.archive_entry ?? null : null,
             media_frame_checksum_key: frame.source_kind === 'screenshots' ? screenshotTiming.get(key)?.frame_checksum_key ?? null : null,
         };
     });
@@ -4962,35 +4973,44 @@ async function copyV2ScreenshotArchives(
         if (!data) {
             throw new Error(`V2 screenshot source unavailable for artifact ${artifact.id}`);
         }
-        const archiveKey = `${basePath}/screenshot_archives/artifact-${String(artifactIndex).padStart(4, '0')}.gz`;
+        const archiveKey = `${basePath}/screenshot_archives/artifact-${String(artifactIndex).padStart(4, '0')}.zip`;
         const frames = (await extractFramesFromArchive(data, session.started_at.getTime())).filter((frame) => (
             frame.timestamp >= session.started_at.getTime() && frame.timestamp <= upperBound
         ));
+        if (frames.length === 0) {
+            throw new Error(`V2 screenshot source contained no extractable frames for artifact ${artifact.id}`);
+        }
+        const zipFiles: { name: string; buffer: Buffer }[] = [];
         for (const frame of frames) {
             const dimensions = jpegDimensions(frame.data);
             const digest = hmacBuffer(`${projectKey}:v2-frame-checksum:`, frame.data, 40);
+            const elapsedMs = Math.max(0, Math.round(frame.timestamp - session.started_at.getTime()));
+            const archiveEntry = v2ScreenshotArchiveEntry(frame.index, elapsedMs);
+            zipFiles.push({ name: archiveEntry, buffer: frame.data });
             frameIndex.push({
                 frame_key: hmac(`${projectKey}:screenshot-frame:${artifactIndex}:${frame.index}:${frame.timestamp}:${hmacBuffer(`${projectKey}:source-frame`, frame.data, 24)}`, 24),
                 archive_key: archiveKey,
+                archive_entry: archiveEntry,
                 source_artifact_index: artifactIndex,
                 source_frame_index: frame.index,
                 source_filename_key: hmac(`${projectKey}:frame-name:${frame.filename}`, 20),
                 timestamp_utc: new Date(frame.timestamp).toISOString(),
-                elapsed_ms: Math.max(0, Math.round(frame.timestamp - session.started_at.getTime())),
+                elapsed_ms: elapsedMs,
                 width: dimensions?.width ?? null,
                 height: dimensions?.height ?? null,
                 image_bytes: frame.data.length,
                 frame_checksum_key: digest,
             });
         }
-        await putVerifiedResearchObject(archiveKey, data, 'application/gzip');
+        const zipBuffer = await createZipArchiveBuffer(zipFiles, { store: true });
+        await putVerifiedResearchObject(archiveKey, zipBuffer, 'application/zip');
         archives.push({
             archive_key: archiveKey,
             source_artifact_index: artifactIndex,
-            archive_bytes: data.length,
-            archive_checksum_key: hmacBuffer(`${projectKey}:v2-archive-checksum:`, data, 40),
+            archive_bytes: zipBuffer.length,
+            archive_checksum_key: hmacBuffer(`${projectKey}:v2-archive-checksum:`, zipBuffer, 40),
             frame_count: frames.length,
-            source_format: 'original_post_redaction_archive',
+            source_format: 'standard_zip_jpeg_frames',
         });
     }
     return { archives, frameIndex };
@@ -5857,6 +5877,7 @@ export const __researchLakeTestInternals = {
     researchLakeTypes: RESEARCH_LAKE_TYPES,
     researchLakeV2Types: RESEARCH_LAKE_V2_TYPES,
     latencyBucket,
+    v2ScreenshotArchiveEntry,
     buildV2ScreenVersions,
     buildV2FlowEdges,
     buildClaimV2JobsSql,

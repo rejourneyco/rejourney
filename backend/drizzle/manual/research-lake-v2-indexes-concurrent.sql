@@ -1,5 +1,5 @@
--- Build Research Lake V2 job indexes on production before or after the
--- additive Drizzle migration, but before running research-lake-v2-activate.sql.
+-- Build Research Lake V2 job indexes on production after the additive Drizzle
+-- migration and before running research-lake-v2-activate.sql.
 -- Run with psql directly against the PostgreSQL writer, not through PgBouncer.
 -- CREATE INDEX CONCURRENTLY cannot run in a transaction block.
 -- These large job-table indexes intentionally live outside the transactional
@@ -10,9 +10,6 @@
 
 SET lock_timeout = '5s';
 SET statement_timeout = '30min';
-
-ALTER TABLE "research_extraction_jobs"
-    ADD COLUMN IF NOT EXISTS "job_lane" varchar(32) DEFAULT 'retention' NOT NULL;
 
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "research_extraction_jobs_session_lake_schema_unique"
     ON "research_extraction_jobs" ("session_id", "lake_type", "schema_version");

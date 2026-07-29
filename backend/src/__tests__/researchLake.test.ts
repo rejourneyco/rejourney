@@ -115,13 +115,23 @@ describe('research lake anonymized payload shape', () => {
             { name: 'quality.json', buffer: Buffer.from('{"usable":true}', 'utf8') },
         ];
         const zipBuffer = await __researchLakeTestInternals.createZipArchiveBuffer(files);
+        const storedZipBuffer = await __researchLakeTestInternals.createZipArchiveBuffer(files, { store: true });
         expect(zipBuffer).toBeInstanceOf(Buffer);
         expect(zipBuffer.length).toBeGreaterThan(0);
+        expect(storedZipBuffer).toBeInstanceOf(Buffer);
+        expect(storedZipBuffer.length).toBeGreaterThan(0);
         // Verify ZIP magic bytes (PK\x03\x04)
-        expect(zipBuffer[0]).toBe(0x50);
-        expect(zipBuffer[1]).toBe(0x4b);
-        expect(zipBuffer[2]).toBe(0x03);
-        expect(zipBuffer[3]).toBe(0x04);
+        for (const archive of [zipBuffer, storedZipBuffer]) {
+            expect(archive[0]).toBe(0x50);
+            expect(archive[1]).toBe(0x4b);
+            expect(archive[2]).toBe(0x03);
+            expect(archive[3]).toBe(0x04);
+        }
+    });
+
+    it('uses deterministic standard JPEG paths inside V2 screenshot ZIPs', () => {
+        expect(__researchLakeTestInternals.v2ScreenshotArchiveEntry(7, 1234))
+            .toBe('frames/frame-000007-000001234ms.jpg');
     });
 
     it('uses lane-specific seed SQL for visual interaction and behavioral outcomes jobs', () => {

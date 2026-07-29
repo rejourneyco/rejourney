@@ -211,7 +211,9 @@ def test_v2_interaction_builds_capture_release_screen_and_flow_facts():
         }],
         "ui_frames": [{
             "frame_key": "frame", "source_kind": "screenshots", "source_index": 0,
-            "elapsed_ms": 140, "media_archive_key": "v2/archive.gz", "media_frame_checksum_key": "checksum",
+            "elapsed_ms": 140, "media_archive_key": "v2/archive.zip",
+            "media_archive_entry": "frames/frame-000000-000000140ms.jpg",
+            "media_frame_checksum_key": "checksum",
         }],
         "ui_skeleton": [],
         "screen_versions": [{"screen_key": "home", "structural_signature_key": "structure"}],
@@ -234,7 +236,8 @@ def test_v2_interaction_builds_capture_release_screen_and_flow_facts():
     assert rows[("interaction", "media_reference_fact")][0]["archive_key"] == "v2/archive.gz"
     assert rows[("interaction", "media_reference_fact")][0]["capture_tier"] == "uniform"
     assert rows[("interaction", "event_fact")][0]["elapsed_ms"] == 123
-    assert rows[("interaction", "ui_frame_fact")][0]["media_archive_key"] == "v2/archive.gz"
+    assert rows[("interaction", "ui_frame_fact")][0]["media_archive_key"] == "v2/archive.zip"
+    assert rows[("interaction", "ui_frame_fact")][0]["media_archive_entry"] == "frames/frame-000000-000000140ms.jpg"
     assert rows[("interaction", "session_fact")][0]["session_end_taxonomy"] == "completed"
     assert rows[("interaction", "session_fact")][0]["traffic_scale_bucket"] == "10k_100k"
     assert rows[("interaction", "session_fact")][0]["traffic_scale_observed_days"] == 30
