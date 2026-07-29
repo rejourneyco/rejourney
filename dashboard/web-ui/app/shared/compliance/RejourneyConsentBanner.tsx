@@ -191,53 +191,50 @@ export function RejourneyConsentBanner() {
     return (
         <aside
             data-rejourney-consent-banner
-            className={`fixed bottom-0 left-0 right-0 z-[90] w-full border-t-2 border-black bg-white shadow-neo transition-transform duration-500 ease-out ${
-                isMounted ? "translate-y-0" : "translate-y-full"
+            className={`fixed bottom-4 left-4 right-4 z-[90] md:left-auto md:right-6 md:bottom-6 md:w-full md:max-w-md border-2 border-black bg-white p-4 sm:p-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all duration-400 ease-out ${
+                isMounted ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0 pointer-events-none"
             }`}
         >
-            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-3 md:flex-row md:gap-5 md:px-8 md:py-4">
-                <div className="flex items-start md:items-center gap-4 w-full md:w-auto">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-none border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
-                        <Cookie className="h-5 w-5" aria-hidden="true" />
+            <div className="flex flex-col gap-3">
+                <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
+                        <Cookie className="h-4 w-4" aria-hidden="true" />
                     </div>
-                    <div className="min-w-0">
-                        <h2 className="text-sm font-black uppercase text-slate-950 tracking-tight leading-none md:leading-snug">
-                            Optimize your experience
-                        </h2>
-                        <p className="mt-1.5 text-xs font-bold leading-relaxed text-slate-700 max-w-3xl">
-                            We use cookies to optimize your experience.
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                            <h2 className="text-xs font-black uppercase tracking-wider text-slate-950">
+                                Cookie Preferences
+                            </h2>
+                            <a
+                                href="/privacy-policy"
+                                className="text-[11px] font-bold text-slate-500 hover:text-slate-950 underline transition-colors"
+                            >
+                                Privacy policy
+                            </a>
+                        </div>
+                        <p className="mt-1 text-xs font-bold leading-relaxed text-slate-700">
+                            We use cookies to optimize performance, analytics, and user experience.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-3 border-t border-black/20 pt-3 md:w-auto md:justify-end md:gap-4 md:border-t-0 md:pt-0">
-                    <div className="flex items-center gap-3">
-                        <a
-                            href="/privacy-policy"
-                            className="text-xs font-black text-slate-900 hover:text-black uppercase tracking-wider border-b-2 border-black transition-colors"
-                        >
-                            Privacy policy
-                        </a>
-                    </div>
+                <div className="flex items-center justify-between gap-3 border-t border-black/15 pt-3 mt-1">
+                    <button
+                        type="button"
+                        onClick={rejectAnalytics}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 underline decoration-blue-400 hover:decoration-blue-700 bg-transparent border-0 p-0 cursor-pointer transition-colors"
+                    >
+                        Essential only
+                    </button>
 
-                    <div className="flex items-center gap-2.5">
-                        <button
-                            type="button"
-                            onClick={rejectAnalytics}
-                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-none bg-white hover:bg-slate-50 text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all duration-200 text-xs font-black tracking-wide uppercase px-4 py-2 shadow-neo-sm"
-                        >
-                            <ShieldX className="h-4 w-4" aria-hidden="true" />
-                            Essential Only
-                        </button>
-                        <button
-                            type="button"
-                            onClick={acceptAnalytics}
-                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-none bg-[#86efac] hover:bg-[#4ade80] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none transition-all duration-200 text-xs font-black tracking-wide uppercase px-4 py-2 shadow-neo-sm"
-                        >
-                            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                            Allow Cookies
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={acceptAnalytics}
+                        className="inline-flex min-h-9 items-center justify-center gap-1.5 border-2 border-black bg-[#86efac] px-4 py-1.5 font-mono text-xs font-black uppercase tracking-wider text-black shadow-neo-sm hover:bg-[#4ade80] hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                    >
+                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                        Allow Cookies
+                    </button>
                 </div>
             </div>
         </aside>

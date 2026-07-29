@@ -1,60 +1,69 @@
 import React from 'react';
-import { Droplet, Globe } from 'lucide-react';
+import { Droplet } from 'lucide-react';
 import { EuFlag } from './EuFlag';
-import { MarkExpo, MarkFlutter, MarkReactNative, MarkSwift, MarkNextJs, MarkVue } from './PlatformMarks';
+import {
+    MarkAngular,
+    MarkFlutter,
+    MarkGatsby,
+    MarkHydrogen,
+    MarkNextJs,
+    MarkReactNative,
+    MarkRedux,
+    MarkRemix,
+    MarkShopify,
+    MarkSvelte,
+    MarkSwift,
+    MarkVue,
+} from './PlatformMarks';
 import type { MarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 
-const badgeClass =
-    'inline-flex h-11 min-w-0 items-center justify-center gap-2 border-2 border-black bg-white px-3 font-mono text-[10px] font-black uppercase tracking-wider shadow-neo-sm sm:h-12 sm:px-5 sm:tracking-widest';
-const badgeIconClass = 'h-5 w-5 shrink-0';
-const badgeFlagClass = 'h-5 w-8 shrink-0';
+const pillBadgeClass =
+    'inline-flex h-10 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-white px-4 font-mono text-[11px] font-black uppercase tracking-wider text-black shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-neo hover:bg-[#ecfeff] whitespace-nowrap shrink-0';
+const badgeIconClass = 'h-4 w-4 shrink-0';
+const badgeFlagClass = 'h-4 w-6 shrink-0';
+
+const supportedPlatforms = [
+    { label: 'Next.js / React', icon: MarkNextJs, iconColor: '' },
+    { label: 'Redux Toolkit', icon: MarkRedux, iconColor: 'text-[#764abc]' },
+    { label: 'React Native / Expo', icon: MarkReactNative, iconColor: 'text-[#2563eb]' },
+    { label: 'Flutter', icon: MarkFlutter, iconColor: 'text-[#54c5f8]' },
+    { label: 'Swift', icon: MarkSwift, iconColor: 'text-[#f97316]' },
+    { label: 'Vue / Nuxt', icon: MarkVue, iconColor: 'text-[#42b883]' },
+    { label: 'Angular', icon: MarkAngular, iconColor: 'text-[#dd0031]' },
+    { label: 'SvelteKit', icon: MarkSvelte, iconColor: 'text-[#ff3e00]' },
+    { label: 'Remix', icon: MarkRemix, iconColor: '' },
+    { label: 'Gatsby', icon: MarkGatsby, iconColor: 'text-[#663399]' },
+    { label: 'Shopify', icon: MarkShopify, iconColor: 'text-[#95bf47]' },
+    { label: 'Hydrogen', icon: MarkHydrogen, iconColor: 'text-[#00a878]' },
+];
 
 export const TrustBanners: React.FC<{ copy: MarketingHomeCopy['trust'] }> = ({ copy }) => {
     return (
         <section
             aria-label={copy.ariaLabel}
-            className="relative w-full overflow-hidden border-b-2 border-black bg-[#5dadec] px-4 py-5 text-black sm:px-6 lg:px-8"
+            className="relative w-full overflow-hidden border-b-2 border-black bg-[#5dadec] px-4 py-6 text-black sm:px-6 lg:px-8"
         >
-            <div className="relative mx-auto flex max-w-7xl flex-col items-center gap-3">
-                {/* Frameworks row */}
-                <div className="flex w-full flex-wrap items-center justify-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
-                    <span className={badgeClass}>
-                        <MarkExpo className={badgeIconClass} />
-                        {copy.expo}
-                    </span>
-                    <span className={badgeClass}>
-                        <MarkReactNative className={`${badgeIconClass} text-[#2563eb]`} />
-                        <span className="truncate">{copy.reactNative}</span>
-                    </span>
-                    <span className={badgeClass}>
-                        <MarkFlutter className={`${badgeIconClass} text-[#54c5f8]`} />
-                        Flutter
-                    </span>
-                    <span className={badgeClass}>
-                        <MarkSwift className={`${badgeIconClass} text-[#f97316]`} />
-                        {copy.swift}
-                    </span>
-                    <span className={badgeClass}>
-                        <MarkNextJs className={badgeIconClass} />
-                        Next.js
-                    </span>
-                    <span className={badgeClass}>
-                        <MarkVue className={`${badgeIconClass} text-[#42b883]`} />
-                        Vue / Nuxt
-                    </span>
-                    <span className={badgeClass}>
-                        <Globe className={`${badgeIconClass} text-[#5dadec]`} />
-                        Any JS Framework
-                    </span>
+            <div className="relative mx-auto flex max-w-6xl flex-col items-center gap-4 text-center">
+                {/* Fluid Pill Badge Wrap Container */}
+                <div className="flex w-full flex-wrap items-center justify-center gap-2.5 sm:gap-3">
+                    {supportedPlatforms.map((platform) => {
+                        const IconComponent = platform.icon;
+                        return (
+                            <span key={platform.label} className={pillBadgeClass}>
+                                <IconComponent className={`${badgeIconClass} ${platform.iconColor}`} />
+                                <span>{platform.label}</span>
+                            </span>
+                        );
+                    })}
                 </div>
 
-                {/* Trust row */}
-                <div className="flex w-full flex-wrap items-center justify-center gap-2 sm:w-auto sm:gap-3">
-                    <span className={`${badgeClass} bg-[#86efac]`}>
+                {/* Trust Row Pills */}
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 border-t border-black/20 pt-4">
+                    <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-[#86efac] px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
                         <EuFlag className={badgeFlagClass} />
                         {copy.gdpr}
                     </span>
-                    <span className={badgeClass}>
+                    <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-white px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
                         <Droplet className={`${badgeIconClass} fill-[#5dadec] text-[#5dadec]`} strokeWidth={0} />
                         {copy.sdkSize}
                     </span>

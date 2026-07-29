@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '~/shared/providers/AuthContext';
-import { ChevronDown, Menu, X } from 'lucide-react';
+import { ChevronDown, Menu, Star, X } from 'lucide-react';
 import {
   MARKETING_LOCALES,
   getLocalizedPublicPath,
@@ -70,26 +70,14 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
-    let idleHandle: number | null = null;
-    let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
     const storageKey = 'rejourney.githubStars';
 
-    const loadStars = () => {
-      try {
-        const cachedStars = Number(window.sessionStorage.getItem(storageKey));
-        if (Number.isFinite(cachedStars) && cachedStars > 0) {
-          setGithubStars(cachedStars);
-          return;
-        }
-      } catch {
-        // Session storage is optional.
-      }
-
+    const fetchStars = () => {
       fetch(GITHUB_REPO_API_URL, {
         headers: { Accept: 'application/vnd.github+json' },
         signal: controller.signal,
       })
-        .then((response) => response.ok ? response.json() : null)
+        .then((response) => (response.ok ? response.json() : null))
         .then((data: { stargazers_count?: number } | null) => {
           if (isMounted && typeof data?.stargazers_count === 'number') {
             setGithubStars(data.stargazers_count);
@@ -101,21 +89,26 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
           }
         })
         .catch(() => {
-          // Keep the baked-in fallback if GitHub is unavailable.
+          // Keep current fallback/cached value if offline.
         });
     };
 
-    if ('requestIdleCallback' in window) {
-      idleHandle = window.requestIdleCallback(loadStars, { timeout: 3000 });
-    } else {
-      fallbackTimeout = globalThis.setTimeout(loadStars, 1500);
+    try {
+      const cachedStars = Number(window.sessionStorage.getItem(storageKey));
+      if (Number.isFinite(cachedStars) && cachedStars > 0) {
+        setGithubStars(cachedStars);
+      }
+    } catch {
+      // Session storage is optional.
     }
+
+    fetchStars();
+    const interval = setInterval(fetchStars, 30000);
 
     return () => {
       isMounted = false;
       controller.abort();
-      if (idleHandle !== null) window.cancelIdleCallback(idleHandle);
-      if (fallbackTimeout !== null) globalThis.clearTimeout(fallbackTimeout);
+      clearInterval(interval);
     };
   }, []);
 
@@ -218,7 +211,6 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
 
           <div className="flex items-center gap-2 sm:gap-3">
 
-
             {!isAuthenticated && (
               <Link to="/login" className="hidden min-h-10 items-center rounded-none px-3.5 text-[15px] font-black uppercase text-black transition-all duration-200 hover:bg-slate-100 sm:inline-flex border border-transparent hover:border-black/20 shadow-none hover:shadow-neo-sm">
                 {copy.login}
@@ -281,6 +273,15 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                 )}
               </div>
 
+              <a
+                href={GITHUB_REPO_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }}
+                className="text-base font-black uppercase text-black transition-colors"
+              >
+                GitHub
+              </a>
               <Link to={docsPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-black uppercase text-black transition-colors">
                 {copy.docs}
               </Link>

@@ -525,10 +525,10 @@ export const AiLeakHomepage: React.FC = () => {
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
                     <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
-                        <h1 className="landing-hero-title mx-auto max-w-5xl text-balance font-sans text-[1.68rem] font-black uppercase leading-[1.02] tracking-[-0.035em] text-slate-950 min-[360px]:text-[1.95rem] min-[430px]:text-[2.2rem] sm:text-[2.85rem] md:text-[3.35rem] lg:text-[4rem] xl:text-[4.5rem]">
+                        <h1 className="landing-hero-title mx-auto max-w-4xl text-balance font-display text-3xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl leading-[1.1]">
                             Revenue Leak Prediction for Web and Mobile Apps
                         </h1>
-                        <p className="landing-hero-subtitle mx-auto mt-6 max-w-2xl text-balance text-lg font-semibold leading-relaxed text-slate-650 sm:text-xl">
+                        <p className="landing-hero-subtitle mx-auto mt-5 max-w-xl text-balance text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
                             {homeCopy.hero.description}
                         </p>
                         {/* Action buttons matching style */}

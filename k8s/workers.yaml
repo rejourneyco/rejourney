@@ -1303,6 +1303,12 @@ spec:
                   name: app-secret
                   key: GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID
                   optional: true
+            - name: GOOGLE_ADS_SIGNUP_COMPLETED_ACTION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: GOOGLE_ADS_SIGNUP_COMPLETED_ACTION_ID
+                  optional: true
             - name: GOOGLE_ADS_PROJECT_CREATED_ACTION_ID
               valueFrom:
                 secretKeyRef:
