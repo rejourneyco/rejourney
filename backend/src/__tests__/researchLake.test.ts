@@ -134,6 +134,18 @@ describe('research lake anonymized payload shape', () => {
             .toBe('frames/frame-000007-000001234ms.jpg');
     });
 
+    it('records empty V2 screenshot chunks without failing an otherwise valid session', () => {
+        const serviceSource = readFileSync(
+            `${process.cwd()}/src/services/researchLake.ts`,
+            'utf8',
+        );
+
+        expect(serviceSource).toContain("'Skipping empty V2 screenshot source artifact'");
+        expect(serviceSource).toContain('unavailable_screenshot_artifact_count: media.unavailableArtifactCount');
+        expect(serviceSource).toContain("'some_screenshot_source_artifacts_unavailable'");
+        expect(serviceSource).not.toContain('throw new Error(`V2 screenshot source contained no extractable frames');
+    });
+
     it('uses lane-specific seed SQL for visual interaction and behavioral outcomes jobs', () => {
         const interactionSql = __researchLakeTestInternals.buildSeedResearchJobsSql('interaction');
         const behavioralSql = __researchLakeTestInternals.buildSeedResearchJobsSql('behavioral_outcomes');

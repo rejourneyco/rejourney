@@ -115,7 +115,7 @@ function checkTitles() {
 function checkOnPageAndLinks() {
   assertNotIncludes("app/shared/docs/MarkdownContent.tsx", "<h1 id={id}", "Docs markdown headings must not render extra H1 tags.");
   assertIncludes("app/features/public/home/route.tsx", "Revenue leak prediction for web and mobile apps", "Home page metadata must stay aligned to revenue leak prediction for web and mobile apps.");
-  assertIncludes("app/shared/lib/contentLocalization.ts", 'heading: "Revenue Leak Prediction Pricing"', "Pricing H1 must stay aligned to revenue leak prediction.");
+  assertIncludes("app/shared/lib/contentLocalization.ts", 'heading: "Pricing"', "Pricing H1 must remain concise.");
   for (const title of [
     "Sentry Session Replay Pricing & Alternative | Rejourney",
     "Datadog Session Replay Pricing & Alternative | Rejourney",

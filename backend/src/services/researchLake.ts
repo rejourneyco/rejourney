@@ -4959,9 +4959,14 @@ async function copyV2ScreenshotArchives(
     basePath: string,
     projectKey: string,
     artifactDataCache: ArtifactDataCache,
-): Promise<{ archives: Record<string, unknown>[]; frameIndex: V2FrameIndexRow[] }> {
+): Promise<{
+    archives: Record<string, unknown>[];
+    frameIndex: V2FrameIndexRow[];
+    unavailableArtifactCount: number;
+}> {
     const archives: Record<string, unknown>[] = [];
     const frameIndex: V2FrameIndexRow[] = [];
+    let unavailableArtifactCount = 0;
     const screenshotArtifacts = artifacts
         .filter((artifact) => artifact.kind === 'screenshots' && artifact.s3ObjectKey)
         .sort((left, right) => (left.start_time ?? 0) - (right.start_time ?? 0));
@@ -4978,7 +4983,13 @@ async function copyV2ScreenshotArchives(
             frame.timestamp >= session.started_at.getTime() && frame.timestamp <= upperBound
         ));
         if (frames.length === 0) {
-            throw new Error(`V2 screenshot source contained no extractable frames for artifact ${artifact.id}`);
+            unavailableArtifactCount += 1;
+            logger.warn({
+                artifactId: artifact.id,
+                sessionId: session.id,
+                sourceArtifactIndex: artifactIndex,
+            }, 'Skipping empty V2 screenshot source artifact');
+            continue;
         }
         const zipFiles: { name: string; buffer: Buffer }[] = [];
         for (const frame of frames) {
@@ -5013,7 +5024,7 @@ async function copyV2ScreenshotArchives(
             source_format: 'standard_zip_jpeg_frames',
         });
     }
-    return { archives, frameIndex };
+    return { archives, frameIndex, unavailableArtifactCount };
 }
 
 async function processV2InteractionJob(
@@ -5067,7 +5078,7 @@ async function processV2InteractionJob(
     const visualRows = { ...annotated, frames: addV2FrameTiming(annotated.frames, media.frameIndex) };
     const missingMediaReference = visualRows.frames.some((frame) => (
         frame.source_kind === 'screenshots'
-        && (!frame.media_archive_key || !frame.media_frame_checksum_key)
+        && (!frame.media_archive_key || !frame.media_archive_entry || !frame.media_frame_checksum_key)
     ));
     if (missingMediaReference) {
         throw new Error('V2 screenshot frame is missing its verified media archive reference');
@@ -5136,12 +5147,14 @@ async function processV2InteractionJob(
         ...hierarchyCaptureWarnings(hierarchyCaptureProfile),
         ...(capture ? [] : ['capture_propensity_unavailable']),
         ...(media.archives.length > 0 ? [] : ['full_resolution_screenshot_archive_unavailable']),
+        ...(media.unavailableArtifactCount > 0 ? ['some_screenshot_source_artifacts_unavailable'] : []),
     ];
     const quality = {
         schema_version: RESEARCH_SCHEMA_VERSION_V2,
         quality_tier: 'usable', pii_scan: 'passed', source_artifact_count: artifacts.length,
         interaction_event_count: interactions.length, ui_frame_count: visualRows.frames.length,
         screenshot_frame_count: media.frameIndex.length, full_resolution_archive_count: media.archives.length,
+        unavailable_screenshot_artifact_count: media.unavailableArtifactCount,
         full_resolution_frame_index_count: media.frameIndex.length, ui_skeleton_element_count: skeleton.length,
         screen_version_count: screenVersions.length, flow_edge_count: flowEdges.length,
         capture_profile: captureProfile, provenance: manifest.provenance, warnings,

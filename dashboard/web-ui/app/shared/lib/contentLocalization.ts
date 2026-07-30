@@ -174,7 +174,7 @@ const englishContentCopy: ContentLocaleCopy = {
     twitterTitle: "Revenue Leak Prediction Pricing | Rejourney",
     pageName: "Rejourney Pricing",
     ariaLabel: "Pricing",
-    heading: "Revenue Leak Prediction Pricing",
+    heading: "Pricing",
     intro:
       "Simple pricing based on captured sessions. Those sessions power revenue-leak detection, conversion drill-downs, heatmaps, journeys, and fix-ready context.",
     contactEyebrow: "Contact devs",
