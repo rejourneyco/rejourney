@@ -3306,11 +3306,16 @@ router.get(
         const days = boundedTimeRangeToDays(scope.normalizedTimeRange || '') ?? 30;
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-        // Recent error_spike alerts for this project
+        // Recent rising API-error signals that were included in a stability digest.
         const recentSpikes = await dbRead
             .select({ id: alertHistory.id, sentAt: alertHistory.sentAt })
             .from(alertHistory)
-            .where(and(eq(alertHistory.projectId, projectId), eq(alertHistory.alertType, 'error_spike'), gte(alertHistory.sentAt, cutoff)))
+            .where(and(
+                eq(alertHistory.projectId, projectId),
+                eq(alertHistory.alertType, 'stability_digest_signal'),
+                eq(alertHistory.fingerprint, 'api:error-rate'),
+                gte(alertHistory.sentAt, cutoff),
+            ))
             .orderBy(desc(alertHistory.sentAt))
             .limit(20);
 

@@ -3839,14 +3839,7 @@ export async function getApiErrorSpikes(projectId: string, timeRange?: string): 
 export interface ProjectAlertSettings {
     id: string;
     projectId: string;
-    crashAlertsEnabled: boolean;
-    anrAlertsEnabled: boolean;
-    errorSpikeAlertsEnabled: boolean;
-    apiDegradationAlertsEnabled: boolean;
-    errorSpikeThresholdPercent: number;
-    apiDegradationThresholdPercent: number;
-    apiLatencyThresholdMs: number;
-    emailRules: unknown[];
+    leakScanAlertsEnabled: boolean;
     ignoredApiEndpoints: string[];
 }
 

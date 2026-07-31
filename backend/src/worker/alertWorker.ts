@@ -1,191 +1,417 @@
 /**
- * Alert Worker
- * 
- * A lightweight worker that checks for spike conditions every 15 minutes
- * to provide faster alerting than the daily rollup.
- * 
- * Checks:
- * - Error rate spikes (comparing last 15 min vs previous hour)
- * - API latency degradation (comparing last 15 min vs previous hour)
- * - High crash/ANR rates
+ * Stability alert worker.
+ *
+ * Every 15 minutes it looks for issue groups and API health metrics that rose
+ * materially during the latest six-hour window. It passes all qualifying
+ * signals to the project-level digest sender; individual ingest occurrences
+ * never send email.
  */
 
-import { eq, gte, and, sql, desc, lte } from 'drizzle-orm';
-import { db, pool, sessions, sessionMetrics, issues } from '../db/client.js';
-import { getRedis, initRedis, closeRedis } from '../db/redis.js';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import {
+    alertSettings,
+    db,
+    issueEvents,
+    issues,
+    pool,
+    sessionMetrics,
+    sessions,
+} from '../db/client.js';
+import { getClickHouseClient, isClickHouseReadsEnabled } from '../db/clickhouse.js';
+import { closeRedis, getRedis, initRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
+import { triggerStabilityDigestEmail } from '../services/alertService.js';
 import { pingWorker } from '../services/monitoring.js';
 import {
-    triggerErrorSpikeAlert,
-    triggerApiDegradationAlert
-} from '../services/alertService.js';
+    growthPercent,
+    normalizedBaselineValue,
+    qualifiesAsApiErrorTrend,
+    qualifiesAsApiLatencyTrend,
+    qualifiesAsRisingIssue,
+    STABILITY_BASELINE_WINDOW_HOURS,
+    STABILITY_CURRENT_WINDOW_HOURS,
+    type StabilityTrend,
+} from '../services/stabilityTrends.js';
+import {
+    buildClickHouseIgnoredEndpointCondition,
+    normalizeIgnoredApiEndpointPatterns,
+} from '../utils/apiEndpointIgnoreRules.js';
 
-// Worker state
 let isRunning = false;
-let lastRunTime: Date | null = null;
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let workerShouldRun = true;
 
-// Thresholds
-const ERROR_SPIKE_THRESHOLD = 1.3; // 30%+ increase triggers alert
-const LATENCY_SPIKE_THRESHOLD = 2.0; // 2x increase triggers alert
-const MIN_SESSIONS_FOR_ALERT = 5; // Minimum sessions in baseline AND current window to trigger alert
-const RUN_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const RUN_INTERVAL_MS = 15 * 60 * 1000;
+const BASELINE_WINDOW_COUNT =
+    STABILITY_BASELINE_WINDOW_HOURS / STABILITY_CURRENT_WINDOW_HOURS;
 
 interface ProjectMetrics {
     projectId: string;
-    errorRate: number;
+    errorRatePercent: number;
     avgLatencyMs: number;
+    apiErrorCount: number;
+    apiRequestCount: number;
     sessionCount: number;
     windowStart: Date;
     windowEnd: Date;
 }
 
-/**
- * Get metrics for the last N minutes for all active projects
- */
-async function getRecentMetrics(windowMinutes: number, offsetMinutes = 0): Promise<ProjectMetrics[]> {
-    const windowEnd = new Date(Date.now() - offsetMinutes * 60 * 1000);
-    const windowStart = new Date(windowEnd.getTime() - windowMinutes * 60 * 1000);
+interface EndpointErrorMetrics {
+    errorRatePercent: number;
+    errorCount: number;
+    requestCount: number;
+}
+
+function addTrend(
+    trendsByProject: Map<string, StabilityTrend[]>,
+    projectId: string,
+    trend: StabilityTrend,
+): void {
+    const trends = trendsByProject.get(projectId) || [];
+    trends.push(trend);
+    trendsByProject.set(projectId, trends);
+}
+
+function topAffectedVersion(value: Record<string, number> | null): string | null {
+    if (!value) return null;
+    const [top] = Object.entries(value).sort((a, b) => b[1] - a[1]);
+    return top?.[0] || null;
+}
+
+async function getProjectMetrics(
+    windowHours: number,
+    offsetHours = 0,
+): Promise<ProjectMetrics[]> {
+    const windowEnd = new Date(Date.now() - offsetHours * 60 * 60 * 1000);
+    const windowStart = new Date(windowEnd.getTime() - windowHours * 60 * 60 * 1000);
 
     const results = await db
         .select({
             projectId: sessions.projectId,
-            errorRate: sql<number>`avg(coalesce(${sessionMetrics.apiErrorCount}::float / nullif(${sessionMetrics.apiTotalCount}, 0), 0))`,
-            avgLatencyMs: sql<number>`avg(${sessionMetrics.apiAvgResponseMs})`,
+            apiErrorCount: sql<number>`coalesce(sum(${sessionMetrics.apiErrorCount}), 0)::int`,
+            apiRequestCount: sql<number>`coalesce(sum(${sessionMetrics.apiTotalCount}), 0)::int`,
+            errorRatePercent: sql<number>`
+                coalesce(
+                    (sum(${sessionMetrics.apiErrorCount})::double precision /
+                        nullif(sum(${sessionMetrics.apiTotalCount}), 0)) * 100,
+                    0
+                )
+            `,
+            avgLatencyMs: sql<number>`
+                coalesce(
+                    sum(${sessionMetrics.apiAvgResponseMs} * ${sessionMetrics.apiTotalCount}) /
+                        nullif(sum(${sessionMetrics.apiTotalCount}), 0),
+                    0
+                )
+            `,
             sessionCount: sql<number>`count(*)::int`,
         })
         .from(sessions)
         .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-        .where(and(gte(sessions.startedAt, windowStart), lte(sessions.startedAt, windowEnd)))
+        .where(and(
+            gte(sessions.startedAt, windowStart),
+            lte(sessions.startedAt, windowEnd),
+        ))
         .groupBy(sessions.projectId);
 
-    return results.map(r => ({
-        projectId: r.projectId,
-        errorRate: r.errorRate || 0,
-        avgLatencyMs: r.avgLatencyMs || 0,
-        sessionCount: r.sessionCount || 0,
+    return results.map((row) => ({
+        projectId: row.projectId,
+        errorRatePercent: Number(row.errorRatePercent || 0),
+        avgLatencyMs: Number(row.avgLatencyMs || 0),
+        apiErrorCount: Number(row.apiErrorCount || 0),
+        apiRequestCount: Number(row.apiRequestCount || 0),
+        sessionCount: Number(row.sessionCount || 0),
         windowStart,
         windowEnd,
     }));
 }
 
-/**
- * Compare current metrics with baseline and trigger alerts if needed
- */
-async function checkForSpikes(): Promise<void> {
-    try {
-        // Get metrics for last 15 minutes (current)
-        const currentMetrics = await getRecentMetrics(15);
+async function getFilteredEndpointErrorMetrics(input: {
+    projectId: string;
+    start: Date;
+    end: Date;
+    ignoredApiEndpoints: string[];
+}): Promise<EndpointErrorMetrics | null> {
+    if (!isClickHouseReadsEnabled()) return null;
 
-        // Get metrics for the hour before the current window.
-        const baselineMetrics = await getRecentMetrics(60, 15);
+    const ignoredCondition = buildClickHouseIgnoredEndpointCondition(
+        input.ignoredApiEndpoints,
+        'endpoint',
+        'stabilityIgnoredEndpoint',
+        'method',
+        'path',
+    );
+    const result = await getClickHouseClient().query({
+        query: `
+            SELECT
+                countIf(is_error = 1) AS error_count,
+                count() AS request_count,
+                if(
+                    count() > 0,
+                    round((countIf(is_error = 1) / count()) * 100, 4),
+                    0
+                ) AS error_rate
+            FROM rejourney.api_endpoint_request_events
+            WHERE project_id = {projectId: String}
+              AND event_time BETWEEN {start: DateTime64(3)} AND {end: DateTime64(3)}
+              ${ignoredCondition.condition}
+        `,
+        query_params: {
+            projectId: input.projectId,
+            start: input.start.toISOString().replace('T', ' ').replace('Z', ''),
+            end: input.end.toISOString().replace('T', ' ').replace('Z', ''),
+            ...ignoredCondition.queryParams,
+        },
+        format: 'JSONEachRow',
+    });
+    const [row] = await result.json<{
+        error_count: string;
+        request_count: string;
+        error_rate: string;
+    }>();
+    if (!row) return { errorRatePercent: 0, errorCount: 0, requestCount: 0 };
+    return {
+        errorRatePercent: Number(row.error_rate || 0),
+        errorCount: Number(row.error_count || 0),
+        requestCount: Number(row.request_count || 0),
+    };
+}
 
-        // Create lookup for baseline
-        const baselineLookup = new Map<string, ProjectMetrics>();
-        for (const m of baselineMetrics) {
-            baselineLookup.set(m.projectId, m);
+async function collectRisingIssueTrends(
+    trendsByProject: Map<string, StabilityTrend[]>,
+    detectedAt: Date,
+): Promise<void> {
+    const currentStart = new Date(
+        detectedAt.getTime() - STABILITY_CURRENT_WINDOW_HOURS * 60 * 60 * 1000,
+    );
+    const baselineStart = new Date(
+        currentStart.getTime() - STABILITY_BASELINE_WINDOW_HOURS * 60 * 60 * 1000,
+    );
+
+    const rows = await db
+        .select({
+            issueId: issues.id,
+            projectId: issues.projectId,
+            shortId: issues.shortId,
+            issueType: issues.issueType,
+            title: issues.title,
+            subtitle: issues.subtitle,
+            culprit: issues.culprit,
+            affectedVersions: issues.affectedVersions,
+            lastSeen: issues.lastSeen,
+            currentOccurrences: sql<number>`
+                count(${issueEvents.id}) filter (
+                    where ${issueEvents.timestamp} >= ${currentStart}
+                )::int
+            `,
+            baselineOccurrences: sql<number>`
+                count(${issueEvents.id}) filter (
+                    where ${issueEvents.timestamp} < ${currentStart}
+                )::int
+            `,
+            currentAffectedUsers: sql<number>`
+                count(distinct coalesce(${issueEvents.userId}, ${issueEvents.sessionId})) filter (
+                    where ${issueEvents.timestamp} >= ${currentStart}
+                )::int
+            `,
+            currentAffectedSessions: sql<number>`
+                count(distinct ${issueEvents.sessionId}) filter (
+                    where ${issueEvents.timestamp} >= ${currentStart}
+                )::int
+            `,
+        })
+        .from(issues)
+        .innerJoin(issueEvents, eq(issueEvents.issueId, issues.id))
+        .where(and(
+            gte(issueEvents.timestamp, baselineStart),
+            lte(issueEvents.timestamp, detectedAt),
+            sql`${issues.issueType} in ('crash', 'anr', 'error')`,
+            sql`${issues.status} not in ('resolved', 'ignored')`,
+        ))
+        .groupBy(
+            issues.id,
+            issues.projectId,
+            issues.shortId,
+            issues.issueType,
+            issues.title,
+            issues.subtitle,
+            issues.culprit,
+            issues.affectedVersions,
+            issues.lastSeen,
+        );
+
+    for (const row of rows) {
+        const currentOccurrences = Number(row.currentOccurrences || 0);
+        const baselineOccurrences = Number(row.baselineOccurrences || 0);
+        const currentAffectedUsers = Number(row.currentAffectedUsers || 0);
+        if (!qualifiesAsRisingIssue({
+            currentOccurrences,
+            baselineOccurrences,
+            currentAffectedUsers,
+            baselineWindowCount: BASELINE_WINDOW_COUNT,
+        })) {
+            continue;
         }
 
-        for (const current of currentMetrics) {
-            const baseline = baselineLookup.get(current.projectId);
-            // Both windows need enough sessions to avoid single-session noise
-            if (current.sessionCount < MIN_SESSIONS_FOR_ALERT) continue;
-            if (!baseline || baseline.sessionCount < MIN_SESSIONS_FOR_ALERT) continue;
-
-            // Check error rate spike
-            if (baseline.errorRate > 0 && current.errorRate > 0) {
-                const errorMultiplier = current.errorRate / baseline.errorRate;
-                if (errorMultiplier >= ERROR_SPIKE_THRESHOLD) {
-                    logger.info({
-                        projectId: current.projectId,
-                        currentErrorRate: current.errorRate,
-                        baselineErrorRate: baseline.errorRate,
-                        multiplier: errorMultiplier,
-                    }, 'Error spike detected');
-
-                    await triggerErrorSpikeAlert(
-                        current.projectId,
-                        current.errorRate * 100,
-                        baseline.errorRate * 100,
-                        {
-                            currentWindowStart: current.windowStart,
-                            currentWindowEnd: current.windowEnd,
-                            baselineWindowStart: baseline.windowStart,
-                            baselineWindowEnd: baseline.windowEnd,
-                        },
-                    );
-                }
-            }
-
-            // Check latency spike
-            if (baseline.avgLatencyMs > 0 && current.avgLatencyMs > 0) {
-                const latencyMultiplier = current.avgLatencyMs / baseline.avgLatencyMs;
-                if (latencyMultiplier >= LATENCY_SPIKE_THRESHOLD) {
-                    logger.info({
-                        projectId: current.projectId,
-                        currentLatency: current.avgLatencyMs,
-                        baselineLatency: baseline.avgLatencyMs,
-                        multiplier: latencyMultiplier,
-                    }, 'Latency spike detected');
-
-                    await triggerApiDegradationAlert(
-                        current.projectId,
-                        current.avgLatencyMs,
-                        baseline.avgLatencyMs
-                    );
-                }
-            }
-        }
-    } catch (error) {
-        logger.error({ error }, 'Failed to check for spikes');
+        const baseline = normalizedBaselineValue(
+            baselineOccurrences,
+            BASELINE_WINDOW_COUNT,
+        );
+        addTrend(trendsByProject, row.projectId, {
+            signalKey: `issue:${row.issueId}`,
+            kind: row.issueType as 'crash' | 'anr' | 'error',
+            title: row.title,
+            subtitle: row.subtitle || row.culprit,
+            shortId: row.shortId,
+            issueId: row.issueId,
+            dashboardPath: `/general/${row.issueId}`,
+            currentValue: currentOccurrences,
+            baselineValue: baseline,
+            growthPercent: growthPercent(currentOccurrences, baseline),
+            occurrences: currentOccurrences,
+            affectedUsers: currentAffectedUsers,
+            affectedSessions: Number(row.currentAffectedSessions || 0),
+            appVersion: topAffectedVersion(
+                row.affectedVersions as Record<string, number> | null,
+            ),
+            lastSeen: row.lastSeen,
+        });
     }
 }
 
-/**
- * Check for high-priority new issues
- * Alerts on first occurrence of critical issues
- */
-async function checkForNewCriticalIssues(): Promise<void> {
-    try {
-        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+async function collectApiTrends(
+    trendsByProject: Map<string, StabilityTrend[]>,
+): Promise<void> {
+    const [currentMetrics, baselineMetrics] = await Promise.all([
+        getProjectMetrics(STABILITY_CURRENT_WINDOW_HOURS),
+        getProjectMetrics(
+            STABILITY_BASELINE_WINDOW_HOURS,
+            STABILITY_CURRENT_WINDOW_HOURS,
+        ),
+    ]);
+    const baselineByProject = new Map(
+        baselineMetrics.map((metrics) => [metrics.projectId, metrics]),
+    );
 
-        // Get issues created in the last 15 minutes that are high/critical priority
-        const newCriticalIssues = await db
-            .select({
-                projectId: issues.projectId,
-                issueType: issues.issueType,
-                title: issues.title,
-                priority: issues.priority,
-                eventCount: issues.eventCount,
-            })
-            .from(issues)
-            .where(and(
-                gte(issues.firstSeen, fifteenMinutesAgo),
-                sql`${issues.priority} IN ('high', 'critical')`
-            ))
-            .orderBy(desc(issues.firstSeen));
+    for (const current of currentMetrics) {
+        const baseline = baselineByProject.get(current.projectId);
+        if (!baseline) continue;
 
-        // Issues are already triggering alerts in issueTracker.ts
-        // This is just for logging/monitoring
-        if (newCriticalIssues.length > 0) {
-            logger.info({
-                count: newCriticalIssues.length,
-                issues: newCriticalIssues.map(i => ({
-                    projectId: i.projectId,
-                    type: i.issueType,
-                    priority: i.priority
-                }))
-            }, 'New critical issues in last 15 minutes');
+        let currentErrorRate = current.errorRatePercent;
+        let baselineErrorRate = baseline.errorRatePercent;
+        let currentErrorCount = current.apiErrorCount;
+        let canEvaluateErrorTrend = true;
+
+        const [settings] = await db
+            .select({ ignoredApiEndpoints: alertSettings.ignoredApiEndpoints })
+            .from(alertSettings)
+            .where(eq(alertSettings.projectId, current.projectId))
+            .limit(1);
+        const ignoredApiEndpoints = normalizeIgnoredApiEndpointPatterns(
+            settings?.ignoredApiEndpoints ?? [],
+        );
+
+        if (ignoredApiEndpoints.length > 0) {
+            try {
+                const [filteredCurrent, filteredBaseline] = await Promise.all([
+                    getFilteredEndpointErrorMetrics({
+                        projectId: current.projectId,
+                        start: current.windowStart,
+                        end: current.windowEnd,
+                        ignoredApiEndpoints,
+                    }),
+                    getFilteredEndpointErrorMetrics({
+                        projectId: baseline.projectId,
+                        start: baseline.windowStart,
+                        end: baseline.windowEnd,
+                        ignoredApiEndpoints,
+                    }),
+                ]);
+                if (!filteredCurrent || !filteredBaseline) {
+                    canEvaluateErrorTrend = false;
+                } else {
+                    currentErrorRate = filteredCurrent.errorRatePercent;
+                    baselineErrorRate = filteredBaseline.errorRatePercent;
+                    currentErrorCount = filteredCurrent.errorCount;
+                }
+            } catch (error) {
+                canEvaluateErrorTrend = false;
+                logger.warn(
+                    { projectId: current.projectId, error },
+                    'Skipped API error trend because ignored endpoint filtering failed',
+                );
+            }
         }
-    } catch (error) {
-        logger.error({ error }, 'Failed to check for new critical issues');
+
+        if (canEvaluateErrorTrend && qualifiesAsApiErrorTrend({
+            currentRatePercent: currentErrorRate,
+            baselineRatePercent: baselineErrorRate,
+            currentSessions: current.sessionCount,
+            currentErrors: currentErrorCount,
+        })) {
+            addTrend(trendsByProject, current.projectId, {
+                signalKey: 'api:error-rate',
+                kind: 'api_error_rate',
+                title: 'API error rate is rising quickly',
+                subtitle: `Error responses rose from ${baselineErrorRate.toFixed(1)}% to ${currentErrorRate.toFixed(1)}% in the latest six-hour window.`,
+                dashboardPath: '/api',
+                currentValue: currentErrorRate,
+                baselineValue: baselineErrorRate,
+                growthPercent: growthPercent(currentErrorRate, baselineErrorRate),
+                occurrences: currentErrorCount,
+                affectedSessions: current.sessionCount,
+            });
+        }
+
+        if (qualifiesAsApiLatencyTrend({
+            currentLatencyMs: current.avgLatencyMs,
+            baselineLatencyMs: baseline.avgLatencyMs,
+            currentSessions: current.sessionCount,
+        })) {
+            addTrend(trendsByProject, current.projectId, {
+                signalKey: 'api:latency',
+                kind: 'api_latency',
+                title: 'API latency is rising quickly',
+                subtitle: `Average latency rose from ${Math.round(baseline.avgLatencyMs).toLocaleString()} ms to ${Math.round(current.avgLatencyMs).toLocaleString()} ms in the latest six-hour window.`,
+                dashboardPath: '/api',
+                currentValue: current.avgLatencyMs,
+                baselineValue: baseline.avgLatencyMs,
+                growthPercent: growthPercent(
+                    current.avgLatencyMs,
+                    baseline.avgLatencyMs,
+                ),
+                affectedSessions: current.sessionCount,
+            });
+        }
     }
 }
 
-/**
- * Run the alert worker check
- */
+async function checkForRisingStabilityIssues(): Promise<void> {
+    const detectedAt = new Date();
+    const trendsByProject = new Map<string, StabilityTrend[]>();
+    await Promise.all([
+        collectRisingIssueTrends(trendsByProject, detectedAt),
+        collectApiTrends(trendsByProject),
+    ]);
+
+    for (const [projectId, trends] of trendsByProject) {
+        const result = await triggerStabilityDigestEmail({
+            projectId,
+            detectedAt,
+            trends,
+        });
+        logger.debug(
+            {
+                projectId,
+                detectedTrendCount: trends.length,
+                sentTrendCount: result.trendCount,
+                sent: result.sent,
+                reason: result.reason,
+            },
+            'Stability trend digest evaluated',
+        );
+    }
+}
+
 export async function runAlertCheck(): Promise<void> {
     if (isRunning) {
         logger.debug('Alert check already running, skipping');
@@ -197,121 +423,49 @@ export async function runAlertCheck(): Promise<void> {
     const redis = getRedis();
 
     try {
-        await checkForSpikes();
-        await checkForNewCriticalIssues();
-
-        lastRunTime = new Date();
-        await redis.set('alerts:worker:last_run', lastRunTime.toISOString());
+        await checkForRisingStabilityIssues();
+        await redis.set('alerts:worker:last_run', new Date().toISOString());
 
         const duration = Date.now() - startTime;
-        logger.debug({ duration }, 'Alert check completed');
-
-        // Send heartbeat on successful run
+        logger.debug({ duration }, 'Stability alert check completed');
         await pingWorker('alertWorker', 'up', `duration=${duration}ms`);
     } catch (error) {
-        logger.error({ error }, 'Alert check failed');
+        logger.error({ error }, 'Stability alert check failed');
         await pingWorker('alertWorker', 'down', String(error)).catch(() => { });
     } finally {
         isRunning = false;
     }
 }
 
-/**
- * Start the alert worker (runs every 15 minutes)
- * Used when running as part of the API server
- */
-export function startAlertWorker(): void {
-    if (intervalHandle) {
-        logger.warn('Alert worker already started');
-        return;
-    }
-
-    // Run immediately on startup (after a short delay)
-    setTimeout(() => {
-        runAlertCheck().catch((err) => {
-            logger.error({ err }, 'Initial alert check failed');
-        });
-    }, 30000); // Wait 30 seconds after startup
-
-    // Then run every 15 minutes
-    intervalHandle = setInterval(() => {
-        runAlertCheck().catch((err) => {
-            logger.error({ err }, 'Scheduled alert check failed');
-        });
-    }, RUN_INTERVAL_MS);
-
-    logger.info({ intervalMs: RUN_INTERVAL_MS }, 'Alert worker started');
-}
-
-/**
- * Stop the alert worker
- */
-export function stopAlertWorker(): void {
-    if (intervalHandle) {
-        clearInterval(intervalHandle);
-        intervalHandle = null;
-        logger.info('Alert worker stopped');
-    }
-}
-
-/**
- * Get alert worker status
- */
-export function getAlertWorkerStatus(): {
-    lastRunTime: Date | null;
-    isRunning: boolean;
-} {
-    return { lastRunTime, isRunning };
-}
-
-// ========================================
-// Standalone Execution Mode
-// ========================================
-// When run directly (node dist/worker/alertWorker.js), starts as a standalone worker process
-
-/**
- * Main worker loop for standalone execution
- */
 async function runStandaloneWorker(): Promise<void> {
-    // Initialize Redis connection
     await initRedis();
-
-    // Run first check after a brief startup delay
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
     while (workerShouldRun) {
         try {
             await runAlertCheck();
-        } catch (err) {
-            logger.error({ err }, 'Alert worker error');
-            await pingWorker('alertWorker', 'down', String(err)).catch(() => { });
+        } catch (error) {
+            logger.error({ error }, 'Stability alert worker error');
+            await pingWorker('alertWorker', 'down', String(error)).catch(() => { });
         }
-
-        // Wait for next interval
-        await new Promise(resolve => setTimeout(resolve, RUN_INTERVAL_MS));
+        await new Promise((resolve) => setTimeout(resolve, RUN_INTERVAL_MS));
     }
 }
 
-// Graceful shutdown for standalone mode
 async function shutdown(signal: string) {
-    logger.info({ signal }, 'Alert worker shutting down...');
+    logger.info({ signal }, 'Stability alert worker shutting down');
     workerShouldRun = false;
-    stopAlertWorker();
-
     await closeRedis();
     await pool.end();
     process.exit(0);
 }
 
-// Only run standalone if this is the main module
 const isMainModule = import.meta.url === `file://${process.argv[1]}`;
 if (isMainModule) {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
-
-    logger.info('🔔 Alert worker started (standalone mode)');
-    runStandaloneWorker().catch((err) => {
-        logger.error({ err }, 'Alert worker fatal error');
+    logger.info('Stability alert worker started in standalone mode');
+    runStandaloneWorker().catch((error) => {
+        logger.error({ error }, 'Stability alert worker fatal error');
         process.exit(1);
     });
 }

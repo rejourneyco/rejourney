@@ -68,6 +68,7 @@ local.properties
 /ads_import/
 /google-ads-bulk/
 /tmp/google_ads_measurement_workbook/
+/tmp/prod-alert-rule-exports/
 
 # Local research lake report drafts
 /research_lake_report.pdf

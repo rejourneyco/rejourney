@@ -25,7 +25,6 @@ import { getRedis, getRedisDiagnosticsForLog, closeRedis, initRedis } from './db
 import routes from './routes/index.js';
 import { csrfProtection, originValidation, errorHandler, notFoundHandler } from './middleware/index.js';
 import { startStatsAggregationJob, stopStatsAggregationJob } from './jobs/statsAggregator.js';
-import { startAlertWorker, stopAlertWorker } from './worker/alertWorker.js';
 import stripeWebhooksRoutes from './routes/stripeWebhooks.js';
 import { isOriginAllowedByList, splitOriginList } from './utils/domain.js';
 import { CORS_ALLOWED_HEADERS } from './config/cors.js';
@@ -465,7 +464,6 @@ async function shutdown(signal: string) {
 
     try {
         stopStatsAggregationJob();
-        stopAlertWorker();
         clearInterval(apiHeartbeatInterval);
         clearTimeout(initialApiHeartbeatTimeout);
         if (server) {
@@ -520,8 +518,6 @@ server = app.listen(PORT, () => {
     logger.info({ port: PORT, env: config.NODE_ENV }, '🚀 Rejourney API server started');
     // Start the stats aggregation cron job
     startStatsAggregationJob();
-    // Start the alert worker for faster spike detection
-    startAlertWorker();
 });
 
 export default app;

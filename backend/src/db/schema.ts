@@ -1380,45 +1380,15 @@ export const projectFunnelStats = pgTable(
 // =============================================================================
 
 /**
- * Alert settings per project - controls which alerts are enabled and thresholds
+ * Project-scoped email settings shared by leak digests and stability analysis.
+ * Stability digests use product-owned thresholds and a hard weekly cap rather
+ * than customer-authored occurrence rules.
  */
-export type EmailAlertRuleAlertType = 'crash' | 'anr' | 'error_spike' | 'api_degradation';
-export type EmailAlertRuleMetric = 'affected_users' | 'duration_ms' | 'percent_increase' | 'latency_ms';
-export type EmailAlertRuleOperator = 'gt' | 'gte' | 'lt' | 'lte';
-export type EmailAlertRuleSeverity = 'critical' | 'high' | 'watch';
-export type EmailAlertRuleSource = 'default' | 'custom';
-
-export interface EmailAlertRule {
-    id: string;
-    name: string;
-    description?: string;
-    alertType: EmailAlertRuleAlertType;
-    metric: EmailAlertRuleMetric;
-    operator: EmailAlertRuleOperator;
-    threshold: number;
-    windowMinutes: number;
-    severity: EmailAlertRuleSeverity;
-    enabled: boolean;
-    source: EmailAlertRuleSource;
-    updatedAt: string;
-}
-
 export const alertSettings = pgTable('alert_settings', {
     id: uuid('id').primaryKey().defaultRandom(),
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
 
-    // Toggle-based alert preferences
-    crashAlertsEnabled: boolean('crash_alerts_enabled').default(true).notNull(),
-    anrAlertsEnabled: boolean('anr_alerts_enabled').default(true).notNull(),
-    errorSpikeAlertsEnabled: boolean('error_spike_alerts_enabled').default(true).notNull(),
-    apiDegradationAlertsEnabled: boolean('api_degradation_alerts_enabled').default(true).notNull(),
     leakScanAlertsEnabled: boolean('leak_scan_alerts_enabled').default(true).notNull(),
-
-    // Thresholds
-    errorSpikeThresholdPercent: integer('error_spike_threshold_percent').default(50), // 50% increase triggers alert
-    apiDegradationThresholdPercent: integer('api_degradation_threshold_percent').default(100), // 100% (2x) increase triggers alert
-    apiLatencyThresholdMs: integer('api_latency_threshold_ms').default(3000), // 3 seconds
-    emailRules: jsonb('email_rules').$type<EmailAlertRule[]>().default(sql`'[]'::jsonb`).notNull(),
     ignoredApiEndpoints: jsonb('ignored_api_endpoints').$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -1450,7 +1420,7 @@ export const alertHistory = pgTable(
     {
         id: uuid('id').primaryKey().defaultRandom(),
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-        alertType: varchar('alert_type', { length: 50 }).notNull(), // 'crash', 'anr', 'error_spike', 'api_degradation', 'daily_digest'
+        alertType: varchar('alert_type', { length: 50 }).notNull(), // 'stability_digest', 'stability_digest_signal', 'leak_scan'
         fingerprint: varchar('fingerprint', { length: 255 }), // For deduplication of same issue
         recipientCount: integer('recipient_count').default(1).notNull(),
         sentAt: timestamp('sent_at').defaultNow().notNull(),
@@ -1489,7 +1459,7 @@ export const emailLogs = pgTable(
         projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
         recipientEmail: varchar('recipient_email', { length: 255 }).notNull(),
         recipientName: varchar('recipient_name', { length: 255 }),
-        alertType: varchar('alert_type', { length: 50 }).notNull(), // 'crash', 'anr', 'error_spike', 'api_degradation'
+        alertType: varchar('alert_type', { length: 50 }).notNull(), // Current and historical email categories
         subject: varchar('subject', { length: 500 }).notNull(),
         issueTitle: varchar('issue_title', { length: 500 }), // The issue/crash that triggered this
         issueId: uuid('issue_id').references(() => issues.id, { onDelete: 'set null' }),

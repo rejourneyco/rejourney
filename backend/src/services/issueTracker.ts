@@ -8,7 +8,6 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db, issues, issueEvents, projects } from '../db/client.js';
 import { logger } from '../logger.js';
-import { triggerCrashAlert, triggerAnrAlert } from './alertService.js';
 import { generateANRFingerprintFromStackTrace } from './anrStack.js';
 
 export interface IssueData {
@@ -324,7 +323,7 @@ export async function trackCrashAsIssue(params: {
 }): Promise<void> {
     const fingerprint = generateFingerprint('crash', params.exceptionName, params.reason || '');
 
-    const issueId = await trackIssue({
+    await trackIssue({
         projectId: params.projectId,
         issueType: 'crash',
         title: params.exceptionName,
@@ -340,20 +339,6 @@ export async function trackCrashAsIssue(params: {
         userId: params.userId,
     });
 
-    // Trigger crash alert (rate limited by alertService)
-    if (issueId) {
-        try {
-            await triggerCrashAlert(
-                params.projectId,
-                params.exceptionName,
-                1, // affectedUsers - single occurrence
-                fingerprint,
-                issueId
-            );
-        } catch (error) {
-            logger.error({ error, projectId: params.projectId }, 'Failed to trigger crash alert');
-        }
-    }
 }
 
 /**
@@ -376,7 +361,7 @@ export async function trackANRAsIssue(params: {
     // Use the specialized ANR fingerprint that ignores memory addresses
     const fingerprint = generateANRFingerprint(stackTrace || '');
 
-    const issueId = await trackIssue({
+    await trackIssue({
         projectId: params.projectId,
         issueType: 'anr',
         title: 'Application Not Responding',
@@ -392,20 +377,6 @@ export async function trackANRAsIssue(params: {
         userId: params.userId,
     });
 
-    // Trigger ANR alert (rate limited by alertService)
-    if (issueId) {
-        try {
-            await triggerAnrAlert(
-                params.projectId,
-                params.durationMs,
-                1, // affectedUsers - single occurrence
-                fingerprint,
-                issueId
-            );
-        } catch (error) {
-            logger.error({ error, projectId: params.projectId }, 'Failed to trigger ANR alert');
-        }
-    }
 }
 
 /**

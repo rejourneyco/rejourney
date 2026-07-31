@@ -1274,7 +1274,7 @@ spec:
 
 ---
 # Alert Worker Deployment
-# Processes and sends alert emails for crashes, ANRs, error spikes, etc.
+# Sends low-frequency project stability trend digests.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

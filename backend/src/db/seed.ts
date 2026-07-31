@@ -232,13 +232,6 @@ async function main() {
             // Create default alert settings for the project
             await db.insert(alertSettings).values({
                 projectId: project.id,
-                crashAlertsEnabled: true,
-                anrAlertsEnabled: true,
-                errorSpikeAlertsEnabled: true,
-                apiDegradationAlertsEnabled: true,
-                errorSpikeThresholdPercent: 50, // 50% increase triggers alert
-                apiDegradationThresholdPercent: 100, // 2x latency triggers alert
-                apiLatencyThresholdMs: 3000, // 3 second threshold
             }).onConflictDoNothing();
 
             // Add test user as alert recipient
@@ -278,13 +271,6 @@ async function main() {
                     if (!existingSettings) {
                         await db.insert(alertSettings).values({
                             projectId: project.id,
-                            crashAlertsEnabled: true,
-                            anrAlertsEnabled: true,
-                            errorSpikeAlertsEnabled: true,
-                            apiDegradationAlertsEnabled: true,
-                            errorSpikeThresholdPercent: 50,
-                            apiDegradationThresholdPercent: 100,
-                            apiLatencyThresholdMs: 3000,
                         }).onConflictDoNothing();
                         console.log(`   ✅ Created alert settings for project: ${project.name}`);
                     }

@@ -8,11 +8,9 @@ import { eq, gte, and, lte } from 'drizzle-orm';
 import { db, sessions, sessionMetrics } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
-import { triggerErrorSpikeAlert, triggerApiDegradationAlert } from '../services/alertService.js';
 import { pingWorker } from '../services/monitoring.js';
 import { writeProductAnalyticsDailyRollupInputToClickHouse } from '../services/clickhouseProductRollupsSink.js';
 import {
-    queryProductDailyStatsFromClickHouse,
     queryProductDailyUniqueUserCountFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 import { protectUniqueUserCountAfterIdentityScrub } from '../services/rollupIdentityProtection.js';
@@ -384,74 +382,9 @@ export async function runDailyRollup(date?: Date): Promise<void> {
             redis.set('stats:daily_rollup:last_rolled_up_date', rolledUpDateStr),
         ]);
 
-        // Check for error spikes and API degradation for each project
-        await checkAlertsAfterRollup(projectIds, targetDate);
-
         logger.info({ projectCount: projectIds.length }, 'Daily rollup completed');
     } catch (err) {
         logger.error({ err }, 'Daily rollup failed');
-    }
-}
-
-/**
- * Check for error rate spikes and API degradation after daily rollup
- * Compares today's metrics with the previous 7-day average
- */
-async function checkAlertsAfterRollup(projectIds: string[], targetDate: Date): Promise<void> {
-    const dateStr = targetDate.toISOString().split('T')[0];
-    const sevenDaysAgo = new Date(targetDate);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
-    const currentWindowStart = new Date(`${dateStr}T00:00:00.000Z`);
-    const currentWindowEnd = new Date(currentWindowStart.getTime() + 24 * 60 * 60 * 1000 - 1);
-    const baselineWindowStart = new Date(`${sevenDaysAgoStr}T00:00:00.000Z`);
-    const baselineWindowEnd = new Date(currentWindowStart.getTime() - 1);
-
-    for (const projectId of projectIds) {
-        try {
-            const dailyStats = await queryProductDailyStatsFromClickHouse({
-                projectIds: [projectId],
-                startDate: sevenDaysAgoStr,
-                endDate: dateStr,
-            });
-            const previousStats = dailyStats.sort((a, b) => b.date.localeCompare(a.date));
-            const todayStats = previousStats.find((row) => row.date === dateStr);
-
-            if (!todayStats || todayStats.totalSessions < 10) {
-                // Skip projects with insufficient data
-                continue;
-            }
-
-            // Need at least 3 days of data for comparison
-            if (previousStats.length < 3) {
-                continue;
-            }
-
-            // Calculate 7-day averages (excluding today)
-            const historicalStats = previousStats.slice(1); // Exclude today
-            const avgErrorRate = historicalStats.reduce((sum, s) => sum + (s.avgApiErrorRate || 0), 0) / historicalStats.length;
-            const avgLatency = historicalStats.reduce((sum, s) => sum + (s.avgApiResponseMs || 0), 0) / historicalStats.length;
-
-            // Check for error spike
-            const todayErrorRate = todayStats.avgApiErrorRate || 0;
-            if (avgErrorRate > 0 && todayErrorRate > avgErrorRate) {
-                await triggerErrorSpikeAlert(projectId, todayErrorRate * 100, avgErrorRate * 100, {
-                    currentWindowStart,
-                    currentWindowEnd,
-                    baselineWindowStart,
-                    baselineWindowEnd,
-                });
-            }
-
-            // Check for API degradation
-            const todayLatency = todayStats.avgApiResponseMs || 0;
-            if (avgLatency > 0 && todayLatency > avgLatency) {
-                await triggerApiDegradationAlert(projectId, todayLatency, avgLatency);
-            }
-
-        } catch (error) {
-            logger.error({ error, projectId }, 'Failed to check alerts for project');
-        }
     }
 }
 

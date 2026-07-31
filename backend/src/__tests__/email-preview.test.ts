@@ -4,9 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, it, vi } from 'vitest';
 import {
-    sendAnrAlertEmail,
-    sendApiDegradationAlertEmail,
-    sendErrorSpikeAlertEmail,
     sendLeakScanEmail,
     sendOtpEmail,
     sendBillingWarningEmail,
@@ -15,7 +12,7 @@ import {
     sendPlanChangeEmail,
     sendSubscriptionExpiredEmail,
     sendTeamInviteEmail,
-    sendCrashAlertEmail
+    sendStabilityDigestEmail,
 } from '../services/email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -125,89 +122,56 @@ describe('Email Previews', () => {
         );
     });
 
-    it('generates Crash Alert email', async () => {
-        await sendCrashAlertEmail(['dev@example.com'], {
+    it('generates Stability Trends email', async () => {
+        await sendStabilityDigestEmail(['dev@example.com'], {
             projectId: 'p_123',
             projectName: 'Mobile App',
-            crashTitle: 'NullPointerException: Attempt to invoke virtual method',
-            subtitle: 'com.example.app.MainActivity.onCreate(MainActivity.java:42)',
-            affectedUsers: 150,
-            issueId: 'issue_789',
-            issueUrl: 'http://localhost:5173/dashboard/general/issue_789',
-            shortId: 'ERR-123',
-            environment: 'production',
-            lastSeen: new Date(),
-            isHandled: false,
-            priority: 'high',
-            status: 'ongoing',
-            events24h: 35,
-            events90d: 150,
-            sampleSessionId: 'session_preview_123',
-            culprit: 'MainActivity.onCreate',
-            stackTrace: `java.lang.NullPointerException: Attempt to invoke virtual method 'java.lang.String java.lang.Object.toString()' on a null object reference
-    at com.example.app.MainActivity.onCreate(MainActivity.java:42)
-    at android.app.Activity.performCreate(Activity.java:8000)
-    at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1300)`,
-            affectedVersions: { '1.0.0': 100, '1.1.0': 50 },
-            screenName: 'CheckoutScreen'
-        });
-    });
-
-    it('generates ANR Alert email', async () => {
-        await sendAnrAlertEmail(['dev@example.com'], {
-            projectId: 'p_123',
-            projectName: 'Mobile App',
-            durationMs: 12500,
-            affectedUsers: 42,
-            eventCount: 60,
-            events24h: 18,
-            events90d: 60,
-            issueId: 'issue_anr_123',
-            issueUrl: 'http://localhost:5173/dashboard/general/issue_anr_123',
-            shortId: 'ANR-42',
-            environment: 'production',
-            priority: 'high',
-            status: 'ongoing',
-            lastSeen: new Date(),
-            sampleSessionId: 'session_anr_preview_123',
-            stackTrace: `main thread blocked
-    at com.example.app.CheckoutRepository.waitForPayment(CheckoutRepository.kt:88)
-    at com.example.app.CheckoutViewModel.submit(CheckoutViewModel.kt:51)`,
-            affectedVersions: { '1.2.0': 40, '1.1.0': 20 },
-            affectedDevices: { 'Pixel 9': 22, 'Galaxy S25': 18 },
-            screenName: 'CheckoutScreen',
-            culprit: 'CheckoutRepository.waitForPayment',
-        });
-    });
-
-    it('generates API Error Spike email', async () => {
-        await sendErrorSpikeAlertEmail(['dev@example.com'], {
-            projectId: 'p_123',
-            projectName: 'Mobile App',
-            currentRate: 12.4,
-            previousRate: 3.1,
-            percentIncrease: 300,
-            issueUrl: 'http://localhost:5173/dashboard/sessions',
-            detectedAt: new Date(),
-            topErrors: [
-                { name: 'POST /checkout returned 500', count: 81 },
-                { name: 'GET /inventory returned 503', count: 34 },
-            ],
-        });
-    });
-
-    it('generates API Degradation email', async () => {
-        await sendApiDegradationAlertEmail(['dev@example.com'], {
-            projectId: 'p_123',
-            projectName: 'Mobile App',
-            currentLatencyMs: 1430,
-            previousLatencyMs: 420,
-            percentIncrease: 240,
-            issueUrl: 'http://localhost:5173/dashboard/api',
-            detectedAt: new Date(),
-            slowestEndpoints: [
-                { method: 'POST', path: '/api/checkout', latency: 1430 },
-                { method: 'GET', path: '/api/products/:id', latency: 980 },
+            detectedAt: new Date('2026-07-29T12:00:00.000Z'),
+            trends: [
+                {
+                    signalKey: 'issue:issue_crash_123',
+                    kind: 'crash',
+                    title: 'GraphicsDevice initialization failure',
+                    subtitle: 'FlutterError while creating the graphics device',
+                    shortId: 'MOBILE-42',
+                    issueId: 'issue_crash_123',
+                    dashboardPath: '/general/issue_crash_123',
+                    currentValue: 7,
+                    baselineValue: 1,
+                    growthPercent: 600,
+                    occurrences: 7,
+                    affectedUsers: 2,
+                    affectedSessions: 3,
+                    appVersion: '6.0.4',
+                },
+                {
+                    signalKey: 'issue:issue_anr_123',
+                    kind: 'anr',
+                    title: 'Checkout main thread blocked',
+                    subtitle: 'Payment confirmation blocked the main thread for 11 seconds',
+                    shortId: 'MOBILE-57',
+                    issueId: 'issue_anr_123',
+                    dashboardPath: '/general/issue_anr_123',
+                    currentValue: 12,
+                    baselineValue: 3,
+                    growthPercent: 300,
+                    occurrences: 12,
+                    affectedUsers: 5,
+                    affectedSessions: 6,
+                    appVersion: '6.0.4',
+                },
+                {
+                    signalKey: 'api:error-rate',
+                    kind: 'api_error_rate',
+                    title: 'API error rate is rising quickly',
+                    subtitle: 'Error responses rose from 2.1% to 8.4% in the latest six-hour window.',
+                    dashboardPath: '/api',
+                    currentValue: 8.4,
+                    baselineValue: 2.1,
+                    growthPercent: 300,
+                    occurrences: 28,
+                    affectedSessions: 41,
+                },
             ],
         });
     });

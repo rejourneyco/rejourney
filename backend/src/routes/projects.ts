@@ -1632,13 +1632,6 @@ router.post(
         // Create default alert settings for the project
         await db.insert(alertSettings).values({
             projectId: project.id,
-            crashAlertsEnabled: true,
-            anrAlertsEnabled: true,
-            errorSpikeAlertsEnabled: true,
-            apiDegradationAlertsEnabled: true,
-            errorSpikeThresholdPercent: 50,
-            apiDegradationThresholdPercent: 100,
-            apiLatencyThresholdMs: 3000,
         });
 
         // Add team owners as default alert recipients (max 5)

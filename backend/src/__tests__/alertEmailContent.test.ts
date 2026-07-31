@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    sendApiDegradationAlertEmail,
-    sendCrashAlertEmail,
     sendLeakScanEmail,
+    sendStabilityDigestEmail,
 } from '../services/email.js';
 
 const { sentMails } = vi.hoisted(() => ({
@@ -41,70 +40,59 @@ describe('alert email content', () => {
         sentMails.length = 0;
     });
 
-    it('sends crash alerts grouped by recipient time zone with issue context', async () => {
-        await sendCrashAlertEmail([
+    it('sends grouped emerging-stability digests instead of occurrence emails', async () => {
+        await sendStabilityDigestEmail([
             { email: 'hebron@example.com', timeZone: 'Asia/Hebron' },
             { email: 'ny@example.com', timeZone: 'America/New_York' },
         ], {
             projectId: 'p_123',
             projectName: 'Mobile App',
-            crashTitle: 'NullPointerException: Attempt to invoke virtual method',
-            subtitle: 'MainActivity.onCreate(MainActivity.java:42)',
-            affectedUsers: 3,
-            eventCount: 12,
-            issueId: 'issue_789',
-            issueUrl: 'http://localhost:8080/dashboard/general/issue_789',
-            shortId: 'ERR-123',
-            environment: 'production',
-            firstSeen: new Date('2026-01-15T10:00:00.000Z'),
-            lastSeen: new Date('2026-01-15T12:00:00.000Z'),
-            isHandled: false,
-            stackTrace: 'java.lang.NullPointerException\n    at MainActivity.onCreate(MainActivity.java:42)',
-            affectedVersions: { '1.0.0': 8, '1.1.0': 4 },
-            affectedDevices: { 'Pixel 9': 2, 'iPhone 16': 1 },
-            screenName: 'CheckoutScreen',
-            sampleAppVersion: '1.1.0',
-            sampleOsVersion: 'Android 16',
-            sampleDeviceModel: 'Pixel 9',
-            sampleSessionId: 'session_123',
-            culprit: 'MainActivity.onCreate',
-            priority: 'high',
-            status: 'ongoing',
-            events24h: 4,
-            events90d: 12,
+            detectedAt: new Date('2026-07-29T12:00:00.000Z'),
+            trends: [
+                {
+                    signalKey: 'issue:issue_789',
+                    kind: 'crash',
+                    title: 'GraphicsDevice initialization failure',
+                    subtitle: 'FlutterError while creating the graphics device',
+                    shortId: 'ERR-123',
+                    issueId: 'issue_789',
+                    dashboardPath: '/general/issue_789',
+                    currentValue: 7,
+                    baselineValue: 1,
+                    growthPercent: 600,
+                    occurrences: 7,
+                    affectedUsers: 2,
+                    affectedSessions: 3,
+                    appVersion: '6.0.4',
+                },
+                {
+                    signalKey: 'api:error-rate',
+                    kind: 'api_error_rate',
+                    title: 'API error rate is rising quickly',
+                    subtitle: 'Error responses rose from 2.0% to 8.0%.',
+                    dashboardPath: '/api',
+                    currentValue: 8,
+                    baselineValue: 2,
+                    growthPercent: 300,
+                    occurrences: 20,
+                    affectedSessions: 30,
+                },
+            ],
         });
 
         expect(sentMails).toHaveLength(2);
         expect(sentMails[0].to).toBe('hebron@example.com');
         expect(sentMails[1].to).toBe('ny@example.com');
-        expect(sentMails[0].subject).toContain('Unhandled Crash in Mobile App');
-        expect(sentMails[0].html).toContain('Triage Context');
-        expect(sentMails[0].html).toContain('Affected Versions');
-        expect(sentMails[0].html).toContain('Affected Devices');
-        expect(sentMails[0].html).toContain('Suggested Investigation');
-        expect(sentMails[0].html).toContain('session_123');
+        expect(sentMails[0].subject).toContain('Trending stability issues for 2026-07-29');
+        expect(sentMails[0].html).toContain('Emerging issues');
+        expect(sentMails[0].html).toContain('GraphicsDevice initialization failure');
+        expect(sentMails[0].html).toContain('v6.0.4');
+        expect(sentMails[0].html).toContain('7</div>');
+        expect(sentMails[0].html).toContain('2</div>');
         expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/general/issue_789');
+        expect(sentMails[0].html).toContain('at most three stability digests');
         expect(sentMails[0].html).toContain('Times shown in Asia/Hebron');
         expect(sentMails[1].html).toContain('Times shown in America/New_York');
-    });
-
-    it('links API degradation alerts to API insights by default', async () => {
-        await sendApiDegradationAlertEmail([
-            { email: 'dev@example.com', timeZone: 'UTC' },
-        ], {
-            projectId: 'p_123',
-            projectName: 'Mobile App',
-            currentLatencyMs: 1200,
-            previousLatencyMs: 400,
-            percentIncrease: 200,
-            detectedAt: new Date('2026-01-15T12:00:00.000Z'),
-            slowestEndpoints: [{ method: 'GET', path: '/api/search', latency: 1200 }],
-        });
-
-        expect(sentMails).toHaveLength(1);
-        expect(sentMails[0].subject).toContain('API latency degradation in Mobile App');
-        expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/api');
-        expect(sentMails[0].html).toContain('Slowest Endpoints');
     });
 
     it('sends leak scan digests ordered by estimated affected users', async () => {
