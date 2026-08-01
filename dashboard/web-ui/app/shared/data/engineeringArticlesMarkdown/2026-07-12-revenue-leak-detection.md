@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Revenue Leak Detection: Find Product Friction Before the Monthly Report"
 subtitle: "Revenue leaks begin as failed user intent. Detecting them requires product, behavioral, technical, and payment evidence in the same investigation."
 slug: "revenue-leak-detection"
@@ -143,4 +144,4 @@ The recovered metric should match the original intent. Fixing rage taps is not t
 
 Rejourney ranks a suspicious conversion change and keeps its supporting sessions close. Open the failed cohort, compare it with a healthy baseline, and inspect the journey alongside request and stability evidence. The alert remains an estimate until the underlying state and sessions support it.
 
-The implementation differs by surface. See [website revenue loss prediction](/engineering/2026-07-12/website-revenue-loss-prediction) or [mobile app revenue loss prediction](/engineering/2026-07-12/mobile-app-revenue-loss-prediction).
+The implementation differs by surface. See [website revenue loss prediction](/guides/2026-07-12/website-revenue-loss-prediction) or [mobile app revenue loss prediction](/guides/2026-07-12/mobile-app-revenue-loss-prediction).

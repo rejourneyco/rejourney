@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Free Trial Conversion Rate: Diagnose the Path from Signup to Paid"
 subtitle: "Trial conversion improves when users reach value and the paid transition works. One percentage cannot tell you which part failed."
 slug: "free-trial-conversion-rate"
@@ -137,4 +138,4 @@ The worksheet turns “trial conversion is down” into a bounded product proble
 
 In Rejourney, the trial cohort stays attached to the sessions that reached value, encountered the offer, attempted payment, or disappeared earlier. That makes a falling conversion rate easier to divide into product, commercial, and payment work without guessing from the final event.
 
-The next useful views are [user activation metrics](/engineering/2026-07-12/user-activation-metrics) and [subscription funnel analytics](/engineering/2026-07-12/subscription-funnel-analytics).
+The next useful views are [user activation metrics](/guides/2026-07-12/user-activation-metrics) and [subscription funnel analytics](/guides/2026-07-12/subscription-funnel-analytics).

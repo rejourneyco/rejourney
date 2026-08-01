@@ -1,19 +1,21 @@
 ---
+collection: guide
 title: "Smartlook Alternatives: What to Use Before Cisco Ends Smartlook"
 subtitle: "Smartlook is entering end-of-sale and end-of-life. Here is how product, UX, support, and mobile teams should evaluate the next replay and behavior analytics tool."
 slug: "smartlook-alternatives-cisco-eol"
 date: "2026-05-26"
-dateModified: "2026-05-26"
+dateModified: "2026-08-01"
 readTime: "10 min read"
 image: "/images/engineering/smartlook-alternatives-replay-detail.png"
 imageAlt: "Rejourney live demo replay workbench showing a mobile session, event timeline, API calls, and user context"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
-primaryKeyword: "smartlook alternatives"
+primaryKeyword: "smartlook end of life migration"
 metaTitle: "Smartlook Alternatives Before Cisco Ends Smartlook"
 metaDescription: "Compare Smartlook alternatives before Cisco ends Smartlook. Learn what to evaluate for session replay, heatmaps, funnels, mobile replay, crashes, and migration risk."
 targetKeywords:
+  - smartlook end of life migration
   - smartlook alternatives
   - smartlook alternative
   - smartlook replacement
@@ -31,7 +33,7 @@ topicTags:
   - Mobile Analytics
   - Product Analytics
   - Migration Strategy
-seoKeywords: "smartlook alternatives, smartlook alternative, smartlook replacement, smartlook end of life, smartlook pricing, session replay tools, session recording software, mobile session replay, heatmap analytics, behavior analytics tools"
+seoKeywords: "smartlook end of life migration, smartlook alternatives, smartlook alternative, smartlook replacement, smartlook end of life, smartlook pricing, session replay tools, session recording software, mobile session replay, heatmap analytics, behavior analytics tools"
 ---
 
 ![Rejourney live demo replay workbench showing a mobile session, event timeline, API calls, and user context](/images/engineering/smartlook-alternatives-replay-detail.png)

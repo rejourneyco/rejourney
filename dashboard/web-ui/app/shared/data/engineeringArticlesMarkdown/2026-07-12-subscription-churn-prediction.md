@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Subscription Churn Prediction: Use Behavior Before the Cancellation"
 subtitle: "The useful churn signal is not inactivity alone. It is a change in value, friction, or account behavior early enough for the team to act."
 slug: "subscription-churn-prediction"
@@ -158,4 +159,4 @@ Update definitions carefully. Do not add post-outcome information to old predict
 
 A churn signal in Rejourney can open the recent sessions that changed the score. The reviewer sees whether the customer stopped reaching a core result, began encountering failures, or struggled with subscription state. Account history supplies the baseline; replay supplies the product evidence.
 
-For the recurring commercial path, use [subscription funnel analytics](/engineering/2026-07-12/subscription-funnel-analytics).
+For the recurring commercial path, use [subscription funnel analytics](/guides/2026-07-12/subscription-funnel-analytics).

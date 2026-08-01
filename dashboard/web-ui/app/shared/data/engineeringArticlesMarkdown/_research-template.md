@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Research Article Title"
 subtitle: "One specific sentence that explains the finding, benchmark, or engineering decision."
 slug: "research-article-title"

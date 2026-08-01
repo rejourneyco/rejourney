@@ -1,6 +1,7 @@
 import React from 'react';
-import { Droplet } from 'lucide-react';
+import { Droplet, Code2 } from 'lucide-react';
 import { EuFlag } from './EuFlag';
+import { GermanFlag } from './GermanFlag';
 import {
     MarkAngular,
     MarkFlutter,
@@ -62,6 +63,14 @@ export const TrustBanners: React.FC<{ copy: MarketingHomeCopy['trust'] }> = ({ c
                     <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-[#86efac] px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
                         <EuFlag className={badgeFlagClass} />
                         {copy.gdpr}
+                    </span>
+                    <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-[#fef08a] px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
+                        <GermanFlag className={badgeFlagClass} />
+                        Hosted in Germany
+                    </span>
+                    <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-[#a7f3d0] px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
+                        <Code2 className={`${badgeIconClass} text-slate-900`} strokeWidth={2.5} />
+                        100% Open Source
                     </span>
                     <span className="inline-flex h-9 w-auto items-center justify-center gap-2 rounded-full border-2 border-black bg-white px-4 font-mono text-[10px] font-black uppercase tracking-wider text-black shadow-neo-sm">
                         <Droplet className={`${badgeIconClass} fill-[#5dadec] text-[#5dadec]`} strokeWidth={0} />

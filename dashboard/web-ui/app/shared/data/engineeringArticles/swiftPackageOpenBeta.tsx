@@ -6,7 +6,7 @@ const SWIFT_PACKAGE_BETA_ARTICLE_URL = "https://rejourney.co/engineering/2026-05
 
 const swiftPackageBetaArticleSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "TechArticle",
     headline: "Rejourney Swift Package Is Now in Open Beta",
     description:
         "How the Rejourney native iOS SDK works: session state machine, URLProtocol swizzle for custom URLSessions, visual capture backpressure, ANR ping-pong sentinel, and crash recovery checkpoints.",
@@ -435,6 +435,7 @@ let stopResult = await Rejourney.stop()`}</pre>
 );
 
 export const swiftPackageOpenBetaArticle: Article = {
+    collection: "engineering",
     id: "swift-package-open-beta",
     title: "Rejourney Swift Package Is Now in Open Beta",
     subtitle: "The session state machine, two start paths, URLProtocol swizzle, visual capture backpressure, ANR ping-pong, and crash recovery checkpoints — how the native iOS SDK actually works.",

@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Rejourney mobile touch heatmap</title>
+  <desc id="desc">A mobile product screen with touch-density hotspots, repeated-tap markers, and a friction summary.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+    <linearGradient id="appHero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <radialGradient id="hotspot">
+      <stop offset="0" stop-color="#ef4444" stop-opacity=".92"/>
+      <stop offset=".28" stop-color="#fb923c" stop-opacity=".76"/>
+      <stop offset=".58" stop-color="#fde047" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#fde047" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="coolspot">
+      <stop offset="0" stop-color="#0ea5e9" stop-opacity=".72"/>
+      <stop offset=".52" stop-color="#38bdf8" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0f172a" flood-opacity=".14"/>
+    </filter>
+  </defs>
+
+  <rect width="1440" height="900" rx="28" fill="url(#canvas)"/>
+  <rect x="26" y="24" width="1388" height="852" rx="22" fill="#fff" stroke="#dbe2ea" stroke-width="2"/>
+
+  <rect x="26" y="24" width="1388" height="76" rx="22" fill="#fff"/>
+  <path d="M26 100h1388" stroke="#dbe2ea" stroke-width="2"/>
+  <circle cx="67" cy="62" r="10" fill="#34d399"/>
+  <text x="91" y="70" fill="#0f172a" font-family="Arial, sans-serif" font-size="24" font-weight="700">Rejourney Heatmaps</text>
+  <rect x="1116" y="44" width="126" height="38" rx="8" fill="#f1f5f9"/>
+  <text x="1144" y="69" fill="#475569" font-family="Arial, sans-serif" font-size="15" font-weight="700">Mobile app</text>
+  <rect x="1254" y="44" width="132" height="38" rx="8" fill="#0f172a"/>
+  <text x="1283" y="69" fill="#fff" font-family="Arial, sans-serif" font-size="15" font-weight="700">Touch map</text>
+
+  <rect x="26" y="100" width="250" height="776" fill="#f8fafc"/>
+  <path d="M276 100v776" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="58" y="151" fill="#94a3b8" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="1.4">ANALYTICS</text>
+  <rect x="46" y="174" width="210" height="50" rx="10" fill="#dcfce7"/>
+  <circle cx="72" cy="199" r="9" fill="#10b981"/>
+  <text x="94" y="206" fill="#065f46" font-family="Arial, sans-serif" font-size="17" font-weight="700">Heatmaps</text>
+  <circle cx="72" cy="259" r="9" fill="#cbd5e1"/>
+  <text x="94" y="266" fill="#475569" font-family="Arial, sans-serif" font-size="17">Replays</text>
+  <circle cx="72" cy="319" r="9" fill="#cbd5e1"/>
+  <text x="94" y="326" fill="#475569" font-family="Arial, sans-serif" font-size="17">Journeys</text>
+  <circle cx="72" cy="379" r="9" fill="#cbd5e1"/>
+  <text x="94" y="386" fill="#475569" font-family="Arial, sans-serif" font-size="17">Stability</text>
+
+  <text x="320" y="151" fill="#0f172a" font-family="Arial, sans-serif" font-size="26" font-weight="700">Touch density · Checkout</text>
+  <text x="320" y="181" fill="#64748b" font-family="Arial, sans-serif" font-size="15">iOS and Android · 2,481 sessions · App version 2.4.1</text>
+
+  <g filter="url(#shadow)">
+    <rect x="352" y="214" width="384" height="604" rx="58" fill="#0f172a"/>
+    <rect x="366" y="228" width="356" height="576" rx="46" fill="#f8fafc"/>
+    <rect x="480" y="240" width="128" height="28" rx="14" fill="#0f172a"/>
+    <rect x="386" y="288" width="316" height="118" rx="24" fill="url(#appHero)"/>
+    <text x="410" y="329" fill="#d1fae5" font-family="Arial, sans-serif" font-size="14" font-weight="700">YOUR ORDER</text>
+    <text x="410" y="369" fill="#fff" font-family="Arial, sans-serif" font-size="30" font-weight="700">Ready to checkout</text>
+    <rect x="386" y="430" width="316" height="74" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="420" cy="467" r="18" fill="#dbeafe"/>
+    <rect x="451" y="451" width="140" height="12" rx="6" fill="#334155"/>
+    <rect x="451" y="475" width="92" height="9" rx="5" fill="#cbd5e1"/>
+    <text x="638" y="473" fill="#0f172a" font-family="Arial, sans-serif" font-size="16" font-weight="700">$42</text>
+    <rect x="386" y="520" width="316" height="104" rx="18" fill="#fff" stroke="#e2e8f0"/>
+    <text x="410" y="554" fill="#64748b" font-family="Arial, sans-serif" font-size="13" font-weight="700">DELIVERY</text>
+    <rect x="410" y="570" width="185" height="10" rx="5" fill="#334155"/>
+    <rect x="410" y="592" width="124" height="8" rx="4" fill="#cbd5e1"/>
+    <rect x="386" y="650" width="316" height="62" rx="18" fill="#10b981"/>
+    <text x="472" y="689" fill="#fff" font-family="Arial, sans-serif" font-size="19" font-weight="700">Place order</text>
+    <rect x="386" y="734" width="316" height="50" rx="18" fill="#fff"/>
+    <circle cx="430" cy="759" r="8" fill="#cbd5e1"/>
+    <circle cx="506" cy="759" r="8" fill="#cbd5e1"/>
+    <circle cx="582" cy="759" r="8" fill="#10b981"/>
+    <circle cx="658" cy="759" r="8" fill="#cbd5e1"/>
+  </g>
+
+  <circle cx="650" cy="558" r="98" fill="url(#hotspot)"/>
+  <circle cx="650" cy="558" r="20" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="5 5"/>
+  <circle cx="548" cy="681" r="112" fill="url(#hotspot)"/>
+  <circle cx="548" cy="681" r="28" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="6 6"/>
+  <circle cx="421" cy="468" r="66" fill="url(#coolspot)"/>
+
+  <rect x="790" y="214" width="566" height="178" rx="20" fill="#fff" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="824" y="257" fill="#64748b" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1">FRICTION SIGNAL</text>
+  <text x="824" y="300" fill="#0f172a" font-family="Arial, sans-serif" font-size="29" font-weight="700">Repeated taps on delivery</text>
+  <text x="824" y="335" fill="#64748b" font-family="Arial, sans-serif" font-size="17">18.4% of affected sessions tapped the row 3+ times.</text>
+  <rect x="1179" y="246" width="139" height="48" rx="24" fill="#fee2e2"/>
+  <text x="1213" y="277" fill="#b91c1c" font-family="Arial, sans-serif" font-size="16" font-weight="700">High signal</text>
+
+  <rect x="790" y="416" width="270" height="174" rx="20" fill="#f8fafc" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="820" y="458" fill="#64748b" font-family="Arial, sans-serif" font-size="14" font-weight="700">REPEATED TAPS</text>
+  <text x="820" y="515" fill="#0f172a" font-family="Arial, sans-serif" font-size="38" font-weight="700">462</text>
+  <text x="820" y="551" fill="#64748b" font-family="Arial, sans-serif" font-size="16">across 297 sessions</text>
+  <rect x="1086" y="416" width="270" height="174" rx="20" fill="#f8fafc" stroke="#dbe2ea" stroke-width="2"/>
+  <text x="1116" y="458" fill="#64748b" font-family="Arial, sans-serif" font-size="14" font-weight="700">DEAD ZONES</text>
+  <text x="1116" y="515" fill="#0f172a" font-family="Arial, sans-serif" font-size="38" font-weight="700">3</text>
+  <text x="1116" y="551" fill="#64748b" font-family="Arial, sans-serif" font-size="16">controls need review</text>
+
+  <rect x="790" y="614" width="566" height="204" rx="20" fill="#0f172a"/>
+  <text x="824" y="657" fill="#94a3b8" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1">MATCHING EVIDENCE</text>
+  <text x="824" y="702" fill="#fff" font-family="Arial, sans-serif" font-size="25" font-weight="700">Open the sessions behind this cluster</text>
+  <text x="824" y="738" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="17">Verify the interaction before changing the screen.</text>
+  <rect x="824" y="765" width="166" height="38" rx="8" fill="#86efac"/>
+  <text x="858" y="790" fill="#052e16" font-family="Arial, sans-serif" font-size="15" font-weight="700">View 297 replays</text>
+
+  <circle cx="329" cy="851" r="7" fill="#38bdf8"/>
+  <text x="346" y="857" fill="#64748b" font-family="Arial, sans-serif" font-size="14">Normal interaction</text>
+  <circle cx="496" cy="851" r="7" fill="#fde047"/>
+  <text x="513" y="857" fill="#64748b" font-family="Arial, sans-serif" font-size="14">High touch density</text>
+  <circle cx="668" cy="851" r="7" fill="#ef4444"/>
+  <text x="685" y="857" fill="#64748b" font-family="Arial, sans-serif" font-size="14">Repeated friction</text>
+</svg>

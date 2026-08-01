@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "In-App Subscription Analytics: Connect Paywall, Store, and Entitlement"
 subtitle: "Subscription apps need one view of product value, store outcomes, backend validation, access state, trials, renewals, and churn."
 slug: "in-app-subscription-analytics"
@@ -165,4 +166,4 @@ This prevents a subscription-state incident from becoming only a paywall redesig
 
 Rejourney follows the app journey around the store sheet and the entitlement result that follows it. A purchase event is useful, but the surrounding session reveals whether the offer rendered correctly, the app recovered after cancellation, and paid access appeared when the transaction completed.
 
-Use [mobile paywall analytics](/engineering/2026-07-12/mobile-app-paywall-analytics) for the decision screen and [payment failure analytics](/engineering/2026-07-12/payment-failure-analytics) for recovery paths.
+Use [mobile paywall analytics](/guides/2026-07-12/mobile-app-paywall-analytics) for the decision screen and [payment failure analytics](/guides/2026-07-12/payment-failure-analytics) for recovery paths.

@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Revenue Loss Prediction for Websites: Find Conversion Risk Early"
 subtitle: "Website revenue risk appears in forms, routes, requests, checkout state, authentication, and release behavior before the top-line report moves."
 slug: "website-revenue-loss-prediction"
@@ -136,4 +137,4 @@ Revenue recovery is the healthy outcome observed after the fix, not the forecast
 
 Rejourney connects a risky web transition to the browser sessions and application evidence behind it. A reviewer can isolate the route, release, viewport, or campaign where excess failure appeared, then compare failed sessions with successful users from the same cohort.
 
-The [web session replay page](/web-session-replay) describes the capture surface, while [revenue leak detection](/engineering/2026-07-12/revenue-leak-detection) explains the scoring and verification method.
+The [web session replay page](/web-session-replay) describes the capture surface, while [revenue leak detection](/guides/2026-07-12/revenue-leak-detection) explains the scoring and verification method.

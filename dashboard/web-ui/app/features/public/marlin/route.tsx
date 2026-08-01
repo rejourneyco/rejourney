@@ -15,9 +15,9 @@ const STABILITY_IMAGE = "/images/anr-issues.webp";
 
 export const meta: MetaFunction = () => {
   const canonicalUrl = `${SITE_URL}/rejourney-marlin`;
-  const title = "Rejourney Marlin GitHub App | Fix Revenue Leaks From Replay Context";
+  const title = "Rejourney Marlin | AI Fixes from Product Analytics";
   const description =
-    "Rejourney Marlin is a GitHub App that uses replay context, funnel evidence, and revenue impact signals to suggest code fixes for product leaks.";
+    "Rejourney Marlin is a GitHub App that turns lightweight product analytics, replay, funnel, crash, and API evidence into reviewable code-fix suggestions.";
 
   return [
     { title },
@@ -28,6 +28,7 @@ export const meta: MetaFunction = () => {
         "Rejourney Marlin, GitHub App, replay context, code fix suggestions, funnel leak detection, revenue leak fixes, AI debugging",
     },
     { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
+    { property: "og:site_name", content: "Rejourney" },
     { property: "og:title", content: title },
     { property: "og:description", content: description },
     { property: "og:url", content: canonicalUrl },
@@ -62,7 +63,7 @@ export default function RejourneyMarlinPage() {
                 url: canonicalUrl,
                 name: "Rejourney Marlin",
                 description:
-                  "A GitHub App that turns Rejourney replay context into code-fix suggestions for revenue and funnel leaks.",
+                  "A GitHub App that turns Rejourney product analytics and replay context into reviewable code-fix suggestions.",
                 image: `${SITE_URL}${MARLIN_IMAGE}`,
                 isPartOf: {
                   "@type": "WebSite",
@@ -77,7 +78,7 @@ export default function RejourneyMarlinPage() {
                 operatingSystem: "GitHub",
                 url: MARLIN_APP_URL,
                 description:
-                  "GitHub App for suggesting code fixes from Rejourney replay context, revenue leak evidence, and funnel diagnostics.",
+                  "GitHub App for suggesting code fixes from lightweight product analytics, replay, funnel, crash, and API evidence.",
                 publisher: {
                   "@type": "Organization",
                   name: "Rejourney",

@@ -4,8 +4,21 @@
  */
 
 import { DOCS_MAP } from "~/shared/lib/docsConfig";
-import { ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
+import {
+    ENGINEERING_ARTICLES,
+    GUIDE_ARTICLES,
+    getAbsoluteArticleImage,
+    getArticlePath,
+} from "~/shared/data/engineering";
 import { SEO_PAGES } from "~/features/public/seo/seoPages";
+import {
+    SEO_LOCALIZED_LOCALE_CODES,
+    SEO_LOCALIZED_PAGE_PATHS,
+    getLocalizedSeoAlternateLinks,
+    getLocalizedSeoPage,
+    getLocalizedSeoPath,
+    isSeoLocalizedPagePath,
+} from "~/features/public/seo/seoLocalization";
 import {
     MARKETING_HOME_LOCALE_ORDER,
     MARKETING_LOCALES,
@@ -64,7 +77,7 @@ export async function loader() {
             priority: "0.85",
             changefreq: "weekly",
             image: `${baseUrl}/images/growth-engines.png`,
-            imageTitle: "How Rejourney recovers checkout and subscription revenue",
+            imageTitle: "How Rejourney connects lightweight product analytics to replay-backed fixes",
         },
         {
             path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/rejourney-marlin"),
@@ -78,7 +91,7 @@ export async function loader() {
             priority: "0.6",
             changefreq: "monthly",
             image: `${baseUrl}/images/growth-engines.png`,
-            imageTitle: "Rejourney benchmarks",
+            imageTitle: "Rejourney lightweight product analytics SDK benchmarks",
         },
     ];
 
@@ -86,9 +99,31 @@ export async function loader() {
         path: page.path,
         priority: page.kind === "alternative" ? "0.8" : "0.9",
         changefreq: "weekly",
+        lastmod: page.lastModified,
         image: `${baseUrl}${page.image}`,
         imageTitle: page.imageAlt,
+        alternates: isSeoLocalizedPagePath(page.path)
+            ? getLocalizedSeoAlternateLinks(page.path)
+            : undefined,
     }));
+
+    const localizedSeoRoutes: SitemapRoute[] = SEO_LOCALIZED_LOCALE_CODES.flatMap((localeCode) => (
+        SEO_LOCALIZED_PAGE_PATHS.map((basePath) => {
+            const englishPage = SEO_PAGES.find((page) => page.path === basePath);
+            const localizedPage = getLocalizedSeoPage(localeCode, basePath);
+            if (!englishPage) throw new Error(`Missing English SEO owner for localized path: ${basePath}`);
+
+            return {
+                path: getLocalizedSeoPath(localeCode, basePath),
+                priority: "0.85",
+                changefreq: "weekly",
+                lastmod: englishPage.lastModified,
+                image: `${baseUrl}${englishPage.image}`,
+                imageTitle: localizedPage.h1,
+                alternates: getLocalizedSeoAlternateLinks(basePath),
+            };
+        })
+    ));
 
     const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, `/docs/${slug}`),
@@ -104,7 +139,13 @@ export async function loader() {
         alternates: getLocalizedAlternateLinksForPath("/engineering"),
     }];
 
-    const engineeringRoutes: SitemapRoute[] = ARTICLES.map(article => ({
+    const guideIndexRoutes: SitemapRoute[] = [{
+        path: "/guides",
+        priority: "0.85",
+        changefreq: "weekly",
+    }];
+
+    const engineeringRoutes: SitemapRoute[] = ENGINEERING_ARTICLES.map(article => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, getArticlePath(article)),
         priority: "0.8",
         changefreq: "monthly",
@@ -114,12 +155,21 @@ export async function loader() {
         alternates: getLocalizedAlternateLinksForPath(getArticlePath(article)),
     }));
 
+    const guideRoutes: SitemapRoute[] = GUIDE_ARTICLES.map(article => ({
+        path: getArticlePath(article),
+        priority: "0.75",
+        changefreq: "monthly",
+        lastmod: article.dateModified ?? article.urlDate,
+        image: getAbsoluteArticleImage(article),
+        imageTitle: article.imageAlt ?? article.title,
+    }));
+
     // Generate XML content
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...seoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
+${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...seoRoutes, ...localizedSeoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...guideIndexRoutes, ...engineeringRoutes, ...guideRoutes].map(route => `
   <url>
     <loc>${escapeXml(`${baseUrl}${route.path}`)}</loc>
     <lastmod>${"lastmod" in route && route.lastmod ? route.lastmod : lastModified}</lastmod>

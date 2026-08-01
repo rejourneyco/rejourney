@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Checkout Conversion Optimization: Fix the Proven Leak First"
 subtitle: "Checkout optimization should begin with the highest-confidence failure of buyer intent, then verify revenue and trust after the change."
 slug: "checkout-conversion-optimization"
@@ -141,4 +142,4 @@ This makes the backlog compete on evidence rather than opinion.
 
 Rejourney keeps a checkout step beside the sessions that entered it. Open the users who attempted payment without reaching a confirmed order, then compare them with successful checkouts from the same device class and release. The replay shows the interaction while request timing and captured errors explain what the interface could not.
 
-That narrows the work from “improve checkout” to a specific transition with a reproducible failure. Continue with [checkout funnel analytics](/engineering/2026-07-12/checkout-funnel-analytics) or review the broader [revenue leak detection method](/engineering/2026-07-12/revenue-leak-detection).
+That narrows the work from “improve checkout” to a specific transition with a reproducible failure. Continue with [checkout funnel analytics](/guides/2026-07-12/checkout-funnel-analytics) or review the broader [revenue leak detection method](/guides/2026-07-12/revenue-leak-detection).

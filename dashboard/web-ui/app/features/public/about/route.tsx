@@ -49,7 +49,7 @@ export const meta: MetaFunction = () => {
     {
       property: "og:description",
       content:
-        "Rejourney began as an internal tool for our own app, then became the replay-first analytics platform we decided to release publicly.",
+        "Rejourney began as an internal tool for our own app, then became the lightweight product analytics platform we decided to release publicly.",
     },
     { property: "og:url", content: canonicalUrl },
     { property: "og:type", content: "website" },
@@ -128,8 +128,8 @@ export default function AboutPage() {
                   sessions explained the pattern behind a metric.
                 </p>
                 <p>
-                  We turned that workflow into a public product: replay-first analytics for teams
-                  that want the product story and the engineering context in one place.
+                  We turned that workflow into lightweight product analytics for teams that want
+                  the product story, session evidence, and engineering context in one place.
                 </p>
               </div>
 

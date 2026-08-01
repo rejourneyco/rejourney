@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "SaaS Onboarding Best Practices: Design for First Value, Not a Tour"
 subtitle: "Good onboarding removes uncertainty around the next valuable action. It does not force every new account through the same product walkthrough."
 slug: "saas-onboarding-best-practices"
@@ -145,4 +146,4 @@ This creates a learning loop. It also prevents every dip from producing another 
 
 Rejourney shows how new accounts move from their entry point to the first verified result. Filter by role, acquisition path, release, or setup choice; then compare the stalled sessions with users who completed the same job. That evidence keeps an onboarding review focused on one transition at a time.
 
-Measure the path with [onboarding funnel analytics](/engineering/2026-07-12/onboarding-funnel-analytics) and test the endpoint with [user activation metrics](/engineering/2026-07-12/user-activation-metrics).
+Measure the path with [onboarding funnel analytics](/guides/2026-07-12/onboarding-funnel-analytics) and test the endpoint with [user activation metrics](/guides/2026-07-12/user-activation-metrics).

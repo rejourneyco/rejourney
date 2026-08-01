@@ -132,6 +132,14 @@ function booleanValue(data: Frontmatter, key: string): boolean {
     return data[key] === true;
 }
 
+function requiredCollection(data: Frontmatter, filePath: string): Article["collection"] {
+    const value = requiredString(data, "collection", filePath);
+    if (value !== "engineering" && value !== "guide") {
+        throw new Error(`Article "${filePath}" has unsupported collection "${value}".`);
+    }
+    return value;
+}
+
 function deriveSlug(filePath: string, data: Frontmatter): string {
     const explicitSlug = optionalString(data, "slug");
     if (explicitSlug) {
@@ -179,6 +187,7 @@ function estimateReadTime(wordCount: number): string {
 }
 
 function buildSchema(article: {
+    collection: Article["collection"];
     id: string;
     title: string;
     subtitle: string;
@@ -193,12 +202,13 @@ function buildSchema(article: {
     wordCount: number;
     timeRequired: string;
 }) {
-    const url = `${SITE_URL}/engineering/${article.urlDate}/${article.id}`;
+    const collectionPath = article.collection === "engineering" ? "engineering" : "guides";
+    const url = `${SITE_URL}/${collectionPath}/${article.urlDate}/${article.id}`;
     const sameAs = [article.author.url, article.author.github].filter(Boolean);
 
     return {
         "@context": "https://schema.org",
-        "@type": "TechArticle",
+        "@type": article.collection === "engineering" ? "TechArticle" : "Article",
         headline: article.title,
         description: article.metaDescription,
         url,
@@ -206,7 +216,7 @@ function buildSchema(article: {
         thumbnailUrl: absoluteUrl(article.image),
         datePublished: article.urlDate,
         dateModified: article.dateModified ?? article.urlDate,
-        articleSection: "Engineering",
+        articleSection: article.collection === "engineering" ? "Engineering" : "Guides",
         keywords: article.targetKeywords,
         wordCount: article.wordCount,
         timeRequired: article.timeRequired,
@@ -242,11 +252,13 @@ export function parseEngineeringMarkdownArticle(filePath: string, source: string
     }
 
     const id = deriveSlug(filePath, data);
+    const collection = requiredCollection(data, filePath);
     const urlDate = deriveUrlDate(filePath, data);
     const title = requiredString(data, "title", filePath);
     const subtitle = requiredString(data, "subtitle", filePath);
     const primaryKeyword = requiredString(data, "primaryKeyword", filePath);
-    const metaTitle = optionalString(data, "metaTitle") ?? `${title} | Rejourney Engineering`;
+    const metaTitle = optionalString(data, "metaTitle")
+        ?? `${title} | ${collection === "engineering" ? "Rejourney Engineering" : "Rejourney Guides"}`;
     const metaDescription = requiredString(data, "metaDescription", filePath);
     const targetKeywords = stringArray(data, "targetKeywords", filePath);
     const topicTags = stringArray(data, "topicTags", filePath);
@@ -265,6 +277,7 @@ export function parseEngineeringMarkdownArticle(filePath: string, source: string
     const dateModified = optionalString(data, "dateModified");
 
     return {
+        collection,
         id,
         title,
         subtitle,
@@ -288,6 +301,7 @@ export function parseEngineeringMarkdownArticle(filePath: string, source: string
         kind: "markdown",
         tableOfContents: extractMarkdownTableOfContents(body),
         schema: buildSchema({
+            collection,
             id,
             title,
             subtitle,

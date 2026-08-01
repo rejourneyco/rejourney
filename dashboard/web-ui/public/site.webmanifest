@@ -1,7 +1,7 @@
 {
   "name": "Rejourney",
   "short_name": "Rejourney",
-  "description": "Revenue leak prediction for web and mobile apps",
+  "description": "Lightweight product analytics for web and mobile apps",
   "icons": [
     {
       "src": "/favicon.ico",

@@ -7,6 +7,8 @@ export interface ArticleTableOfContentsItem {
 }
 
 export interface Article {
+    /** Controls the public collection, URL namespace, schema, and index inclusion. */
+    collection: "engineering" | "guide";
     id: string;
     title: string;
     subtitle: string;

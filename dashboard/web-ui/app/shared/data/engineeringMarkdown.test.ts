@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseEngineeringMarkdownArticle } from "./engineeringMarkdown";
 
 const researchArticle = `---
+collection: guide
 title: "Replay Cost Benchmark"
 subtitle: "A measured comparison of mobile replay upload cost across capture strategies."
 slug: "replay-cost-benchmark"
@@ -47,12 +48,14 @@ describe("engineering markdown articles", () => {
 
         expect(article).not.toBeNull();
         expect(article?.id).toBe("replay-cost-benchmark");
+        expect(article?.collection).toBe("guide");
         expect(article?.urlDate).toBe("2026-06-01");
         expect(article?.seo.primaryKeyword).toBe("mobile replay cost benchmark");
         expect(article?.image).toBe("/images/engineering/session-lifecycle.svg");
         expect(article?.schema).toMatchObject({
-            "@type": "TechArticle",
+            "@type": "Article",
             headline: "Replay Cost Benchmark",
+            articleSection: "Guides",
             thumbnailUrl: "https://rejourney.co/images/engineering/session-lifecycle.svg",
         });
         expect(article?.tableOfContents).toEqual([

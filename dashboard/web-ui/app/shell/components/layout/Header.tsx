@@ -6,29 +6,40 @@ import {
   MARKETING_LOCALES,
   getLocalizedPublicPath,
   getMarketingHomeCopy,
+  getMarketingLocaleFromPathname,
 } from '~/shared/lib/internationalMarketing';
+import {
+  getLocalizedSeoPage,
+  isSeoLocalizedLocaleCode,
+  isSeoLocalizedPagePath,
+} from '~/features/public/seo/seoLocalization';
 
 const GITHUB_REPO_URL = 'https://github.com/rejourneyco/rejourney';
 const GITHUB_REPO_API_URL = 'https://api.github.com/repos/rejourneyco/rejourney';
 const FALLBACK_GITHUB_STARS = 146;
 
+const LOCALIZED_HEADER_COPY = {
+  ar: { platform: "المنتج", docs: "الوثائق", benchmarks: "المعايير", pricing: "الأسعار", login: "تسجيل الدخول", dashboard: "لوحة التحكم", getStarted: "ابدأ", engineering: "الهندسة", menuLabel: "فتح قائمة التنقل", groupTitles: ["المنصة", "أدلة المنتج", "الاستقرار"] },
+  es: { platform: "Producto", docs: "Documentación", benchmarks: "Benchmarks", pricing: "Precios", login: "Iniciar sesión", dashboard: "Panel", getStarted: "Empezar", engineering: "Ingeniería", menuLabel: "Abrir navegación", groupTitles: ["Plataforma", "Evidencia de producto", "Estabilidad"] },
+  fr: { platform: "Produit", docs: "Documentation", benchmarks: "Benchmarks", pricing: "Tarifs", login: "Connexion", dashboard: "Tableau de bord", getStarted: "Commencer", engineering: "Ingénierie", menuLabel: "Ouvrir la navigation", groupTitles: ["Plateforme", "Preuves produit", "Stabilité"] },
+  de: { platform: "Produkt", docs: "Dokumentation", benchmarks: "Benchmarks", pricing: "Preise", login: "Anmelden", dashboard: "Dashboard", getStarted: "Starten", engineering: "Engineering", menuLabel: "Navigation öffnen", groupTitles: ["Plattform", "Produktbelege", "Stabilität"] },
+} as const;
+
 const FEATURE_GROUPS = [
   {
-    title: "AI Workflows",
+    title: "Platform",
     items: [
-      { label: "How Rejourney Works", href: "/how-it-works", desc: "See the end-to-end flow from session recording to AI code fix" },
-      { label: "AI Funnel Leak Detection", href: "/ai-funnel-leak-detection", desc: "Automatically map, rank, and track revenue friction points" },
-      { label: "Rejourney Marlin", href: "/rejourney-marlin", desc: "Use replay context to suggest GitHub code fixes for revenue leaks" },
-      { label: "Self-Healing Software", href: "/self-healing-software", desc: "Turn repeated production friction into fix-ready repair loops" },
-      { label: "Autonomous Debugging", href: "/autonomous-debugging", desc: "Let developer agents start from exact session context" },
-      { label: "AI Agent Handoff", href: "/ai-agent-handoff", desc: "Pass diagnostic packets directly to Claude, Cursor, or Codex" },
+      { label: "How Rejourney Works", href: "/how-it-works", desc: "See how lightweight analytics connects product signals to session evidence" },
+      { label: "Website Analytics", href: "/website-analytics", desc: "Understand website traffic, funnels, errors, and the sessions behind drop-offs" },
+      { label: "App Analytics", href: "/app-analytics", desc: "Measure mobile engagement, retention, crashes, and the sessions behind every signal" },
+      { label: "Rejourney Marlin", href: "/rejourney-marlin", desc: "Turn replay-backed product evidence into suggested GitHub fixes" },
     ]
   },
   {
     title: "Product Evidence",
     items: [
-      { label: "Web Replay Evidence", href: "/web-session-replay", desc: "Track DOM mutations and console exceptions in web apps" },
-      { label: "Mobile Replay Evidence", href: "/mobile-session-replay", desc: "Record native sessions on Flutter, React Native, and Swift" },
+      { label: "Web Session Replay", href: "/web-session-replay", desc: "Connect browser behavior, product events, requests, and console context" },
+      { label: "Mobile Session Replay", href: "/mobile-session-replay", desc: "Replay native sessions on Flutter, React Native, Expo, and iOS" },
       { label: "Funnel Replay Evidence", href: "/funnel-replay-evidence", desc: "Drill directly into dropped-off sessions from funnels" },
       { label: "Heatmaps", href: "/heatmaps", desc: "Aggregate scroll maps, click patterns, and rage clicks" },
       { label: "Geographic Analytics", href: "/geographic-analytics", desc: "Visualize sentiment and infrastructure issues by country" },
@@ -57,13 +68,26 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const [isOpen, setIsOpen] = useState(false);
   const [githubStars, setGithubStars] = useState(FALLBACK_GITHUB_STARS);
   const [isMobilePlatformOpen, setIsMobilePlatformOpen] = useState(false);
-  const navigationLocale = MARKETING_LOCALES.en;
+  const navigationLocale = getMarketingLocaleFromPathname(location.pathname) ?? MARKETING_LOCALES.en;
   const copy = getMarketingHomeCopy(navigationLocale).header;
+  const localizedLocaleCode = isSeoLocalizedLocaleCode(navigationLocale.code) ? navigationLocale.code : null;
+  const localizedHeaderCopy = localizedLocaleCode ? LOCALIZED_HEADER_COPY[localizedLocaleCode] : null;
+  const localizedFeatureGroups = localizedLocaleCode
+    ? FEATURE_GROUPS.map((group, groupIndex) => ({
+        ...group,
+        title: localizedHeaderCopy?.groupTitles[groupIndex] ?? group.title,
+        items: group.items.flatMap((item) => {
+          if (!isSeoLocalizedPagePath(item.href)) return [];
+          const localizedPage = getLocalizedSeoPage(localizedLocaleCode, item.href);
+          return [{ ...item, href: localizedPage.localizedPath, label: localizedPage.h1, desc: localizedPage.intro }];
+        }),
+      })).filter((group) => group.items.length > 0)
+    : FEATURE_GROUPS;
   const docsPath = getLocalizedPublicPath(navigationLocale, "/docs");
   const benchmarksPath = getLocalizedPublicPath(navigationLocale, "/benchmarks");
   const pricingPath = getLocalizedPublicPath(navigationLocale, "/pricing");
-  const publicNavLinkClass = "inline-flex min-h-10 items-center rounded-none px-3.5 text-[15px] font-black uppercase tracking-[-0.01em] text-black transition-all duration-200 hover:bg-[#ecfeff] hover:text-black focus-visible:outline-none border border-transparent hover:border-black/20 shadow-none hover:shadow-neo-sm";
-  const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-black/20 bg-white px-4 py-1.5 font-sans text-xs font-black uppercase text-black rounded-none transition hover:bg-slate-100 shadow-neo-sm";
+  const publicNavLinkClass = "inline-flex min-h-10 items-center rounded-none px-3.5 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none";
+  const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-200 bg-white px-4 py-1.5 font-sans text-sm font-semibold text-slate-600 rounded-none transition hover:bg-slate-50";
   
   const isHomePage = location.pathname === "/";
 
@@ -121,7 +145,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                           cleanPath === "/fr";
 
   return (
-    <div className={isBrutalistPage ? "" : "soft-border-scope"}>
+    <div className={`${isBrutalistPage ? "" : "soft-border-scope"} max-w-full overflow-x-clip lg:overflow-visible`}>
       <header
         aria-label={copy.ariaLabel}
         className={
@@ -142,7 +166,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
               <div className="flex h-8 w-8 items-center justify-center transition-transform group-hover:rotate-3">
                 <img src="/rejourneyIcon-removebg-preview.png" alt={copy.logoAlt} className="h-8 w-8 object-contain" />
               </div>
-              <span className="text-[17px] font-black uppercase tracking-tight text-slate-950 transition-colors">Rejourney</span>
+              <span className="text-xl font-bold tracking-tight text-slate-950 transition-colors">Rejourney</span>
             </Link>
 
             <nav className="hidden items-center gap-1.5 lg:flex xl:gap-2 h-full">
@@ -152,14 +176,14 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                   aria-expanded="false"
                   aria-haspopup="true"
                 >
-                  Platform
+                  {localizedHeaderCopy?.platform ?? "Platform"}
                   <ChevronDown className="h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:rotate-180" />
                 </button>
                 
                 {/* Mega Menu Dropdown */}
-                <div className="absolute left-0 top-full pt-3 w-[780px] lg:w-[840px] pointer-events-none opacity-0 translate-y-2 scale-[0.98] transition-all duration-205 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 z-50">
+                <div className="absolute start-0 top-full pt-3 w-[780px] lg:w-[840px] pointer-events-none opacity-0 translate-y-2 scale-[0.98] transition-all duration-205 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 z-50">
                   <div className="rounded-none border border-black/20 bg-white p-6 shadow-neo grid grid-cols-3 gap-6">
-                    {FEATURE_GROUPS.map((group) => (
+                    {localizedFeatureGroups.map((group) => (
                       <div key={group.title} className="flex flex-col gap-1">
                         <span className="px-2.5 pb-2 text-[11px] font-black uppercase tracking-wider text-slate-800">
                           {group.title}
@@ -168,7 +192,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                           {group.items.map((item) => (
                             <Link
                               key={item.href}
-                              to={getLocalizedPublicPath(navigationLocale, item.href)}
+                              to={localizedLocaleCode ? item.href : getLocalizedPublicPath(navigationLocale, item.href)}
                               className="group/item flex flex-col gap-0.5 rounded-none p-2.5 transition-colors duration-150 hover:bg-[#ecfeff]"
                             >
                               <span className="text-sm font-bold text-slate-900 group-hover/item:text-black transition-colors">
@@ -194,17 +218,23 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                 GitHub
               </a>
               <Link
+                to="/engineering"
+                className={publicNavLinkClass}
+              >
+                {localizedHeaderCopy?.engineering ?? "Engineering"}
+              </Link>
+              <Link
                 to={docsPath}
                 className={publicNavLinkClass}
               >
-                {copy.docs}
+                {localizedHeaderCopy?.docs ?? copy.docs}
               </Link>
               
               <Link
                 to={pricingPath}
                 className={publicNavLinkClass}
               >
-                {copy.pricing}
+                {localizedHeaderCopy?.pricing ?? copy.pricing}
               </Link>
             </nav>
           </div>
@@ -212,22 +242,22 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
           <div className="flex items-center gap-2 sm:gap-3">
 
             {!isAuthenticated && (
-              <Link to="/login" className="hidden min-h-10 items-center rounded-none px-3.5 text-[15px] font-black uppercase text-black transition-all duration-200 hover:bg-slate-100 sm:inline-flex border border-transparent hover:border-black/20 shadow-none hover:shadow-neo-sm">
-                {copy.login}
+              <Link to="/login" className="hidden min-h-10 items-center rounded-none px-3.5 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 sm:inline-flex">
+                {localizedHeaderCopy?.login ?? copy.login}
               </Link>
             )}
             <Link
               to={isAuthenticated ? "/dashboard" : "/login"}
-              className="hidden min-h-10 items-center rounded-none border border-black bg-black px-5 py-2 font-sans text-[15px] font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-900 hover:shadow-neo active:translate-y-0 active:shadow-none sm:inline-flex"
+              className="hidden min-h-10 items-center justify-center rounded-none bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-slate-800 sm:inline-flex"
             >
-              {isAuthenticated ? copy.dashboard : "Get started"}
+              {isAuthenticated ? (localizedHeaderCopy?.dashboard ?? copy.dashboard) : (localizedHeaderCopy?.getStarted ?? "Get started")}
             </Link>
 
             {/* Hamburger Button */}
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="inline-flex lg:hidden h-9 w-9 items-center justify-center border border-black text-black bg-white hover:bg-slate-50 rounded-none transition shadow-neo-sm hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
-              aria-label="Toggle navigation menu"
+              className="inline-flex lg:hidden h-9 w-9 items-center justify-center border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 rounded-none transition shadow-sm"
+              aria-label={localizedHeaderCopy?.menuLabel ?? "Toggle navigation menu"}
             >
               {isOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>
@@ -236,28 +266,28 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
 
         {/* Mobile Dropdown Cabinet */}
         {isOpen && (
-          <div className="absolute left-0 right-0 top-[60px] z-50 rounded-none border border-black/20 bg-white p-5 shadow-neo lg:hidden">
-            <nav className="flex flex-col gap-4 text-left">
+          <div className="absolute left-0 right-0 top-[60px] z-50 max-w-full overflow-x-clip rounded-none border border-slate-200 bg-white p-5 shadow-sm lg:hidden">
+            <nav className="flex flex-col gap-4 text-start">
               <div>
                 <button
                   onClick={() => setIsMobilePlatformOpen(!isMobilePlatformOpen)}
-                  className="flex w-full items-center justify-between text-base font-black uppercase text-black py-1 focus:outline-none"
+                  className="flex w-full items-center justify-between text-base font-semibold text-slate-800 py-1 focus:outline-none"
                 >
-                  <span>Platform</span>
+                  <span>{localizedHeaderCopy?.platform ?? "Platform"}</span>
                   <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMobilePlatformOpen ? 'rotate-180' : ''} text-slate-500`} />
                 </button>
                 
                 {isMobilePlatformOpen && (
-                  <div className="mt-2 pl-3 border-l border-black/30 flex flex-col gap-3.5">
-                    {FEATURE_GROUPS.map((group) => (
+                  <div className="mt-2 ps-3 border-s border-black/30 flex flex-col gap-3.5">
+                    {localizedFeatureGroups.map((group) => (
                       <div key={group.title} className="flex flex-col gap-1.5 mt-2">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 px-1">
+                        <span className="text-xs font-semibold text-slate-500 px-1">
                           {group.title}
                         </span>
                         {group.items.map((item) => (
                           <Link
                             key={item.href}
-                            to={getLocalizedPublicPath(navigationLocale, item.href)}
+                            to={localizedLocaleCode ? item.href : getLocalizedPublicPath(navigationLocale, item.href)}
                             onClick={() => {
                               setIsOpen(false);
                               setIsMobilePlatformOpen(false);
@@ -278,34 +308,37 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }}
-                className="text-base font-black uppercase text-black transition-colors"
+                className="text-base font-semibold text-slate-800 transition-colors"
               >
                 GitHub
               </a>
-              <Link to={docsPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-black uppercase text-black transition-colors">
-                {copy.docs}
+              <Link to="/engineering" onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-800 transition-colors">
+                {localizedHeaderCopy?.engineering ?? "Engineering"}
               </Link>
-              <Link to={benchmarksPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-black uppercase text-black transition-colors">
-                Benchmarks
+              <Link to={docsPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-800 transition-colors">
+                {localizedHeaderCopy?.docs ?? copy.docs}
               </Link>
-              <Link to={pricingPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-black uppercase text-black transition-colors">
-                {copy.pricing}
+              <Link to={benchmarksPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-800 transition-colors">
+                {localizedHeaderCopy?.benchmarks ?? "Benchmarks"}
+              </Link>
+              <Link to={pricingPath} onClick={() => { setIsOpen(false); setIsMobilePlatformOpen(false); }} className="text-base font-semibold text-slate-800 transition-colors">
+                {localizedHeaderCopy?.pricing ?? copy.pricing}
               </Link>
               
-              <div className="h-0.5 bg-black/20 my-2" />
+              <div className="h-px bg-slate-200 my-2" />
               
               <div className="flex flex-col gap-3">
                 {!isAuthenticated && (
-                  <Link to="/login" onClick={() => setIsOpen(false)} className="flex items-center justify-center text-sm font-black uppercase text-black py-2 border border-black rounded-none bg-white shadow-neo-sm hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-200">
-                    {copy.login}
+                  <Link to="/login" onClick={() => setIsOpen(false)} className="flex items-center justify-center text-sm font-semibold text-slate-700 py-2 border border-slate-200 rounded-none bg-white hover:bg-slate-50 transition-colors duration-200">
+                    {localizedHeaderCopy?.login ?? copy.login}
                   </Link>
                 )}
                 <Link
                   to={isAuthenticated ? "/dashboard" : "/login"}
                   onClick={() => setIsOpen(false)}
-                  className="w-full rounded-none border border-black bg-black py-2 text-center font-sans text-sm font-black uppercase text-white shadow-neo-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-900 hover:shadow-neo active:translate-y-0 active:shadow-none"
+                  className="flex min-h-10 items-center justify-center rounded-none bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-slate-800"
                 >
-                  {isAuthenticated ? copy.dashboard : "Get started"}
+                  {isAuthenticated ? (localizedHeaderCopy?.dashboard ?? copy.dashboard) : (localizedHeaderCopy?.getStarted ?? "Get started")}
                 </Link>
               </div>
             </nav>

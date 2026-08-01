@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Payment Failure Analytics: Separate Declines, Broken Checkouts, and Lost State"
 subtitle: "Not every failed payment is a card problem. A useful report follows the attempt from user action through authorization, order state, and visible recovery."
 slug: "payment-failure-analytics"
@@ -145,4 +146,4 @@ This order protects customers who may already have paid before the team starts o
 
 Rejourney places payment-adjacent requests and application state beside the user session. The team can see whether a decline was explained, whether retry remained safe, and whether payment, order, and entitlement ended in agreement.
 
-Use [checkout funnel analytics](/engineering/2026-07-12/checkout-funnel-analytics) for active purchases and [subscription funnel analytics](/engineering/2026-07-12/subscription-funnel-analytics) for recurring payment state.
+Use [checkout funnel analytics](/guides/2026-07-12/checkout-funnel-analytics) for active purchases and [subscription funnel analytics](/guides/2026-07-12/subscription-funnel-analytics) for recurring payment state.

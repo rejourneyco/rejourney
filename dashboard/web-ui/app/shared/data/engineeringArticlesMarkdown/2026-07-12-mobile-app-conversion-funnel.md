@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Mobile App Conversion Funnel: From Install to Subscription"
 subtitle: "The app funnel should connect first open, onboarding, activation, paywall, store outcome, entitlement, and retention without hiding mobile runtime failures."
 slug: "mobile-app-conversion-funnel"
@@ -135,4 +136,4 @@ After release, compare the same cohorts and open post-release sessions from the 
 
 A mobile funnel in Rejourney opens into the app sessions at any transition. The recording preserves gestures and screen state; device, version, request, crash, and ANR context help explain why one cohort takes a different branch. Successful sessions remain available as the control group.
 
-For the two most common conversion surfaces, continue with [mobile onboarding analytics](/engineering/2026-07-12/mobile-app-onboarding-analytics) and [mobile paywall analytics](/engineering/2026-07-12/mobile-app-paywall-analytics).
+For the two most common conversion surfaces, continue with [mobile onboarding analytics](/guides/2026-07-12/mobile-app-onboarding-analytics) and [mobile paywall analytics](/guides/2026-07-12/mobile-app-paywall-analytics).

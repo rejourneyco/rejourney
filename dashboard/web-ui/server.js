@@ -11,6 +11,7 @@ import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { createRequestHandler } from '@react-router/express';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import helmet from 'helmet';
 import { existsSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -30,6 +31,17 @@ let isShuttingDown = false;
 const MARKETING_LOCALE_SEGMENT = '(?:ar|es|tr|pt-br|de|fr|hi|id|ja|ko|zh-cn|it|nl|pl|pt|ru|vi)';
 const MARKETING_LOCALE_PATH_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}$`);
 const LOCALIZED_PUBLIC_CONTENT_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}/(?:docs|engineering|pricing)(?:/.*)?$`);
+const LANGUAGE_NEGOTIATED_SEO_PATHS = new Set([
+  '/record-user-sessions',
+  '/web-session-replay',
+  '/mobile-session-replay',
+  '/what-is-session-replay',
+  '/app-analytics',
+  '/website-analytics',
+  '/funnel-replay-evidence',
+  '/heatmaps',
+  '/stability-monitoring',
+]);
 const EDGE_CACHE_BYPASS_PATTERNS = [
   /^\/api(?:\/|$)/,
   /^\/dashboard(?:\/|$)/,
@@ -40,12 +52,22 @@ const EDGE_CACHE_BYPASS_PATTERNS = [
   /^\/setup(?:\/|$)/,
   /^\/share(?:\/|$)/,
 ];
+
+// Compress SSR HTML and static assets at the origin. Cloudflare can still
+// negotiate Brotli at the edge, while uncached/direct origin requests avoid
+// transferring the full uncompressed marketing bundle.
+app.use(compression());
+
 const LEGACY_PUBLIC_HTML_REDIRECTS = new Map([
   ['/index.html', '/'],
   ['/docs/index.html', '/docs/web/getting-started'],
   ['/pricing/index.html', '/pricing'],
   ['/session-replay-tools', '/record-user-sessions'],
   ['/session-replay-software', '/record-user-sessions'],
+  ['/ai-funnel-leak-detection', '/funnel-replay-evidence'],
+  ['/ai-agent-handoff', '/rejourney-marlin'],
+  ['/autonomous-debugging', '/rejourney-marlin'],
+  ['/self-healing-software', '/rejourney-marlin'],
   ['/fullstory-alternative', '/alternatives/fullstory'],
   ['/fullstory-alternatives', '/alternatives/fullstory'],
   ['/%5D(https:/rejourney.co/', '/'],
@@ -57,7 +79,8 @@ function isApiRequestPath(pathname) {
 }
 
 function isEdgeCacheableHtmlPath(pathname) {
-  return !EDGE_CACHE_BYPASS_PATTERNS.some((pattern) => pattern.test(pathname));
+  return !LANGUAGE_NEGOTIATED_SEO_PATHS.has(pathname)
+    && !EDGE_CACHE_BYPASS_PATTERNS.some((pattern) => pattern.test(pathname));
 }
 
 function hasBuiltClientAssets() {

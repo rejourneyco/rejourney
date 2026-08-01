@@ -1,19 +1,21 @@
 ---
+collection: guide
 title: "Fullstory Alternatives for Small Teams: Keep Replay Close to the Fix"
 subtitle: "How indie and small product teams should evaluate Fullstory alternatives when they need replay, journeys, heatmaps, mobile evidence, and debugging context without a heavy rollout."
 slug: "fullstory-alternatives-small-teams"
 date: "2026-05-26"
-dateModified: "2026-05-26"
+dateModified: "2026-08-01"
 readTime: "9 min read"
 image: "/images/engineering/fullstory-small-teams-replay.png"
 imageAlt: "Rejourney live demo replay workbench showing a mobile session with timeline, API calls, and user context"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
-primaryKeyword: "fullstory alternatives"
+primaryKeyword: "fullstory alternatives for small teams"
 metaTitle: "Fullstory Alternatives for Small Teams"
 metaDescription: "Compare Fullstory alternatives for small teams that need session replay, product analytics, heatmaps, journeys, mobile replay, and debugging context."
 targetKeywords:
+  - fullstory alternatives for small teams
   - fullstory alternatives
   - fullstory competitors
   - fullstory pricing
@@ -31,7 +33,7 @@ topicTags:
   - Product Analytics
   - Mobile Analytics
   - UX Friction
-seoKeywords: "fullstory alternatives, fullstory competitors, fullstory pricing, fullstory session replay, fullstory mobile app analytics, session replay alternatives, session replay tools, mobile session replay, product analytics for small teams, behavior analytics tools"
+seoKeywords: "fullstory alternatives for small teams, fullstory alternatives, fullstory competitors, fullstory pricing, fullstory session replay, fullstory mobile app analytics, session replay alternatives, session replay tools, mobile session replay, product analytics for small teams, behavior analytics tools"
 ---
 
 Fullstory is a highly capable product. However, for smaller or indie product teams, its enterprise-first design can sometimes introduce more complexity than value.

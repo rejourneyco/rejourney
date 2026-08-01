@@ -1,12 +1,11 @@
 /**
- * Rejourney Dashboard - Engineering Article Page
- * Renders a specific engineering article based on the route slug.
+ * Shared technical article and guide renderer.
  */
 
 import type { MetaFunction, LoaderFunctionArgs } from "react-router";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
-import { ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
+import { ALL_ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
 import { ArrowLeft } from "lucide-react";
 import { Link, redirect, useLocation, useParams } from "react-router";
 import { getContentLocaleCopy, getLocalizedArticleSeo } from "~/shared/lib/contentLocalization";
@@ -23,7 +22,7 @@ import {
 const SITE_URL = "https://rejourney.co";
 const MAX_TITLE_LENGTH = 60;
 
-function getArticleUrl(article: (typeof ARTICLES)[number], locale = getMarketingLocaleFromPathname("/")): string {
+function getArticleUrl(article: (typeof ALL_ARTICLES)[number], locale = getMarketingLocaleFromPathname("/")): string {
     return getLocalizedPublicUrl(locale, getArticlePath(article));
 }
 
@@ -34,14 +33,26 @@ function withArticleTitleSuffix(title: string, suffix: string): string {
 
 // Loader to validate slug
 export function loader({ params, request }: LoaderFunctionArgs) {
-    const article = ARTICLES.find((a) => a.id === params.slug);
+    const article = ALL_ARTICLES.find((a) => a.id === params.slug);
     if (!article) {
         throw new Response("Article not found", { status: 404 });
     }
 
     const requestUrl = new URL(request.url);
+    const requestedNamespace = requestUrl.pathname.split("/").filter(Boolean).at(-3);
+    const expectedNamespace = article.collection === "engineering" ? "engineering" : "guides";
+    const collectionChanged = requestedNamespace !== expectedNamespace;
+
+    if (collectionChanged) {
+        throw redirect(`${getArticlePath(article)}${requestUrl.search}`, { status: 308 });
+    }
+
+    if (article.collection === "guide" && params.date !== article.urlDate) {
+        throw redirect(`${getArticlePath(article)}${requestUrl.search}`, { status: 301 });
+    }
+
     const localeRedirectPath = getMarketingLocaleRedirectPath(request);
-    if (localeRedirectPath) {
+    if (article.collection === "engineering" && localeRedirectPath) {
         const preferredLocale = getMarketingLocaleFromPathname(localeRedirectPath);
         throw redirect(`${getLocalizedPublicPath(preferredLocale, getArticlePath(article))}${requestUrl.search}`, {
             status: params.date !== article.urlDate ? 301 : 302,
@@ -60,7 +71,7 @@ export function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = ({ params, location }) => {
-    const article = ARTICLES.find((a) => a.id === params.slug);
+    const article = ALL_ARTICLES.find((a) => a.id === params.slug);
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
     if (!article) {
@@ -73,17 +84,27 @@ export const meta: MetaFunction = ({ params, location }) => {
     const imageAlt = article.imageAlt ?? localizedArticle.title;
     const metaTitle = localizedArticle.metaTitle;
     const metaDescription = localizedArticle.metaDescription;
-    const pageTitle = withArticleTitleSuffix(metaTitle, copy.articleMetaTitleSuffix);
+    const collectionLabel = article.collection === "engineering" ? "Engineering" : "Guides";
+    const pageTitle = withArticleTitleSuffix(
+        metaTitle,
+        article.collection === "engineering" ? copy.articleMetaTitleSuffix : "Rejourney Guides",
+    );
     const shouldIndex = locale.code === "en";
     const publishedTime = `${article.urlDate}T12:00:00.000Z`;
     const modifiedTime = `${article.dateModified ?? article.urlDate}T12:00:00.000Z`;
-    const alternateLinks = getLocalizedAlternateLinksForPath(canonicalPath, MARKETING_ENGINEERING_LOCALE_ORDER).map((alternate) => ({
+    const alternateLinks = (article.collection === "engineering"
+        ? getLocalizedAlternateLinksForPath(canonicalPath, MARKETING_ENGINEERING_LOCALE_ORDER)
+        : []
+    ).map((alternate) => ({
         tagName: "link",
         rel: "alternate",
         hrefLang: alternate.hrefLang,
         href: alternate.href,
     }));
-    const alternateOgLocales = getLocalizedAlternateLinksForPath(canonicalPath, MARKETING_ENGINEERING_LOCALE_ORDER)
+    const alternateOgLocales = (article.collection === "engineering"
+        ? getLocalizedAlternateLinksForPath(canonicalPath, MARKETING_ENGINEERING_LOCALE_ORDER)
+        : []
+    )
         .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
         .map((alternate) => ({
             property: "og:locale:alternate",
@@ -110,7 +131,7 @@ export const meta: MetaFunction = ({ params, location }) => {
         { property: "og:updated_time", content: modifiedTime },
         { property: "article:published_time", content: publishedTime },
         { property: "article:modified_time", content: modifiedTime },
-        { property: "article:section", content: "Engineering" },
+        { property: "article:section", content: collectionLabel },
         { property: "article:author", content: article.author.name },
         ...article.seo.topicTags.map((tag) => ({ property: "article:tag", content: tag })),
         { name: "twitter:card", content: "summary_large_image" },
@@ -133,7 +154,7 @@ export default function EngineeringArticlePage() {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
-    const article = ARTICLES.find((a) => a.id === slug);
+    const article = ALL_ARTICLES.find((a) => a.id === slug);
 
     if (!article) {
         return <div>{copy.documentationNotFoundHeading}</div>;
@@ -144,9 +165,13 @@ export default function EngineeringArticlePage() {
     const imageUrl = getAbsoluteArticleImage(article);
     const imageAlt = article.imageAlt ?? localizedArticle.title;
     const sameAs = [article.author.url, article.author.github].filter(Boolean);
+    const isEngineering = article.collection === "engineering";
+    const collectionLabel = isEngineering ? "Engineering" : "Guides";
+    const collectionPath = isEngineering ? "/engineering" : "/guides";
     const articleStructuredData = {
         ...article.schema,
         "@context": "https://schema.org",
+        "@type": isEngineering ? "TechArticle" : "Article",
         headline: localizedArticle.title,
         description: localizedArticle.metaDescription,
         inLanguage: locale.languageTag,
@@ -160,7 +185,7 @@ export default function EngineeringArticlePage() {
             caption: imageAlt,
         }],
         thumbnailUrl: imageUrl,
-        articleSection: "Engineering",
+        articleSection: collectionLabel,
         ...(article.wordCount ? { wordCount: article.wordCount } : {}),
         ...(article.timeRequired ? { timeRequired: article.timeRequired } : {}),
         author: {
@@ -192,7 +217,7 @@ export default function EngineeringArticlePage() {
         },
     };
     return (
-        <div className="public-readable-scope engineering-article-page flex min-h-screen w-full flex-col bg-[#fbfbf8] font-sans text-slate-900 selection:bg-sky-100 selection:text-slate-950" lang={locale.languageTag} dir={locale.dir}>
+        <div className={`public-readable-scope ${isEngineering ? "engineering" : "guide"}-article-page flex min-h-screen w-full flex-col bg-[#fbfbf8] font-sans text-slate-900 selection:bg-emerald-100 selection:text-slate-950`} lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -209,8 +234,8 @@ export default function EngineeringArticlePage() {
 
                 <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
 
-                    <Link to={getLocalizedPublicPath(locale, "/engineering")} className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-950">
-                        <ArrowLeft size={16} /> {copy.backToEngineering}
+                    <Link to={isEngineering ? getLocalizedPublicPath(locale, collectionPath) : collectionPath} className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-950">
+                        <ArrowLeft size={16} /> {isEngineering ? copy.backToEngineering : "Back to guides"}
                     </Link>
 
                     <article className="mx-auto max-w-[760px]">
@@ -283,7 +308,7 @@ export default function EngineeringArticlePage() {
                                 </div>
                                 <div>
                                     <div className="mb-1 text-xl font-semibold text-slate-900">{article.author.name}</div>
-                                    <p className="mb-2 text-sm text-slate-500">{copy.engineeringTeamLabel}</p>
+                                    <p className="mb-2 text-sm text-slate-500">{isEngineering ? copy.engineeringTeamLabel : "Rejourney team"}</p>
                                     <div className="flex gap-4">
                                         <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-700 hover:underline">
                                             {copy.viewLinkedIn}

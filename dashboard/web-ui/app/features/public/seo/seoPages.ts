@@ -1,4 +1,32 @@
-export type SeoPageKind = "category" | "alternative";
+export type SeoPageKind = "capability" | "educational" | "alternative";
+
+export type SeoSearchIntent = "commercial" | "comparison" | "informational";
+
+export type SeoKeywordEvidence = {
+  geography: string;
+  volume: number | null;
+  organicKd: number | null;
+  volumeSource: string;
+  kdSource: string;
+  checkedAt: string;
+};
+
+export type SeoKeywordSection = {
+  title: string;
+  description: string;
+  bullets: string[];
+};
+
+export type SeoOutcome = {
+  title: string;
+  description: string;
+};
+
+export type SeoProofStory = {
+  customer: "Burst Creatine" | "Campus Merch";
+  metric: string;
+  summary: string;
+};
 
 export type SeoComparisonValue = "yes" | "partial" | "no";
 
@@ -21,6 +49,25 @@ export type SeoFeatureDifference = {
 
 export type SeoPage = {
   kind: SeoPageKind;
+  pageFamily: SeoPageKind;
+  hero: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+  };
+  outcomes: SeoOutcome[];
+  proofStory: SeoProofStory;
+  setupVariant: "web" | "mobile" | "all" | "none";
+  pricingVariant: "analytics" | "replay" | "none";
+  comparison: { enabled: boolean; summaryRows: number };
+  navigationMode: "focused";
+  cta: {
+    primaryLabel: "Start free";
+    primaryHref: "/login";
+    secondaryLabel: "Open live demo";
+    secondaryHref: "/demo";
+  };
+  relatedPages: Array<{ label: string; href: string; description: string }>;
   path: string;
   badge: string;
   eyebrow: string;
@@ -28,7 +75,13 @@ export type SeoPage = {
   subtitle: string;
   metaTitle: string;
   metaDescription: string;
+  primaryKeyword: string;
+  secondaryKeywords: string[];
+  searchIntent: SeoSearchIntent;
+  keywordEvidence?: SeoKeywordEvidence;
   keywords: string[];
+  keywordSections?: SeoKeywordSection[];
+  lastModified: string;
   image: string;
   imageAlt: string;
   proofPoints: string[];
@@ -116,38 +169,122 @@ const commonPricingBullets = [
   "Replay, heatmaps, journeys, crash context, API context, and product analytics in one dashboard.",
 ];
 
-const commonRelated = [
-  {
-    label: "Revenue leak guide",
-    href: "/engineering/2026-07-12/revenue-leak-detection",
-    description: "See how to find checkout, onboarding, paywall, and subscription leaks before they compound.",
-  },
-  {
-    label: "Pricing",
-    href: "/pricing",
-    description: "See fixed plans for revenue-leak prediction across web and mobile apps.",
-  },
-  {
-    label: "Live demo",
-    href: "/demo",
-    description: "Open the demo dashboard and inspect the replay, heatmap, journey, and stability views.",
-  },
-  {
-    label: "React Native SDK",
-    href: "/docs/reactnative/overview",
-    description: "Install mobile session replay for React Native and Expo apps.",
-  },
-  {
-    label: "Flutter SDK",
-    href: "/docs/flutter/overview",
-    description: "Install native iOS and Android session replay for Flutter apps.",
-  },
-  {
-    label: "Web SDK",
-    href: "/docs/web/getting-started",
-    description: "Add browser session replay, analytics, and network capture to a web app.",
-  },
-];
+const educationalPaths = new Set([
+  "/replay-first-mentality",
+  "/importance-of-open-source",
+  "/what-is-session-replay",
+  "/how-to-see-what-your-users-do",
+  "/be-your-users",
+]);
+
+const relatedPagesFor = (path: string, kind: SeoPageKind): SeoPage["relatedPages"] => {
+  const alternatives = [
+    { label: "PostHog comparison", href: "/alternatives/posthog-session-replay", description: "Compare replay, analytics, mobile evidence, and technical context." },
+    { label: "Sentry comparison", href: "/alternatives/sentry-session-replay", description: "Compare product evidence with an error-monitoring-first workflow." },
+    { label: "Fullstory comparison", href: "/alternatives/fullstory", description: "Compare replay coverage, mobile support, and product analytics." },
+    { label: "Hotjar comparison", href: "/alternatives/hotjar", description: "Compare heatmaps and replay with a broader web and mobile workspace." },
+  ];
+  const educational = [
+    { label: "What is session replay?", href: "/what-is-session-replay", description: "Understand what replay records, what it explains, and where it falls short." },
+    { label: "Replay-first mentality", href: "/replay-first-mentality", description: "Learn when to start with session evidence instead of another aggregate chart." },
+    { label: "How to see what users do", href: "/how-to-see-what-your-users-do", description: "Turn observed product behavior into a bounded investigation." },
+    { label: "Be your users", href: "/be-your-users", description: "Use real product evidence to make user empathy concrete." },
+  ];
+  const mobile = [
+    { label: "Mobile session replay", href: "/mobile-session-replay", description: "Replay native app sessions with touch, crash, and network context." },
+    { label: "App analytics", href: "/app-analytics", description: "Connect engagement and retention metrics to the sessions behind them." },
+    { label: "Stability monitoring", href: "/stability-monitoring", description: "Investigate crashes, ANRs, errors, and affected sessions together." },
+    { label: "Device insights", href: "/device-insights", description: "Find device, OS, and app-version friction hidden by averages." },
+  ];
+  const revenue = [
+    { label: "Funnel replay evidence", href: "/funnel-replay-evidence", description: "Open the sessions behind a checkout, signup, or onboarding drop-off." },
+    { label: "Revenue recovery analytics", href: "/revenue-recovery-analytics", description: "Connect conversion loss to the product behavior that caused it." },
+    { label: "Website analytics", href: "/website-analytics", description: "Measure conversion paths with the session evidence attached." },
+    { label: "Revenue leak guide", href: "/guides/2026-07-12/revenue-leak-detection", description: "Use a practical framework for finding product revenue leaks." },
+  ];
+  const web = [
+    { label: "Web session replay", href: "/web-session-replay", description: "Replay browser behavior with route, console, and request context." },
+    { label: "Website analytics", href: "/website-analytics", description: "Connect website metrics, journeys, and sessions in one workspace." },
+    { label: "Record user sessions", href: "/record-user-sessions", description: "See how to capture useful sessions with privacy controls." },
+    { label: "Heatmaps", href: "/heatmaps", description: "Add aggregate click and scroll evidence to individual sessions." },
+  ];
+  const operational = [
+    { label: "API endpoint insights", href: "/api-endpoint-insights", description: "Rank endpoint failures and latency by affected product traffic." },
+    { label: "Stability monitoring", href: "/stability-monitoring", description: "Connect crashes, errors, and ANRs to real user sessions." },
+    { label: "Geographic analytics", href: "/geographic-analytics", description: "See where product and infrastructure problems concentrate." },
+    { label: "Standardized context", href: "/standardized-context", description: "Prepare replay evidence for consistent human and AI investigation." },
+  ];
+  const alternativeCapabilityPages: Record<string, SeoPage["relatedPages"]> = {
+    "/alternatives/posthog-session-replay": [mobile[1], web[0]],
+    "/alternatives/sentry-session-replay": [mobile[2], mobile[0]],
+    "/alternatives/datadog-session-replay": [web[0], mobile[2]],
+    "/alternatives/amplitude-session-replay": [mobile[1], web[0]],
+    "/alternatives/mixpanel-session-replay": [mobile[1], web[0]],
+    "/alternatives/pendo-session-replay": [mobile[1], revenue[0]],
+    "/alternatives/smartlook": [web[0], mobile[0], web[3]],
+    "/alternatives/hotjar": [web[3], web[0], mobile[0]],
+    "/alternatives/fullstory": [web[0], mobile[0], web[3]],
+  };
+
+  const candidates = kind === "alternative"
+    ? [...(alternativeCapabilityPages[path] ?? [web[0], mobile[0]]), ...alternatives]
+    : kind === "educational"
+      ? educational
+      : path.includes("mobile") || path === "/app-analytics" || path === "/device-insights"
+        ? mobile
+        : path.includes("revenue") || path.includes("funnel")
+          ? revenue
+          : path.includes("web") || path.includes("website") || path === "/record-user-sessions" || path === "/heatmaps"
+            ? web
+            : operational;
+
+  return candidates.filter((related) => related.href !== path).slice(0, 3);
+};
+
+const setupVariantForPath = (path: string, kind: SeoPageKind): SeoPage["setupVariant"] => {
+  if (kind === "educational") return "none";
+  if (path.includes("web") || path === "/website-analytics") return "web";
+  if (
+    path.includes("mobile")
+    || path === "/app-analytics"
+    || path === "/stability-monitoring"
+    || path === "/device-insights"
+  ) return "mobile";
+  return "all";
+};
+
+const proofStoryForPath = (path: string): SeoProofStory => (
+  path.includes("revenue") || path.includes("funnel") || path.includes("checkout")
+    ? {
+        customer: "Burst Creatine",
+        metric: "103% sales increase",
+        summary: "Replay evidence exposed conversion friction in a revenue-critical journey so the team could fix the proven failure first.",
+      }
+    : {
+        customer: "Campus Merch",
+        metric: "93% onboarding completion",
+        summary: "Session evidence helped the team isolate a Safari layout failure and restore a critical onboarding path.",
+      }
+);
+
+const commonCta: SeoPage["cta"] = {
+  primaryLabel: "Start free",
+  primaryHref: "/login",
+  secondaryLabel: "Open live demo",
+  secondaryHref: "/demo",
+};
+
+const buildOutcomes = (
+  proofPoints: string[],
+  whyParagraphs: string[],
+  subtitle: string,
+): SeoOutcome[] => {
+  const fallbackTitles = ["Find the signal", "Open the evidence", "Make the next decision"];
+  return fallbackTitles.map((fallbackTitle, index) => ({
+    title: proofPoints[index] ?? fallbackTitle,
+    description: whyParagraphs[index] ?? whyParagraphs[0] ?? subtitle,
+  }));
+};
 
 const categoryPage = (config: {
   path: string;
@@ -157,7 +294,13 @@ const categoryPage = (config: {
   subtitle: string;
   metaTitle: string;
   metaDescription: string;
+  primaryKeyword?: string;
+  secondaryKeywords?: string[];
+  searchIntent?: SeoSearchIntent;
+  keywordEvidence?: SeoKeywordEvidence;
   keywords: string[];
+  keywordSections?: SeoKeywordSection[];
+  lastModified?: string;
   image: string;
   imageAlt: string;
   proofPoints: string[];
@@ -171,8 +314,29 @@ const categoryPage = (config: {
   comparisonOther: SeoComparisonValue;
   officialSources?: SeoSource[];
   faq: SeoPage["faq"];
-}): SeoPage => ({
-  kind: "category",
+}): SeoPage => {
+  const kind: SeoPageKind = educationalPaths.has(config.path) ? "educational" : "capability";
+  const relatedPages = relatedPagesFor(config.path, kind);
+  const primaryKeyword = config.primaryKeyword ?? config.keywords[0];
+  const secondaryKeywords = config.secondaryKeywords
+    ?? config.keywords.filter((keyword) => keyword !== primaryKeyword);
+
+  return {
+  kind,
+  pageFamily: kind,
+  hero: {
+    eyebrow: config.eyebrow,
+    title: config.title,
+    subtitle: config.subtitle,
+  },
+  outcomes: buildOutcomes(config.proofPoints, config.whyParagraphs, config.subtitle),
+  proofStory: proofStoryForPath(config.path),
+  setupVariant: setupVariantForPath(config.path, kind),
+  pricingVariant: config.path === "/website-analytics" || config.path === "/app-analytics" ? "analytics" : "none",
+  comparison: { enabled: false, summaryRows: 0 },
+  navigationMode: "focused",
+  cta: commonCta,
+  relatedPages,
   chooseRejourney: [
     "You want replay, product analytics, heatmaps, journeys, crashes, and network context together.",
     "You need predictable pricing with unlimited events, retention, projects, and team members.",
@@ -183,10 +347,18 @@ const categoryPage = (config: {
   pricingIntro:
     "Rejourney is designed so you do not have to ration events, projects, seats, or historical analytics data. Replay volume can be planned, while the broader product analytics workspace stays open to the whole team.",
   pricingBullets: commonPricingBullets,
-  related: commonRelated,
+  related: relatedPages,
   ...config,
+  primaryKeyword,
+  secondaryKeywords,
+  searchIntent: config.searchIntent ?? (kind === "educational" ? "informational" : "commercial"),
+  keywordEvidence: config.keywordEvidence,
+  keywordSections: config.keywordSections,
+  lastModified: config.lastModified ?? "2026-08-01",
+  keywords: Array.from(new Set(["lightweight product analytics", primaryKeyword, ...secondaryKeywords])),
   comparisonRows: categoryFeatureRows(config.comparisonOther),
-});
+  };
+};
 
 const alternativePage = (config: {
   path: string;
@@ -195,6 +367,8 @@ const alternativePage = (config: {
   subtitle: string;
   metaTitle: string;
   metaDescription: string;
+  primaryKeyword?: string;
+  secondaryKeywords?: string[];
   keywords: string[];
   image: string;
   imageAlt: string;
@@ -207,8 +381,28 @@ const alternativePage = (config: {
   officialSources: SeoSource[];
   pricingIntro: string;
   faq: SeoPage["faq"];
-}): SeoPage => ({
+}): SeoPage => {
+  const relatedPages = relatedPagesFor(config.path, "alternative");
+  const primaryKeyword = config.primaryKeyword ?? config.keywords[0];
+  const secondaryKeywords = config.secondaryKeywords
+    ?? config.keywords.filter((keyword) => keyword !== primaryKeyword);
+
+  return {
   kind: "alternative",
+  pageFamily: "alternative",
+  hero: {
+    eyebrow: "Alternative comparison",
+    title: `Rejourney vs ${config.competitor}`,
+    subtitle: config.subtitle,
+  },
+  outcomes: buildOutcomes(config.proofPoints, config.whyParagraphs, config.subtitle),
+  proofStory: proofStoryForPath(config.path),
+  setupVariant: "all",
+  pricingVariant: "replay",
+  comparison: { enabled: true, summaryRows: 5 },
+  navigationMode: "focused",
+  cta: commonCta,
+  relatedPages,
   path: config.path,
   badge: config.badge,
   eyebrow: "Alternative comparison",
@@ -216,14 +410,18 @@ const alternativePage = (config: {
   subtitle: config.subtitle,
   metaTitle: config.metaTitle,
   metaDescription: config.metaDescription,
-  keywords: config.keywords,
+  primaryKeyword,
+  secondaryKeywords,
+  searchIntent: "comparison",
+  keywords: Array.from(new Set(["lightweight product analytics", primaryKeyword, ...secondaryKeywords])),
+  lastModified: "2026-07-21",
   image: config.image,
   imageAlt: config.imageAlt,
   proofPoints: config.proofPoints,
   whyTitle: `Why consider Rejourney over ${config.competitor}?`,
   whyParagraphs: config.whyParagraphs,
   chooseRejourney: [
-    "You want replay-first analytics for web and mobile apps in one workspace.",
+    "You want lightweight product analytics and replay for web and mobile apps in one workspace.",
     "You care about unlimited events, analytics retention, projects, and team members.",
     "You want session replay connected to journeys, heatmaps, crashes, ANRs, and network context.",
     "You prefer a focused tool that product, support, and engineering can all understand quickly.",
@@ -243,82 +441,50 @@ const alternativePage = (config: {
   pricingIntro: config.pricingIntro,
   pricingBullets: commonPricingBullets,
   faq: config.faq,
-  related: [
-    ...commonRelated.slice(0, 2),
-    {
-      label: "Web session replay",
-      href: "/web-session-replay",
-      description: "See how Rejourney records browser behavior with product and network context.",
-    },
-    {
-      label: "Record user sessions",
-      href: "/record-user-sessions",
-      description: "See how to record user sessions with replay, privacy controls, and product context.",
-    },
-  ],
-});
+  related: relatedPages,
+  };
+};
 
 export const SEO_PAGES: SeoPage[] = [
-  categoryPage({
-    path: "/ai-funnel-leak-detection",
-    badge: "Leak detection",
-    eyebrow: "AI funnel leaks",
-    title: "AI Funnel Leak Detection",
-    subtitle:
-      "Use the Rejourney leaks page to rank conversion drops, rage taps, crashes, API failures, and journey loops with the replay evidence needed to fix them.",
-    metaTitle: "AI Funnel Leak Detection | Rejourney",
-    metaDescription:
-      "AI funnel leak detection for product and engineering teams. Rank funnel leaks, inspect replay evidence, and create fix-ready context from the Rejourney leaks page.",
-    keywords: ["AI funnel leak detection", "funnel leak detection", "conversion leak detection", "AI session replay", "revenue leak detection", "rage tap detection", "session replay issues"],
-    image: "/images/landing-replay-theater.png",
-    imageAlt: "Rejourney leaks page showing ranked issue detection and funnel leak evidence",
-    proofPoints: ["Ranked leak inbox", "Replay evidence", "AI-ready fix context"],
-    whyTitle: "The leaks page turns raw sessions into a ranked repair queue",
-    whyParagraphs: [
-      "A funnel leak is not just a chart that went down. It is the repeated moment where users lose intent: a dead checkout button, a loop between screens, a slow API call, a rage tap cluster, a crash, or a path that looks healthy until replay shows confusion.",
-      "Rejourney's leaks page groups those signals into ranked issues, then keeps the replay, journey, technical context, and affected user evidence close enough for product and engineering to act together.",
-      "That means teams can move from 'conversion dropped' to 'this path, this screen, this request, these sessions, this likely fix' without stitching together separate dashboards.",
-    ],
-    chooseOtherTitle: "Choose a generic analytics dashboard if...",
-    chooseOther: [
-      "Your team only needs high-level conversion rates and does not investigate the sessions behind them.",
-      "You already have a reliable issue queue that links funnel drops to replay, journey, API, and crash context.",
-      "Your product does not need product and engineering teams to share the same evidence when prioritizing fixes.",
-    ],
-    comparisonTitle: "AI funnel leak detection checklist",
-    comparisonIntro:
-      "A leak-detection workflow should rank the problem, explain why it matters, and preserve enough session evidence for someone to verify the fix.",
-    otherColumnTitle: "Generic analytics",
-    comparisonOther: "partial",
-    faq: [
-      {
-        question: "What does the Rejourney leaks page show?",
-        answer:
-          "It shows ranked product and technical issues such as funnel drop-offs, rage taps, crashes, API failures, and repeated journey loops, with replay evidence and context for each item.",
-      },
-      {
-        question: "How is AI used in funnel leak detection?",
-        answer:
-          "AI helps cluster repeated session signals into fixable issues and prepare context packages, but the workflow stays grounded in real replay, journey, event, crash, and request evidence.",
-      },
-      {
-        question: "Who should use the leaks page?",
-        answer:
-          "Product teams use it to prioritize conversion leaks. Engineering teams use it to reproduce the cause. Growth teams use it to connect leak repair with revenue and retention movement.",
-      },
-    ],
-  }),
   categoryPage({
     path: "/funnel-replay-evidence",
     badge: "Funnels",
     eyebrow: "Funnel replay evidence",
-    title: "Funnel Replay Evidence",
+    title: "Funnel Analysis with Replay Evidence",
     subtitle:
       "Use journey ribbons to find the highest-volume paths, then open the replay evidence behind each branch, loop, and drop-off.",
-    metaTitle: "Funnel Replay Evidence | Rejourney",
+    metaTitle: "Funnel Analysis with Session Replay | Rejourney",
     metaDescription:
-      "Use Rejourney funnel replay evidence to inspect journey ribbons, drop-offs, repeated paths, and the replay sessions behind conversion leaks.",
-    keywords: ["funnel replay evidence", "user journey analytics", "journey map analytics", "funnel drop-off replay", "conversion funnel replay"],
+      "Funnel analysis with session replay, journey paths, and drop-off evidence for web and mobile product teams.",
+    primaryKeyword: "funnel analysis",
+    secondaryKeywords: ["funnel analysis with session replay", "funnel analysis software", "funnel drop-off analysis", "funnel replay evidence"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 1000,
+      organicKd: 16,
+      volumeSource: "Ahrefs lower-bound volume bucket",
+      kdSource: "Ahrefs",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["funnel analysis", "funnel analysis with session replay", "funnel analysis software", "funnel drop-off analysis", "funnel replay evidence"],
+    keywordSections: [
+      {
+        title: "Where does the highest-value path break?",
+        description: "Rank drop-offs by affected users and conversion impact instead of chasing the loudest chart movement.",
+        bullets: ["Step conversion", "Drop-off cohorts", "Release and segment comparisons"],
+      },
+      {
+        title: "Are users dropping—or taking a detour?",
+        description: "See loops, backtracks, and alternate routes that a linear step funnel hides.",
+        bullets: ["Weighted journey paths", "Backtracking and loops", "Healthy versus degraded routes"],
+      },
+      {
+        title: "What happened in the sessions behind the loss?",
+        description: "Open only the replays from the affected path and hand off evidence your team can reproduce.",
+        bullets: ["Matching session replay", "Crash and request context", "Replay-backed handoff"],
+      },
+    ],
     image: "/images/readme-user-journeys.png",
     imageAlt: "Rejourney journey ribbon map showing funnel paths and replay evidence",
     proofPoints: ["Journey ribbons", "Path drop-offs", "Replay-backed decisions"],
@@ -364,9 +530,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Geographic Analytics",
     subtitle:
       "Map positive, neutral, and frustrated sessions by region so teams can see where UX, network, language, or market-specific friction is clustering.",
-    metaTitle: "Geographic Analytics | Rejourney",
+    metaTitle: "Geographic Product Analytics | Rejourney",
     metaDescription:
-      "Use Rejourney geographic analytics to map regional sentiment, friction, session replay context, and product issues by country.",
+      "Geographic product analytics with regional engagement, friction, sentiment, and session replay context by country.",
     keywords: ["geographic analytics", "regional sentiment analytics", "session replay by country", "UX friction by region", "product analytics map"],
     image: "/images/geo-analytics.png",
     imageAlt: "Rejourney geographic analytics map showing session sentiment by region",
@@ -413,9 +579,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Revenue Recovery Analytics",
     subtitle:
       "Track revenue, transactions, active users, retention, and releases beside the sessions that explain movement.",
-    metaTitle: "Revenue Recovery Analytics | Rejourney",
+    metaTitle: "Revenue Recovery Product Analytics | Rejourney",
     metaDescription:
-      "Use Rejourney revenue recovery analytics to connect revenue movement, transactions, releases, retention, and session replay evidence.",
+      "Connect revenue movement, transactions, releases, retention, funnels, and session replay evidence with lightweight product analytics.",
     keywords: ["revenue recovery analytics", "growth analytics", "revenue leak detection", "retention analytics", "session replay revenue"],
     image: "/images/growth-engines.png",
     imageAlt: "Rejourney revenue analytics dashboard with growth and retention metrics",
@@ -462,9 +628,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Standardized Session Context",
     subtitle:
       "Turn sessions, regional signals, events, and technical evidence into consistent context that teams can query, share, compare, and hand off.",
-    metaTitle: "Standardized Context | Rejourney",
+    metaTitle: "Unified Product Analytics Context | Rejourney",
     metaDescription:
-      "Use Rejourney standardized context to keep replay, journeys, regions, events, crashes, and API evidence tied to shared identifiers.",
+      "Keep product events, replay, journeys, regions, crashes, devices, and API evidence connected through consistent analytics context.",
     keywords: ["standardized context", "session context", "replay context", "product analytics context", "debugging context"],
     image: "/images/growth-engines.png",
     imageAlt: "Rejourney analytics dashboard showing standardized product context",
@@ -505,178 +671,50 @@ export const SEO_PAGES: SeoPage[] = [
     ],
   }),
   categoryPage({
-    path: "/ai-agent-handoff",
-    badge: "AI handoff",
-    eyebrow: "AI agent handoff",
-    title: "AI Agent Handoff",
-    subtitle:
-      "Package replay, event, request, crash, and journey evidence into context developers can paste into Cursor, Claude, Codex, or an IDE workflow.",
-    metaTitle: "AI Agent Handoff | Rejourney",
-    metaDescription:
-      "Use Rejourney AI agent handoff to convert session replay evidence into fix-ready context packets for developer and coding-agent workflows.",
-    keywords: ["AI agent handoff", "session replay AI", "AI debugging context", "coding agent context", "replay to fix"],
-    image: "/images/readme-general-demo.png",
-    imageAlt: "Rejourney issue detection context ready for AI agent handoff",
-    proofPoints: ["Replay packets", "Markdown context", "Developer workflow"],
-    whyTitle: "AI agents need evidence, not a vague bug summary",
-    whyParagraphs: [
-      "A coding agent can only help if it receives the right facts: the path, expected behavior, observed behavior, affected release, failed request, event sequence, and replay evidence that proves the issue.",
-      "Rejourney turns session evidence into structured context that a developer can review and hand to an AI workflow without rewriting the same bug report from scratch.",
-      "The goal is not to replace engineering judgment. It is to remove the tedious translation between what happened in a real session and what a coding agent needs to start a fix.",
-    ],
-    chooseOtherTitle: "Write manual bug reports if...",
-    chooseOther: [
-      "Your team does not use coding agents or IDE assistant workflows.",
-      "Issues are rare enough that manual reproduction notes are easy to maintain.",
-      "Your bug tracker already includes replay, event, request, and release context automatically.",
-    ],
-    comparisonTitle: "AI handoff checklist",
-    comparisonIntro:
-      "A good AI handoff should preserve the exact session evidence and describe the fix boundary clearly.",
-    otherColumnTitle: "Manual ticket",
-    comparisonOther: "partial",
-    faq: [
-      {
-        question: "What goes into an AI agent handoff?",
-        answer:
-          "The useful packet includes replay links, route or screen path, expected behavior, observed behavior, product events, release and device context, failed requests, crashes, and likely reproduction steps.",
-      },
-      {
-        question: "Does Rejourney automatically write code?",
-        answer:
-          "Rejourney focuses on preparing evidence and context. Developers can then use that context with their preferred AI coding tools and review the result.",
-      },
-      {
-        question: "Why not just paste a replay link?",
-        answer:
-          "A replay link is useful, but agents and developers also need structured facts: what failed, where, for whom, and which signals support the diagnosis.",
-      },
-    ],
-  }),
-  categoryPage({
-    path: "/autonomous-debugging",
-    badge: "Debugging",
-    eyebrow: "Autonomous debugging",
-    title: "Autonomous Debugging",
-    subtitle:
-      "Group repeated issue signals with replay links, stack context, events, and handoff text so engineering can reproduce and repair production bugs faster.",
-    metaTitle: "Autonomous Debugging | Rejourney",
-    metaDescription:
-      "Use Rejourney autonomous debugging workflows to connect production bugs, replay links, crash context, API signals, and AI-ready developer handoff text.",
-    keywords: ["autonomous debugging", "AI debugging", "session replay debugging", "production bug replay", "crash replay context"],
-    image: "/images/anr-issues.png",
-    imageAlt: "Rejourney stability issue dashboard with crash and ANR replay context",
-    proofPoints: ["Repeated signals", "Replay links", "Fix-ready handoff"],
-    whyTitle: "Production debugging should begin with the session that proves the bug",
-    whyParagraphs: [
-      "Debugging slows down when the evidence is split between a metric dashboard, a crash tool, a replay clip, a support ticket, and a chat thread. The team spends time reconstructing the story before it can fix anything.",
-      "Rejourney groups repeated signals and keeps replay, crash, API, event, device, release, and journey context together so the bug has a reproducible shape.",
-      "That context can then be handed to an engineer or AI coding workflow with enough detail to start testing a fix instead of asking users to reproduce the failure.",
-    ],
-    chooseOtherTitle: "Use a crash-only workflow if...",
-    chooseOther: [
-      "The stack trace alone is enough to reproduce most production issues.",
-      "Your product bugs do not depend on user path, UI state, device, release, or network context.",
-      "Your existing observability tool already connects crash context to replay and product behavior.",
-    ],
-    comparisonTitle: "Autonomous debugging checklist",
-    comparisonIntro:
-      "Autonomous debugging needs exact evidence, repeated signals, and a context packet that survives handoff.",
-    otherColumnTitle: "Crash-only triage",
-    comparisonOther: "partial",
-    faq: [
-      {
-        question: "What makes debugging autonomous?",
-        answer:
-          "The workflow becomes more autonomous when issue evidence is grouped, replay links are attached, context is structured, and the next agent or engineer can start from reproducible facts.",
-      },
-      {
-        question: "Does this replace crash reporting?",
-        answer:
-          "No. It complements crash reporting by adding replay, product path, events, device, release, and API context around the crash or failure.",
-      },
-      {
-        question: "Can this help with ANRs and freezes?",
-        answer:
-          "Yes. ANR and freeze triage is stronger when the session shows what the user was doing before the app stopped responding.",
-      },
-    ],
-  }),
-  categoryPage({
-    path: "/self-healing-software",
-    badge: "Self-healing",
-    eyebrow: "Self-healing software",
-    title: "Self-Healing Software",
-    subtitle:
-      "Use replay, stability, API, device, journey, and leak context to turn repeated production friction into fix-ready work.",
-    metaTitle: "Self-Healing Software | Rejourney",
-    metaDescription:
-      "Self-healing software workflows with AI debugging, session replay debugging, crashes, ANRs, API failures, device insights, and fix-ready context.",
-    keywords: [
-      "self healing software",
-      "AI debugging",
-      "session replay debugging",
-      "self healing software development",
-      "autonomous debugging",
-      "production debugging",
-      "AI session replay",
-    ],
-    image: "/images/engineering/product-tools-live-stability.png",
-    imageAlt: "Rejourney stability dashboard for self-healing software workflows",
-    proofPoints: ["Replay evidence", "Stability signals", "Fix-ready context"],
-    whyTitle: "Self-healing software needs evidence before automation",
-    whyParagraphs: [
-      "A product cannot heal itself from a vague chart. It needs the exact user path, the failed request, the crash or ANR, the affected device, and the release context that made the issue repeat.",
-      "Rejourney keeps those signals tied to real sessions so teams can identify friction, inspect the proof, and hand a bounded problem to an engineer or AI coding workflow.",
-      "That makes self-healing less like magic and more like a disciplined loop: observe the user experience, group the repeated issue, package the context, fix, and verify recovery.",
-    ],
-    chooseOtherTitle: "Use generic monitoring if...",
-    chooseOther: [
-      "Your team only needs uptime or server-side metrics.",
-      "Production issues are reproducible without user path, replay, device, or request context.",
-      "Your existing tools already package product and engineering evidence into fix-ready workflows.",
-    ],
-    comparisonTitle: "Self-healing software checklist",
-    comparisonIntro:
-      "Self-healing workflows should connect observed user friction to the technical context needed to repair it.",
-    otherColumnTitle: "Generic monitoring",
-    comparisonOther: "partial",
-    faq: [
-      {
-        question: "What does self-healing software mean for product teams?",
-        answer:
-          "It means repeated user-facing friction can be detected, grouped, explained, and handed off with enough context for a fix, instead of waiting for manual reports and incomplete bug tickets.",
-      },
-      {
-        question: "How does Rejourney support self-healing workflows?",
-        answer:
-          "Rejourney connects session replay, journeys, stability issues, API endpoint failures, device cohorts, and AI-ready handoff context around the same real user evidence.",
-      },
-      {
-        question: "Does Rejourney automatically deploy fixes?",
-        answer:
-          "No. Rejourney prepares the evidence and context developers or AI coding tools need. Teams still review, test, and ship fixes through their normal engineering process.",
-      },
-    ],
-  }),
-  categoryPage({
     path: "/stability-monitoring",
     badge: "Stability",
-    eyebrow: "Stability monitoring",
-    title: "Stability & Crash Triage",
+    eyebrow: "Mobile app crash reporting",
+    title: "Mobile App Crash Reporting with Replay",
     subtitle:
       "Group crashes, errors, ANRs, and API spikes with affected users, devices, releases, and replay evidence.",
-    metaTitle: "Stability Monitoring | Rejourney",
+    metaTitle: "Mobile App Crash Reporting with Replay | Rejourney",
     metaDescription:
-      "Mobile app stability monitoring for crashes, errors, ANR monitoring, API spikes, replay context, affected devices, and release impact.",
-    keywords: [
-      "mobile app stability monitoring",
-      "crash analytics",
+      "Mobile app crash reporting, ANR monitoring, and error tracking with affected devices, releases, users, and session replay context.",
+    primaryKeyword: "mobile app crash reporting",
+    secondaryKeywords: [
+      "mobile crash reporting",
+      "app stability monitoring",
       "ANR monitoring",
-      "error monitoring",
+      "error tracking",
+      "JavaScript error tracking",
       "mobile crash analytics",
-      "session replay debugging",
-      "production stability monitoring",
+    ],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: null,
+      organicKd: 2,
+      volumeSource: "Ahrefs did not return a reliable exact value",
+      kdSource: "Ahrefs",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["mobile app crash reporting", "mobile crash reporting", "app stability monitoring", "ANR monitoring", "error tracking", "JavaScript error tracking", "mobile crash analytics"],
+    keywordSections: [
+      {
+        title: "Which failure is hurting the most users?",
+        description: "Rank crashes, ANRs, and error spikes by affected sessions instead of raw occurrence count.",
+        bullets: ["Crash cohorts", "Release and device impact", "Replay before the failure"],
+      },
+      {
+        title: "What happened immediately before it failed?",
+        description: "See the active screen, last gesture, request, and replay leading into the failure.",
+        bullets: ["ANR signals", "Screen and gesture context", "Affected-session prioritization"],
+      },
+      {
+        title: "Is one release or device causing the spike?",
+        description: "Compare affected versions, operating systems, and device cohorts before prioritizing the fix.",
+        bullets: ["Fatal and nonfatal errors", "Request and console context", "Replay-backed reproduction"],
+      },
     ],
     image: "/images/engineering/product-tools-live-stability.png",
     imageAlt: "Rejourney stability monitoring dashboard with crashes errors ANRs and API spikes",
@@ -723,17 +761,18 @@ export const SEO_PAGES: SeoPage[] = [
     title: "API Endpoint Insights",
     subtitle:
       "Track endpoint volume, latency, failure codes, and risk while keeping the affected session evidence close.",
-    metaTitle: "API Endpoint Insights | Rejourney",
+    metaTitle: "API Analytics with Session Context | Rejourney",
     metaDescription:
-      "API endpoint analytics and API endpoint monitoring with endpoint risk, latency, failure codes, user impact, and session replay context.",
+      "API endpoint analytics for latency, failure codes, user impact, and the web or mobile sessions affected by each request problem.",
+    primaryKeyword: "API endpoint analytics",
+    secondaryKeywords: ["API error analytics", "endpoint analytics", "session-linked request failures", "API endpoint insights"],
+    searchIntent: "commercial",
     keywords: [
       "API endpoint analytics",
-      "API endpoint monitoring",
-      "API insights",
-      "endpoint analytics",
-      "API monitoring dashboard",
       "API error analytics",
-      "session replay API errors",
+      "endpoint analytics",
+      "session-linked request failures",
+      "API endpoint insights",
     ],
     image: "/images/engineering/product-tools-live-api-endpoints.png",
     imageAlt: "Rejourney API endpoint insights dashboard with endpoint risk latency and failure codes",
@@ -742,7 +781,7 @@ export const SEO_PAGES: SeoPage[] = [
     whyParagraphs: [
       "Endpoint health is not only an infrastructure metric. A slow checkout request, failed profile load, or repeated 500 during onboarding can become product friction even when the rest of the system looks healthy.",
       "Rejourney's API endpoint insights show calls, latency, failure rates, status codes, and risk across captured sessions so product and engineering can identify which backend problems users actually experienced.",
-      "That keeps API monitoring close to replay, journeys, stability, device context, and release impact instead of making teams translate raw logs into product consequences by hand.",
+      "That keeps endpoint evidence close to replay, journeys, stability, device context, and release impact instead of making teams translate raw logs into product consequences by hand.",
     ],
     chooseOtherTitle: "Use infrastructure monitoring alone if...",
     chooseOther: [
@@ -780,9 +819,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Mobile Device Analytics",
     subtitle:
       "Compare device models, platforms, app versions, issue rates, engagement, and session quality to find device-specific friction.",
-    metaTitle: "Device Insights | Rejourney",
+    metaTitle: "Mobile Device Analytics | Rejourney",
     metaDescription:
-      "Device analytics for mobile apps with device-specific crash analytics, engagement, ANR context, error rates, app versions, and replay evidence.",
+      "Mobile device analytics with engagement, versions, crashes, ANRs, error rates, and replay evidence for React Native, Flutter, and iOS apps.",
     keywords: [
       "device analytics",
       "mobile device analytics",
@@ -832,15 +871,43 @@ export const SEO_PAGES: SeoPage[] = [
   }),
   categoryPage({
     path: "/record-user-sessions",
-    badge: "Strategy guide",
+    badge: "Session replay tools",
     eyebrow: "Record user sessions",
-    title: "User Session Recording",
+    title: "Session Replay Tools for Recording User Sessions",
     subtitle:
       "Capture the session, the search that found it, and the signals that explain whether the behavior is a one-off or a pattern worth fixing.",
-    metaTitle: "Record User Sessions | Rejourney",
+    metaTitle: "Session Replay Tools to Record User Sessions | Rejourney",
     metaDescription:
-      "Record user sessions on web and mobile with replay, heatmaps, journeys, privacy controls, product analytics, crash context, and lightweight SDKs.",
-    keywords: ["record user sessions", "web session replay", "session replay software", "session replay tools", "website session recording", "real user sessions", "user session replay software"],
+      "Compare session replay tools and record web or mobile user sessions with privacy controls, analytics, heatmaps, journeys, crashes, and request context.",
+    primaryKeyword: "session replay tools",
+    secondaryKeywords: ["session replay software", "record user sessions", "user session replay software", "website session recording"],
+    searchIntent: "comparison",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 75,
+      organicKd: null,
+      volumeSource: "Wordtracker",
+      kdSource: "Ahrefs Easy category",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["session replay tools", "session replay software", "record user sessions", "user session replay software", "website session recording"],
+    keywordSections: [
+      {
+        title: "Can I find the session behind this complaint?",
+        description: "Search by route, event, device, user, or failure instead of opening random recordings.",
+        bullets: ["Web and mobile coverage", "Search and filtering", "Replay-linked technical evidence"],
+      },
+      {
+        title: "What changed before the user got stuck?",
+        description: "Keep the path, interface state, requests, and errors attached to the moment worth watching.",
+        bullets: ["Behavior-based capture", "Privacy masking", "Shareable session evidence"],
+      },
+      {
+        title: "Does the same problem keep happening?",
+        description: "Use journeys, heatmaps, crashes, and matching sessions to separate a pattern from a one-off.",
+        bullets: ["Journey and funnel context", "Heatmap validation", "Crash and error correlation"],
+      },
+    ],
     image: "/images/session-replay-preview.png",
     imageAlt: "Rejourney user session replay preview with event context",
     proofPoints: ["Replay search", "Heatmaps + journeys", "Crash context"],
@@ -880,19 +947,230 @@ export const SEO_PAGES: SeoPage[] = [
     ],
   }),
   categoryPage({
+    path: "/website-analytics",
+    badge: "User experience analytics",
+    eyebrow: "Website UX analytics",
+    title: "User Experience Analytics for Websites",
+    subtitle:
+      "Understand traffic, engagement, funnels, errors, and the real sessions behind every website drop-off.",
+    metaTitle: "User Experience Analytics for Websites | Rejourney",
+    metaDescription:
+      "User experience analytics for websites with funnels, retention, session replay, heatmaps, and error context. Start free.",
+    primaryKeyword: "user experience analytics",
+    secondaryKeywords: ["UX analytics", "website behavior analytics", "website user behavior analytics", "website UX analytics"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 210,
+      organicKd: 0,
+      volumeSource: "Google Keyword Planner",
+      kdSource: "Ahrefs",
+      checkedAt: "2026-08-01",
+    },
+    keywords: [
+      "user experience analytics",
+      "UX analytics",
+      "website behavior analytics",
+      "website user behavior analytics",
+      "website UX analytics",
+    ],
+    keywordSections: [
+      {
+        title: "Which route or release lost conversion?",
+        description: "Compare engagement and funnel movement by route, release, source, or user cohort.",
+        bullets: ["Engagement and retention", "Release comparisons", "Behavioral cohorts"],
+      },
+      {
+        title: "What did visitors see before leaving?",
+        description: "Open the sessions and attention patterns behind a signup, onboarding, or checkout drop.",
+        bullets: ["Website funnels", "Journey paths", "Error and request context"],
+      },
+      {
+        title: "Was it UX friction, code, or an API failure?",
+        description: "Review the interface, console, and request timeline together before deciding what to fix.",
+        bullets: ["Web session replay", "Click and attention heatmaps", "Replay-backed prioritization"],
+      },
+    ],
+    image: "/images/readme/analytics-overview.png",
+    imageAlt:
+      "Rejourney website analytics dashboard showing active users, engagement, retention, and stability",
+    proofPoints: ["Unlimited analytics events", "5,000 free replays", "Funnels + error context"],
+    whyTitle: "Website owners need more than traffic totals",
+    whyParagraphs: [
+      "Pageviews and traffic sources can show that something changed. They cannot show whether a visitor hit a broken form, missed an important message, waited on a failed request, or abandoned a confusing step.",
+      "Rejourney connects active users, engagement, retention, funnels, releases, and sources to session replay. When a number moves, you can open the sessions behind it instead of guessing from another chart.",
+      "It is built for teams and independent owners who want one understandable workspace for website behavior and technical context, with a free plan that does not require a credit card.",
+    ],
+    chooseOtherTitle: "Choose traffic-only analytics if...",
+    chooseOther: [
+      "Your only questions are about acquisition channels, ad attribution, and top-level pageviews.",
+      "You do not need to inspect the sessions behind signup, checkout, or onboarding drop-offs.",
+      "Your current analytics, replay, and error tools already share context cleanly.",
+    ],
+    comparisonTitle: "Website analytics should explain behavior, not just count it",
+    comparisonIntro:
+      "A useful website analytics tool connects trends and funnels to the sessions, requests, and interface states that produced them.",
+    otherColumnTitle: "Traffic-only analytics",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What does a website analytics tool track?",
+        answer:
+          "Rejourney tracks product events, active users, engagement, retention, funnels, routes, releases, traffic sources, and technical signals. Session replay lets you inspect the visitor experience behind those measurements.",
+      },
+      {
+        question: "Does Rejourney replace Google Analytics?",
+        answer:
+          "It can complement acquisition analytics. Rejourney is focused on what people do after they arrive: journeys, drop-offs, session replay, requests, console context, errors, and product behavior.",
+      },
+      {
+        question: "Does Rejourney work with single-page websites and web apps?",
+        answer:
+          "Yes. The web SDK supports modern browser applications and keeps route changes, events, replay, and network context together.",
+      },
+      {
+        question: "Can I try website analytics for free?",
+        answer:
+          "Yes. The Free plan includes 5,000 monthly session replays, unlimited analytics events, and no credit-card requirement.",
+      },
+    ],
+  }),
+  categoryPage({
+    path: "/app-analytics",
+    badge: "Mobile app analytics",
+    eyebrow: "Mobile app analytics",
+    title: "Mobile App Analytics",
+    subtitle:
+      "Measure engagement, retention, journeys, crashes, and the exact mobile sessions behind every change.",
+    metaTitle: "Mobile App Analytics with Session Replay | Rejourney",
+    metaDescription:
+      "Lightweight mobile app analytics with replay, funnels, retention, crashes, ANRs, devices, and API context for Flutter, React Native, Expo, and iOS.",
+    primaryKeyword: "mobile app analytics",
+    secondaryKeywords: ["mobile analytics tools", "mobile app analytics tools", "React Native analytics", "Flutter analytics", "iOS app analytics"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 320,
+      organicKd: 13,
+      volumeSource: "Google Keyword Planner",
+      kdSource: "Ahrefs",
+      checkedAt: "2026-08-01",
+    },
+    keywords: [
+      "mobile app analytics",
+      "mobile analytics tools",
+      "mobile app analytics tools",
+      "React Native analytics",
+      "Flutter analytics",
+      "iOS app analytics",
+    ],
+    keywordSections: [
+      {
+        title: "Which release changed activation or retention?",
+        description: "Compare mobile journeys and outcomes by app version, cohort, and device family.",
+        bullets: ["Engagement and retention", "Mobile journeys", "Release and cohort analysis"],
+      },
+      {
+        title: "Where do mobile users hesitate or drop?",
+        description: "Move from the affected screen or path to the exact taps and sessions behind it.",
+        bullets: ["React Native and Expo", "Flutter", "Native iOS"],
+      },
+      {
+        title: "Which crashes are damaging real journeys?",
+        description: "Prioritize crashes, ANRs, and failed requests by the users and outcomes they interrupted.",
+        bullets: ["Crash and ANR context", "Device and version cohorts", "API failure evidence"],
+      },
+    ],
+    image: "/images/engineering/product-tools-live-general.png",
+    imageAlt:
+      "Rejourney app analytics dashboard showing active users, sessions, retention, and degraded sessions",
+    proofPoints: ["Flutter + React Native + Swift", "Pixel-perfect mobile replay", "Crashes + ANRs"],
+    whyTitle: "App analytics should connect the metric to the mobile session",
+    whyParagraphs: [
+      "Installs and store rankings stop at the app's front door. Product teams still need to know which screens users reach, where onboarding stalls, how retention changes by release, and which crashes or slow requests interrupt a real journey.",
+      "Rejourney connects engagement, retention, flows, devices, releases, crashes, ANRs, and API failures to mobile session replay. A drop in a chart becomes a session you can inspect and a problem engineering can reproduce.",
+      "Use one focused workspace across React Native, Expo, Flutter, and Swift instead of separating product behavior, stability, and replay into unrelated tools.",
+    ],
+    chooseOtherTitle: "Choose store analytics alone if...",
+    chooseOther: [
+      "Your only questions are about installs, store discovery, rankings, or acquisition attribution.",
+      "You do not need to understand in-app flows, drop-offs, crashes, or API failures.",
+      "Your existing mobile analytics, replay, and stability tools already share context cleanly.",
+    ],
+    comparisonTitle: "In-app analytics should connect behavior, stability, and replay",
+    comparisonIntro:
+      "Useful app analytics goes beyond installs by linking engagement and retention to the exact screen, device, release, and session involved.",
+    otherColumnTitle: "Store-only analytics",
+    comparisonOther: "partial",
+    faq: [
+      {
+        question: "What does app analytics track?",
+        answer:
+          "Rejourney tracks active users, sessions, engagement, retention, journeys, releases, devices, crashes, ANRs, errors, and API performance. Mobile session replay shows what the user experienced around those signals.",
+      },
+      {
+        question: "Which mobile platforms does Rejourney support?",
+        answer:
+          "Rejourney supports React Native and Expo, Flutter apps on iOS and Android, and native iOS apps built with Swift.",
+      },
+      {
+        question: "Can app analytics show what happened before a crash?",
+        answer:
+          "Yes. Rejourney connects crashes, ANRs, errors, requests, app versions, and device context to the session so engineering can see the path that led to the issue.",
+      },
+      {
+        question: "Is Rejourney an App Store analytics tool?",
+        answer:
+          "Rejourney focuses on in-app behavior and stability after a user opens the product. Use store or attribution analytics alongside it when you also need rankings, campaign attribution, and install reporting.",
+      },
+    ],
+  }),
+  categoryPage({
     path: "/mobile-session-replay",
     badge: "Mobile apps",
     eyebrow: "Mobile session replay",
-    title: "Mobile Session Replay",
+    title: "Mobile App Session Replay",
     subtitle:
       "Watch taps, gestures, screen changes, slow requests, crashes, and ANRs with enough metadata to reproduce what happened on the device.",
-    metaTitle: "Mobile Session Replay | Rejourney",
+    metaTitle: "Mobile App Session Replay | Rejourney",
     metaDescription:
-      "Mobile session replay for Flutter, iOS, React Native, and Expo with heatmaps, journeys, ANR detection, crash context, and lightweight SDKs.",
-    keywords: ["mobile session replay", "mobile app session replay", "Flutter session replay", "React Native session replay", "iOS session replay"],
+      "Lightweight mobile session replay for Flutter, iOS, React Native, and Expo with product analytics, journeys, ANRs, crashes, and API context.",
+    primaryKeyword: "mobile session replay",
+    secondaryKeywords: ["mobile app session replay", "React Native session replay", "Expo session replay", "Flutter session replay", "iOS session replay", "Android session replay"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: null,
+      organicKd: null,
+      volumeSource: "Google Search Console demand",
+      kdSource: "Not available",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["mobile session replay", "mobile app session replay", "React Native session replay", "Expo session replay", "Flutter session replay", "iOS session replay", "Android session replay"],
+    keywordSections: [
+      {
+        title: "What did the user tap before the flow broke?",
+        description: "Replay the exact gestures, screen changes, and app state leading into the problem.",
+        bullets: ["React Native screens", "Expo workflows", "JavaScript and native context"],
+      },
+      {
+        title: "Was it app state, network, or stability?",
+        description: "Review requests, errors, crashes, and ANRs beside the visible mobile experience.",
+        bullets: ["Flutter routes", "iOS and Android builds", "Touch and error evidence"],
+      },
+      {
+        title: "Which devices and releases share the pattern?",
+        description: "Group matching sessions by device, operating system, and app version before escalating.",
+        bullets: ["Native iOS support", "Android evidence through supported SDKs", "Device and release cohorts"],
+      },
+    ],
     image: "/images/heatmaps.png",
     imageAlt: "Rejourney heatmap workspace with replay and behavioral insights",
-    proofPoints: ["Flutter + React Native", "Native iOS + Android", "Heatmaps + ANRs"],
+    proofPoints: [
+      "Replay across mobile frameworks",
+      "Connect replay to device and release context",
+      "Investigate crashes, ANRs, and touch patterns",
+    ],
     whyTitle: "Mobile replay has to understand the app behind the pixels",
     whyParagraphs: [
       "Mobile bugs often hide in app-specific context: screen transitions, gestures, OS versions, foreground and background changes, flaky networks, slow frames, crashes, and ANRs. A recording without those details is hard to act on.",
@@ -937,14 +1215,42 @@ export const SEO_PAGES: SeoPage[] = [
     path: "/web-session-replay",
     badge: "Browser replay",
     eyebrow: "Web session replay",
-    title: "Web Session Replay",
+    title: "Web Session Replay Software",
     subtitle:
       "See the clicks, route changes, loading states, failed requests, and UI dead ends that traffic analytics usually flatten.",
-    metaTitle: "Web Session Replay | Rejourney",
+    metaTitle: "Web Session Replay Software | Rejourney",
     metaDescription:
-      "Web session replay for browser apps with product analytics, heatmaps, journeys, network context, console context, and replay search.",
-    keywords: ["web session replay", "website session replay", "browser session replay", "web session recording"],
-    image: "/images/landing-replay-theater.png",
+      "Lightweight web session replay with product analytics, heatmaps, funnels, journeys, network requests, console context, and replay search.",
+    primaryKeyword: "web session replay",
+    secondaryKeywords: ["website session replay", "browser session replay", "web session recording", "privacy-conscious web replay"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: null,
+      organicKd: null,
+      volumeSource: "Google Search Console demand",
+      kdSource: "Not available",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["web session replay", "website session replay", "browser session replay", "web session recording", "privacy-conscious web replay"],
+    keywordSections: [
+      {
+        title: "Why did users abandon this step?",
+        description: "Replay the clicks, route changes, loading states, and UI state immediately before the exit.",
+        bullets: ["Single-page app routes", "Event timelines", "Searchable session evidence"],
+      },
+      {
+        title: "Did the interface fail—or did the request fail?",
+        description: "Read console output and network activity on the same timeline as the visible experience.",
+        bullets: ["Network requests", "Console context", "Error-linked sessions"],
+      },
+      {
+        title: "Can we share the session without exposing private input?",
+        description: "Keep useful interaction evidence while masking sensitive fields and raw keystrokes.",
+        bullets: ["Input masking", "Configurable privacy controls", "Shareable evidence without raw keystrokes"],
+      },
+    ],
+    image: "/images/web-session-replay-workbench.png",
     imageAlt: "Rejourney web session replay theater showing browser behavior and timeline context",
     proofPoints: ["Browser SDK", "Funnels + journeys", "Network context"],
     whyTitle: "Website friction hides in state between clicks",
@@ -985,21 +1291,41 @@ export const SEO_PAGES: SeoPage[] = [
   categoryPage({
     path: "/heatmaps",
     badge: "Behavior analytics",
-    eyebrow: "Heatmaps",
-    title: "Visual Heatmaps",
+    eyebrow: "Website and mobile heatmaps",
+    title: "Website and Mobile Heatmap Tools",
     subtitle:
       "Use web attention maps and mobile touch maps to understand what users notice, skim, miss, and repeat.",
-    metaTitle: "Heatmaps | Rejourney",
+    metaTitle: "Website and Mobile Heatmap Tools | Rejourney",
     metaDescription:
-      "Use Rejourney heatmaps to compare web attention maps and mobile touch maps with replay, journeys, and product context.",
-    keywords: [
-      "heatmaps",
-      "heatmap analytics",
-      "attention maps",
-      "touch heatmaps",
-      "website attention maps",
-      "mobile heatmaps",
-      "session replay heatmaps",
+      "Web attention and mobile touch heatmaps connected to lightweight product analytics, session replay, journeys, and behavioral context.",
+    primaryKeyword: "website heatmap tools",
+    secondaryKeywords: ["website heatmap analytics", "click heatmaps", "scroll heatmaps", "attention maps", "touch heatmaps", "rage click heatmaps", "mobile heatmaps"],
+    searchIntent: "commercial",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 100,
+      organicKd: 9,
+      volumeSource: "Ahrefs lower-bound volume bucket",
+      kdSource: "Ahrefs",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["website heatmap tools", "website heatmap analytics", "click heatmaps", "scroll heatmaps", "attention maps", "touch heatmaps", "rage click heatmaps", "mobile heatmaps"],
+    keywordSections: [
+      {
+        title: "What are users missing?",
+        description: "See whether important content was viewed, skimmed, or never reached before users left.",
+        bullets: ["Click density", "Rage-click clusters", "Dead-control investigation"],
+      },
+      {
+        title: "Where are repeated clicks signaling friction?",
+        description: "Separate intentional interaction from rage clicks, dead controls, and misleading interface cues.",
+        bullets: ["Scroll depth", "Content exposure", "Web attention patterns"],
+      },
+      {
+        title: "Which sessions created the pattern?",
+        description: "Open matching replays to verify the cause before redesigning the page or mobile screen.",
+        bullets: ["Touch density", "Mobile dead zones", "Associated session replay"],
+      },
     ],
     image: "/images/engineering/heatmaps-attention-docs.png",
     imageAlt: "Rejourney heatmap workspace showing a product page with interaction density",
@@ -1056,9 +1382,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Replay-First Workspace",
     subtitle:
       "Use real sessions as the first shared artifact in product decisions, support escalations, bug triage, and release reviews.",
-    metaTitle: "Replay-First Mentality | Rejourney",
+    metaTitle: "Replay-First Product Analytics | Rejourney",
     metaDescription:
-      "Learn the replay-first mentality for product, support, and engineering teams that want decisions grounded in real user sessions.",
+      "Learn how replay-first product analytics grounds product, support, design, and engineering decisions in real user sessions.",
     keywords: ["replay-first mentality", "replay first analytics", "session replay analytics", "user experience evidence"],
     image: "/images/hero-replay-workbench.png",
     imageAlt: "Rejourney replay workbench for replay-first product investigation",
@@ -1105,9 +1431,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "Open Source Foundation",
     subtitle:
       "Session replay touches product behavior, user privacy, and debugging workflows. Source visibility makes those boundaries easier to inspect.",
-    metaTitle: "Importance of Open Source | Rejourney",
+    metaTitle: "Open Source Product Analytics | Rejourney",
     metaDescription:
-      "Why open source matters for session replay, product analytics, self-hosting, privacy, auditability, and long-term observability control.",
+      "Why open source matters for lightweight product analytics, session replay, self-hosting, privacy, auditability, and long-term control.",
     keywords: ["importance of open source", "open source session replay", "self-hosted session replay", "open source analytics"],
     image: "/images/readme-user-journeys.png",
     imageAlt: "Rejourney open-source user journey analytics view",
@@ -1156,8 +1482,19 @@ export const SEO_PAGES: SeoPage[] = [
       "Session replay reconstructs a user experience so teams can inspect the visible path, the surrounding events, and the system signals around a confusing moment.",
     metaTitle: "What Is Session Replay? | Rejourney",
     metaDescription:
-      "Learn what session replay is, how it works, and how Rejourney uses replay with analytics, heatmaps, journeys, crashes, and network context.",
-    keywords: ["what is session replay", "how does session replay work", "session replay analytics", "what are session replay tools"],
+      "Learn what session replay is, how it works, and how it connects with product analytics, heatmaps, journeys, crashes, and network context.",
+    primaryKeyword: "what is session replay",
+    secondaryKeywords: ["how does session replay work", "session replay analytics", "session replay definition"],
+    searchIntent: "informational",
+    keywordEvidence: {
+      geography: "United States",
+      volume: 65,
+      organicKd: null,
+      volumeSource: "Wordtracker",
+      kdSource: "Ahrefs Medium category",
+      checkedAt: "2026-08-01",
+    },
+    keywords: ["what is session replay", "how does session replay work", "session replay analytics", "session replay definition"],
     image: "/images/landing-replay-theater.png",
     imageAlt: "Rejourney replay theater explaining session replay",
     proofPoints: ["Behavior context", "Debugging evidence", "Product insight"],
@@ -1203,9 +1540,9 @@ export const SEO_PAGES: SeoPage[] = [
     title: "See What Users Do",
     subtitle:
       "Move from vague feedback to real sessions, journey paths, heatmaps, events, crashes, and API context that point to the same moment.",
-    metaTitle: "How to See What Your Users Do | Rejourney",
+    metaTitle: "See What Users Do with Product Analytics | Rejourney",
     metaDescription:
-      "Learn how to see what users do in your app or website with session replay, heatmaps, journeys, events, crash context, and product analytics.",
+      "See what users do in your app or website with lightweight product analytics, session replay, heatmaps, journeys, events, and crash context.",
     keywords: ["how to see what users do", "see what users do on website", "user behavior analytics", "session replay"],
     image: "/images/readme-general-demo.png",
     imageAlt: "Rejourney dashboard showing user behavior analytics and replay context",
@@ -1252,10 +1589,13 @@ export const SEO_PAGES: SeoPage[] = [
     title: "True User Experience",
     subtitle:
       "Watch real sessions before shipping so roadmap debates, bug triage, and design reviews stay attached to what people actually experienced.",
-    metaTitle: "Be Your Users | Rejourney",
+    metaTitle: "User-Centered Product Analytics | Rejourney",
     metaDescription:
-      "Be your users by watching real sessions, reviewing journeys, inspecting friction, and grounding product decisions in actual user behavior.",
-    keywords: ["be your users", "watch user sessions", "user experience analytics", "session replay product teams"],
+      "Ground product decisions in actual user behavior with session replay, journeys, friction evidence, and lightweight product analytics.",
+    primaryKeyword: "watch user sessions",
+    secondaryKeywords: ["be your users", "session replay for product teams", "user-centered product decisions"],
+    searchIntent: "informational",
+    keywords: ["watch user sessions", "be your users", "session replay for product teams", "user-centered product decisions"],
     image: "/images/user-journeys.png",
     imageAlt: "Rejourney user journeys view for understanding real product paths",
     proofPoints: ["User empathy", "Real sessions", "Shared reviews"],
@@ -1300,9 +1640,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "PostHog works well when you want a broad product OS. Rejourney is for teams that want replay, mobile evidence, heatmaps, journeys, and debugging context to stay close together.",
-    metaTitle: "Rejourney vs PostHog Session Replay",
+    metaTitle: "PostHog Alternative for Product Analytics | Rejourney",
     metaDescription:
-      "Compare Rejourney with PostHog session replay for web and mobile replay, unlimited events, retention, projects, team members, and pricing.",
+      "Compare PostHog with Rejourney for lightweight product analytics, web and mobile replay, unlimited events, retention, teams, and pricing.",
     keywords: ["posthog session replay", "session replay posthog", "posthog alternatives", "posthog react native session replay"],
     image: "/images/landing-replay-theater.png",
     imageAlt: "Rejourney replay dashboard as a PostHog session replay alternative",
@@ -1389,9 +1729,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Sentry is built for developer diagnostics. Rejourney is for teams that need replay to explain product behavior beyond exceptions.",
-    metaTitle: "Sentry Session Replay Pricing & Alternative | Rejourney",
+    metaTitle: "Sentry Alternative with Session Replay | Rejourney",
     metaDescription:
-      "See Sentry Session Replay pricing and limits from official sources, then compare Rejourney for journeys, heatmaps, mobile apps, and revenue-leak evidence.",
+      "Compare Sentry with Rejourney for lightweight product analytics, session replay, mobile apps, funnels, heatmaps, crashes, and API context.",
     keywords: ["sentry session replay", "sentry self hosted session replay", "session replay for sentry", "sentry alternatives"],
     image: "/images/anr-issues.png",
     imageAlt: "Rejourney crash and ANR replay context as a Sentry Session Replay alternative",
@@ -1483,9 +1823,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Datadog makes sense inside a broad observability stack. Rejourney is for product teams that want session evidence without adopting the whole stack.",
-    metaTitle: "Datadog Session Replay Pricing & Alternative | Rejourney",
+    metaTitle: "Datadog Alternative for Product Analytics | Rejourney",
     metaDescription:
-      "See Datadog Session Replay pricing and limits, then compare Rejourney for product journeys, mobile apps, API context, and revenue-leak evidence.",
+      "Compare Datadog with Rejourney for lightweight product analytics, session replay, mobile apps, funnels, API context, and simpler pricing.",
     keywords: ["datadog session replay", "datadog rum session replay", "datadog alternatives", "session replay tools"],
     image: "/images/geo-analytics.png",
     imageAlt: "Rejourney geo analytics and replay context as a Datadog alternative",
@@ -1573,9 +1913,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Amplitude is strong when analytics is the center. Rejourney is for teams that need the replay behind the metric.",
-    metaTitle: "Amplitude Session Replay Pricing & Alternative | Rejourney",
+    metaTitle: "Amplitude Alternative with Session Replay | Rejourney",
     metaDescription:
-      "See Amplitude Session Replay pricing and plan limits, then compare Rejourney for mobile context, journeys, heatmaps, and revenue-leak evidence.",
+      "Compare Amplitude with Rejourney for lightweight product analytics, web and mobile replay, journeys, heatmaps, stability, and pricing.",
     keywords: ["amplitude session replay", "amplitude session replay pricing", "amplitude alternatives", "product analytics session replay"],
     image: "/images/growth-engines.png",
     imageAlt: "Rejourney growth analytics as an Amplitude session replay alternative",
@@ -1669,9 +2009,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Mixpanel is built around event analytics. Rejourney is for teams that need replay, journeys, heatmaps, crashes, and API context beside the event trail.",
-    metaTitle: "Mixpanel Session Replay Alternative | Rejourney",
+    metaTitle: "Mixpanel Alternative with Session Replay | Rejourney",
     metaDescription:
-      "Compare Mixpanel Session Replay with Rejourney for journeys, heatmaps, mobile apps, crash and API context, plus revenue-leak evidence behind the event.",
+      "Compare Mixpanel with Rejourney for lightweight product analytics, web and mobile session replay, heatmaps, journeys, crashes, and API context.",
     keywords: ["mixpanel session replay", "mixpanel alternatives", "product analytics session replay", "session replay software"],
     image: "/images/readme-user-journeys.png",
     imageAlt: "Rejourney journey analytics as a Mixpanel session replay alternative",
@@ -1767,9 +2107,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Pendo is built for product adoption and in-app guidance. Rejourney is for teams that need replay evidence before deciding what to guide, redesign, or fix.",
-    metaTitle: "Pendo Session Replay Alternative | Rejourney",
+    metaTitle: "Pendo Alternative for Product Analytics | Rejourney",
     metaDescription:
-      "Compare Pendo Session Replay with Rejourney for onboarding friction, product analytics, mobile apps, technical context, and revenue-leak evidence.",
+      "Compare Pendo with Rejourney for lightweight product analytics, onboarding evidence, web and mobile replay, funnels, and technical context.",
     keywords: ["pendo session replay", "pendo alternatives", "product adoption analytics", "session replay tools"],
     image: "/images/readme-general-demo.png",
     imageAlt: "Rejourney issue detection inbox with ranked leak signals",
@@ -1870,9 +2210,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Smartlook is entering Cisco end-of-sale and end-of-life. Rejourney is for teams that still need replay, heatmaps, journeys, mobile evidence, and technical context in one focused workflow.",
-    metaTitle: "Smartlook Alternatives After Cisco EOL | Rejourney",
+    metaTitle: "Smartlook Alternative for Session Replay | Rejourney",
     metaDescription:
-      "Compare Smartlook alternatives after Cisco end of sale. See migration dates, replay, heatmaps, mobile apps, crash context, and Rejourney evidence.",
+      "Compare Smartlook alternatives after Cisco end of sale, including lightweight product analytics, replay, heatmaps, mobile apps, and crash context.",
     keywords: ["smartlook alternatives", "smartlook alternative", "smartlook replacement", "smartlook end of life", "smartlook pricing", "session replay tools", "mobile session replay", "heatmap analytics"],
     image: "/images/engineering/smartlook-alternatives-replay-detail.png",
     imageAlt: "Rejourney replay workbench showing mobile session replay, API calls, timeline events, and session context",
@@ -1964,9 +2304,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Hotjar's replay experience is moving into Contentsquare. Rejourney is the focused alternative for teams that want web and mobile replay tied to product and engineering evidence.",
-    metaTitle: "Hotjar Alternatives: Rejourney vs Hotjar",
+    metaTitle: "Hotjar Alternative for Web & Mobile Replay | Rejourney",
     metaDescription:
-      "Compare Rejourney and Hotjar alternatives for heatmaps, session replay, user journeys, mobile analytics, unlimited events, retention, projects, and teams.",
+      "Compare Hotjar with Rejourney for lightweight product analytics, web and mobile replay, heatmaps, journeys, unlimited events, and retention.",
     keywords: ["hotjar alternatives", "hotjar competitors", "alternative hotjar", "hotjar alternative", "session replay tools", "behavior analytics tools", "heatmap analytics"],
     image: "/images/engineering/churn-mobile-heatmap.png",
     imageAlt: "Rejourney heatmap workspace showing a product page with interaction density",
@@ -2055,9 +2395,9 @@ export const SEO_PAGES: SeoPage[] = [
     badge: "",
     subtitle:
       "Fullstory is a mature digital experience platform. Rejourney is the leaner replay-first alternative with mobile context, simple limits, and open-source/self-hosting paths.",
-    metaTitle: "Fullstory Alternatives: Rejourney vs Fullstory",
+    metaTitle: "Fullstory Alternative for Lightweight Replay | Rejourney",
     metaDescription:
-      "Compare Rejourney with Fullstory alternatives for session replay, mobile analytics, heatmaps, journeys, unlimited events, retention, projects, and teams.",
+      "Compare Fullstory with Rejourney for lightweight product analytics, web and mobile replay, heatmaps, journeys, unlimited events, and retention.",
     keywords: ["fullstory alternatives", "fullstory alternative", "best fullstory alternatives", "fullstory competitors", "fullstory session replay", "session replay alternatives"],
     image: "/images/hero-replay-workbench.png",
     imageAlt: "Rejourney replay workbench as a Fullstory alternative",

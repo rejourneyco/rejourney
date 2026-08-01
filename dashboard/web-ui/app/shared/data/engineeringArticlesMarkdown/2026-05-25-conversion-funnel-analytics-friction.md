@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Conversion Funnel Analytics: Catch Friction and Improve Retention"
 subtitle: "How product analytics, journeys, heatmaps, rage clicks, and replay turn funnel drop-off into a fix list."
 slug: "conversion-funnel-analytics-friction"
@@ -16,9 +17,7 @@ metaDescription: "Use conversion funnel analytics, product analytics, user journ
 targetKeywords:
   - conversion funnel analytics
   - product analytics
-  - product analytics tools
   - user journey analytics
-  - customer journey analytics
   - heatmap analytics
   - rage click tracking
   - retention metrics
@@ -31,7 +30,7 @@ topicTags:
   - Heatmaps
   - Retention
   - Session Replay
-seoKeywords: "conversion funnel analytics, product analytics, product analytics tools, user journey analytics, customer journey analytics, heatmap analytics, rage click tracking, retention metrics, user retention, conversion rate optimization tools"
+seoKeywords: "conversion funnel analytics, product analytics, user journey analytics, heatmap analytics, rage click tracking, retention metrics, user retention, conversion rate optimization tools"
 ---
 
 Most teams do not have a funnel problem because they cannot calculate conversion rate. They have a funnel problem because the number stops at the least useful moment.
@@ -379,3 +378,5 @@ Rejourney is built for this combined workflow:
 The important part is not that these features exist. The important part is that they are connected. A funnel chart should open the exact sessions that explain the drop. A rage click should show the API request nearby. A heatmap cluster should lead to replays from users who abandoned. A retention cohort should tell you whether the fix created durable value.
 
 That is how analytics improves funnels: not by making the chart prettier, but by making the next product decision obvious.
+
+Use Rejourney's [funnel analysis with replay evidence](/funnel-replay-evidence) to open the sessions behind a drop, then validate the visual pattern with [website and mobile heatmaps](/heatmaps).

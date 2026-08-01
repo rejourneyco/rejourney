@@ -21,8 +21,8 @@ import {
 
 const homeLocale = MARKETING_LOCALES.en;
 const canonicalUrl = getMarketingLocaleUrl(homeLocale);
-const socialPreviewImage = "https://rejourney.co/images/growth-engines.png?v=20260619";
-const socialPreviewAlt = "Rejourney revenue leak prediction dashboard preview";
+const socialPreviewImage = "https://rejourney.co/images/readme/analytics-overview.png?v=20260619";
+const socialPreviewAlt = "Rejourney lightweight product analytics dashboard for web and mobile apps";
 const homeKeywords = homeLocale.keywords;
 
 export function loader({ request }: Route.LoaderArgs) {
@@ -59,6 +59,7 @@ export const meta: Route.MetaFunction = () => {
         },
         { httpEquiv: "Content-Language", content: homeLocale.languageTag },
         { property: "og:locale", content: homeLocale.ogLocale },
+        { property: "og:site_name", content: "Rejourney" },
         { property: "og:title", content: homeLocale.metaTitle },
         {
             property: "og:description",
@@ -67,8 +68,8 @@ export const meta: Route.MetaFunction = () => {
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "website" },
         { property: "og:image", content: socialPreviewImage },
-        { property: "og:image:width", content: "1564" },
-        { property: "og:image:height", content: "1078" },
+        { property: "og:image:width", content: "1286" },
+        { property: "og:image:height", content: "920" },
         { property: "og:image:alt", content: socialPreviewAlt },
         { property: "og:image:type", content: "image/png" },
         { name: "twitter:card", content: "summary_large_image" },
@@ -104,8 +105,8 @@ export default function LandingPage() {
                                 primaryImageOfPage: {
                                     "@type": "ImageObject",
                                     url: socialPreviewImage,
-                                    width: 1564,
-                                    height: 1078,
+                                    width: 1286,
+                                    height: 920,
                                 },
                                 isPartOf: {
                                     "@type": "WebSite",
@@ -123,7 +124,7 @@ export default function LandingPage() {
                                 name: "Rejourney",
                                 applicationCategory: "BusinessApplication",
                                 operatingSystem: "Web, iOS, Android",
-                                description: "Revenue leak prediction for web and mobile apps. Rejourney connects replay, journey, error, heatmap, and revenue signals to predict checkout, onboarding, subscription, paywall, and churn leaks.",
+                                description: "Lightweight product analytics for web and mobile apps with session replay, funnels, heatmaps, crash and API context, unlimited events, and privacy controls.",
                                 url: "https://rejourney.co/",
                                 offers: {
                                     "@type": "Offer",

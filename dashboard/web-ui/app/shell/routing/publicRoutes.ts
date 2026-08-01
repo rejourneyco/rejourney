@@ -1,5 +1,9 @@
 import { index, route } from "@react-router/dev/routes";
 import { SEO_PAGE_PATHS } from "../../features/public/seo/seoPages";
+import {
+  SEO_LOCALIZED_LOCALE_CODES,
+  SEO_LOCALIZED_PAGE_PATHS,
+} from "../../features/public/seo/seoLocalization";
 import { MARKETING_LOCALE_SLUGS } from "../../shared/lib/internationalMarketing";
 
 export const publicRoutes = [
@@ -7,7 +11,7 @@ export const publicRoutes = [
   ...MARKETING_LOCALE_SLUGS.map((locale) =>
     route(locale, "features/public/home/redirect.tsx", { id: `public-home-${locale}-redirect` })
   ),
-  route("light", "features/public/light/route.tsx", { id: "public-light" }),
+  route("light", "shell/routing/redirects/LightRedirect.tsx", { id: "public-light-redirect" }),
   route("docs", "features/public/docs/index/route.tsx", { id: "public-docs-index" }),
   route("docs/ai-prompts/:promptId", "features/public/docs/ai-prompts/route.tsx", { id: "public-docs-ai-prompts" }),
   route("docs/*", "features/public/docs/slug/route.tsx", { id: "public-docs-slug" }),
@@ -24,6 +28,13 @@ export const publicRoutes = [
   ...SEO_PAGE_PATHS.map((path) =>
     route(path.replace(/^\//, ""), "features/public/seo/route.tsx", { id: `public-seo-${path.replace(/^\//, "").replace(/\//g, "-")}` })
   ),
+  ...SEO_LOCALIZED_LOCALE_CODES.flatMap((locale) =>
+    SEO_LOCALIZED_PAGE_PATHS.map((path) =>
+      route(`${locale}${path}`, "features/public/seo/route.tsx", {
+        id: `public-seo-${locale}-${path.replace(/^\//, "").replace(/\//g, "-")}`,
+      })
+    )
+  ),
   route("ai/responsibleusage", "features/public/ai/responsibleusage/route.tsx", { id: "public-ai-responsible-usage" }),
   route("terms-of-service", "features/public/legal/terms/route.tsx", { id: "public-terms" }),
   route("privacy-policy", "features/public/legal/privacy/route.tsx", { id: "public-privacy" }),
@@ -31,6 +42,8 @@ export const publicRoutes = [
   route("attributions", "features/public/legal/attributions/route.tsx", { id: "public-attributions" }),
   route("engineering", "features/public/engineering/list/route.tsx", { id: "public-engineering-list" }),
   route("engineering/:date/:slug", "features/public/engineering/article/route.tsx", { id: "public-engineering-article" }),
+  route("guides", "features/public/guides/list/route.tsx", { id: "public-guides-list" }),
+  route("guides/:date/:slug", "features/public/engineering/article/route.tsx", { id: "public-guide-article" }),
   route("feed.xml", "features/public/feed/route.tsx", { id: "public-feed" }),
   route("sitemap.xml", "features/public/sitemap/route.tsx", { id: "public-sitemap" }),
   route("login", "features/public/auth/login/route.tsx", { id: "public-login" }),

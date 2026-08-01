@@ -20,6 +20,7 @@ import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoun
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
 import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
 import { useToast } from "~/shared/providers/ToastContext";
+import { TeamProvider } from "~/shared/providers/TeamContext";
 
 export const meta: Route.MetaFunction = () => [
     // Authenticated app; crawlers without a session get redirected to /login.
@@ -152,19 +153,25 @@ export default function DashboardLayout() {
     const bootstrap = useLoaderData<typeof loader>();
 
     return (
-        <ClientErrorBoundary>
-            <ProtectedRoute>
-                <SessionDataProvider
-                    initialProjects={bootstrap.projects}
-                    initialProjectsTeamId={bootstrap.projectsTeamId}
-                    initialSelectedProjectId={bootstrap.selectedProjectId}
-                >
-                    <TabProvider>
-                        <DashboardLayoutContent />
-                    </TabProvider>
-                </SessionDataProvider>
-            </ProtectedRoute>
-        </ClientErrorBoundary>
+        <TeamProvider
+            initialTeams={bootstrap.teams}
+            initialCurrentTeamId={bootstrap.currentTeamId}
+            initialHydrated
+        >
+            <ClientErrorBoundary>
+                <ProtectedRoute>
+                    <SessionDataProvider
+                        initialProjects={bootstrap.projects}
+                        initialProjectsTeamId={bootstrap.projectsTeamId}
+                        initialSelectedProjectId={bootstrap.selectedProjectId}
+                    >
+                        <TabProvider>
+                            <DashboardLayoutContent />
+                        </TabProvider>
+                    </SessionDataProvider>
+                </ProtectedRoute>
+            </ClientErrorBoundary>
+        </TeamProvider>
     );
 }
 

@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Churn is not a number. It is a story of Friction."
 subtitle: "How retention metrics, heatmaps, rage clicks, crashes, performance, and replay turn churn analysis into a product repair workflow."
 slug: "churn-story-of-friction"

@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Ambiguity Kills App Growth"
 subtitle: "Why API errors can hurt mobile user retention more than crashes."
 slug: "ambiguity-kills-app-growth"

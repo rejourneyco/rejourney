@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Mobile App Paywall Analytics: Measure the Path to Purchase"
 subtitle: "Paywall conversion begins before the screen appears and ends after purchase state, entitlement, and first paid value agree."
 slug: "mobile-app-paywall-analytics"
@@ -162,4 +163,4 @@ This prevents every conversion dip from becoming a visual redesign.
 
 Rejourney joins paywall exposure and store outcomes to the app session that produced them. Open a failed cohort by placement, trigger, version, or device, then watch the offer selection and the return from the system purchase sheet. Entitlement evidence shows whether the customer actually received access.
 
-When the problem is clear, [paywall conversion optimization](/engineering/2026-07-12/paywall-conversion-optimization) provides a way to test the change without losing subscriber-quality guardrails.
+When the problem is clear, [paywall conversion optimization](/guides/2026-07-12/paywall-conversion-optimization) provides a way to test the change without losing subscriber-quality guardrails.

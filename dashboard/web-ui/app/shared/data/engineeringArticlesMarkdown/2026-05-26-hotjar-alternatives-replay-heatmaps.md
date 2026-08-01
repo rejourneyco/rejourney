@@ -1,19 +1,21 @@
 ---
+collection: guide
 title: "Hotjar Alternatives: When Heatmaps Are Not Enough"
 subtitle: "How to evaluate Hotjar alternatives when your team needs replay, heatmaps, journeys, mobile evidence, and technical context in one workflow."
 slug: "hotjar-alternatives-replay-heatmaps"
 date: "2026-05-26"
-dateModified: "2026-05-26"
+dateModified: "2026-08-01"
 readTime: "9 min read"
 image: "/images/engineering/churn-mobile-heatmap.png"
 imageAlt: "Rejourney heatmap workspace showing a product page with interaction density"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
-primaryKeyword: "hotjar alternatives"
+primaryKeyword: "hotjar alternatives for heatmaps"
 metaTitle: "Hotjar Alternatives: When Heatmaps Are Not Enough"
 metaDescription: "Compare Hotjar alternatives for heatmaps, session replay, journeys, mobile analytics, rage clicks, product analytics, and technical context."
 targetKeywords:
+  - hotjar alternatives for heatmaps
   - hotjar alternatives
   - hotjar competitors
   - alternative hotjar
@@ -31,7 +33,7 @@ topicTags:
   - User Journey Analytics
   - Product Analytics
   - UX Friction
-seoKeywords: "hotjar alternatives, hotjar competitors, alternative hotjar, session replay tools, behavior analytics tools, heatmap analytics, website heatmap google analytics, google analytics heatmap, session recording tools, mobile session replay"
+seoKeywords: "hotjar alternatives for heatmaps, hotjar alternatives, hotjar competitors, alternative hotjar, session replay tools, behavior analytics tools, heatmap analytics, website heatmap google analytics, google analytics heatmap, session recording tools, mobile session replay"
 ---
 
 Hotjar has long been a popular choice for marketing sites and landing pages. Its visual heatmaps, simple session recordings, and quick feedback widgets are excellent for verifying that a page layout is working or gathering quick user feedback.

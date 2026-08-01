@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Paywall Conversion Optimization: Improve the Proven Transition"
 subtitle: "A better paywall starts with the user population, value state, and failed transition—not a gallery of high-converting screenshots."
 slug: "paywall-conversion-optimization"
@@ -133,4 +134,4 @@ The post-release sessions are the qualitative counterpart to the experiment resu
 
 Rejourney keeps the experiment population tied to its paywall sessions. Review the exact placement and trigger, compare successful and failed users, and check the store and entitlement outcome before writing the hypothesis. The test then addresses a visible failure instead of copying a design pattern from another app.
 
-Start the diagnosis with [mobile app paywall analytics](/engineering/2026-07-12/mobile-app-paywall-analytics).
+Start the diagnosis with [mobile app paywall analytics](/guides/2026-07-12/mobile-app-paywall-analytics).

@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Subscription Funnel Analytics: Connect Trial, Upgrade, Renewal, and Entitlement"
 subtitle: "Subscription conversion is a chain of product and billing states. Measuring only the checkout event hides where recurring revenue actually leaks."
 slug: "subscription-funnel-analytics"
@@ -149,4 +150,4 @@ The final line is what turns a subscription report into product work.
 
 Rejourney follows the subscriber through product use, the offer, payment, entitlement, renewal, and cancellation while retaining the sessions around each transition. This makes it possible to distinguish a commercial choice from a broken or confusing product path.
 
-The [in-app subscription analytics guide](/engineering/2026-07-12/in-app-subscription-analytics) covers store-based apps; [payment failure analytics](/engineering/2026-07-12/payment-failure-analytics) covers recovery and reconciliation.
+The [in-app subscription analytics guide](/guides/2026-07-12/in-app-subscription-analytics) covers store-based apps; [payment failure analytics](/guides/2026-07-12/payment-failure-analytics) covers recovery and reconciliation.

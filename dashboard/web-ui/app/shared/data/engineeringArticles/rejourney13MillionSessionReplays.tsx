@@ -6,7 +6,7 @@ const SCALING_ARTICLE_URL = "https://rejourney.co/engineering/2026-04-23/rejourn
 
 const scalingArticleSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "TechArticle",
     headline: "Rejourney Hits 1.3 Million Session Replays in 3 Months",
     description:
         "Lessons in edge security, durable pipelines, and scaling during a 10x traffic spike.",
@@ -290,6 +290,7 @@ const ScalingArticleContent = () => (
 );
 
 export const rejourney13MillionSessionReplaysArticle: Article = {
+    collection: "engineering",
     id: "rejourney-1-3-million-session-replays",
     title: "Rejourney Hits 1.3 Million Session Replays in 3 Months",
     subtitle: "Lessons in edge security, durable pipelines, and scaling during a 10x traffic spike.",

@@ -1,15 +1,16 @@
 # Rejourney
 
-> Rejourney is a revenue leak prediction platform for web and mobile apps. It helps teams predict checkout, onboarding, subscription, paywall, payment-failure, and churn leaks by connecting replay, heatmaps, journey, stability, API, and revenue signals.
+> Rejourney is a lightweight product analytics platform for web and mobile apps. It connects unlimited events, session replay, funnels, heatmaps, journeys, crashes, devices, and API context in one privacy-conscious workspace.
 
 ## Best Starting Points
 
-- [Home](https://rejourney.co/): Revenue leak prediction overview for web and mobile apps, including checkout analytics, onboarding drop-off, subscription analytics, churn risk, and failed flows.
-- [Pricing](https://rejourney.co/pricing): Fixed-price revenue leak prediction plans for checkout, onboarding, and subscription analytics teams.
+- [Home](https://rejourney.co/): Lightweight product analytics for web and mobile apps with replay, funnels, heatmaps, stability, and API context.
+- [Website Analytics](https://rejourney.co/website-analytics): Lightweight website analytics with unlimited events, funnels, errors, heatmaps, and replay evidence.
+- [App Analytics](https://rejourney.co/app-analytics): Lightweight mobile app analytics for Flutter, React Native, Expo, and iOS with retention, stability, and replay evidence.
+- [Pricing](https://rejourney.co/pricing): Simple session-based product analytics plans with unlimited events and analytics retention.
 - [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for Flutter, iOS, Expo, and React Native teams.
-- [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from captured sessions to replay-backed revenue leak prediction.
+- [How Rejourney Works](https://rejourney.co/how-it-works): End-to-end flow from lightweight SDK capture to replay-backed product and engineering evidence.
 - [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
-- [Self-Healing Software](https://rejourney.co/self-healing-software): Product and engineering workflow for turning replay, stability, API, device, and journey signals into fix-ready repair context.
 - [Stability Monitoring](https://rejourney.co/stability-monitoring): Stability workflow for crashes, errors, ANRs, API spikes, affected users, devices, releases, and replay evidence.
 - [API Endpoint Insights](https://rejourney.co/api-endpoint-insights): API endpoint analytics for endpoint volume, latency, failure codes, risk, and affected session evidence.
 - [Device Insights](https://rejourney.co/device-insights): Device analytics for mobile app engagement, crash and ANR pressure, OS/app-version cohorts, and replay context.
@@ -21,6 +22,13 @@
 - [Be Your Users](https://rejourney.co/be-your-users): Team habit guide for watching real sessions before roadmap, design, and release decisions.
 - [PostHog Session Replay Alternative](https://rejourney.co/alternatives/posthog-session-replay): Comparison page for teams evaluating Rejourney vs PostHog session replay.
 - [Sentry Session Replay Alternative](https://rejourney.co/alternatives/sentry-session-replay): Comparison page for teams evaluating replay beyond error monitoring.
+- [Datadog Alternative](https://rejourney.co/alternatives/datadog-session-replay): Comparison for teams evaluating a lightweight product analytics alternative to broad observability.
+- [Amplitude Alternative](https://rejourney.co/alternatives/amplitude-session-replay): Comparison for teams evaluating product analytics with web and mobile replay context.
+- [Mixpanel Alternative](https://rejourney.co/alternatives/mixpanel-session-replay): Comparison for teams evaluating replay-backed product analytics and technical context.
+- [Pendo Alternative](https://rejourney.co/alternatives/pendo-session-replay): Comparison for teams prioritizing product analytics and replay over in-app guidance.
+- [Smartlook Alternative](https://rejourney.co/alternatives/smartlook): Comparison for teams migrating from Smartlook after Cisco end of sale.
+- [Hotjar Alternative](https://rejourney.co/alternatives/hotjar): Comparison for teams needing web and mobile analytics beyond heatmaps.
+- [Fullstory Alternative](https://rejourney.co/alternatives/fullstory): Comparison for teams looking for a lighter replay and product analytics stack.
 - [Engineering Log](https://rejourney.co/engineering): Technical articles on SDK architecture, pricing, scaling, SwiftPM, and map performance.
 - [React Native SDK](https://rejourney.co/docs/reactnative/overview): Install and configure the React Native SDK.
 - [Flutter SDK](https://rejourney.co/docs/flutter/overview): Install and configure the Flutter SDK for native iOS and Android replay.
@@ -29,23 +37,23 @@
 
 ## Core Product Concepts
 
-- Revenue leak prediction for checkout, onboarding, and subscription flows across web and mobile apps.
-- Replay-backed evidence for checkout drop-off, onboarding drop-off, subscription churn risk, paywall issues, payment failures, rage taps, API errors, crashes, and confusing journeys.
+- Lightweight product analytics for websites, web apps, and mobile apps.
+- Unlimited product events and unlimited analytics data retention, with session-based replay plans.
+- Replay-backed evidence for checkout drop-off, onboarding drop-off, churn, rage taps, API errors, crashes, and confusing journeys.
 - Mobile session replay for iOS, Android, Expo, React Native, Flutter, and Swift applications.
 - Touch heatmaps for mobile app screens, including rage tap and dead tap investigation.
 - Crash reporting, ANR monitoring, and stability signals for production mobile apps.
 - Stability monitoring for crashes, errors, ANRs, API spikes, affected users, devices, and releases.
 - API endpoint insights for endpoint volume, latency, failure codes, risk, and session-level product impact.
 - Device insights for mobile device analytics, engagement quality, issue pressure, and device-specific crash analytics.
-- Self-healing software workflows that turn repeated production friction into replay-backed fix packets.
 - Mobile journeys and product analytics for understanding funnels and user flows.
 - Self-hosted observability deployment for teams that need data ownership.
-- Open-source revenue leak prediction alternative to usage-priced analytics platforms.
+- Open-source product analytics alternative to event-priced analytics and heavyweight observability platforms.
 - Unlimited events, unlimited analytics data retention, unlimited team members, and unlimited projects for product analytics workflows.
 
 ## Engineering Articles By Search Intent
 
-- [Ambiguity Kills App Growth](https://rejourney.co/engineering/2026-05-18/ambiguity-kills-app-growth): Targets API errors app growth, API errors user retention, mobile app API errors, crash vs API error retention, rage taps API errors, and session replay analytics.
+- [Ambiguity Kills App Growth](https://rejourney.co/guides/2026-05-18/ambiguity-kills-app-growth): Targets API errors app growth, API errors user retention, mobile app API errors, crash vs API error retention, rage taps API errors, and session replay analytics.
 - [Cheap Session Replay: Rejourney vs PostHog Cost Math](https://rejourney.co/engineering/2026-05-06/mobile-session-replay-cost): Targets cheap session replay, cheap mobile session replay, affordable session replay, session replay pricing, PostHog session replay cost, and fixed-price mobile observability.
 - [SwiftPM Session Replay SDK: Rejourney Native iOS Beta](https://rejourney.co/engineering/2026-05-05/swift-package-open-beta): Targets SwiftPM session replay, native iOS observability, URLProtocol network tracking, and mobile replay SDK architecture.
 - [Scaling Session Replay to 1.3M Replays](https://rejourney.co/engineering/2026-04-23/rejourney-1-3-million-session-replays): Targets session replay scaling, Cloudflare edge security, Redis ingest pipelines, HA Postgres, and replay storage architecture.

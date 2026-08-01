@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Onboarding Funnel Analytics: Find the Step That Costs Activation"
 subtitle: "A practical way to measure onboarding completion, diagnose drop-off, and separate confusing UX from technical failure."
 slug: "onboarding-funnel-analytics"
@@ -146,4 +147,4 @@ That is much more useful than “step three has 42% drop-off.”
 
 Rejourney connects each onboarding transition with the users and sessions counted in it. Open the failed branch, compare it with successful users from the same role or release, and inspect the request or interface state at the moment the paths diverge.
 
-For mobile-specific handoffs and permission prompts, use [mobile app onboarding analytics](/engineering/2026-07-12/mobile-app-onboarding-analytics). The [activation metrics guide](/engineering/2026-07-12/user-activation-metrics) helps define the outcome at the end of the funnel.
+For mobile-specific handoffs and permission prompts, use [mobile app onboarding analytics](/guides/2026-07-12/mobile-app-onboarding-analytics). The [activation metrics guide](/guides/2026-07-12/user-activation-metrics) helps define the outcome at the end of the funnel.

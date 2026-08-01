@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Revenue Leakage in SaaS: Find Where Product Revenue Disappears"
 subtitle: "SaaS revenue can leak before billing, during checkout, after payment, and throughout renewal. The first step is naming the state that failed."
 slug: "revenue-leakage-saas"
@@ -154,4 +155,4 @@ Revenue loss prevention is strongest when the system notices contradiction befor
 
 Rejourney brings onboarding, feature use, checkout, subscription state, and the related sessions into the same investigation. A leak entry can point to the transition, cohort, release, and recordings that support it, while server-side business state determines whether the outcome truly failed.
 
-Use [revenue leak detection](/engineering/2026-07-12/revenue-leak-detection) to build the alert and [SaaS onboarding practices](/engineering/2026-07-12/saas-onboarding-best-practices) to work on the earliest part of the customer path.
+Use [revenue leak detection](/guides/2026-07-12/revenue-leak-detection) to build the alert and [SaaS onboarding practices](/guides/2026-07-12/saas-onboarding-best-practices) to work on the earliest part of the customer path.

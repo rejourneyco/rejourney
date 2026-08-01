@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Customer Journey Analytics: Find the Paths Funnels Leave Out"
 subtitle: "Funnels test an expected sequence. Journey analytics reveals the loops, alternate routes, and failed transitions users actually take."
 slug: "customer-journey-analytics"
@@ -138,4 +139,6 @@ The statement identifies the population, anchor, divergent path, and comparison.
 
 Rejourney uses the journey map as an index into real sessions. Select a path, isolate the branch where users loop or leave, and open the recordings that created it. A healthy session from the same cohort provides the comparison that a map alone cannot.
 
-For revenue-critical paths, the same cohort can feed a [revenue leak investigation](/engineering/2026-07-12/revenue-leak-detection).
+For revenue-critical paths, the same cohort can feed a [revenue leak investigation](/guides/2026-07-12/revenue-leak-detection).
+
+When the journey includes a measurable goal, continue in Rejourney's [funnel analysis with replay evidence](/funnel-replay-evidence). Use [web session replay](/web-session-replay) or [mobile app session replay](/mobile-session-replay) to inspect the experience behind the path.

@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Checkout Funnel Analytics: Diagnose the Drop Before Changing the Page"
 subtitle: "A checkout funnel should separate buyer hesitation, interface friction, payment failure, and delayed confirmation instead of treating every exit as abandonment."
 slug: "checkout-funnel-analytics"
@@ -164,4 +165,4 @@ A faster flow that creates more mistaken purchases is not a clean win. A fallbac
 
 A checkout report in Rejourney can lead straight to the sessions represented by a failed transition. Compare a payment attempt that stalled with a completed order from the same release and device. The difference often shows whether the customer hesitated, the interface stopped responding, or the application lost agreement with the payment and order systems.
 
-Use the related [checkout conversion guide](/engineering/2026-07-12/checkout-conversion-optimization) when the failure is understood and the team is ready to test a change.
+Use the related [checkout conversion guide](/guides/2026-07-12/checkout-conversion-optimization) when the failure is understood and the team is ready to test a change.

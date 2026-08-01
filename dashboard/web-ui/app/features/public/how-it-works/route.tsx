@@ -19,23 +19,28 @@ export const meta: Route.MetaFunction = () => {
   const canonicalUrl = `${SITE_URL}/how-it-works`;
 
   return [
-    { title: "How it Works | Rejourney" },
+    { title: "How Rejourney Works | Lightweight Product Analytics" },
     {
       name: "description",
       content:
-        "Learn how Rejourney records user sessions, groups repeated checkout failures and rage clicks, ranks by revenue impact, and exports developer context.",
+        "See how Rejourney connects lightweight product analytics, session replay, funnels, stability, and API context from user signal to verified fix.",
     },
     { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
-    { property: "og:title", content: "How it Works | Rejourney" },
+    { property: "og:site_name", content: "Rejourney" },
+    { property: "og:title", content: "How Rejourney Works | Lightweight Product Analytics" },
     {
       property: "og:description",
       content:
-        "Learn how Rejourney records user sessions, groups repeated checkout failures and rage clicks, ranks by revenue impact, and exports developer context.",
+        "See how lightweight product analytics, session replay, stability, and API context move from user signal to verified fix.",
     },
     { property: "og:url", content: canonicalUrl },
     { property: "og:type", content: "website" },
+    { property: "og:image", content: `${SITE_URL}/images/readme/analytics-overview.png` },
+    { property: "og:image:alt", content: "Rejourney lightweight product analytics workflow" },
     { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: "How it Works" },
+    { name: "twitter:title", content: "How Rejourney Works | Lightweight Product Analytics" },
+    { name: "twitter:image", content: `${SITE_URL}/images/readme/analytics-overview.png` },
+    { name: "twitter:image:alt", content: "Rejourney lightweight product analytics workflow" },
     { tagName: "link", rel: "canonical", href: canonicalUrl },
   ];
 };

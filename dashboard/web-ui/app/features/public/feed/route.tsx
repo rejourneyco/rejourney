@@ -1,8 +1,8 @@
 /**
- * RSS feed for the engineering log — one item per article for discovery and readers.
+ * RSS feed for Rejourney engineering articles and practical guides.
  */
 
-import { ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
+import { ALL_ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
 
 function escapeXml(text: string): string {
     return text
@@ -20,7 +20,7 @@ function articlePubDate(urlDate: string): string {
 
 export async function loader() {
     const base = "https://rejourney.co";
-    const itemsXml = ARTICLES.map((article) => {
+    const itemsXml = ALL_ARTICLES.map((article) => {
         const link = `${base}${getArticlePath(article)}`;
         const image = getAbsoluteArticleImage(article);
         return `
@@ -31,6 +31,7 @@ export async function loader() {
       <author>contact@rejourney.co (${escapeXml(article.author.name)})</author>
       <pubDate>${articlePubDate(article.urlDate)}</pubDate>
       <guid isPermaLink="true">${link}</guid>
+      <category>${article.collection === "engineering" ? "Engineering" : "Guides"}</category>
       ${article.seo.topicTags.map((tag) => `<category>${escapeXml(tag)}</category>`).join("")}
       <media:content url="${escapeXml(image)}" medium="image" />
       <media:thumbnail url="${escapeXml(image)}" />
@@ -40,9 +41,9 @@ export async function loader() {
     const rssFeed = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
-    <title>Rejourney Engineering Log</title>
-    <link>${base}/engineering</link>
-    <description>Technical articles on mobile session replay, mobile observability, and how Rejourney is built.</description>
+    <title>Rejourney Articles</title>
+    <link>${base}/guides</link>
+    <description>Technical engineering notes and practical guides to product analytics, session replay, conversion, and mobile app behavior.</description>
     <language>en-us</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
     <ttl>60</ttl>

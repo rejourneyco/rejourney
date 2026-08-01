@@ -79,22 +79,22 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
     return { price: 14900, plan: 'Enterprise', isCustom: true };
 };
 
-const getRevenueLeakPredictionText = (planName: string, sessionLimit: number) => {
+const getReplayAllowanceText = (planName: string, sessionLimit: number) => {
     switch (planName) {
         case 'free':
-            return <span><strong>5,000 sessions</strong> of Revenue Leak Prediction</span>;
+            return <span><strong>5,000 session replays</strong> per month</span>;
         case 'starter':
-            return <span><strong>5x more</strong> Revenue Leak Prediction than Free</span>;
+            return <span><strong>25,000 session replays</strong> per month</span>;
         case 'growth':
-            return <span><strong>20x more</strong> Revenue Leak Prediction than Free</span>;
+            return <span><strong>100,000 session replays</strong> per month</span>;
         case 'pro':
-            return <span><strong>70x more</strong> Revenue Leak Prediction than Free</span>;
+            return <span><strong>350,000 session replays</strong> per month</span>;
         case 'scale':
-            return <span><strong>200x more</strong> Revenue Leak Prediction than Free</span>;
+            return <span><strong>1,000,000 session replays</strong> per month</span>;
         case 'enterprise':
-            return <span><strong>Custom</strong> Revenue Leak Prediction coverage</span>;
+            return <span><strong>Custom session replay</strong> allowance</span>;
         default:
-            return <span>Revenue Leak Prediction included</span>;
+            return <span><strong>{sessionLimit.toLocaleString()}</strong> session replays per month</span>;
     }
 };
 
@@ -258,7 +258,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>7 days</strong> evidence retention</span>, active: true },
-                { key: 'ai', content: getRevenueLeakPredictionText('free', plan.sessionLimit), active: true },
+                { key: 'replay', content: getReplayAllowanceText('free', plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Standard funnel and cohort trends</span>, active: true },
                 { key: 'controls', content: <span>Standard session recording controls</span>, active: true },
@@ -269,7 +269,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>{plan.videoRetentionLabel}</strong> evidence retention</span>, active: true },
-                { key: 'ai', content: getRevenueLeakPredictionText(plan.name, plan.sessionLimit), active: true },
+                { key: 'replay', content: getReplayAllowanceText(plan.name, plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Checkout, onboarding, & paywall drill-downs</span>, active: true },
                 { key: 'diagnostics', content: <span>Crash, API, and ANR diagnostic tools</span>, active: true },
@@ -280,7 +280,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>Custom volume</strong> of monthly sessions</span>, active: true },
                 { key: 'retention', content: <span><strong>Custom</strong> evidence retention history</span>, active: true },
-                { key: 'ai', content: getRevenueLeakPredictionText('enterprise', plan.sessionLimit), active: true },
+                { key: 'replay', content: getReplayAllowanceText('enterprise', plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Full suite of custom funnels & analytics</span>, active: true },
                 { key: 'hardware', content: <span>Dedicated hardware & custom storage bucket</span>, active: true },

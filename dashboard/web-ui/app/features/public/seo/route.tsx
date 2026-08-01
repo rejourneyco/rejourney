@@ -1,5 +1,6 @@
 import React from "react";
-import { Link, useLocation } from "react-router";
+import { isbot } from "isbot";
+import { data, Link, redirect, useLocation } from "react-router";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   ArrowRight,
@@ -22,22 +23,94 @@ import {
 } from "lucide-react";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
-import { SITE_URL } from "~/shared/lib/internationalMarketing";
+import { MARKETING_LOCALES, SITE_URL } from "~/shared/lib/internationalMarketing";
 import { getSeoPageByPath, type SeoComparisonValue, type SeoPage } from "./seoPages";
+import {
+  SEO_LOCALIZED_LOCALE_CODES,
+  SEO_LOCALIZED_PAGE_PATHS,
+  getLocalizedSeoAlternateLinks,
+  getLocalizedSeoFaq,
+  getLocalizedSeoPage,
+  getLocalizedSeoPageByPath,
+  getLocalizedSeoPath,
+  getPreferredSeoLocaleCode,
+  isSeoLocalizedPagePath,
+  type LocalizedSeoPage,
+} from "./seoLocalization";
 import { SankeyPanel } from "../home/components/AiLeakHomepage";
+import { EuFlag } from "../home/components/EuFlag";
+import { GermanFlag } from "../home/components/GermanFlag";
+import { PerformanceMetrics } from "../home/components/PerformanceMetrics";
+import {
+  MarkAngular,
+  MarkExpo,
+  MarkFlutter,
+  MarkGatsby,
+  MarkHydrogen,
+  MarkNextJs,
+  MarkReactNative,
+  MarkRedux,
+  MarkRemix,
+  MarkShopify,
+  MarkSvelte,
+  MarkSwift,
+  MarkVue,
+} from "../home/components/PlatformMarks";
 
 const iconCycle = [PlayCircle, Infinity, Users, Layers3, Gauge, GitBranch];
 
 const normalizePath = (pathname: string) => (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname);
+
+const ATTRIBUTION_PARAMETER_NAMES = new Set(["gclid", "gbraid", "wbraid", "dclid"]);
+
+export function landingHrefWithAttribution(href: string, search: string): string {
+  const source = new URLSearchParams(search);
+  const destination = new URL(href, SITE_URL);
+  source.forEach((value, key) => {
+    if (ATTRIBUTION_PARAMETER_NAMES.has(key) || key.startsWith("utm_")) destination.searchParams.set(key, value);
+  });
+  if (/^https?:\/\//i.test(href)) return destination.toString();
+  return `${destination.pathname}${destination.search}${destination.hash}`;
+}
+
+function AttributionLinkPreserver() {
+  const location = useLocation();
+
+  React.useEffect(() => {
+    if (!location.search) return;
+    document.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((anchor) => {
+      const href = anchor.getAttribute("href");
+      if (!href?.startsWith("/")) return;
+      const destination = new URL(href, SITE_URL);
+      const preservesAttribution = destination.pathname === "/login"
+        || destination.pathname === "/demo"
+        || destination.pathname === "/pricing"
+        || destination.pathname === "/docs"
+        || destination.pathname.startsWith("/docs/");
+      if (preservesAttribution) anchor.setAttribute("href", landingHrefWithAttribution(href, location.search));
+    });
+  }, [location.search]);
+
+  return null;
+}
 
 const OPTIMIZED_MARKETING_IMAGES: Record<string, string> = {
   "/images/anr-issues.png": "/images/anr-issues.webp",
   "/images/geo-analytics.png": "/images/geo-analytics.webp",
   "/images/geo-intelligence.png": "/images/geo-intelligence.webp",
   "/images/growth-engines.png": "/images/growth-engines.webp",
+  "/images/heatmaps.png": "/images/heatmaps.webp",
   "/images/issues-feed.png": "/images/issues-feed.webp",
+  "/images/landing-replay-theater.png": "/images/landing-replay-theater.webp",
+  "/images/engineering/heatmaps-attention-docs.png": "/images/engineering/heatmaps-attention-docs.webp",
+  "/images/engineering/product-tools-live-general.png": "/images/engineering/product-tools-live-general.webp",
+  "/images/engineering/product-tools-live-replay.png": "/images/engineering/product-tools-live-replay.webp",
   "/images/landing-replay-workbench.png": "/images/landing-replay-workbench.webp",
+  "/images/readme/analytics-overview.png": "/images/readme/analytics-overview.webp",
   "/images/readme-general-demo.png": "/images/readme-general-demo.webp",
+  "/images/readme-user-journeys.png": "/images/readme-user-journeys.webp",
+  "/images/session-replay-preview.png": "/images/session-replay-preview.webp",
+  "/images/web-session-replay-workbench.png": "/images/web-session-replay-workbench.webp",
 };
 
 const optimizedMarketingImage = (src: string) => OPTIMIZED_MARKETING_IMAGES[src] ?? src;
@@ -148,20 +221,6 @@ type FeatureDisplay = {
 const defaultFeatureTabs = ["Watch sessions", "Find drop-offs", "Review launches", "Debug stability", "Share evidence"];
 
 const featureDisplayByPath: Record<string, FeatureDisplay> = {
-  "/ai-funnel-leak-detection": {
-    title: "AI funnel leak detection",
-    subtitle: "Rank conversion leaks, rage taps, crashes, API failures, and journey loops from the leaks page.",
-    guideTitle: "Start from the ranked leak",
-    fitTitle: "Best fit",
-    tradeoffTitle: "Use generic analytics when",
-    heroBullets: ["Rank repeated leak signals", "Open replay evidence", "Create fix-ready context"],
-    available: ["Product teams", "Growth teams", "Engineering"],
-    showcaseTabs: ["Detect", "Rank", "Replay", "Package", "Fix"],
-    showcaseTitle: "Turn the leaks page into a repair queue",
-    showcaseCopy: "Start with the ranked leak, then inspect the sessions, journeys, failures, and context that explain why users dropped.",
-    showcaseBullets: ["Group repeated issues", "Keep replay beside each leak", "Hand off evidence without rewriting it"],
-    steps: ["Open the leaks page", "Inspect the ranked evidence", "Route the context to the owner"],
-  },
   "/funnel-replay-evidence": {
     title: "Funnel replay evidence",
     subtitle: "Use journey ribbons to open replay evidence for paths where users branch, loop, or drop.",
@@ -217,48 +276,6 @@ const featureDisplayByPath: Record<string, FeatureDisplay> = {
     showcaseCopy: "Standardized context lets teams reopen, compare, and hand off the same evidence without translating it each time.",
     showcaseBullets: ["Tie events to sessions", "Preserve region and release context", "Export fix-ready summaries"],
     steps: ["Name the signals", "Attach them to sessions", "Reuse the context in handoffs"],
-  },
-  "/ai-agent-handoff": {
-    title: "AI agent handoff",
-    subtitle: "Package replay, event, request, crash, and journey evidence for developer AI workflows.",
-    guideTitle: "Prepare the packet",
-    fitTitle: "Best fit",
-    tradeoffTitle: "Use manual tickets when",
-    heroBullets: ["Replay links", "Markdown context", "Coding-agent ready"],
-    available: ["Engineering", "Support", "Product"],
-    showcaseTabs: ["Collect", "Summarize", "Review", "Paste", "Verify"],
-    showcaseTitle: "Give the agent the facts it needs",
-    showcaseCopy: "Turn session evidence into a structured packet a developer can review and hand to Cursor, Claude, Codex, or an IDE assistant.",
-    showcaseBullets: ["Describe expected and observed behavior", "Attach technical signals", "Keep the replay link with the fix context"],
-    steps: ["Open the issue", "Generate the context", "Review and hand off"],
-  },
-  "/autonomous-debugging": {
-    title: "Autonomous debugging",
-    subtitle: "Group repeated production failures with replay, stack, API, device, and release context.",
-    guideTitle: "Start with reproducible evidence",
-    fitTitle: "Best fit",
-    tradeoffTitle: "Use crash-only triage when",
-    heroBullets: ["Repeated signals", "Replay-linked bugs", "Fix-ready handoff"],
-    available: ["Engineering", "Mobile apps", "Web apps"],
-    showcaseTabs: ["Group", "Replay", "Inspect", "Handoff", "Verify"],
-    showcaseTitle: "Debug from the session that proves the bug",
-    showcaseCopy: "Autonomous debugging works when replay, crash, API, release, and user-path context stay together.",
-    showcaseBullets: ["Avoid reconstructing evidence by hand", "Open sessions behind repeated issues", "Hand off reproducible context"],
-    steps: ["Group the repeated signal", "Inspect replay and technical context", "Send the fix packet"],
-  },
-  "/self-healing-software": {
-    title: "Self-healing software",
-    subtitle: "Turn repeated session, stability, API, device, and journey signals into fix-ready work.",
-    guideTitle: "Start with evidence",
-    fitTitle: "Best fit",
-    tradeoffTitle: "Use generic monitoring when",
-    heroBullets: ["Detect repeated friction", "Package repair context", "Verify recovery"],
-    available: ["Engineering", "Product teams", "AI workflows"],
-    showcaseTabs: ["Observe", "Group", "Replay", "Handoff", "Verify"],
-    showcaseTitle: "Make self-healing a repair loop",
-    showcaseCopy: "Self-healing software needs user evidence, technical context, and a clear handoff before automation can be trusted.",
-    showcaseBullets: ["Keep replay with each signal", "Attach stability and API context", "Use device and release evidence"],
-    steps: ["Find the repeated issue", "Inspect the session evidence", "Hand off the fix context"],
   },
   "/stability-monitoring": {
     title: "Stability monitoring",
@@ -470,6 +487,7 @@ const featureImageDimensionsBySrc: Record<string, { width: number; height: numbe
   "/images/readme-user-journeys.png": { width: 1078, height: 663 },
   "/images/session-replay-preview.png": { width: 1024, height: 598 },
   "/images/user-journeys.png": { width: 1024, height: 544 },
+  "/images/web-session-replay-workbench.png": { width: 2118, height: 1274 },
   "/images/engineering/ambiguity-api-error-rate-by-country.png": { width: 1680, height: 950 },
   "/images/engineering/product-tools-live-general.png": { width: 1440, height: 820 },
   "/images/engineering/product-tools-live-journeys.png": { width: 1440, height: 820 },
@@ -481,6 +499,7 @@ const featureImageDimensionsBySrc: Record<string, { width: number; height: numbe
   "/images/engineering/record-sessions-journey-selection.png": { width: 1000, height: 640 },
   "/images/engineering/heatmaps-attention-docs.png": { width: 1633, height: 846 },
   "/images/engineering/heatmaps-dashboard.png": { width: 1633, height: 846 },
+  "/images/engineering/heatmaps-mobile-touch-map.svg": { width: 1440, height: 900 },
   "/images/engineering/heatmaps-mobile-touch-map.png": { width: 1633, height: 846 },
   "/images/engineering/heatmaps-web-attention-map.png": { width: 1633, height: 846 },
   "/images/engineering/smartlook-alternatives-heatmaps.png": { width: 1633, height: 846 },
@@ -509,32 +528,6 @@ const defaultFeatureImages: FeatureImage[] = [
 ];
 
 const featureImagesByPath: Record<string, FeatureImage[]> = {
-  "/ai-funnel-leak-detection": [
-    {
-      src: "/images/landing-replay-theater.png",
-      alt: "Rejourney leaks page showing ranked issue detection and funnel leak evidence",
-      title: "Leaks page",
-      copy: "Start from ranked leak signals instead of searching the whole replay archive.",
-    },
-    {
-      src: "/images/issues-feed.png",
-      alt: "Rejourney issues feed with replay-backed leak signals",
-      title: "Issue feed",
-      copy: "Review repeated issues with enough context to decide what deserves repair.",
-    },
-    {
-      src: "/images/readme-general-demo.png",
-      alt: "Rejourney issue detection dashboard with fix-ready context",
-      title: "Leak context",
-      copy: "Keep session, product, and technical context beside the issue.",
-    },
-    {
-      src: "/images/readme-user-journeys.png",
-      alt: "Rejourney journey ribbons showing funnel paths behind leaks",
-      title: "Journey evidence",
-      copy: "Use paths to understand whether the leak repeats across a flow.",
-    },
-  ],
   "/funnel-replay-evidence": [
     {
       src: "/images/readme-user-journeys.png",
@@ -613,72 +606,6 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
       alt: "Rejourney issue detection context",
       title: "Issue context",
       copy: "Preserve the facts another team needs to reopen an issue.",
-    },
-  ],
-  "/ai-agent-handoff": [
-    {
-      src: "/images/readme-general-demo.png",
-      alt: "Rejourney issue detection dashboard for AI handoff context",
-      title: "Fix packet",
-      copy: "Prepare replay-backed context for a developer or coding agent.",
-    },
-    {
-      src: "/images/issues-feed.png",
-      alt: "Rejourney issue feed with repeated signals",
-      title: "Repeated signals",
-      copy: "Start the handoff from a grouped issue instead of a vague report.",
-    },
-    {
-      src: "/images/session-replay-preview.png",
-      alt: "Rejourney session replay evidence for AI handoff",
-      title: "Replay evidence",
-      copy: "Keep the exact session attached to the handoff.",
-    },
-  ],
-  "/autonomous-debugging": [
-    {
-      src: "/images/anr-issues.png",
-      alt: "Rejourney stability dashboard with ANR and crash context",
-      title: "Stability issue",
-      copy: "Group repeated production failures with replay and app context.",
-    },
-    {
-      src: "/images/issues-feed.png",
-      alt: "Rejourney issues feed for autonomous debugging",
-      title: "Issue queue",
-      copy: "Start from ranked issue signals before opening the technical detail.",
-    },
-    {
-      src: "/images/session-replay-preview.png",
-      alt: "Rejourney replay evidence for production debugging",
-      title: "Replay context",
-      copy: "Use the session to reproduce what the user experienced.",
-    },
-  ],
-  "/self-healing-software": [
-    {
-      src: "/images/engineering/product-tools-live-stability.png",
-      alt: "Rejourney live demo stability dashboard for self-healing software",
-      title: "Stability evidence",
-      copy: "Start from grouped crashes, errors, ANRs, and API spikes with real session context.",
-    },
-    {
-      src: "/images/engineering/product-tools-live-api-endpoints.png",
-      alt: "Rejourney API endpoint insights dashboard used for self-healing workflows",
-      title: "API context",
-      copy: "Use endpoint risk, latency, and status codes to identify backend friction users felt.",
-    },
-    {
-      src: "/images/engineering/product-tools-live-devices.png",
-      alt: "Rejourney device insights dashboard showing device-specific friction",
-      title: "Device pressure",
-      copy: "Find the devices, platforms, and app versions where issues concentrate.",
-    },
-    {
-      src: "/images/session-replay-preview.png",
-      alt: "Rejourney session replay evidence for debugging",
-      title: "Replay evidence",
-      copy: "Keep the actual session attached before sending work to a developer or AI agent.",
     },
   ],
   "/stability-monitoring": [
@@ -816,27 +743,21 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
   "/heatmaps": [
     {
       src: "/images/engineering/heatmaps-attention-docs.png",
-      alt: "Rejourney heatmap workspace showing a product page with interaction density",
-      title: "Heatmap workspace",
+      alt: "Rejourney web attention map showing interaction density across a product page",
+      title: "Web attention map",
       copy: "Use attention maps to see whether important web content was noticed, skimmed, or ignored.",
     },
     {
-      src: "/images/engineering/heatmaps-dashboard.png",
-      alt: "Rejourney heatmap workspace showing a product page with interaction density",
-      title: "Heatmap dashboard",
-      copy: "Review route-level heatmap evidence beside traffic, replay, and product context.",
-    },
-    {
-      src: "/images/engineering/heatmaps-mobile-touch-map.png",
-      alt: "Rejourney heatmap workspace showing a product page with interaction density",
-      title: "Interaction map",
+      src: "/images/engineering/heatmaps-mobile-touch-map.svg",
+      alt: "Rejourney mobile touch map showing repeated taps dead zones and matching sessions",
+      title: "Mobile touch map",
       copy: "Use touch maps for taps, dead zones, repeated touches, and gesture confusion.",
     },
     {
-      src: "/images/engineering/heatmaps-web-attention-map.png",
-      alt: "Rejourney heatmap workspace showing a product page with interaction density",
-      title: "Attention map",
-      copy: "Use web attention maps to diagnose what page content visitors skimmed, missed, or focused on.",
+      src: "/images/engineering/product-tools-live-replay.png",
+      alt: "Rejourney replay workbench showing the mobile session behind a heatmap pattern",
+      title: "Replay context",
+      copy: "Open the sessions behind a heatmap pattern to verify what happened before changing the interface.",
     },
   ],
   "/replay-first-mentality": [
@@ -1016,17 +937,63 @@ function alternativeQuickScanImage(page: SeoPage): FeatureImage {
   );
 }
 
+const SEO_LOCALE_VARY_HEADER = "Accept-Language, User-Agent";
+const SEO_LOCALE_PRIVATE_CACHE_CONTROL = "private, no-store, max-age=0";
+
+export function getSeoLocaleRedirectPath(request: Request): string | null {
+  const url = new URL(request.url);
+  const pathname = normalizePath(url.pathname);
+
+  // Locale-prefixed pages are permanent, indexable destinations. Only the
+  // English owner URL participates in browser-language negotiation.
+  if (!isSeoLocalizedPagePath(pathname)) return null;
+
+  // Search engines crawl every stable URL and use hreflang to choose the
+  // language result. Redirecting crawlers here would undermine that contract.
+  if (isbot(request.headers.get("user-agent") ?? "")) return null;
+
+  const preferredLocaleCode = getPreferredSeoLocaleCode(
+    request.headers.get("accept-language"),
+  );
+  if (preferredLocaleCode === "en") return null;
+
+  return `${getLocalizedSeoPath(preferredLocaleCode, pathname)}${url.search}`;
+}
+
 export function loader({ request }: LoaderFunctionArgs) {
-  const page = getSeoPageByPath(new URL(request.url).pathname);
+  const localeRedirectPath = getSeoLocaleRedirectPath(request);
+  if (localeRedirectPath) {
+    throw redirect(localeRedirectPath, {
+      status: 302,
+      headers: {
+        "Cache-Control": SEO_LOCALE_PRIVATE_CACHE_CONTROL,
+        Vary: SEO_LOCALE_VARY_HEADER,
+      },
+    });
+  }
+
+  const pathname = new URL(request.url).pathname;
+  const localizedPage = getLocalizedSeoPageByPath(pathname);
+  const page = getSeoPageByPath(localizedPage?.basePath ?? pathname);
   if (!page) {
     throw new Response("Not Found", { status: 404 });
+  }
+
+  if (!localizedPage && isSeoLocalizedPagePath(normalizePath(pathname))) {
+    return data(null, {
+      headers: {
+        "Cache-Control": SEO_LOCALE_PRIVATE_CACHE_CONTROL,
+        Vary: SEO_LOCALE_VARY_HEADER,
+      },
+    });
   }
 
   return null;
 }
 
 export const meta: MetaFunction = ({ location }) => {
-  const page = getSeoPageByPath(location.pathname);
+  const localizedPage = getLocalizedSeoPageByPath(location.pathname);
+  const page = getSeoPageByPath(localizedPage?.basePath ?? location.pathname);
   if (!page) {
     return [
       { title: "Rejourney" },
@@ -1034,25 +1001,53 @@ export const meta: MetaFunction = ({ location }) => {
     ];
   }
 
-  const canonicalUrl = `${SITE_URL}${page.path}`;
+  const canonicalPath = localizedPage?.localizedPath ?? page.path;
+  const canonicalUrl = `${SITE_URL}${canonicalPath}`;
+  const locale = localizedPage?.locale;
+  const localizedTitle = localizedPage?.metaTitle ?? page.metaTitle;
+  const localizedDescription = localizedPage?.metaDescription ?? page.metaDescription;
+  const localizedKeywords = localizedPage
+    ? [localizedPage.primaryKeyword, ...localizedPage.secondaryKeywords]
+    : page.keywords;
+  const alternateLinks = isSeoLocalizedPagePath(page.path)
+    ? getLocalizedSeoAlternateLinks(page.path).map((alternate) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: alternate.hrefLang,
+        href: alternate.href,
+      }))
+    : [];
+  const alternateOgLocales = isSeoLocalizedPagePath(page.path)
+    ? (["en", ...SEO_LOCALIZED_LOCALE_CODES] as const)
+        .filter((localeCode) => localeCode !== (localizedPage?.localeCode ?? "en"))
+        .map((localeCode) => ({
+          property: "og:locale:alternate",
+          content: MARKETING_LOCALES[localeCode].ogLocale,
+        }))
+    : [];
+
   return [
-    { title: page.metaTitle },
-    { name: "description", content: page.metaDescription },
-    { name: "keywords", content: page.keywords.join(", ") },
+    { title: localizedTitle },
+    { name: "description", content: localizedDescription },
+    { name: "keywords", content: localizedKeywords.join(", ") },
     { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
-    { httpEquiv: "Content-Language", content: "en-US" },
-    { property: "og:locale", content: "en_US" },
-    { property: "og:title", content: page.metaTitle },
-    { property: "og:description", content: page.metaDescription },
+    { httpEquiv: "Content-Language", content: locale?.languageTag ?? "en-US" },
+    { property: "og:locale", content: locale?.ogLocale ?? "en_US" },
+    { property: "og:site_name", content: "Rejourney" },
+    ...alternateOgLocales,
+    { property: "og:title", content: localizedTitle },
+    { property: "og:description", content: localizedDescription },
     { property: "og:url", content: canonicalUrl },
     { property: "og:type", content: "website" },
     { property: "og:image", content: `${SITE_URL}${page.image}` },
     { property: "og:image:alt", content: page.imageAlt },
     { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: page.metaTitle },
-    { name: "twitter:description", content: page.metaDescription },
+    { name: "twitter:title", content: localizedTitle },
+    { name: "twitter:description", content: localizedDescription },
     { name: "twitter:image", content: `${SITE_URL}${page.image}` },
+    { name: "twitter:image:alt", content: page.imageAlt },
     { tagName: "link", rel: "canonical", href: canonicalUrl },
+    ...alternateLinks,
   ];
 };
 
@@ -1069,14 +1064,14 @@ function ValueBadge({ value }: { value: SeoComparisonValue }) {
   const isNo = value === "no";
   const Icon = isYes ? Check : isNo ? X : CircleMinus;
   const className = isYes
-    ? "border-emerald-700 bg-emerald-100 text-emerald-950"
+    ? "text-emerald-800"
     : isNo
-      ? "border-slate-300 bg-slate-100 text-slate-700"
-      : "border-amber-400 bg-amber-100 text-amber-950";
+      ? "text-slate-500"
+      : "text-amber-800";
 
   return (
-    <span className={`inline-flex min-h-10 w-full max-w-[11rem] items-center justify-center gap-2 border-2 px-3 py-2 text-sm font-extrabold leading-none ${className}`}>
-      <Icon className="h-4 w-4 shrink-0" strokeWidth={3} aria-hidden />
+    <span className={`inline-flex min-h-10 items-center gap-2 text-sm font-bold leading-none ${className}`}>
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
       <span>{label}</span>
     </span>
   );
@@ -1128,7 +1123,7 @@ function CategoryAvailability({ page }: { page: SeoPage }) {
 }
 
 function HeroVisual({ page }: { page: SeoPage }) {
-  if (page.kind === "category") {
+  if (page.kind !== "alternative") {
     return (
       <figure className="rounded-lg border-2 border-black bg-[#dbeafe] p-4 lg:justify-self-end">
         <img
@@ -1680,10 +1675,6 @@ function CategoryLimitsSection({ page }: { page: SeoPage }) {
 }
 
 function categoryDocsLink(page: SeoPage) {
-  if (page.path === "/self-healing-software") {
-    return { href: "/demo", label: "Open live demo" };
-  }
-
   if (page.path === "/stability-monitoring" || page.path === "/device-insights") {
     return { href: "/docs/reactnative/overview", label: "React Native docs" };
   }
@@ -1980,117 +1971,6 @@ const defaultFeatureArticleContent: FeatureArticleContent = {
 };
 
 const featureArticleContentByPath: Record<string, FeatureArticleContent> = {
-  "/ai-funnel-leak-detection": {
-    sections: [
-      {
-        title: "Open the leaks page before opening random sessions",
-        paragraphs: [
-          "The leaks page is the triage surface for repeated friction. Instead of starting in a replay archive, the team starts with grouped issues that already point to a funnel drop, rage tap cluster, crash, API failure, journey loop, or blocked product path.",
-          "That changes the review from clip hunting to issue ranking. Product can ask which leak costs the most intent, growth can look for revenue impact, and engineering can open the exact sessions that prove the failure.",
-        ],
-        bullets: [
-          "Repeated product and technical signals grouped together.",
-          "Replay evidence attached to the issue instead of stored elsewhere.",
-          "Affected paths, sessions, and context ready for the owner.",
-        ],
-        imageIndex: 0,
-        imageVariant: "wide",
-      },
-      {
-        title: "Rank leaks by user impact and fixability",
-        paragraphs: [
-          "A useful leaks page should not treat every signal as equal. A one-off confusing session, a repeated checkout failure, and a release-specific crash all need different priority.",
-          "Rejourney keeps the issue list tied to user impact and supporting evidence, so the team can see whether a leak is repeated, whether it blocks conversion, and whether the available context is enough for someone to repair it.",
-        ],
-        bullets: [
-          "Prioritize repeated leaks over isolated oddities.",
-          "Check the path and session sample before assigning work.",
-          "Keep technical signals close enough to prove the likely cause.",
-        ],
-        imageIndex: 1,
-        imageVariant: "wide",
-      },
-      {
-        title: "Inspect the replay evidence behind the issue",
-        paragraphs: [
-          "The issue summary is only the door. The proof is still the session: what the user saw, which path they took, where they hesitated, what request failed, and whether a crash or UI state shaped the outcome.",
-          "When the replay evidence stays attached, the team can verify that the issue description matches reality before it becomes roadmap work or an engineering ticket.",
-        ],
-        imageIndex: 2,
-        imageVariant: "wide",
-      },
-      {
-        title: "Use journey paths to prove the leak repeats",
-        paragraphs: [
-          "Some leaks are path-shaped. Users branch, loop, or drop after a transition rather than at a single obvious button. Journey ribbons make those patterns easier to spot and easier to explain.",
-          "From the leaks page, the journey evidence helps the team decide whether the issue is a repeated funnel problem or just one strange session. That context matters before assigning priority.",
-        ],
-        imageIndex: 3,
-        imageVariant: "wide",
-      },
-      {
-        title: "Package the fix context for engineering or an AI workflow",
-        paragraphs: [
-          "Once a leak is real and repeated, the handoff should include the path, expected behavior, observed behavior, affected sessions, relevant events, failed requests, release or device context, and replay links.",
-          "That gives an engineer or coding agent enough evidence to begin reproducing the issue instead of asking someone to rewrite the same investigation in a ticket.",
-        ],
-        bullets: [
-          "Expected and observed behavior.",
-          "Replay links and affected session examples.",
-          "Events, requests, crashes, devices, releases, and journey context.",
-          "A short fix hypothesis that can be tested.",
-        ],
-      },
-    ],
-    implementationNotes: [
-      "Do not file a leak until the replay evidence supports the issue summary.",
-      "Keep grouped issues tied to route, screen, release, platform, and affected user context.",
-      "Use journey ribbons when the failure is a path or transition problem.",
-      "Package expected behavior, observed behavior, replay links, and technical context before handing the leak to engineering or an AI coding workflow.",
-    ],
-  },
-  "/self-healing-software": {
-    sections: [
-      {
-        title: "Treat self-healing as a repair loop",
-        paragraphs: [
-          "Self-healing software starts with the same discipline as good debugging: observe the user-facing failure, group repeated signals, attach the session evidence, and make the next step small enough to repair.",
-          "Rejourney keeps stability issues, API endpoint failures, device pressure, journeys, and replay evidence close together so teams can move from product friction to a bounded fix packet.",
-        ],
-        bullets: [
-          "Group repeated crashes, errors, ANRs, API failures, and leak signals.",
-          "Keep replay and product-path context attached to the issue.",
-          "Hand off enough evidence for an engineer or AI coding workflow to reproduce the problem.",
-        ],
-        imageIndex: 0,
-        imageVariant: "wide",
-      },
-      {
-        title: "Connect backend and device context before automating",
-        paragraphs: [
-          "Automation is only useful when the evidence is specific. An endpoint that fails during checkout, a device model that carries ANRs, or a release that changed engagement needs to be visible before the fix can be trusted.",
-          "The workflow should preserve the route, screen, request, app version, device, replay link, and expected behavior. That context gives the next reviewer enough information to verify the repair instead of guessing from a summary.",
-        ],
-        imageIndex: 1,
-        imageVariant: "wide",
-      },
-      {
-        title: "Verify recovery with the same signals",
-        paragraphs: [
-          "A self-healing loop is incomplete until the team can confirm that the issue actually improved. Use the same session, stability, endpoint, device, and journey views to compare behavior after the fix ships.",
-          "If the issue disappears from one view but remains visible in another, the repair may have narrowed the symptom without removing the underlying product friction.",
-        ],
-        imageIndex: 2,
-        imageVariant: "wide",
-      },
-    ],
-    implementationNotes: [
-      "Define which signal types create a repair candidate: crash, ANR, API spike, device hotspot, journey loop, or funnel leak.",
-      "Require replay or a clear reason replay is unavailable before handing work to an AI coding workflow.",
-      "Attach route, screen, release, endpoint, device, and expected behavior to the fix packet.",
-      "Verify the same signal after release instead of closing the loop from a code change alone.",
-    ],
-  },
   "/stability-monitoring": {
     sections: [
       {
@@ -3105,10 +2985,10 @@ function AlternativeComparisonArticlePage({ page }: { page: SeoPage }) {
 
 function FaqSection({ page }: { page: SeoPage }) {
   const containerClass =
-    page.kind === "category"
+    page.kind !== "alternative"
       ? "mt-10 divide-y-2 divide-black border-y-2 border-black bg-white"
       : "mt-10 divide-y-2 divide-black border-2 border-black bg-white shadow-neo-sm";
-  const title = page.kind === "category" ? "FAQ" : "Frequently asked questions";
+  const title = page.kind !== "alternative" ? "FAQ" : "Frequently asked questions";
 
   return (
     <section className="border-b-2 border-black bg-white px-4 py-12 sm:px-6 lg:px-8">
@@ -3135,7 +3015,7 @@ function FaqSection({ page }: { page: SeoPage }) {
 }
 
 function RelatedResourcesSection({ page }: { page: SeoPage }) {
-  if (page.kind === "category") {
+  if (page.kind !== "alternative") {
     return (
       <section className="border-b-2 border-black bg-[#fff7df] px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[260px_1fr] lg:items-start">
@@ -3199,6 +3079,8 @@ function RelatedResourcesSection({ page }: { page: SeoPage }) {
 }
 
 const AD_LANDING_PATHS = [
+  "/website-analytics",
+  "/app-analytics",
   "/web-session-replay",
   "/mobile-session-replay",
   "/stability-monitoring",
@@ -3210,41 +3092,53 @@ const AD_LANDING_PATHS = [
 ];
 
 const AD_LANDING_HEADLINES: Record<string, string> = {
-  "/web-session-replay": "Web Session Replay",
-  "/mobile-session-replay": "Mobile Session Replay",
-  "/stability-monitoring": "Mobile Crash Reporting",
-  "/funnel-replay-evidence": "Funnel Drop-offs",
-  "/revenue-recovery-analytics": "Revenue Leaks",
+  "/website-analytics": "User Experience Analytics for Websites",
+  "/app-analytics": "Mobile App Analytics with Session Replay",
+  "/web-session-replay": "Web Session Replay Software",
+  "/mobile-session-replay": "Mobile App Session Replay",
+  "/stability-monitoring": "Mobile App Crash Reporting with Replay",
+  "/funnel-replay-evidence": "Funnel Analysis with Replay Evidence",
+  "/revenue-recovery-analytics": "Product Analytics For Revenue Leaks",
   "/alternatives/posthog-session-replay": "PostHog Alternative",
   "/alternatives/sentry-session-replay": "Sentry Alternative",
-  "/alternatives/datadog-session-replay": "Datadog Alternative for Replay-Led Product Teams",
-  "/alternatives/amplitude-session-replay": "Amplitude Alternative for Session-First Investigation",
-  "/alternatives/mixpanel-session-replay": "Mixpanel Alternative with Replay and Debug Context",
-  "/alternatives/pendo-session-replay": "Pendo Alternative for Replay Before In-App Guidance",
-  "/alternatives/fullstory": "A Leaner Fullstory Alternative",
-  "/alternatives/hotjar": "A Focused Hotjar and Contentsquare Alternative",
+  "/alternatives/datadog-session-replay": "Datadog Alternative",
+  "/alternatives/amplitude-session-replay": "Amplitude Alternative",
+  "/alternatives/mixpanel-session-replay": "Mixpanel Alternative",
+  "/alternatives/pendo-session-replay": "Pendo Alternative",
+  "/alternatives/fullstory": "Fullstory Alternative",
+  "/alternatives/hotjar": "Hotjar Alternative",
   "/alternatives/smartlook": "Smartlook Alternative",
 };
 
+export function getSeoLandingHeadline(page: SeoPage): string {
+  return page.kind === "alternative"
+    ? page.hero.title
+    : AD_LANDING_HEADLINES[page.path] ?? page.hero.title;
+}
+
 const AD_LANDING_SUBHEADLINES: Record<string, string> = {
-  "/web-session-replay": "Record DOM mutations and browser sessions. Predict and pinpoint checkout friction and conversion leaks before they cost you sales.",
-  "/mobile-session-replay": "Replay Flutter, native iOS, React Native, and Expo screens. Identify gesture friction, freeze points, and mobile onboarding leaks.",
+  "/website-analytics": "Understand traffic, engagement, funnels, errors, and complete user sessions with one lightweight web SDK. Unlimited analytics events included.",
+  "/app-analytics": "Understand flows, retention, crashes, and API failures with lightweight product analytics and replay for Flutter, React Native, Expo, and iOS.",
+  "/web-session-replay": "Connect lightweight web session replay with funnels, product events, network requests, console context, and the exact moment users leave.",
+  "/mobile-session-replay": "Replay Flutter, iOS, React Native, and Expo screens with lightweight product analytics, crash context, API evidence, and journey data.",
   "/stability-monitoring": "Monitor crashes, ANRs, and API failures. Pair error diagnostics with replay context to fix bugs that block transactions.",
   "/funnel-replay-evidence": "Analyze journey ribbons and backtrack loops. Pinpoint where visitors abandon flows and watch replays of drops.",
   "/revenue-recovery-analytics": "Link gross revenue drops directly to failed checkouts and releases. Recover leaked carts with replay evidence.",
-  "/alternatives/posthog-session-replay": "Compare a focused replay workflow with PostHog's broader product platform across web, mobile, analytics, and debugging context.",
-  "/alternatives/sentry-session-replay": "Compare product and UX investigation with Sentry's developer-first error and performance workflow.",
-  "/alternatives/datadog-session-replay": "Compare a focused session-evidence workspace with Datadog's broad RUM and observability platform.",
-  "/alternatives/amplitude-session-replay": "Compare replay-led investigation with Amplitude's analytics-first platform, current replay allowances, and workflow breadth.",
-  "/alternatives/mixpanel-session-replay": "Compare session-first product debugging with Mixpanel's event analytics, heatmaps, and native mobile replay.",
-  "/alternatives/pendo-session-replay": "Compare replay and technical context with Pendo's analytics, in-app guidance, and product-adoption suite.",
-  "/alternatives/fullstory": "Compare a focused, self-hostable replay workflow with Fullstory's mature digital-experience analytics platform.",
-  "/alternatives/hotjar": "Compare Rejourney with Hotjar's current path into Contentsquare for replay, heatmaps, journeys, and experience analytics.",
-  "/alternatives/smartlook": "Move from Smartlook after end of sale while support continues through August 31, 2027. Keep replay, heatmaps, journeys, and technical context together.",
+  "/alternatives/posthog-session-replay": "Compare PostHog with Rejourney's lighter product analytics stack for web and mobile replay, journeys, heatmaps, and debugging context.",
+  "/alternatives/sentry-session-replay": "Compare Sentry's developer-first monitoring with lightweight product analytics, replay, funnels, heatmaps, crashes, and API context.",
+  "/alternatives/datadog-session-replay": "Compare Datadog's broad observability platform with lightweight product analytics built around user sessions and product evidence.",
+  "/alternatives/amplitude-session-replay": "Compare Amplitude's analytics-first platform with lightweight product analytics that keeps replay and technical context close.",
+  "/alternatives/mixpanel-session-replay": "Compare Mixpanel's event analytics with lightweight product analytics, web and mobile replay, heatmaps, and debugging context.",
+  "/alternatives/pendo-session-replay": "Compare Pendo's adoption suite with lightweight product analytics focused on replay, product behavior, and engineering evidence.",
+  "/alternatives/fullstory": "Compare Fullstory with a lighter, self-hostable product analytics and replay workflow for web and mobile teams.",
+  "/alternatives/hotjar": "Compare Hotjar and Contentsquare with lightweight product analytics for web and mobile replay, journeys, and technical context.",
+  "/alternatives/smartlook": "Compare Smartlook with an active lightweight product analytics platform for replay, heatmaps, journeys, mobile apps, and technical context.",
 };
 
 const AD_LANDING_HERO_IMAGES: Record<string, string> = {
-  "/web-session-replay": "/images/landing-replay-theater.png",
+  "/website-analytics": "/images/readme/analytics-overview.png",
+  "/app-analytics": "/images/engineering/product-tools-live-general.png",
+  "/web-session-replay": "/images/web-session-replay-workbench.png",
   "/mobile-session-replay": "/images/engineering/product-tools-live-replay.png",
   "/stability-monitoring": "/images/anr-issues.png",
   "/funnel-replay-evidence": "/images/readme-user-journeys.png",
@@ -3261,6 +3155,7 @@ function AdHeader() {
         <Link to="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
           <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney logo" className="h-8 w-8 object-contain" />
           <span className="text-lg font-black uppercase tracking-tight text-slate-950">Rejourney</span>
+          <span className="hidden border-l border-slate-200 pl-3 text-xs font-bold text-slate-500 md:inline">Lightweight Product Analytics</span>
         </Link>
         <Link
           to="/login"
@@ -3277,6 +3172,13 @@ function AdHero({ page }: { page: SeoPage }) {
   const headline = AD_LANDING_HEADLINES[page.path] ?? page.title;
   const subheadline = AD_LANDING_SUBHEADLINES[page.path] ?? page.subtitle;
   const heroImage = AD_LANDING_HERO_IMAGES[page.path] ?? page.image;
+  const eyebrow = page.path === "/website-analytics"
+    ? "Analytics tool for websites"
+    : page.path === "/app-analytics"
+      ? "In-app behavior analytics"
+      : page.kind === "alternative"
+        ? "Lightweight product analytics alternative"
+        : "Lightweight product analytics";
 
   return (
     <section className="relative overflow-hidden bg-[#fdfbf7] pb-20 pt-28 px-4 sm:px-6 lg:px-8">
@@ -3288,7 +3190,7 @@ function AdHero({ page }: { page: SeoPage }) {
         <div className="lg:col-span-6 flex flex-col items-start text-left">
           <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-            {page.kind === "alternative" ? `Considering ${page.otherColumnTitle}?` : "Visual User Evidence"}
+            {eyebrow}
           </span>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight text-slate-950 leading-[0.98] mb-6">
             {headline}
@@ -3325,6 +3227,10 @@ function AdHero({ page }: { page: SeoPage }) {
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="h-4 w-4 text-sky-600" strokeWidth={2.5} />
               Privacy masking controls
+            </span>
+            <span className="flex items-center gap-1.5">
+              <EuFlag className="h-4 w-6 shrink-0" />
+              GDPR compliant
             </span>
           </div>
         </div>
@@ -3517,7 +3423,7 @@ function AdTrustBanner() {
 }
 
 function AdBenefits({ page }: { page: SeoPage }) {
-  const benefits = [
+  const defaultBenefits = [
     {
       title: "Identify UX Friction",
       desc: "Watch session replays of gestures, screen paths, backtrack loops, and rage clicks. Investigate the sessions behind checkout drops and conversion friction.",
@@ -3543,16 +3449,93 @@ function AdBenefits({ page }: { page: SeoPage }) {
       color: "amber"
     }
   ];
+  const benefitsByPath: Record<string, typeof defaultBenefits> = {
+    "/website-analytics": [
+      {
+        title: "Know What Changed",
+        desc: "Track active users, engagement, retention, traffic sources, releases, and stability in one view. Spot the segment or route that deserves a closer look.",
+        image: "/images/readme/analytics-overview.png",
+        imageAlt: "Website analytics overview with active users, engagement, retention, and stability",
+        badge: "Website Analytics",
+        color: "indigo"
+      },
+      {
+        title: "See Why Visitors Leave",
+        desc: "Open the real sessions behind signup, onboarding, and checkout drop-offs. Watch the clicks, route changes, hesitation, and interface state a chart cannot explain.",
+        image: "/images/engineering/conversion-funnel-journey-map.png",
+        imageAlt: "Conversion funnel and journey map connected to user sessions",
+        badge: "Funnels + Replay",
+        color: "emerald"
+      },
+      {
+        title: "See What Gets Attention",
+        desc: "Use click, scroll, and attention heatmaps to see which sections visitors notice, where they stop, and where repeated clicks signal confusion. Open the matching replays to understand why the pattern formed.",
+        image: "/images/engineering/heatmaps-attention-docs.png",
+        imageAlt: "Website attention heatmap showing viewed sections, clicks, and visitor engagement",
+        badge: "Heatmaps + Replay",
+        color: "indigo"
+      },
+      {
+        title: "Find the Broken Step",
+        desc: "Connect failed requests, console errors, releases, and browser context to the affected session. Give engineering evidence instead of a vague conversion dip.",
+        image: "/images/engineering/api-error-rate-spike.png",
+        imageAlt: "API error-rate spike with failing endpoints and diagnostic context",
+        badge: "Technical Context",
+        color: "amber"
+      }
+    ],
+    "/app-analytics": [
+      {
+        title: "Measure In-App Behavior",
+        desc: "Follow active users, engagement, retention, session volume, releases, and degraded sessions across your mobile product—not just installs at the store.",
+        image: "/images/engineering/product-tools-live-general.png",
+        imageAlt: "Mobile app analytics dashboard with active users, retention, sessions, and stability",
+        badge: "App Analytics",
+        color: "indigo"
+      },
+      {
+        title: "Replay the Exact Mobile Session",
+        desc: "Watch screens, taps, gestures, and navigation with console and network context. Investigate real sessions across Flutter, React Native, Expo, and Swift.",
+        image: "/images/engineering/product-tools-live-replay.png",
+        imageAlt: "Mobile session replay with timeline, console, network, and device context",
+        badge: "Mobile Replay",
+        color: "emerald"
+      },
+      {
+        title: "Connect Crashes to Real Users",
+        desc: "See crashes, errors, and ANRs beside the app version, device, affected route, and replay evidence. Start debugging from the experience that actually failed.",
+        image: "/images/engineering/product-tools-live-stability.png",
+        imageAlt: "Mobile stability dashboard showing crashes, errors, ANRs, and affected users",
+        badge: "Stability",
+        color: "amber"
+      }
+    ]
+  };
+  const benefits = benefitsByPath[page.path] ?? defaultBenefits;
+  const sectionCopy = page.path === "/website-analytics"
+    ? {
+        eyebrow: "From metric to session",
+        title: "UNDERSTAND WHAT CHANGED—AND WHY",
+      }
+    : page.path === "/app-analytics"
+      ? {
+          eyebrow: "Built for in-app behavior",
+          title: "ONE VIEW FROM ENGAGEMENT TO CRASH",
+        }
+      : {
+          eyebrow: "Recovery Workflow",
+          title: "EVIDENCE FOR CONVERSION AND PRODUCT WORK",
+        };
 
   return (
     <section className="border-b border-slate-200/85 bg-white py-20 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl text-center">
         <span className="text-xs font-black uppercase text-emerald-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          Recovery Workflow
+          {sectionCopy.eyebrow}
         </span>
         <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-16 max-w-3xl mx-auto leading-none">
-          EVIDENCE FOR CONVERSION AND PRODUCT WORK
+          {sectionCopy.title}
         </h2>
         
         <div className="space-y-24 text-left">
@@ -3610,40 +3593,184 @@ function AdBenefits({ page }: { page: SeoPage }) {
   );
 }
 
-function AdInstallation() {
-  const [activeTab, setActiveTab] = React.useState("web");
+const websiteAnalyticsPlatforms = [
+  { label: "Next.js / React", Icon: MarkNextJs, iconClass: "text-slate-950", href: "/docs/web/getting-started#nextjs" },
+  { label: "Redux Toolkit", Icon: MarkRedux, iconClass: "text-[#764abc]", href: "/docs/web/getting-started#redux-and-redux-toolkit" },
+  { label: "Vue / Nuxt", Icon: MarkVue, iconClass: "text-[#42b883]", href: "/docs/web/getting-started#vue" },
+  { label: "Angular", Icon: MarkAngular, iconClass: "text-[#dd0031]", href: "/docs/web/getting-started#angular" },
+  { label: "SvelteKit", Icon: MarkSvelte, iconClass: "text-[#ff3e00]", href: "/docs/web/getting-started#svelte-sveltekit" },
+  { label: "Remix", Icon: MarkRemix, iconClass: "text-slate-950", href: "/docs/web/getting-started#remix" },
+  { label: "Gatsby", Icon: MarkGatsby, iconClass: "text-[#663399]", href: "/docs/web/getting-started" },
+  { label: "Shopify", Icon: MarkShopify, iconClass: "text-[#95bf47]", href: "/docs/shopify/getting-started" },
+  { label: "Hydrogen", Icon: MarkHydrogen, iconClass: "text-[#00a878]", href: "/docs/web/getting-started" },
+];
 
-  const tabs = [
+function WebsiteAnalyticsInstallation() {
+  const setupLines = [
+    <><span className="text-fuchsia-300">import</span> <span className="text-slate-100">&#123; Rejourney &#125;</span> <span className="text-fuchsia-300">from</span> <span className="text-emerald-300">'@rejourneyco/browser'</span>;</>,
+    <>Rejourney.<span className="text-sky-300">init</span>(<span className="text-emerald-300">'rj_live_your_key'</span>);</>,
+    <>Rejourney.<span className="text-sky-300">start</span>();</>,
+  ];
+
+  return (
+    <section className="border-b border-slate-200/80 bg-[#fffaf0] px-4 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="mx-auto mb-12 max-w-3xl text-center">
+          <span className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-800">
+            One lightweight web SDK
+          </span>
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            Three lines from install to insight
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-base font-bold leading-relaxed text-slate-600 sm:text-lg">
+            Install the browser package once, initialize Rejourney, and start capturing website analytics with replay, heatmaps, journeys, and technical context attached.
+          </p>
+        </div>
+
+        <div className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)] lg:grid-cols-[0.8fr_1.2fr]">
+          <div className="flex flex-col justify-between border-b border-slate-200 bg-[#fdfbf7] p-6 sm:p-8 lg:border-b-0 lg:border-r">
+            <div>
+              <span className="text-sm font-semibold text-emerald-800">
+                One package
+              </span>
+              <h3 className="mt-4 text-2xl font-black leading-tight text-slate-950 sm:text-3xl">
+                Add it without rebuilding your stack
+              </h3>
+              <p className="mt-4 text-base font-bold leading-relaxed text-slate-600">
+                The same web SDK works across modern frameworks and traditional browser apps. Your analytics events stay connected to the session that explains them.
+              </p>
+              <div className="mt-6 space-y-3">
+                {["Unlimited analytics events", "Replay and heatmaps included", "Privacy controls built in"].map((item) => (
+                  <div key={item} className="flex items-center gap-3 text-sm font-extrabold text-slate-800">
+                    <Check className="h-4 w-4 shrink-0 text-emerald-600" strokeWidth={3} />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-8 rounded-xl border border-slate-800 bg-slate-950 px-4 py-4 font-mono text-sm text-emerald-300 shadow-inner sm:text-base">
+              <span className="mr-2 text-slate-500">$</span>
+              npm install @rejourneyco/browser
+            </div>
+          </div>
+
+          <div className="bg-slate-950 p-4 text-left sm:p-6 lg:p-8">
+            <div className="mb-6 border-b border-slate-800 pb-4 text-right font-mono text-xs font-medium text-slate-400">
+              Three-line setup
+            </div>
+
+            <div className="space-y-3 font-mono text-[10px] sm:text-sm lg:text-base">
+              {setupLines.map((line, index) => (
+                <div key={index} className="grid min-w-0 grid-cols-[2rem_1fr] items-start overflow-hidden border-b border-slate-800 bg-slate-900/35 sm:grid-cols-[2.25rem_1fr]">
+                  <span className="grid h-full min-h-14 place-items-center border-r border-slate-800 bg-slate-900 text-xs font-black text-sky-300">
+                    {index + 1}
+                  </span>
+                  <code className="overflow-x-auto whitespace-nowrap px-3 py-4 text-slate-100 sm:px-4">
+                    {line}
+                  </code>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2 text-xs font-bold text-slate-400">
+              <span className="rounded border border-slate-800 px-3 py-1.5">No build-time plugin</span>
+              <span className="rounded border border-slate-800 px-3 py-1.5">No framework lock-in</span>
+              <span className="rounded border border-slate-800 px-3 py-1.5">Starts immediately</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-12 border-y border-slate-200 px-2 py-7 sm:px-4">
+          <div className="mb-6 text-center">
+            <span className="text-sm font-semibold text-emerald-800">Works with your web stack</span>
+            <p className="mt-2 text-sm font-bold text-slate-500">Use the same three-line setup across every supported web platform.</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {websiteAnalyticsPlatforms.map(({ label, Icon, iconClass, href }) => (
+              <Link
+                key={label}
+                to={href}
+                className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 font-mono text-[11px] font-semibold text-slate-800 transition-colors hover:border-emerald-300 hover:bg-emerald-50/30"
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+                {label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdInstallation({ page }: { page: SeoPage }) {
+  const allTabs = [
     { id: "web", label: "Web / React", command: "npm install @rejourneyco/browser", code: `import { Rejourney } from '@rejourneyco/browser';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
     { id: "reactnative", label: "React Native / Expo", command: "npm install @rejourneyco/react-native", code: `import { Rejourney } from '@rejourneyco/react-native';\n\nRejourney.init('rj_live_your_key');\nRejourney.start();` },
     { id: "flutter", label: "Flutter", command: "flutter pub add rejourney", code: `import 'package:rejourney/rejourney.dart';\n\nawait Rejourney.init('rj_live_your_key');\nawait Rejourney.start();` },
     { id: "swift", label: "Swift / iOS", command: "SPM: https://github.com/rejourneyco/rejourney", code: `import Rejourney\n\nRejourney.configure(publicKey: "rj_your_key")\nTask { await Rejourney.start() }` }
   ];
+  const isWebsiteAnalytics = page.path === "/website-analytics";
+  const isAppAnalytics = page.path === "/app-analytics";
+  const tabs = isWebsiteAnalytics
+    ? allTabs.filter((tab) => tab.id === "web")
+    : isAppAnalytics
+      ? allTabs.filter((tab) => tab.id !== "web")
+      : allTabs;
+  const defaultTab = isAppAnalytics ? "reactnative" : "web";
+  const [activeTab, setActiveTab] = React.useState(defaultTab);
+  const effectiveActiveTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : defaultTab;
+  const currentTab = tabs.find(t => t.id === effectiveActiveTab) || tabs[0];
 
-  const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
+  if (isWebsiteAnalytics) {
+    return <WebsiteAnalyticsInstallation />;
+  }
+
+  const installationCopy = isWebsiteAnalytics
+    ? {
+        eyebrow: "One lightweight web SDK",
+        title: "Add website analytics in minutes",
+        description: "Install the browser package, initialize Rejourney, and start connecting analytics events to complete website sessions.",
+      }
+    : isAppAnalytics
+      ? {
+          eyebrow: "Mobile SDKs included",
+          title: "Start with your app framework",
+          description: "Choose React Native / Expo, Flutter, or Swift and add in-app analytics, replay, and stability context with the matching SDK.",
+        }
+      : {
+          eyebrow: "Developer friendly",
+          title: "Get set up with your SDK",
+          description: "Choose the web, React Native / Expo, Flutter, or Swift setup and follow the matching SDK documentation.",
+        };
+  const setupPills = isWebsiteAnalytics
+    ? ["Web SDK", "React", "Framework adapters", "Privacy controls"]
+    : isAppAnalytics
+      ? ["React Native", "Expo Plugin", "Flutter", "Swift iOS", "CocoaPods"]
+      : ["Web SDK", "React Native", "Expo Plugin", "Flutter", "Swift iOS", "CocoaPods"];
 
   return (
-    <section className="border-b border-slate-200/80 bg-[#fffdf7] py-16 px-4 sm:px-6 lg:px-8">
+    <section className="border-b border-slate-200/80 bg-[#fdfbf7] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl text-center">
-        <span className="text-xs font-black uppercase text-amber-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-          DEVELOPER FRIENDLY
+        <span className="mb-4 flex items-center justify-center text-sm font-semibold text-amber-800">
+          {installationCopy.eyebrow}
         </span>
-        <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
-          GET SET UP WITH YOUR SDK
+        <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl mb-4">
+          {installationCopy.title}
         </h2>
         <p className="text-base sm:text-lg font-bold text-slate-500 mb-10 max-w-2xl mx-auto">
-          Choose the web, React Native / Expo, Flutter, or Swift setup and follow the matching SDK documentation.
+          {installationCopy.description}
         </p>
 
         {/* Custom Tab selectors */}
-        <div className="mb-8 inline-grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex">
+        <div className={`mb-8 rounded-lg border border-slate-200 bg-slate-100 p-1 ${tabs.length === 1 ? "inline-flex" : "inline-grid grid-cols-2 sm:inline-flex"}`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`rounded-md py-2 px-4 sm:px-5 font-sans text-xs sm:text-sm font-extrabold uppercase text-center transition-all ${
-                activeTab === tab.id
+              className={`rounded-md px-4 py-2 text-center font-sans text-xs font-semibold transition-colors sm:px-5 sm:text-sm ${
+                effectiveActiveTab === tab.id
                   ? "bg-white text-slate-950 shadow-sm border border-slate-200/50"
                   : "text-slate-500 hover:text-slate-900"
               }`}
@@ -3654,13 +3781,8 @@ function AdInstallation() {
         </div>
 
         {/* Sleek Terminal / Code Box */}
-        <div className="border border-slate-800 bg-slate-950 text-white shadow-[0_12px_40px_rgba(15,23,42,0.16)] rounded-xl overflow-hidden text-left font-mono">
-          <div className="border-b border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between text-xs text-slate-500 select-none">
-            <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-slate-700" />
-              <div className="h-2 w-2 rounded-full bg-slate-700" />
-              <div className="h-2 w-2 rounded-full bg-slate-700" />
-            </div>
+        <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-left font-mono text-white shadow-[0_8px_28px_rgba(15,23,42,0.1)]">
+          <div className="flex items-center justify-end border-b border-slate-800 bg-slate-900/50 px-4 py-3 text-xs text-slate-500 select-none">
             <span>Terminal setup</span>
           </div>
           <div className="p-4 sm:p-5 select-all text-sm sm:text-base text-emerald-400 leading-normal">
@@ -3676,11 +3798,9 @@ function AdInstallation() {
           </pre>
         </div>
 
-        {/* Setup pills updated to square tags */}
-        <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {["Web SDK", "React Native", "Expo Plugin", "Flutter", "Swift iOS", "CocoaPods"].map((pill) => (
-            <span key={pill} className="inline-flex items-center gap-1.5 rounded border border-slate-205 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <div className="mt-8 flex flex-wrap justify-center gap-x-5 gap-y-3 border-y border-slate-200 py-5">
+          {setupPills.map((pill) => (
+            <span key={pill} className="text-xs font-semibold text-slate-600">
               {pill}
             </span>
           ))}
@@ -3781,7 +3901,8 @@ const competitorPricingByPath: Record<string, CompetitorPricingConfig> = {
 
 const formatReplayVolume = (sessions: number) => {
   if (sessions >= 1_000_000) return `${sessions / 1_000_000}M`;
-  return `${sessions / 1_000}K`;
+  if (sessions >= 1_000) return `${sessions / 1_000}K`;
+  return sessions.toLocaleString("en-US");
 };
 
 const formatMonthlyPrice = (price: number) =>
@@ -3808,10 +3929,78 @@ const progressiveReplayPrice = (
   return upper > tier.from ? total + (upper - tier.from) * tier.rate : total;
 }, 0);
 
+const postHogReplayPrice = (sessions: number, platform: ReplayPlatform) => {
+  const tiers = platform === "mobile"
+    ? [
+        { from: 2_500, to: 15_000, rate: 0.01 },
+        { from: 15_000, to: 50_000, rate: 0.007 },
+        { from: 50_000, to: 150_000, rate: 0.004 },
+        { from: 150_000, to: 500_000, rate: 0.0034 },
+        { from: 500_000, rate: 0.003 },
+      ]
+    : [
+        { from: 5_000, to: 15_000, rate: 0.005 },
+        { from: 15_000, to: 50_000, rate: 0.0035 },
+        { from: 50_000, to: 150_000, rate: 0.002 },
+        { from: 150_000, to: 500_000, rate: 0.0017 },
+        { from: 500_000, rate: 0.0015 },
+      ];
+
+  return progressiveReplayPrice(sessions, tiers);
+};
+
 type CompetitorPriceResult = {
   priceLabel: string;
   detail: string;
   numericMonthly?: number;
+};
+
+type SeoCalculatorLocale = "en" | LocalizedSeoPage["localeCode"];
+
+const seoCalculatorLabels: Record<SeoCalculatorLocale, {
+  replayCalculator: string;
+  priceSessions: (volume: string) => string;
+  replayIntro: string;
+  capturedSessions: string;
+  web: string;
+  mobile: string;
+  replayPlanDetail: string;
+  customQuote: string;
+  vendorPricingNote: (vendor: string) => string;
+  saves: (amount: string) => string;
+  methodology: string;
+  analyticsCalculator: string;
+  websiteHeading: string;
+  appHeading: string;
+  websiteIntro: string;
+  appIntro: string;
+  capturedReplays: string;
+  analyticsEvents: string;
+  activeUsers: string;
+  compareWith: string;
+  analyticsPlanDetail: (sessions: string) => string;
+  howCalculated: string;
+  included: string;
+  estimateInputs: string;
+  unlimited: string;
+  pricing: string;
+  perMonth: string;
+}> = {
+  en: {
+    replayCalculator: "Replay pricing calculator", priceSessions: (volume) => `Price ${volume} captured sessions`, replayIntro: "One monthly replay volume, compared against each vendor's current public pricing.", capturedSessions: "Captured sessions / month", web: "web", mobile: "mobile", replayPlanDetail: "The same replay allowance for web and mobile, with unlimited analytics events included.", customQuote: "Custom quote", vendorPricingNote: (vendor) => `${vendor} pricing depends on its plan and usage allowances. Review the official source for the current rate.`, saves: (amount) => `Rejourney saves ${amount}/mo at this volume`, methodology: "Estimates exclude taxes, negotiated discounts, retention upgrades, and unrelated add-ons. Custom means the vendor does not publish enough data for an honest dollar estimate.", analyticsCalculator: "Analytics pricing calculator", websiteHeading: "Price the full website signal", appHeading: "Price the full app signal", websiteIntro: "Compare website replay, analytics events, and active users—not a replay allowance in isolation.", appIntro: "Compare mobile replay, in-app events, and active users—not an app-store metric in isolation.", capturedReplays: "Captured session replays / month", analyticsEvents: "Analytics events / month", activeUsers: "Monthly active users", compareWith: "Compare with", analyticsPlanDetail: (sessions) => `${sessions} replays with unlimited analytics events, active users, and retention.`, howCalculated: "How this estimate is calculated", included: "Included with Rejourney", estimateInputs: "estimate inputs", unlimited: "unlimited", pricing: "Rejourney pricing", perMonth: "/mo",
+  },
+  ar: {
+    replayCalculator: "حاسبة أسعار إعادة الجلسات", priceSessions: (volume) => `سعّر ${volume} جلسة مسجلة`, replayIntro: "قارن حجم إعادة الجلسات الشهري نفسه بالأسعار العامة الحالية لكل مزود.", capturedSessions: "الجلسات المسجلة شهريًا", web: "الويب", mobile: "الجوال", replayPlanDetail: "الحصة نفسها للويب والجوال، مع أحداث تحليلات غير محدودة.", customQuote: "عرض سعر مخصص", vendorPricingNote: (vendor) => `يعتمد سعر ${vendor} على الباقة وحصص الاستخدام. راجع المصدر الرسمي للسعر الحالي.`, saves: (amount) => `يوفر Rejourney مبلغ ${amount} شهريًا عند هذا الحجم`, methodology: "لا تشمل التقديرات الضرائب والخصومات المتفاوض عليها وترقيات الاحتفاظ والإضافات غير المرتبطة. السعر المخصص يعني أن المزود لا ينشر بيانات كافية لتقدير دقيق.", analyticsCalculator: "حاسبة أسعار التحليلات", websiteHeading: "سعّر إشارات الموقع كاملة", appHeading: "سعّر إشارات التطبيق كاملة", websiteIntro: "قارن إعادة جلسات الموقع وأحداث التحليلات والمستخدمين النشطين، لا حصة الإعادة وحدها.", appIntro: "قارن إعادة جلسات الجوال والأحداث داخل التطبيق والمستخدمين النشطين.", capturedReplays: "إعادات الجلسات المسجلة شهريًا", analyticsEvents: "أحداث التحليلات شهريًا", activeUsers: "المستخدمون النشطون شهريًا", compareWith: "قارن مع", analyticsPlanDetail: (sessions) => `${sessions} جلسة مع أحداث تحليلات ومستخدمين نشطين واحتفاظ غير محدودة.`, howCalculated: "كيف حُسب هذا التقدير", included: "المشمول مع Rejourney", estimateInputs: "مدخلات التقدير", unlimited: "غير محدودة", pricing: "أسعار Rejourney", perMonth: "/شهر",
+  },
+  es: {
+    replayCalculator: "Calculadora de precios de replay", priceSessions: (volume) => `Calcula ${volume} sesiones capturadas`, replayIntro: "Compara el mismo volumen mensual con los precios públicos actuales de cada proveedor.", capturedSessions: "Sesiones capturadas al mes", web: "web", mobile: "móvil", replayPlanDetail: "La misma cuota para web y móvil, con eventos de analítica ilimitados.", customQuote: "Presupuesto personalizado", vendorPricingNote: (vendor) => `El precio de ${vendor} depende del plan y sus cuotas de uso. Consulta la fuente oficial.`, saves: (amount) => `Rejourney ahorra ${amount} al mes con este volumen`, methodology: "Las estimaciones excluyen impuestos, descuentos negociados, mejoras de retención y complementos no relacionados. Personalizado indica que no hay datos públicos suficientes.", analyticsCalculator: "Calculadora de precios de analítica", websiteHeading: "Calcula toda la señal del sitio web", appHeading: "Calcula toda la señal de la aplicación", websiteIntro: "Compara replay web, eventos de analítica y usuarios activos, no solo una cuota de replay.", appIntro: "Compara replay móvil, eventos dentro de la aplicación y usuarios activos.", capturedReplays: "Replays capturados al mes", analyticsEvents: "Eventos de analítica al mes", activeUsers: "Usuarios activos mensuales", compareWith: "Comparar con", analyticsPlanDetail: (sessions) => `${sessions} replays con eventos, usuarios activos y retención ilimitados.`, howCalculated: "Cómo se calcula esta estimación", included: "Incluido con Rejourney", estimateInputs: "datos de la estimación", unlimited: "ilimitados", pricing: "Precios de Rejourney", perMonth: "/mes",
+  },
+  fr: {
+    replayCalculator: "Calculateur de prix du replay", priceSessions: (volume) => `Estimez ${volume} sessions capturées`, replayIntro: "Comparez le même volume mensuel aux tarifs publics actuels de chaque fournisseur.", capturedSessions: "Sessions capturées par mois", web: "web", mobile: "mobile", replayPlanDetail: "Le même quota pour le web et le mobile, avec des événements analytics illimités.", customQuote: "Devis personnalisé", vendorPricingNote: (vendor) => `Le prix de ${vendor} dépend du forfait et des quotas d’usage. Consultez la source officielle.`, saves: (amount) => `Rejourney économise ${amount} par mois à ce volume`, methodology: "Les estimations excluent taxes, remises négociées, extensions de rétention et options sans rapport. Personnalisé signifie que les données publiques ne suffisent pas.", analyticsCalculator: "Calculateur de prix analytics", websiteHeading: "Estimez tous les signaux du site", appHeading: "Estimez tous les signaux de l’application", websiteIntro: "Comparez replay web, événements analytics et utilisateurs actifs, pas seulement un quota de replay.", appIntro: "Comparez replay mobile, événements dans l’application et utilisateurs actifs.", capturedReplays: "Replays capturés par mois", analyticsEvents: "Événements analytics par mois", activeUsers: "Utilisateurs actifs mensuels", compareWith: "Comparer avec", analyticsPlanDetail: (sessions) => `${sessions} replays avec événements, utilisateurs actifs et rétention illimités.`, howCalculated: "Méthode de calcul", included: "Inclus avec Rejourney", estimateInputs: "données de l’estimation", unlimited: "illimités", pricing: "Tarifs Rejourney", perMonth: "/mois",
+  },
+  de: {
+    replayCalculator: "Replay-Preisrechner", priceSessions: (volume) => `${volume} aufgezeichnete Sitzungen kalkulieren`, replayIntro: "Vergleichen Sie dasselbe Monatsvolumen mit den aktuellen öffentlichen Preisen der Anbieter.", capturedSessions: "Aufgezeichnete Sitzungen pro Monat", web: "Web", mobile: "Mobil", replayPlanDetail: "Dasselbe Kontingent für Web und Mobile, einschließlich unbegrenzter Analytics-Events.", customQuote: "Individuelles Angebot", vendorPricingNote: (vendor) => `Der Preis von ${vendor} hängt von Tarif und Nutzungskontingent ab. Prüfen Sie die offizielle Quelle.`, saves: (amount) => `Rejourney spart bei diesem Volumen ${amount} pro Monat`, methodology: "Schätzungen verstehen sich ohne Steuern, ausgehandelte Rabatte, Aufbewahrungs-Upgrades und sachfremde Add-ons. Individuell bedeutet, dass keine ausreichenden öffentlichen Daten vorliegen.", analyticsCalculator: "Analytics-Preisrechner", websiteHeading: "Das vollständige Website-Signal kalkulieren", appHeading: "Das vollständige App-Signal kalkulieren", websiteIntro: "Vergleichen Sie Website-Replay, Analytics-Events und aktive Nutzer, nicht nur ein Replay-Kontingent.", appIntro: "Vergleichen Sie Mobile Replay, In-App-Events und aktive Nutzer.", capturedReplays: "Aufgezeichnete Replays pro Monat", analyticsEvents: "Analytics-Events pro Monat", activeUsers: "Monatlich aktive Nutzer", compareWith: "Vergleichen mit", analyticsPlanDetail: (sessions) => `${sessions} Replays mit unbegrenzten Analytics-Events, aktiven Nutzern und Aufbewahrung.`, howCalculated: "So wird die Schätzung berechnet", included: "In Rejourney enthalten", estimateInputs: "Schätzungsgrundlagen", unlimited: "unbegrenzt", pricing: "Rejourney-Preise", perMonth: "/Monat",
+  },
 };
 
 const getCompetitorReplayPrice = (
@@ -3821,22 +4010,7 @@ const getCompetitorReplayPrice = (
 ): CompetitorPriceResult => {
   switch (config.model) {
     case "posthog": {
-      const tiers = platform === "mobile"
-        ? [
-            { from: 2_500, to: 15_000, rate: 0.01 },
-            { from: 15_000, to: 50_000, rate: 0.007 },
-            { from: 50_000, to: 150_000, rate: 0.004 },
-            { from: 150_000, to: 500_000, rate: 0.0034 },
-            { from: 500_000, rate: 0.003 },
-          ]
-        : [
-            { from: 5_000, to: 15_000, rate: 0.005 },
-            { from: 15_000, to: 50_000, rate: 0.0035 },
-            { from: 50_000, to: 150_000, rate: 0.002 },
-            { from: 150_000, to: 500_000, rate: 0.0017 },
-            { from: 500_000, rate: 0.0015 },
-          ];
-      const price = progressiveReplayPrice(sessions, tiers);
+      const price = postHogReplayPrice(sessions, platform);
       return {
         priceLabel: `${formatMonthlyPrice(price)}/mo`,
         detail: `Published ${platform} replay tiers, including the monthly free quota.`,
@@ -3885,7 +4059,7 @@ const getCompetitorReplayPrice = (
   }
 };
 
-function AdReplayPricingCalculator({ page }: { page: SeoPage }) {
+function AdReplayPricingCalculator({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   const config = competitorPricingByPath[page.path];
   const [volumeIndex, setVolumeIndex] = React.useState(4);
   const [platform, setPlatform] = React.useState<ReplayPlatform>("web");
@@ -3898,29 +4072,38 @@ function AdReplayPricingCalculator({ page }: { page: SeoPage }) {
   const exactSavings = competitor.numericMonthly !== undefined && competitor.numericMonthly > rejourney.price
     ? competitor.numericMonthly - rejourney.price
     : null;
+  const labels = seoCalculatorLabels[localizedPage?.localeCode ?? "en"];
+  const localizedCompetitorPrice = localizedPage
+    ? competitor.numericMonthly !== undefined
+      ? `${formatMonthlyPrice(competitor.numericMonthly)}${labels.perMonth}`
+      : labels.customQuote
+    : competitor.priceLabel;
+  const localizedCompetitorDetail = localizedPage
+    ? labels.vendorPricingNote(config.name)
+    : competitor.detail;
 
   return (
-    <section className="border-b border-slate-200/80 bg-[#f8fafc] px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto max-w-5xl">
         <div className="mx-auto mb-9 max-w-3xl text-center">
-          <span className="mb-5 flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-wider text-indigo-600">
+          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-emerald-800">
             <BadgeDollarSign className="h-4 w-4" aria-hidden />
-            Replay pricing calculator
+            {labels.replayCalculator}
           </span>
-          <h2 className="text-3xl font-black uppercase leading-none text-slate-950 sm:text-5xl">
-            Price {formatReplayVolume(sessions)} captured sessions
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            {labels.priceSessions(formatReplayVolume(sessions))}
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-7 text-slate-500">
-            One monthly replay volume, compared against each vendor's current public pricing.
+            {labels.replayIntro}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="border-y border-slate-300 bg-white px-1 py-7 sm:px-5">
           <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
             <label className="block">
-              <span className="flex items-center justify-between gap-4 text-sm font-black uppercase text-slate-900">
-                Captured sessions / month
-                <output className="font-mono text-lg text-indigo-700">{formatReplayVolume(sessions)}</output>
+              <span className="flex items-center justify-between gap-4 text-sm font-bold text-slate-900">
+                {labels.capturedSessions}
+                <output className="font-mono text-lg text-emerald-700">{formatReplayVolume(sessions)}</output>
               </span>
               <input
                 type="range"
@@ -3929,66 +4112,385 @@ function AdReplayPricingCalculator({ page }: { page: SeoPage }) {
                 step="1"
                 value={volumeIndex}
                 onChange={(event) => setVolumeIndex(Number(event.target.value))}
-                className="mt-4 h-2 w-full cursor-pointer accent-indigo-600"
-                aria-label="Captured sessions per month"
-                aria-valuetext={`${sessions.toLocaleString()} captured sessions per month`}
+                className="mt-4 h-2 w-full cursor-pointer accent-emerald-600"
+                aria-label={labels.capturedSessions}
+                aria-valuetext={`${labels.capturedSessions}: ${sessions.toLocaleString(localizedPage?.locale.languageTag)}`}
               />
               <span className="mt-2 flex justify-between font-mono text-[10px] font-bold uppercase text-slate-400">
                 <span>5K</span><span>1M</span>
               </span>
             </label>
 
-            <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1" aria-label="Replay platform">
+            <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1" aria-label={localizedPage?.ui.platformHeading ?? "Replay platform"}>
               {(["web", "mobile"] as const).map((option) => (
                 <button
                   key={option}
                   type="button"
                   onClick={() => setPlatform(option)}
                   aria-pressed={platform === option}
-                  className={`rounded-md px-5 py-2 text-xs font-black uppercase transition ${
+                  className={`rounded-md px-5 py-2 text-xs font-bold transition ${
                     platform === option ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  {option}
+                  {option === "web" ? labels.web : labels.mobile}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="mt-7 grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50/60 p-5">
-              <p className="text-xs font-black uppercase tracking-wider text-emerald-700">Rejourney · {rejourney.plan}</p>
-              <p className="mt-2 text-3xl font-black text-slate-950">{formatMonthlyPrice(rejourney.price)}<span className="text-base text-slate-500">/mo</span></p>
-              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">Same captured-session allowance for web and mobile, with revenue leak prediction included.</p>
+          <div className="mt-7 grid border-t border-slate-200 md:grid-cols-2">
+            <div className="border-b border-slate-200 py-6 md:border-b-0 md:border-e md:pe-7">
+              <p className="text-sm font-semibold text-emerald-800">Rejourney · {rejourney.plan}</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">{formatMonthlyPrice(rejourney.price)}<span className="text-base text-slate-500">{labels.perMonth}</span></p>
+              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">{labels.replayPlanDetail}</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-500">{config.name}</p>
-              <p className="mt-2 text-3xl font-black text-slate-950">{competitor.priceLabel}</p>
-              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">{competitor.detail}</p>
+            <div className="py-6 md:ps-7">
+              <p className="text-sm font-semibold text-slate-600">{config.name}</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">{localizedCompetitorPrice}</p>
+              <p className="mt-3 text-sm font-bold leading-6 text-slate-600">{localizedCompetitorDetail}</p>
             </div>
           </div>
 
           {exactSavings !== null ? (
-            <div className="mt-4 rounded-lg bg-slate-950 px-4 py-3 text-center text-sm font-black uppercase text-white">
-              Rejourney saves {formatMonthlyPrice(exactSavings)}/mo at this volume
-              {config.model === "datadog" ? " before required RUM charges" : ""}.
+            <div className="border-t border-emerald-200 py-4 text-center text-sm font-bold text-emerald-900">
+              {labels.saves(formatMonthlyPrice(exactSavings))}
+              {!localizedPage && config.model === "datadog" ? " before required RUM charges" : ""}.
             </div>
           ) : null}
 
           <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-5 text-xs font-bold leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-2xl">
-              {config.publicFact} Estimates exclude taxes, negotiated discounts, retention upgrades, and unrelated add-ons. “Custom” means the vendor does not publish enough data for an honest dollar estimate.
+              {localizedPage ? labels.methodology : `${config.publicFact} ${labels.methodology}`}
             </p>
             <a
               href={config.sourceHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex shrink-0 items-center gap-1.5 font-black text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900"
+              className="inline-flex shrink-0 items-center gap-1.5 font-bold text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
             >
-              {config.sourceLabel}
+              {localizedPage ? config.name : config.sourceLabel}
               <ExternalLink className="h-3.5 w-3.5" aria-hidden />
             </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type AnalyticsCompetitorModel = "posthog" | "mixpanel" | "amplitude" | "pendo";
+
+type AnalyticsCompetitor = {
+  model: AnalyticsCompetitorModel;
+  name: string;
+  sourceHref: string;
+  sourceLabel: string;
+};
+
+const analyticsEventSteps = [100_000, 1_000_000, 2_000_000, 10_000_000, 50_000_000, 100_000_000] as const;
+const analyticsUserSteps = [500, 1_000, 10_000, 50_000, 100_000, 500_000] as const;
+
+const websiteAnalyticsCompetitors: AnalyticsCompetitor[] = [
+  {
+    model: "posthog",
+    name: "PostHog",
+    sourceHref: "https://posthog.com/pricing",
+    sourceLabel: "PostHog pricing",
+  },
+  {
+    model: "mixpanel",
+    name: "Mixpanel",
+    sourceHref: "https://mixpanel.com/pricing/",
+    sourceLabel: "Mixpanel pricing",
+  },
+  {
+    model: "amplitude",
+    name: "Amplitude",
+    sourceHref: "https://amplitude.com/pricing",
+    sourceLabel: "Amplitude pricing",
+  },
+];
+
+const appAnalyticsCompetitors: AnalyticsCompetitor[] = [
+  {
+    model: "mixpanel",
+    name: "Mixpanel",
+    sourceHref: "https://mixpanel.com/pricing/",
+    sourceLabel: "Mixpanel pricing",
+  },
+  {
+    model: "amplitude",
+    name: "Amplitude",
+    sourceHref: "https://amplitude.com/pricing",
+    sourceLabel: "Amplitude pricing",
+  },
+  {
+    model: "pendo",
+    name: "Pendo",
+    sourceHref: "https://www.pendo.io/pricing/",
+    sourceLabel: "Pendo pricing",
+  },
+];
+
+type AnalyticsCompetitorPrice = {
+  priceLabel: string;
+  detail: string;
+  eventLine: string;
+  userLine: string;
+  replayLine: string;
+};
+
+const getAnalyticsCompetitorPrice = (
+  competitor: AnalyticsCompetitor,
+  sessions: number,
+  events: number,
+  monthlyActiveUsers: number,
+): AnalyticsCompetitorPrice => {
+  switch (competitor.model) {
+    case "posthog": {
+      const analyticsPrice = Math.max(0, events - 1_000_000) * 0.00005;
+      const replayPrice = postHogReplayPrice(sessions, "web");
+      const total = analyticsPrice + replayPrice;
+      return {
+        priceLabel: `${formatMonthlyPrice(total)}/mo estimate`,
+        detail: "Uses PostHog's published free allowances and first paid rates. Its rates decrease at higher volume, so verify the live estimate before buying.",
+        eventLine: events <= 1_000_000
+          ? `${formatReplayVolume(events)} events inside the 1M free allowance`
+          : `${formatMonthlyPrice(analyticsPrice)} estimated analytics usage`,
+        userLine: `${formatReplayVolume(monthlyActiveUsers)} MAU are represented through event usage`,
+        replayLine: `${formatMonthlyPrice(replayPrice)} estimated web replay usage`,
+      };
+    }
+    case "mixpanel": {
+      const analyticsPrice = Math.max(0, events - 1_000_000) / 1_000 * 0.28;
+      const needsReplayAddOn = sessions > 20_000;
+      return {
+        priceLabel: needsReplayAddOn
+          ? `At least ${formatMonthlyPrice(analyticsPrice)}/mo + replay`
+          : `${formatMonthlyPrice(analyticsPrice)}/mo`,
+        detail: needsReplayAddOn
+          ? "Mixpanel publishes the event charge, but replay volume above 20K requires a customizable allowance without a public dollar rate."
+          : "Growth includes the first 1M events and 20K session replays each month.",
+        eventLine: events <= 1_000_000
+          ? `${formatReplayVolume(events)} events inside the 1M free allowance`
+          : `${formatMonthlyPrice(analyticsPrice)} for events above 1M`,
+        userLine: `${formatReplayVolume(monthlyActiveUsers)} MAU are represented through event usage`,
+        replayLine: needsReplayAddOn
+          ? `${formatReplayVolume(sessions)} replays require a customized allowance`
+          : `${formatReplayVolume(sessions)} replays inside the Growth allowance`,
+      };
+    }
+    case "amplitude": {
+      const insideFreeUsage = events <= 2_000_000 && sessions <= 10_000;
+      return {
+        priceLabel: insideFreeUsage ? "$0/mo" : "Usage-based or custom",
+        detail: insideFreeUsage
+          ? "Amplitude Free includes up to 2M events and 10K monthly session replays."
+          : "Amplitude publishes event and replay allowances, but not enough paid rates for an honest dollar estimate at this usage.",
+        eventLine: events <= 2_000_000
+          ? `${formatReplayVolume(events)} events inside the 2M free allowance`
+          : `${formatReplayVolume(events)} events move beyond the Free allowance`,
+        userLine: `${formatReplayVolume(monthlyActiveUsers)} MAU; current Free usage is measured by event volume`,
+        replayLine: sessions <= 10_000
+          ? `${formatReplayVolume(sessions)} replays inside the Free allowance`
+          : `${formatReplayVolume(sessions)} replays require paid or custom volume`,
+      };
+    }
+    case "pendo":
+      return {
+        priceLabel: "Custom MAU quote + replay tier",
+        detail: "Pendo prices paid plans by MAU and bundle. Session Replay is an add-on on lower tiers and included on Core and Ultimate, all without public paid dollar rates.",
+        eventLine: `${formatReplayVolume(events)} events are not the published billing meter`,
+        userLine: monthlyActiveUsers <= 500
+          ? `${formatReplayVolume(monthlyActiveUsers)} MAU fit the Free analytics limit`
+          : `${formatReplayVolume(monthlyActiveUsers)} MAU require custom paid pricing`,
+        replayLine: `${formatReplayVolume(sessions)} replays require an add-on or Core / Ultimate`,
+      };
+  }
+};
+
+function AnalyticsPricingCalculator({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const isWebsite = page.path === "/website-analytics";
+  const competitors = isWebsite ? websiteAnalyticsCompetitors : appAnalyticsCompetitors;
+  const [replayIndex, setReplayIndex] = React.useState(4);
+  const [eventIndex, setEventIndex] = React.useState(3);
+  const [userIndex, setUserIndex] = React.useState(3);
+  const [competitorModel, setCompetitorModel] = React.useState<AnalyticsCompetitorModel>(competitors[0].model);
+
+  const sessions = replayVolumeSteps[replayIndex];
+  const events = analyticsEventSteps[eventIndex];
+  const monthlyActiveUsers = analyticsUserSteps[userIndex];
+  const selectedCompetitor = competitors.find((competitor) => competitor.model === competitorModel) ?? competitors[0];
+  const rejourney = rejourneyReplayPrice(sessions);
+  const competitorPrice = getAnalyticsCompetitorPrice(selectedCompetitor, sessions, events, monthlyActiveUsers);
+  const labels = seoCalculatorLabels[localizedPage?.localeCode ?? "en"];
+  const heading = isWebsite ? labels.websiteHeading : labels.appHeading;
+  const intro = isWebsite ? labels.websiteIntro : labels.appIntro;
+  const competitorDollarAmount = competitorPrice.priceLabel.match(/\$[\d,.]+/)?.[0];
+  const localizedCompetitorPrice = localizedPage
+    ? competitorDollarAmount
+      ? `${competitorDollarAmount}${labels.perMonth}`
+      : labels.customQuote
+    : competitorPrice.priceLabel;
+  const localizedCompetitorDetail = localizedPage
+    ? labels.vendorPricingNote(selectedCompetitor.name)
+    : competitorPrice.detail;
+
+  const sliderRows = [
+    {
+      label: labels.capturedReplays,
+      value: replayIndex,
+      max: replayVolumeSteps.length - 1,
+      formattedValue: formatReplayVolume(sessions),
+      ariaValue: `${labels.capturedReplays}: ${sessions.toLocaleString(localizedPage?.locale.languageTag)}`,
+      onChange: setReplayIndex,
+      minLabel: "5K",
+      maxLabel: "1M",
+    },
+    {
+      label: labels.analyticsEvents,
+      value: eventIndex,
+      max: analyticsEventSteps.length - 1,
+      formattedValue: formatReplayVolume(events),
+      ariaValue: `${labels.analyticsEvents}: ${events.toLocaleString(localizedPage?.locale.languageTag)}`,
+      onChange: setEventIndex,
+      minLabel: "100K",
+      maxLabel: "100M",
+    },
+    {
+      label: labels.activeUsers,
+      value: userIndex,
+      max: analyticsUserSteps.length - 1,
+      formattedValue: formatReplayVolume(monthlyActiveUsers),
+      ariaValue: `${labels.activeUsers}: ${monthlyActiveUsers.toLocaleString(localizedPage?.locale.languageTag)}`,
+      onChange: setUserIndex,
+      minLabel: "500",
+      maxLabel: "500K",
+    },
+  ];
+
+  return (
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="mx-auto mb-10 max-w-3xl text-center">
+          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-emerald-800">
+            <BadgeDollarSign className="h-4 w-4" aria-hidden />
+            {labels.analyticsCalculator}
+          </span>
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">{heading}</h2>
+          <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-7 text-slate-500">{intro}</p>
+        </div>
+
+        <div className="border-y border-slate-300 bg-white">
+          <div className="grid gap-6 border-b border-slate-200 p-5 sm:p-7 lg:grid-cols-3">
+            {sliderRows.map((row) => (
+              <label key={row.label} className="block">
+                <span className="flex items-start justify-between gap-3 text-xs font-bold leading-5 text-slate-900">
+                  {row.label}
+                  <output className="shrink-0 font-mono text-base text-emerald-700">{row.formattedValue}</output>
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max={row.max}
+                  step="1"
+                  value={row.value}
+                  onChange={(event) => row.onChange(Number(event.target.value))}
+                  className="mt-4 h-2 w-full cursor-pointer accent-emerald-600"
+                  aria-label={row.label}
+                  aria-valuetext={row.ariaValue}
+                />
+                <span className="mt-2 flex justify-between font-mono text-[10px] font-bold uppercase text-slate-400">
+                  <span>{row.minLabel}</span><span>{row.maxLabel}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="px-5 sm:px-7">
+            <div className="flex flex-col gap-4 border-b border-slate-200 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-slate-600">{labels.compareWith}</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Analytics competitor">
+                {competitors.map((competitor) => (
+                  <button
+                    key={competitor.model}
+                    type="button"
+                    onClick={() => setCompetitorModel(competitor.model)}
+                    aria-pressed={selectedCompetitor.model === competitor.model}
+                    className={`border-b-2 px-1 py-2 text-sm font-bold transition-colors ${
+                      selectedCompetitor.model === competitor.model
+                        ? "border-slate-950 text-slate-950"
+                        : "border-transparent text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    {competitor.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid lg:grid-cols-2">
+              <div className="border-b border-slate-200 py-7 lg:border-b-0 lg:border-e lg:pe-8">
+                <p className="text-sm font-semibold text-emerald-800">Rejourney · {rejourney.plan}</p>
+                <p className="mt-2 text-4xl font-black text-slate-950">
+                  {formatMonthlyPrice(rejourney.price)}<span className="text-base text-slate-500">{labels.perMonth}</span>
+                </p>
+                <p className="mt-3 text-sm font-medium leading-6 text-slate-600">
+                  {labels.analyticsPlanDetail(formatReplayVolume(sessions))}
+                </p>
+              </div>
+
+              <div className="py-7 lg:ps-8">
+                <p className="text-sm font-semibold text-slate-600">{selectedCompetitor.name}</p>
+                <p className="mt-2 text-3xl font-black leading-tight text-slate-950">{localizedCompetitorPrice}</p>
+                <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{localizedCompetitorDetail}</p>
+              </div>
+            </div>
+
+            <details className="group border-t border-slate-200 py-5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold text-slate-700 marker:hidden">
+                {labels.howCalculated}
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90" aria-hidden />
+              </summary>
+              <div className="grid gap-6 pt-6 text-sm font-medium leading-6 text-slate-600 lg:grid-cols-2">
+                <div>
+                  <p className="font-bold text-slate-900">{labels.included}</p>
+                  <ul className="mt-3 space-y-2">
+                    {[
+                      `${formatReplayVolume(sessions)} · ${labels.capturedReplays}`,
+                      `${formatReplayVolume(events)} · ${labels.analyticsEvents} · ${labels.unlimited}`,
+                      `${formatReplayVolume(monthlyActiveUsers)} · ${labels.activeUsers} · ${labels.unlimited}`,
+                      `${labels.unlimited} · ${localizedPage?.ui.platformHeading ?? "analytics data retention"}`,
+                    ].map((line) => <li key={line}>{line}</li>)}
+                  </ul>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-900">{selectedCompetitor.name} · {labels.estimateInputs}</p>
+                  <ul className="mt-3 space-y-2">
+                    {(localizedPage
+                      ? [
+                          `${formatReplayVolume(sessions)} · ${labels.capturedReplays}`,
+                          `${formatReplayVolume(events)} · ${labels.analyticsEvents}`,
+                          `${formatReplayVolume(monthlyActiveUsers)} · ${labels.activeUsers}`,
+                        ]
+                      : [competitorPrice.replayLine, competitorPrice.eventLine, competitorPrice.userLine]
+                    ).map((line) => <li key={line}>{line}</li>)}
+                  </ul>
+                </div>
+              </div>
+              <div className="mt-6 flex flex-col gap-4 border-t border-slate-200 pt-5 text-xs font-medium leading-5 text-slate-500 sm:flex-row sm:items-start sm:justify-between">
+                <p className="max-w-3xl">
+                  {localizedPage ? labels.methodology : `Public list-price model reviewed August 1, 2026. ${labels.methodology}`}
+                </p>
+                <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                  <a href={selectedCompetitor.sourceHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-bold text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950">
+                    {localizedPage ? selectedCompetitor.name : selectedCompetitor.sourceLabel}<ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                  <Link to="/pricing" className="font-bold text-slate-700 underline decoration-slate-300 underline-offset-4 hover:text-slate-950">{labels.pricing}</Link>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -4000,31 +4502,29 @@ function AdComparison({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative") return null;
 
   return (
-    <section className="border-b border-slate-200/80 bg-white py-16 px-4 sm:px-6 lg:px-8">
+    <section className="border-b border-black/10 bg-white px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto max-w-7xl">
         <div className="mx-auto max-w-3xl text-center mb-12">
-          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-            Capability Compare
+          <span className="mb-5 block text-sm font-semibold text-emerald-800">
+            Full capability comparison
           </span>
-          <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
-            REJOURNEY VS {page.otherColumnTitle.toUpperCase()}
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            Rejourney vs {page.otherColumnTitle}
           </h2>
           <p className="text-base sm:text-lg font-bold text-slate-500 max-w-xl mx-auto">
             Public capabilities reviewed {page.lastReviewed ?? "recently"}. Plan and platform details can change, so verify the linked vendor sources before buying.
           </p>
         </div>
 
-        {/* Clean Table Wrapper */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-12">
+        <div className="mb-12 overflow-hidden border-y border-slate-300 bg-white">
           <div className="overflow-x-auto">
             <div className="min-w-[640px]">
-              <div className="grid grid-cols-[1.25fr_0.75fr_0.75fr] border-b border-slate-200 bg-slate-950 text-white font-mono text-xs uppercase font-black select-none">
+              <div className="grid grid-cols-[1.25fr_0.75fr_0.75fr] border-b border-slate-200 bg-slate-950 text-xs font-bold text-white select-none">
                 <div className="px-6 py-4.5">Capability</div>
                 <div className="border-l border-slate-800 px-6 py-4.5">Rejourney</div>
                 <div className="border-l border-slate-800 px-6 py-4.5">{page.otherColumnTitle}</div>
               </div>
-              
+
               {page.comparisonRows.map((row, idx) => (
                 <div
                   key={row.feature}
@@ -4033,8 +4533,7 @@ function AdComparison({ page }: { page: SeoPage }) {
                   }`}
                 >
                   <div className="px-6 py-4.5 text-base font-bold text-slate-900">{row.feature}</div>
-                  {/* Highlight Rejourney column with soft green */}
-                  <div className="border-l border-slate-100 px-6 py-4.5 bg-emerald-500/[0.015] self-stretch flex items-center">
+                  <div className="flex self-stretch items-center border-l border-slate-100 bg-emerald-500/[0.015] px-6 py-4.5">
                     <ValueBadge value={row.rejourney} />
                   </div>
                   <div className="border-l border-slate-100 px-6 py-4.5 self-stretch flex items-center">
@@ -4047,7 +4546,7 @@ function AdComparison({ page }: { page: SeoPage }) {
         </div>
 
         {page.officialSources?.length ? (
-          <div className="mx-auto mb-12 max-w-4xl rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
+          <div className="mx-auto mb-12 max-w-4xl border-y border-slate-200 px-5 py-4 text-sm text-slate-600">
             <p className="font-bold leading-6">
               “Limited” means plan-, platform-, or scope-dependent. “Not listed” means we did not find a directly comparable capability in the public materials reviewed; it is not a claim that the vendor can never support it.
             </p>
@@ -4058,7 +4557,7 @@ function AdComparison({ page }: { page: SeoPage }) {
                   href={source.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 font-extrabold text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900"
+                  className="inline-flex items-center gap-1.5 font-extrabold text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
                 >
                   {source.label}
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
@@ -4068,31 +4567,27 @@ function AdComparison({ page }: { page: SeoPage }) {
           </div>
         ) : null}
 
-        {/* Try Rejourney CTA Box */}
-        <div className="relative rounded-2xl border border-slate-200 bg-gradient-to-br from-[#ecfeff]/80 to-white p-8 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 max-w-4xl mx-auto overflow-hidden">
-          <div className="absolute top-0 right-0 h-48 w-48 rounded-full bg-cyan-200/10 blur-2xl pointer-events-none" />
-          <div className="relative z-10 text-left">
-            <h3 className="text-xl sm:text-2xl font-black uppercase text-slate-950 mb-2 leading-none">
-              READY TO TRY REJOURNEY?
-            </h3>
-            <p className="text-base font-bold text-slate-500">
-              The Free plan includes 5,000 monthly sessions. Review pricing and setup docs before rollout.
-            </p>
-          </div>
-          <Link
-            to="/login"
-            className="group relative z-10 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-6 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center"
-          >
-            Start free now
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
-          </Link>
-        </div>
       </div>
     </section>
   );
 }
 
-function AdRepeatedCTA({ isBottom = false }: { isBottom?: boolean }) {
+function AdRepeatedCTA({ page, isBottom = false }: { page: SeoPage; isBottom?: boolean }) {
+  const copy = page.path === "/website-analytics"
+    ? {
+        title: "TURN WEBSITE TRAFFIC INTO ANSWERS",
+        description: "Connect analytics to the sessions behind every website drop-off. Start with 5,000 monthly replays and unlimited analytics events.",
+      }
+    : page.path === "/app-analytics"
+      ? {
+          title: "SEE WHY APP USERS DROP",
+          description: "Measure in-app behavior, replay the session, and connect crashes to real users. No credit card required.",
+        }
+      : {
+          title: "START INVESTIGATING PRODUCT FRICTION",
+          description: "The Free plan includes 5,000 monthly sessions. No credit card required.",
+        };
+
   return (
     <section className={`relative overflow-hidden border-b border-slate-200/80 py-20 px-4 sm:px-6 lg:px-8 text-center ${isBottom ? "bg-gradient-to-br from-[#ecfeff]/40 to-[#fff7df]/40" : "bg-white"}`}>
       {/* Background visual element */}
@@ -4100,10 +4595,10 @@ function AdRepeatedCTA({ isBottom = false }: { isBottom?: boolean }) {
       
       <div className="relative z-10 mx-auto max-w-4xl">
         <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
-          START INVESTIGATING PRODUCT FRICTION
+          {copy.title}
         </h2>
         <p className="text-base sm:text-lg font-bold text-slate-500 mb-8 max-w-2xl mx-auto">
-          The Free plan includes 5,000 monthly sessions. No credit card required.
+          {copy.description}
         </p>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 max-w-md mx-auto">
           <Link
@@ -4119,32 +4614,32 @@ function AdRepeatedCTA({ isBottom = false }: { isBottom?: boolean }) {
   );
 }
 
-function AdFaq({ page }: { page: SeoPage }) {
+function AdFaq({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const ui = localizedPage?.ui;
   return (
-    <section className="border-b border-slate-200/80 bg-white px-4 py-20 sm:px-6 lg:px-8">
+    <section className="border-b border-black/10 bg-[#fdfbf7] px-5 py-20 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <div className="text-center mb-12">
-          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center justify-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-            FAQ
+          <span className="mb-4 block text-sm font-semibold text-emerald-800">
+            {ui?.faqEyebrow ?? "FAQ"}
           </span>
-          <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 leading-none">
-            FREQUENTLY ASKED QUESTIONS
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            {ui?.questionsAnswered ?? "Questions, answered."}
           </h2>
         </div>
-        <div className="space-y-4">
+        <div className="border-t border-black/10">
           {page.faq.map((item) => (
-            <details key={item.question} className="group rounded-xl border border-slate-200 bg-white overflow-hidden transition-all duration-350 hover:shadow-sm">
+            <details key={item.question} className="group border-b border-black/10 bg-transparent">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden sm:p-6 focus:outline-none">
-                <h3 className="text-left text-base sm:text-lg font-extrabold uppercase leading-tight text-slate-900 transition-colors group-hover:text-black">
+                <h3 className="text-start text-base font-black leading-tight text-slate-900 transition-colors group-hover:text-black sm:text-lg">
                   {item.question}
                 </h3>
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-slate-200 bg-slate-50 transition group-open:rotate-90">
+                <span className="grid h-7 w-7 shrink-0 place-items-center transition group-open:rotate-90">
                   <ChevronRight className="h-4 w-4 text-slate-500" strokeWidth={2.5} />
                 </span>
               </summary>
               <div className="px-5 pb-5 pt-0 sm:px-6 sm:pb-6">
-                <p className="border-t border-slate-100 pt-4 text-sm sm:text-base font-bold leading-relaxed text-slate-500">
+                <p className="max-w-2xl pb-2 text-sm font-medium leading-7 text-slate-600 sm:text-base">
                   {item.answer}
                 </p>
               </div>
@@ -4179,32 +4674,598 @@ function AdFooter() {
   );
 }
 
-function PaidAdLandingPage({ page }: { page: SeoPage }) {
+function landingOutcomeImages(page: SeoPage): FeatureImage[] {
+  if (page.kind !== "alternative") return featureImages(page).slice(0, 3);
+
+  const quickScan = alternativeQuickScanImage(page);
+  const technicalAlternative = page.path.includes("sentry") || page.path.includes("datadog");
+  const experienceAlternative = page.path.includes("hotjar")
+    || page.path.includes("smartlook")
+    || page.path.includes("fullstory");
+
+  if (technicalAlternative) {
+    return [
+      quickScan,
+      {
+        src: "/images/engineering/product-tools-live-stability.png",
+        alt: "Rejourney stability workspace with crashes errors ANRs and affected sessions",
+        title: "Stability context",
+        copy: "Keep crashes, ANRs, API failures, and the user session in one investigation.",
+      },
+      {
+        src: "/images/engineering/product-tools-live-replay.png",
+        alt: "Rejourney replay workbench with timeline network and console context",
+        title: "Replay evidence",
+        copy: "Start from what the user experienced, then inspect the technical evidence around it.",
+      },
+    ];
+  }
+
+  if (experienceAlternative) {
+    return [
+      quickScan,
+      {
+        src: "/images/engineering/product-tools-live-replay.png",
+        alt: "Rejourney web and mobile replay workbench",
+        title: "Web and mobile replay",
+        copy: "Review real sessions across browser and native app surfaces.",
+      },
+      {
+        src: "/images/engineering/product-tools-live-journeys.png",
+        alt: "Rejourney journey analytics showing real product paths",
+        title: "Journey evidence",
+        copy: "Move from one recording to the repeated path behind the behavior.",
+      },
+    ];
+  }
+
+  return [
+    quickScan,
+    {
+      src: "/images/engineering/product-tools-live-general.png",
+      alt: "Rejourney lightweight product analytics overview",
+      title: "Product analytics",
+      copy: "Keep active users, retention, releases, and degraded sessions close to replay.",
+    },
+    {
+      src: "/images/engineering/product-tools-live-replay.png",
+      alt: "Rejourney session replay workbench with complete context",
+      title: "The session behind the metric",
+      copy: "Open the exact experience behind a chart, path, or support report.",
+    },
+  ];
+}
+
+function LightweightLandingHero({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const location = useLocation();
+  const headline = localizedPage?.h1 ?? getSeoLandingHeadline(page);
+  const subheadline = localizedPage?.intro ?? AD_LANDING_SUBHEADLINES[page.path] ?? page.hero.subtitle;
+  const heroImage = AD_LANDING_HERO_IMAGES[page.path] ?? page.image;
+  const dimensions = featureImageDimensionsBySrc[heroImage] ?? { width: 1440, height: 900 };
+  const primaryHref = landingHrefWithAttribution(page.cta.primaryHref, location.search);
+  const secondaryHref = landingHrefWithAttribution(page.cta.secondaryHref, location.search);
+  const headlineParts = headline.split(/(Lightweight)/i);
+  const reassurance = localizedPage?.ui.reassurance ?? (page.kind === "alternative"
+    ? "Evaluate Rejourney alongside your current stack. You do not need to migrate before you know it fits."
+    : page.kind === "educational"
+      ? "Read the practical answer first, then inspect the product without creating an account."
+      : "Install alongside your existing analytics and evaluate it with real sessions before committing.");
+  const isRtl = localizedPage?.locale.dir === "rtl";
+
   return (
-    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950 flex flex-col">
-      <AdHeader />
-      <AdHero page={page} />
-      <AdTrustBanner />
-      <AdBenefits page={page} />
-      {page.kind === "alternative" && <AdReplayPricingCalculator page={page} />}
-      <AdInstallation />
-      {page.kind === "alternative" && <AdComparison page={page} />}
-      <AdRepeatedCTA isBottom={false} />
-      <AdFaq page={page} />
-      <AdRepeatedCTA isBottom={true} />
-      <AdFooter />
+    <section className="border-b border-black/10 bg-[#fdfbf7] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20">
+      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-14">
+        <div className="max-w-2xl">
+          <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-emerald-800">
+            <span className="h-px w-6 bg-emerald-600" aria-hidden />
+            {localizedPage?.ui.eyebrow ?? page.hero.eyebrow}
+          </p>
+          <h1 className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-6xl">
+            {headlineParts.map((part, index) => part.toLowerCase() === "lightweight"
+              ? <span key={`${part}-${index}`} className="font-semibold">{part}</span>
+              : part)}
+          </h1>
+          <p className="mt-6 max-w-xl text-pretty text-lg font-medium leading-8 text-slate-600 sm:text-xl">
+            {subheadline}
+          </p>
+
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link
+              to={primaryHref}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-7 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            >
+              {localizedPage?.ui.startFree ?? page.cta.primaryLabel}
+              <ArrowRight className={`h-4 w-4 ${isRtl ? "rotate-180" : ""}`} strokeWidth={2.75} aria-hidden />
+            </Link>
+            <Link
+              to={secondaryHref}
+              className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-7 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+            >
+              {localizedPage?.ui.liveDemo ?? page.cta.secondaryLabel}
+            </Link>
+          </div>
+
+          <p className="mt-5 max-w-xl text-sm font-medium leading-6 text-slate-600">{reassurance}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-slate-600">
+            <span>{localizedPage?.ui.freeSessions ?? "5,000 sessions free"}</span>
+            <span aria-hidden>·</span>
+            <span>{localizedPage?.ui.noCreditCard ?? "No credit card"}</span>
+            <span aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1.5"><EuFlag className="h-3.5 w-5" />{localizedPage?.ui.gdprCompliant ?? "GDPR compliant"}</span>
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <figure className="overflow-hidden rounded-xl border border-black/10 bg-white p-3 shadow-[0_10px_32px_rgba(15,23,42,0.06)]">
+            <img
+              src={optimizedMarketingImage(heroImage)}
+              alt={localizedPage?.h1 ?? page.imageAlt}
+              width={dimensions.width}
+              height={dimensions.height}
+              fetchPriority="high"
+              decoding="async"
+              style={{ width: "100%", maxWidth: "100%", height: "auto", maxHeight: "520px" }}
+              className="h-auto max-h-[520px] w-full object-contain"
+            />
+          </figure>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type LandingPlatformLogo = {
+  label: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  color: string;
+};
+
+const webLandingPlatformLogos: LandingPlatformLogo[] = [
+  { label: "React", icon: MarkReactNative, color: "#149eca" },
+  { label: "Next.js", icon: MarkNextJs, color: "#0f172a" },
+  { label: "Vue", icon: MarkVue, color: "#42b883" },
+  { label: "Angular", icon: MarkAngular, color: "#dd0031" },
+  { label: "SvelteKit", icon: MarkSvelte, color: "#ff3e00" },
+];
+
+const mobileLandingPlatformLogos: LandingPlatformLogo[] = [
+  { label: "React Native", icon: MarkReactNative, color: "#149eca" },
+  { label: "Expo", icon: MarkExpo, color: "#0f172a" },
+  { label: "Flutter", icon: MarkFlutter, color: "#54c5f8" },
+  { label: "Swift", icon: MarkSwift, color: "#f97316" },
+];
+
+const allLandingPlatformLogos: LandingPlatformLogo[] = [
+  { label: "Next.js", icon: MarkNextJs, color: "#0f172a" },
+  { label: "React Native", icon: MarkReactNative, color: "#149eca" },
+  { label: "Expo", icon: MarkExpo, color: "#0f172a" },
+  { label: "Flutter", icon: MarkFlutter, color: "#54c5f8" },
+  { label: "Swift", icon: MarkSwift, color: "#f97316" },
+];
+
+function LandingPlatformLogos({
+  setupVariant,
+  ariaLabel,
+}: {
+  setupVariant: SeoPage["setupVariant"];
+  ariaLabel: string;
+}) {
+  const platforms = setupVariant === "web"
+    ? webLandingPlatformLogos
+    : setupVariant === "mobile"
+      ? mobileLandingPlatformLogos
+      : allLandingPlatformLogos;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="list" aria-label={ariaLabel}>
+      {platforms.map((platform) => {
+        const PlatformIcon = platform.icon;
+        return (
+          <span
+            key={platform.label}
+            role="listitem"
+            aria-label={platform.label}
+            title={platform.label}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm"
+          >
+            <PlatformIcon className="h-5 w-5" style={{ color: platform.color }} />
+          </span>
+        );
+      })}
     </div>
   );
 }
 
-export default function SeoLandingPage() {
+function LandingTrustStrip({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+
+  return (
+    <section className="border-b border-black/10 bg-white px-5 py-6 sm:px-6 lg:px-8" aria-label={localizedPage?.ui.trustAriaLabel ?? "Product trust signals"}>
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm font-semibold text-slate-700">
+          <span>{localizedPage?.ui.lightweightSdks ?? "Lightweight SDKs"}</span>
+          <span className="text-slate-300" aria-hidden>/</span>
+          <span>{localizedPage?.ui.privacyMasking ?? "Privacy masking"}</span>
+          <span className="text-slate-300" aria-hidden>/</span>
+          <span className="inline-flex items-center gap-2"><GermanFlag className="h-4 w-6" />{localizedPage?.ui.hostedInGermany ?? "Hosted in Germany"}</span>
+        </div>
+        <LandingPlatformLogos
+          setupVariant={page.setupVariant}
+          ariaLabel={localizedPage?.ui.supports ?? "Supported platforms"}
+        />
+      </div>
+    </section>
+  );
+}
+
+function LandingKeywordSections({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  if (!page.keywordSections?.length) return null;
+
+  return (
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20" aria-labelledby={`${page.path.slice(1)}-questions`}>
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.investigationEyebrow ?? "Questions Rejourney can answer"}</p>
+            <h2 id={`${page.path.slice(1)}-questions`} className="mt-3 text-balance font-display text-4xl font-black leading-[1.04] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+              {localizedPage?.ui.benefitsHeading ?? "Start with the signal. Leave with evidence."}
+            </h2>
+          </div>
+          <Link
+            to="/demo"
+            className="group inline-flex w-fit items-center gap-2 text-sm font-black text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
+          >
+            {localizedPage?.ui.liveDemo ?? "Open live demo"}
+            <ArrowRight className={`h-4 w-4 transition-transform ${localizedPage?.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`} aria-hidden />
+          </Link>
+        </div>
+
+        <div className="mt-10 grid border-y border-black/10 lg:grid-cols-3">
+          {page.keywordSections.map((section, index) => (
+            <article
+              key={section.title}
+              className="border-b border-black/10 py-7 last:border-b-0 lg:border-b-0 lg:border-r lg:px-7 lg:first:pl-0 lg:last:border-r-0 lg:last:pr-0"
+            >
+              <p className="font-mono text-xs font-bold tracking-[0.12em] text-emerald-700" aria-hidden>
+                {String(index + 1).padStart(2, "0")}
+              </p>
+              <h3 className="mt-4 text-balance text-2xl font-black leading-tight tracking-[-0.025em] text-slate-950">{section.title}</h3>
+              <p className="mt-4 max-w-sm text-base font-medium leading-7 text-slate-600">{section.description}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LandingOutcomeSections({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const images = landingOutcomeImages(page);
+  return (
+    <section className="border-b border-black/10 bg-white px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+      <div className="mx-auto max-w-6xl">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-sm font-semibold text-emerald-800">
+            {localizedPage?.ui.outcomesEyebrow ?? (page.kind === "educational" ? "From idea to evidence" : page.kind === "alternative" ? "Why teams switch" : "From signal to answer")}
+          </p>
+          <h2 className="mt-3 text-balance font-display text-4xl font-black leading-[1.04] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            {page.kind === "alternative" ? "What changes when the stack gets lighter." : page.whyTitle}
+          </h2>
+        </div>
+
+        <div className="mt-14 space-y-16 lg:space-y-24">
+          {images.map((image, index) => {
+            const outcome = page.outcomes[index];
+            const dimensions = featureImageDimensionsBySrc[image.src] ?? { width: 1440, height: 900 };
+            return (
+              <article key={`${image.src}-${index}`} className="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
+                <div className={index % 2 ? "lg:order-2" : undefined}>
+                  <p className="text-sm font-semibold text-emerald-800">{index + 1}. {outcome?.title ?? image.title}</p>
+                  <h3 className="mt-4 text-balance text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-4xl">
+                    {outcome?.title ?? image.title}
+                  </h3>
+                  <p className="mt-5 text-pretty text-lg font-medium leading-8 text-slate-600">
+                    {outcome?.description ?? image.copy}
+                  </p>
+                </div>
+                <div className={index % 2 ? "lg:order-1" : undefined}>
+                  <figure className="overflow-hidden rounded-xl border border-black/10 bg-[#fafaf8] p-3">
+                    <img
+                      src={optimizedMarketingImage(image.src)}
+                      alt={outcome?.title ?? image.alt}
+                      width={dimensions.width}
+                      height={dimensions.height}
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: "100%", maxWidth: "100%", height: "auto", maxHeight: "430px" }}
+                      className="h-auto max-h-[430px] w-full object-contain"
+                    />
+                  </figure>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EducationalAnswerSection({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  if (page.kind !== "educational") return null;
+  return (
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
+        <div>
+          <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.shortAnswer ?? "The short answer"}</p>
+          <h2 className="mt-4 text-balance text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-4xl">{page.whyTitle}</h2>
+        </div>
+        <div className="space-y-5 text-lg font-medium leading-8 text-slate-700">
+          {page.whyParagraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          <div className="grid border-t border-black/10 pt-2 sm:grid-cols-2 sm:gap-x-8">
+            {page.chooseRejourney.slice(0, 4).map((item) => (
+              <div key={item} className="flex gap-3 border-b border-black/10 py-4 text-sm font-semibold leading-6 text-slate-700">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AlternativeAtAGlance({ page }: { page: SeoPage }) {
+  if (page.kind !== "alternative") return null;
+  return (
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">At a glance</p>
+            <h2 className="mt-4 text-balance text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950">A fair first comparison.</h2>
+          </div>
+          <div className="border-y border-black/10 py-6">
+            <p className="text-lg font-medium leading-8 text-slate-700">{alternativeTldrByPath[page.path] ?? page.comparisonIntro}</p>
+            <p className="mt-5 text-sm font-medium text-slate-500">Capabilities and public pricing reviewed {page.lastReviewed ?? "recently"}.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AlternativeFitSection({ page }: { page: SeoPage }) {
+  if (page.kind !== "alternative") return null;
+  return (
+    <section className="border-b border-black/10 bg-white px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
+        <article className="border-l-2 border-emerald-600 bg-emerald-50/35 p-7 sm:p-9">
+          <p className="text-sm font-semibold text-emerald-800">Choose Rejourney when</p>
+          <ul className="mt-6 space-y-4">
+            {alternativeRejourneyChecklist(page).slice(0, 4).map((item) => (
+              <li key={item} className="flex gap-3 text-base font-bold leading-7 text-slate-800"><Check className="mt-1 h-5 w-5 shrink-0 text-emerald-700" strokeWidth={3} />{item}</li>
+            ))}
+          </ul>
+        </article>
+        <article className="border-l-2 border-slate-300 bg-[#f7f6f1] p-7 sm:p-9">
+          <p className="text-sm font-semibold text-slate-600">{page.chooseOtherTitle}</p>
+          <ul className="mt-6 space-y-4">
+            {page.chooseOther.slice(0, 4).map((item) => (
+              <li key={item} className="flex gap-3 text-base font-bold leading-7 text-slate-700"><CircleMinus className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{item}</li>
+            ))}
+          </ul>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function LandingProofStory({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const customerLogo = page.proofStory.customer === "Burst Creatine"
+    ? "/images/burst-creatine-logo-red.webp"
+    : "/images/customer-onboarding-logo.webp";
+
+  return (
+    <section className="border-b border-black/10 bg-white px-5 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-6xl border-y border-black/10 py-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-center lg:gap-12">
+        <div>
+          <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.verifiedResult ?? "Verified customer result"}</p>
+          <p className="mt-3 text-3xl font-black leading-tight tracking-[-0.04em] text-slate-950 sm:text-4xl">{page.proofStory.metric}</p>
+        </div>
+        <div className="mt-7 lg:mt-0">
+          <div className="flex items-center gap-3">
+            <img
+              src={customerLogo}
+              alt={`${page.proofStory.customer} logo`}
+              width="40"
+              height="40"
+              loading="eager"
+              decoding="async"
+              className="h-10 w-10 shrink-0 rounded-lg object-cover"
+            />
+            <p className="text-sm font-bold text-slate-950">{page.proofStory.customer}</p>
+          </div>
+          <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-slate-600">{page.proofStory.summary}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LandingRelatedPages({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  const relatedPages = page.relatedPages.filter((related) => related.href !== "/demo").slice(0, 4);
+  if (!relatedPages.length) return null;
+
+  return (
+    <section className="border-b border-black/10 bg-white px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <div className="mx-auto max-w-6xl">
+        <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.keepExploring ?? "Keep exploring"}</p>
+        <h2 className="mt-4 max-w-3xl text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.045em] text-slate-950 sm:text-5xl">
+          {localizedPage?.ui.continueHeading ?? "Continue with the most relevant next step."}
+        </h2>
+        <div className="mt-10 grid border-t border-black/10 sm:grid-cols-2 lg:grid-cols-3">
+          {relatedPages.map((related) => (
+            <Link
+              key={related.href}
+              to={related.href}
+              className="group flex min-h-40 flex-col justify-between border-b border-black/10 p-6 transition-colors hover:bg-[#fdfbf7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 lg:border-r lg:last:border-r-0"
+            >
+              <div>
+                <h3 className="text-xl font-black tracking-[-0.025em] text-slate-950">{related.label}</h3>
+                <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{related.description}</p>
+              </div>
+              <span className="mt-6 inline-flex items-center gap-2 text-sm font-black text-emerald-800">
+                {localizedPage?.ui.readNext ?? "Read next"} <ArrowRight className={`h-4 w-4 transition ${localizedPage?.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`} aria-hidden />
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LandingFinalCta({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   const location = useLocation();
-  const page = getSeoPageByPath(normalizePath(location.pathname));
+  const primaryHref = landingHrefWithAttribution(page.cta.primaryHref, location.search);
+  const secondaryHref = landingHrefWithAttribution(page.cta.secondaryHref, location.search);
+  return (
+    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <div className="mx-auto max-w-4xl text-center">
+        <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.startProduct ?? "Start with a real product"}</p>
+        <h2 className="mt-4 text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.045em] text-slate-950 sm:text-6xl">{localizedPage?.ui.finalHeading ?? "Turn product behavior into an answer."}</h2>
+        <p className="mx-auto mt-6 max-w-2xl text-lg font-medium leading-8 text-slate-600">{localizedPage?.ui.finalCopy ?? "Start free with 5,000 monthly sessions, unlimited analytics events, and no credit card."}</p>
+        <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+          <Link to={primaryHref} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-8 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+            {localizedPage?.ui.startFree ?? page.cta.primaryLabel}<ArrowRight className={`h-4 w-4 ${localizedPage?.locale.dir === "rtl" ? "rotate-180" : ""}`} strokeWidth={3} />
+          </Link>
+          <Link to={secondaryHref} className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-8 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-400 hover:bg-slate-50">
+            {localizedPage?.ui.liveDemo ?? page.cta.secondaryLabel}
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-  if (!page) return null;
+export function buildLocalizedSeoRenderPage(localizedPage: LocalizedSeoPage, englishPage: SeoPage): SeoPage {
+  const translatedRelatedCandidates = SEO_LOCALIZED_PAGE_PATHS.filter((path) => path !== localizedPage.basePath);
+  const usedRelatedPaths = new Set<string>();
+  const relatedPages = englishPage.relatedPages.map((related) => {
+    const preferredPath = isSeoLocalizedPagePath(related.href)
+      ? related.href
+      : undefined;
+    const relatedBasePath = preferredPath && !usedRelatedPaths.has(preferredPath)
+      ? preferredPath
+      : translatedRelatedCandidates.find((path) => !usedRelatedPaths.has(path)) ?? translatedRelatedCandidates[0];
+    usedRelatedPaths.add(relatedBasePath);
+    const translated = getLocalizedSeoPage(localizedPage.localeCode, relatedBasePath);
+    return {
+      label: translated.h1,
+      href: translated.localizedPath,
+      description: translated.intro,
+    };
+  });
+  const keywordBulletPool = [
+    ...localizedPage.secondaryKeywords,
+    localizedPage.evidence,
+    localizedPage.platforms,
+  ];
+  const keywordSections = englishPage.keywordSections?.map((section, index) => {
+    const benefit = localizedPage.benefits[index % localizedPage.benefits.length];
+    return {
+      title: benefit.title,
+      description: benefit.description,
+      bullets: section.bullets.map((_, bulletIndex) => keywordBulletPool[(index + bulletIndex) % keywordBulletPool.length]),
+    };
+  });
+  const localizedFaq = getLocalizedSeoFaq(localizedPage);
+  const isRevenuePage = englishPage.path.includes("funnel") || englishPage.path.includes("revenue");
+  const supportingCopy = [
+    ...localizedPage.benefits.map((benefit) => benefit.description),
+    localizedPage.evidence,
+    localizedPage.platforms,
+  ];
 
+  return {
+    ...englishPage,
+    hero: {
+      eyebrow: localizedPage.ui.eyebrow,
+      title: localizedPage.h1,
+      subtitle: localizedPage.intro,
+    },
+    outcomes: englishPage.outcomes.map((_, index) => localizedPage.benefits[index % localizedPage.benefits.length]),
+    proofStory: {
+      ...englishPage.proofStory,
+      metric: isRevenuePage ? localizedPage.ui.salesMetric : localizedPage.ui.onboardingMetric,
+      summary: isRevenuePage ? localizedPage.ui.salesProof : localizedPage.ui.onboardingProof,
+    },
+    relatedPages,
+    badge: localizedPage.primaryKeyword,
+    eyebrow: localizedPage.ui.eyebrow,
+    title: localizedPage.h1,
+    subtitle: localizedPage.intro,
+    metaTitle: localizedPage.metaTitle,
+    metaDescription: localizedPage.metaDescription,
+    primaryKeyword: localizedPage.primaryKeyword,
+    secondaryKeywords: localizedPage.secondaryKeywords,
+    keywords: [localizedPage.primaryKeyword, ...localizedPage.secondaryKeywords],
+    keywordSections,
+    imageAlt: localizedPage.h1,
+    proofPoints: englishPage.proofPoints.map((_, index) => supportingCopy[index % supportingCopy.length]),
+    whyTitle: localizedPage.ui.evidenceHeading,
+    whyParagraphs: englishPage.whyParagraphs.map((_, index) => [localizedPage.evidence, localizedPage.platforms][index % 2]),
+    chooseRejourney: englishPage.chooseRejourney.map((_, index) => supportingCopy[index % supportingCopy.length]),
+    pricingTitle: localizedPage.ui.benefitsHeading,
+    pricingIntro: localizedPage.intro,
+    pricingBullets: englishPage.pricingBullets.map((_, index) => supportingCopy[index % supportingCopy.length]),
+    faq: localizedFaq,
+    related: relatedPages,
+  };
+}
+
+function PaidAdLandingPage({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
+  return (
+    <div
+      className="public-readable-scope flex min-h-screen flex-col bg-[#fdfbf7] text-slate-950"
+      lang={localizedPage?.locale.languageTag ?? "en-US"}
+      dir={localizedPage?.locale.dir ?? "ltr"}
+    >
+      <AttributionLinkPreserver />
+      <Header />
+      <main className="flex-grow">
+        <LightweightLandingHero page={page} localizedPage={localizedPage} />
+        <LandingTrustStrip page={page} localizedPage={localizedPage} />
+        {page.kind !== "educational" && <LandingProofStory page={page} localizedPage={localizedPage} />}
+        <LandingKeywordSections page={page} localizedPage={localizedPage} />
+        <EducationalAnswerSection page={page} localizedPage={localizedPage} />
+        <AlternativeAtAGlance page={page} />
+        <AlternativeFitSection page={page} />
+        <LandingOutcomeSections page={page} localizedPage={localizedPage} />
+        {page.pricingVariant === "analytics" && <AnalyticsPricingCalculator page={page} localizedPage={localizedPage} />}
+        {page.pricingVariant === "replay" && <AdReplayPricingCalculator page={page} localizedPage={localizedPage} />}
+        {page.setupVariant !== "none" && (
+          <PerformanceMetrics
+            key={localizedPage?.localizedPath ?? page.path}
+            dir={localizedPage?.locale.dir}
+            locale={localizedPage?.localeCode}
+            initialPlatform={page.setupVariant === "mobile" ? "mobile" : "web"}
+          />
+        )}
+        {page.comparison.enabled && <AdComparison page={page} />}
+        <LandingRelatedPages page={page} localizedPage={localizedPage} />
+        <AdFaq page={page} localizedPage={localizedPage} />
+        <LandingFinalCta page={page} localizedPage={localizedPage} />
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+export function buildSeoJsonLd(page: SeoPage) {
   const canonicalUrl = `${SITE_URL}${page.path}`;
-  const jsonLd = {
+  return {
     "@context": "https://schema.org",
     "@graph": [
       {
@@ -4224,44 +5285,31 @@ export default function SeoLandingPage() {
           "@type": "ImageObject",
           url: `${SITE_URL}${page.image}`,
         },
+        about: {
+          "@id": `${SITE_URL}/#software`,
+        },
       },
       {
-        "@type": "Service",
-        "@id": `${canonicalUrl}#service`,
-        name: page.kind === "alternative" ? page.title : "Rejourney session replay",
-        serviceType: "Session replay and product analytics",
-        provider: {
+        "@type": "SoftwareApplication",
+        "@id": `${SITE_URL}/#software`,
+        name: "Rejourney",
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web, iOS, Android",
+        description: "Lightweight product analytics for web and mobile apps with session replay, funnels, heatmaps, crash and API context, unlimited events, and privacy controls.",
+        url: `${SITE_URL}/`,
+        offers: {
+          "@type": "Offer",
+          price: "0",
+          priceCurrency: "USD",
+          url: `${SITE_URL}/pricing`,
+        },
+        publisher: {
           "@type": "Organization",
           "@id": `${SITE_URL}/#organization`,
           name: "Rejourney",
           url: `${SITE_URL}/`,
         },
-        url: canonicalUrl,
       },
-      ...(page.path === "/record-user-sessions"
-        ? [
-            {
-              "@type": "SoftwareApplication",
-              "@id": `${SITE_URL}/#software`,
-              name: "Rejourney",
-              applicationCategory: "BusinessApplication",
-              operatingSystem: "Web, iOS, Android",
-              description: "Record user sessions with web and mobile session replay, heatmaps, user journeys, crash context, API context, product analytics, and privacy masking.",
-              url: `${SITE_URL}/`,
-              offers: {
-                "@type": "Offer",
-                price: "0",
-                priceCurrency: "USD",
-                url: `${SITE_URL}/pricing`,
-              },
-              publisher: {
-                "@type": "Organization",
-                "@id": `${SITE_URL}/#organization`,
-                name: "Rejourney",
-              },
-            },
-          ]
-        : []),
       {
         "@type": "FAQPage",
         "@id": `${canonicalUrl}#faq`,
@@ -4274,16 +5322,300 @@ export default function SeoLandingPage() {
           },
         })),
       },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Rejourney",
+            item: `${SITE_URL}/`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: page.title,
+          },
+        ],
+      },
     ],
   };
+}
+
+export function buildLocalizedSeoJsonLd(page: LocalizedSeoPage, englishPage: SeoPage) {
+  const canonicalUrl = `${SITE_URL}${page.localizedPath}`;
+  const faq = getLocalizedSeoFaq(page);
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": `${canonicalUrl}#webpage`,
+        url: canonicalUrl,
+        name: page.metaTitle,
+        headline: page.h1,
+        description: page.metaDescription,
+        inLanguage: page.locale.languageTag,
+        keywords: [page.primaryKeyword, ...page.secondaryKeywords],
+        isPartOf: {
+          "@type": "WebSite",
+          "@id": `${SITE_URL}/#website`,
+          name: "Rejourney",
+          url: `${SITE_URL}/`,
+        },
+        primaryImageOfPage: {
+          "@type": "ImageObject",
+          url: `${SITE_URL}${englishPage.image}`,
+        },
+        about: { "@id": `${SITE_URL}/#software` },
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": `${SITE_URL}/#software`,
+        name: "Rejourney",
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web, iOS, Android",
+        description: page.intro,
+        inLanguage: page.locale.languageTag,
+        url: `${SITE_URL}/`,
+        offers: {
+          "@type": "Offer",
+          price: "0",
+          priceCurrency: "USD",
+          url: `${SITE_URL}/pricing`,
+        },
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${canonicalUrl}#faq`,
+        inLanguage: page.locale.languageTag,
+        mainEntity: faq.map((item) => ({
+          "@type": "Question",
+          name: item.question,
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: item.answer,
+          },
+        })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${canonicalUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Rejourney",
+            item: `${SITE_URL}/`,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: page.h1,
+            item: canonicalUrl,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function LocalizedSeoLandingPage({ page, englishPage }: { page: LocalizedSeoPage; englishPage: SeoPage }) {
+  const location = useLocation();
+  const faq = getLocalizedSeoFaq(page);
+  const relatedPages = SEO_LOCALIZED_PAGE_PATHS
+    .filter((path) => path !== page.basePath)
+    .slice(0, 3)
+    .map((path) => getLocalizedSeoPage(page.localeCode, path));
+  const primaryHref = landingHrefWithAttribution("/login", location.search);
+  const secondaryHref = landingHrefWithAttribution("/demo", location.search);
+  const heroImage = AD_LANDING_HERO_IMAGES[englishPage.path] ?? englishPage.image;
+  const heroDimensions = featureImageDimensionsBySrc[heroImage] ?? { width: 1440, height: 900 };
+  const isRevenuePage = englishPage.path.includes("funnel") || englishPage.path.includes("revenue");
+  return (
+    <div
+      className="public-readable-scope flex min-h-screen flex-col bg-[#fdfbf7] text-slate-950"
+      lang={page.locale.languageTag}
+      dir={page.locale.dir}
+    >
+      <AttributionLinkPreserver />
+      <Header />
+      <main className="flex-grow">
+        <section className="border-b border-black/10 bg-[#fdfbf7] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20" aria-labelledby="localized-seo-title">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-14">
+              <div className="max-w-2xl">
+                <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-emerald-800">
+                  <span className="h-px w-6 bg-emerald-600" aria-hidden />
+                  {page.ui.eyebrow}
+                </p>
+                <h1 id="localized-seo-title" className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-6xl">
+                  {page.h1}
+                </h1>
+                <p className="mt-6 max-w-xl text-pretty text-lg font-medium leading-8 text-slate-600 sm:text-xl">{page.intro}</p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <Link to={primaryHref} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-7 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+                    {page.ui.startFree}<ArrowRight className={`h-4 w-4 ${page.locale.dir === "rtl" ? "rotate-180" : ""}`} aria-hidden />
+                  </Link>
+                  <Link to={secondaryHref} className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-7 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-500">
+                    {page.ui.liveDemo}
+                  </Link>
+                </div>
+                <p className="mt-5 max-w-xl text-sm font-medium leading-6 text-slate-600">{page.ui.reassurance}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold text-slate-600">
+                  <span>{page.ui.freeSessions}</span>
+                  <span aria-hidden>·</span>
+                  <span>{page.ui.noCreditCard}</span>
+                  <span aria-hidden>·</span>
+                  <span className="inline-flex items-center gap-1.5"><EuFlag className="h-3.5 w-5" />{page.ui.gdprCompliant}</span>
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <figure className="overflow-hidden rounded-xl border border-black/10 bg-white p-3 shadow-[0_10px_32px_rgba(15,23,42,0.06)]">
+                  <img
+                    src={optimizedMarketingImage(heroImage)}
+                    alt={page.h1}
+                    width={heroDimensions.width}
+                    height={heroDimensions.height}
+                    decoding="async"
+                    className="h-auto max-h-[520px] w-full object-contain"
+                  />
+                </figure>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-black/10 bg-white px-5 py-6 sm:px-6 lg:px-8" aria-label={page.ui.trustAriaLabel}>
+          <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm font-semibold text-slate-700">
+              <span>{page.ui.lightweightSdks}</span>
+              <span className="text-slate-300" aria-hidden>/</span>
+              <span>{page.ui.privacyMasking}</span>
+              <span className="text-slate-300" aria-hidden>/</span>
+              <span className="inline-flex items-center gap-2"><GermanFlag className="h-4 w-6" />{page.ui.hostedInGermany}</span>
+            </div>
+            <LandingPlatformLogos
+              setupVariant={englishPage.setupVariant}
+              ariaLabel={page.ui.supports}
+            />
+          </div>
+        </section>
+
+        {englishPage.kind !== "educational" ? (
+          <section className="border-b border-black/10 bg-white px-5 py-10 sm:px-6 lg:px-8">
+            <div className="mx-auto grid max-w-6xl border-y border-black/10 py-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-center lg:gap-12">
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">{page.ui.verifiedResult}</p>
+                <p className="mt-3 text-3xl font-black leading-tight tracking-[-0.04em] text-slate-950 sm:text-4xl">
+                  {isRevenuePage ? page.ui.salesMetric : page.ui.onboardingMetric}
+                </p>
+              </div>
+              <div className="mt-7 lg:mt-0">
+                <p className="text-sm font-bold text-slate-950">{isRevenuePage ? "Burst Creatine" : "Campus Merch"}</p>
+                <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-slate-600">
+                  {isRevenuePage ? page.ui.salesProof : page.ui.onboardingProof}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="border-b border-slate-200 bg-[#f7f6f1] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-benefits-title">
+          <div className="mx-auto max-w-6xl">
+            <h2 id="localized-benefits-title" className="max-w-4xl text-balance font-display text-3xl font-black tracking-[-0.035em] sm:text-5xl">
+              {page.ui.benefitsHeading}
+            </h2>
+            <div className="mt-10 grid gap-5 lg:grid-cols-3">
+              {page.benefits.map((benefit) => (
+                <article key={benefit.title} className="border border-slate-200 bg-white p-7">
+                  <h3 className="text-2xl font-black tracking-[-0.025em]">{benefit.title}</h3>
+                  <p className="mt-4 text-base font-medium leading-7 text-slate-600">{benefit.description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-slate-200 bg-white px-5 py-16 sm:px-8 lg:py-20">
+          <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-2 lg:gap-14">
+            <article className="border-s-4 border-emerald-400 ps-6">
+              <h2 className="text-3xl font-black tracking-[-0.03em]">{page.ui.evidenceHeading}</h2>
+              <p className="mt-5 text-lg font-medium leading-8 text-slate-600">{page.evidence}</p>
+            </article>
+            <article className="border-s-4 border-sky-400 ps-6">
+              <h2 className="text-3xl font-black tracking-[-0.03em]">{page.ui.platformHeading}</h2>
+              <p className="mt-5 text-lg font-medium leading-8 text-slate-600">{page.platforms}</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="border-b border-slate-200 bg-[#f7f6f1] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-faq-title">
+          <div className="mx-auto max-w-4xl">
+            <h2 id="localized-faq-title" className="text-4xl font-black tracking-[-0.04em]">{page.ui.faqHeading}</h2>
+            <div className="mt-8 divide-y divide-slate-200 border-y border-slate-200">
+              {faq.map((item) => (
+                <details key={item.question} className="group py-6">
+                  <summary className="cursor-pointer list-none text-xl font-black">{item.question}</summary>
+                  <p className="mt-4 text-base font-medium leading-7 text-slate-600">{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-slate-200 bg-white px-5 py-16 sm:px-8" aria-labelledby="localized-related-title">
+          <div className="mx-auto max-w-6xl">
+            <h2 id="localized-related-title" className="text-3xl font-black tracking-[-0.03em]">{page.ui.relatedHeading}</h2>
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              {relatedPages.map((relatedPage) => (
+                <Link key={relatedPage.localizedPath} to={relatedPage.localizedPath} className="group border border-slate-200 bg-[#f7f6f1] p-6 transition-colors hover:border-slate-500">
+                  <h3 className="text-xl font-black">{relatedPage.h1}</h3>
+                  <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{relatedPage.intro}</p>
+                  <ArrowRight className={`mt-5 h-5 w-5 transition-transform group-hover:translate-x-1 ${page.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-1" : ""}`} aria-hidden />
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-slate-950 px-5 py-16 text-white sm:px-8 lg:py-20">
+          <div className="mx-auto max-w-4xl text-center">
+            <h2 className="text-balance text-4xl font-black tracking-[-0.04em] sm:text-5xl">{page.ui.finalHeading}</h2>
+            <p className="mx-auto mt-5 max-w-2xl text-lg font-medium leading-8 text-slate-300">{page.ui.finalCopy}</p>
+            <Link to={primaryHref} className="mt-8 inline-flex min-h-12 items-center justify-center rounded-lg bg-[#86efac] px-8 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+              {page.ui.startFree}
+            </Link>
+          </div>
+        </section>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+export default function SeoLandingPage() {
+  const location = useLocation();
+  const localizedPage = getLocalizedSeoPageByPath(location.pathname);
+  const page = getSeoPageByPath(localizedPage?.basePath ?? normalizePath(location.pathname));
+
+  if (!page) return null;
+
+  const jsonLd = localizedPage
+    ? buildLocalizedSeoJsonLd(localizedPage, page)
+    : buildSeoJsonLd(page);
+  const renderPage = localizedPage ? buildLocalizedSeoRenderPage(localizedPage, page) : page;
 
   return (
-    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950">
+    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950" lang={localizedPage?.locale.languageTag ?? "en-US"} dir={localizedPage?.locale.dir ?? "ltr"}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <PaidAdLandingPage page={page} />
+      <PaidAdLandingPage page={renderPage} localizedPage={localizedPage ?? undefined} />
     </div>
   );
 }

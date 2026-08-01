@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Cookie, ShieldCheck, ShieldX } from "lucide-react";
 import { useAuth } from "~/shared/providers/AuthContext";
-import { useSafeTeam } from "~/shared/providers/TeamContext";
 import {
     captureGoogleAdsAttribution,
     clearGoogleAdsAttribution,
@@ -33,7 +32,6 @@ type ConsentState = "loading" | "pending" | "accepted" | "rejected" | "disabled"
 export function RejourneyConsentBanner() {
     const location = useLocation();
     const { user } = useAuth();
-    const { currentTeam, teams } = useSafeTeam();
     const [consentState, setConsentState] = useState<ConsentState>("loading");
     const [startSource, setStartSource] = useState<"stored_consent" | "banner_accept">("stored_consent");
     const [isMounted, setIsMounted] = useState(false);
@@ -96,8 +94,8 @@ export function RejourneyConsentBanner() {
             pathname: location.pathname,
             search: location.search,
             userId: user?.id ?? null,
-            currentTeam,
-            teams,
+            currentTeam: null,
+            teams: [],
             source: startSource,
         })
             .then((started) => {
@@ -109,14 +107,14 @@ export function RejourneyConsentBanner() {
                     pathname: location.pathname,
                     search: location.search,
                     userId: user?.id ?? null,
-                    currentTeam,
-                    teams,
+                    currentTeam: null,
+                    teams: [],
                 });
             })
             .catch(() => {
                 // The SDK logs its own startup diagnostics when debug logging is enabled.
             });
-    }, [consentState, currentTeam, isWebsiteTelemetryDisabledPath, location.pathname, location.search, startSource, teams, user?.id]);
+    }, [consentState, isWebsiteTelemetryDisabledPath, location.pathname, location.search, startSource, user?.id]);
 
     useEffect(() => {
         if (consentState !== "accepted") return;
@@ -126,10 +124,10 @@ export function RejourneyConsentBanner() {
             pathname: location.pathname,
             search: location.search,
             userId: user?.id ?? null,
-            currentTeam,
-            teams,
+            currentTeam: null,
+            teams: [],
         });
-    }, [consentState, currentTeam, isWebsiteTelemetryDisabledPath, location.pathname, location.search, teams, user?.id]);
+    }, [consentState, isWebsiteTelemetryDisabledPath, location.pathname, location.search, user?.id]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !hasGoogleAdsConsent()) return;
@@ -191,38 +189,36 @@ export function RejourneyConsentBanner() {
     return (
         <aside
             data-rejourney-consent-banner
-            className={`fixed bottom-4 left-4 right-4 z-[90] md:left-auto md:right-6 md:bottom-6 md:w-full md:max-w-md border-2 border-black bg-white p-4 sm:p-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all duration-400 ease-out ${
-                isMounted ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0 pointer-events-none"
+            className={`fixed bottom-0 left-0 right-0 z-[90] w-full border-t border-slate-200/80 bg-white/90 backdrop-blur-xl px-4 py-4 sm:px-6 shadow-[0_-8px_30px_rgba(0,0,0,0.04)] transition-all duration-400 ease-out ${
+                isMounted ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
             }`}
         >
-            <div className="flex flex-col gap-3">
-                <div className="flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
-                        <Cookie className="h-4 w-4" aria-hidden="true" />
+            <div className="mx-auto flex w-full max-w-7xl flex-col items-start justify-between gap-4 md:flex-row md:items-center md:gap-8">
+                <div className="flex items-center gap-4">
+                    <div className="hidden h-10 w-10 shrink-0 items-center justify-center border border-slate-200 bg-slate-50 text-slate-600 shadow-sm sm:flex">
+                        <Cookie className="h-5 w-5" aria-hidden="true" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                            <h2 className="text-xs font-black uppercase tracking-wider text-slate-950">
-                                Cookie Preferences
-                            </h2>
+                    <div className="flex flex-col">
+                        <h2 className="text-sm font-semibold text-slate-900">
+                            Cookie Preferences
+                        </h2>
+                        <p className="mt-0.5 text-xs font-medium text-slate-600 sm:text-sm">
+                            We use cookies to optimize performance, analytics, and user experience.{' '}
                             <a
                                 href="/privacy-policy"
-                                className="text-[11px] font-bold text-slate-500 hover:text-slate-950 underline transition-colors"
+                                className="font-semibold text-slate-500 hover:text-slate-900 underline transition-colors"
                             >
                                 Privacy policy
                             </a>
-                        </div>
-                        <p className="mt-1 text-xs font-bold leading-relaxed text-slate-700">
-                            We use cookies to optimize performance, analytics, and user experience.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 border-t border-black/15 pt-3 mt-1">
+                <div className="flex w-full shrink-0 items-center justify-end gap-4 md:w-auto">
                     <button
                         type="button"
                         onClick={rejectAnalytics}
-                        className="text-xs font-bold text-blue-600 hover:text-blue-800 underline decoration-blue-400 hover:decoration-blue-700 bg-transparent border-0 p-0 cursor-pointer transition-colors"
+                        className="text-sm font-semibold text-slate-500 hover:text-slate-800 bg-transparent border-0 p-0 cursor-pointer transition-colors"
                     >
                         Essential only
                     </button>
@@ -230,9 +226,9 @@ export function RejourneyConsentBanner() {
                     <button
                         type="button"
                         onClick={acceptAnalytics}
-                        className="inline-flex min-h-9 items-center justify-center gap-1.5 border-2 border-black bg-[#86efac] px-4 py-1.5 font-mono text-xs font-black uppercase tracking-wider text-black shadow-neo-sm hover:bg-[#4ade80] hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                        className="inline-flex min-h-10 items-center justify-center gap-1.5 border border-slate-200 bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-colors"
                     >
-                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                         Allow Cookies
                     </button>
                 </div>

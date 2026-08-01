@@ -6,7 +6,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
-import { ARTICLES, getArticlePath } from "~/shared/data/engineering";
+import { ENGINEERING_ARTICLES, getArticlePath } from "~/shared/data/engineering";
 import { Link, redirect, useLocation } from "react-router";
 import { getContentLocaleCopy, getLocalizedArticleSeo } from "~/shared/lib/contentLocalization";
 import {
@@ -21,7 +21,7 @@ import {
 
 const SITE_URL = "https://rejourney.co";
 const ENGINEERING_KEYWORDS = Array.from(
-    new Set(ARTICLES.flatMap((article) => article.seo.targetKeywords))
+    new Set(ENGINEERING_ARTICLES.flatMap((article) => article.seo.targetKeywords))
 ).join(", ");
 const ARTICLE_IMAGES: Record<string, string> = {
     "mobile-session-replay-cost": "/images/session-replay-preview.webp",
@@ -31,8 +31,8 @@ const ARTICLE_IMAGES: Record<string, string> = {
     "architecture-deep-dive": "/images/engineering/session-lifecycle.svg",
 };
 
-type EngineeringArticle = (typeof ARTICLES)[number];
-type EngineeringSectionId = "latest" | "ux-research" | "team-tips" | "sdk-technicals" | "backend-technicals";
+type EngineeringArticle = (typeof ENGINEERING_ARTICLES)[number];
+type EngineeringSectionId = "latest" | "sdk-technicals" | "performance-benchmarks" | "backend-technicals";
 
 const ENGINEERING_SECTIONS: Array<{
     id: EngineeringSectionId;
@@ -47,22 +47,16 @@ const ENGINEERING_SECTIONS: Array<{
         badgeClassName: "bg-[#fef08a]",
     },
     {
-        id: "ux-research",
-        label: "UX Research",
-        description: "Original Rejourney research backed by session evidence, cohorts, and product behavior data.",
-        badgeClassName: "bg-[#bbf7d0]",
-    },
-    {
-        id: "team-tips",
-        label: "Tips from the Team",
-        description: "Practical playbooks from the Rejourney team for reading analytics, replay, heatmaps, and friction signals.",
-        badgeClassName: "bg-[#ddd6fe]",
-    },
-    {
         id: "sdk-technicals",
         label: "SDK Technicals",
         description: "Native SDK capture, mobile replay internals, maps, and runtime architecture.",
         badgeClassName: "bg-[#bfdbfe]",
+    },
+    {
+        id: "performance-benchmarks",
+        label: "Performance & Benchmarks",
+        description: "Measured SDK performance, capture overhead, rendering behavior, and replay cost decisions.",
+        badgeClassName: "bg-[#bbf7d0]",
     },
     {
         id: "backend-technicals",
@@ -73,25 +67,18 @@ const ENGINEERING_SECTIONS: Array<{
 ];
 
 const ARTICLE_SECTIONS: Record<string, Exclude<EngineeringSectionId, "latest">> = {
-    "fullstory-alternatives-small-teams": "team-tips",
-    "smartlook-alternatives-cisco-eol": "team-tips",
-    "hotjar-alternatives-replay-heatmaps": "team-tips",
-    "product-analytics-tools-show-the-event": "team-tips",
-    "churn-story-of-friction": "team-tips",
-    "conversion-funnel-analytics-friction": "team-tips",
     "swift-package-open-beta": "sdk-technicals",
-    "maps-performance": "sdk-technicals",
     "architecture-deep-dive": "sdk-technicals",
-    "ambiguity-kills-app-growth": "ux-research",
-    "mobile-session-replay-cost": "backend-technicals",
+    "maps-performance": "performance-benchmarks",
+    "mobile-session-replay-cost": "performance-benchmarks",
     "rejourney-1-3-million-session-replays": "backend-technicals",
 };
 
-function getArticleImage(article: (typeof ARTICLES)[number]): string {
+function getArticleImage(article: (typeof ENGINEERING_ARTICLES)[number]): string {
     return ARTICLE_IMAGES[article.id] ?? article.image;
 }
 
-function getArticleImageUrl(article: (typeof ARTICLES)[number]): string {
+function getArticleImageUrl(article: (typeof ENGINEERING_ARTICLES)[number]): string {
     const image = getArticleImage(article);
     return image.startsWith("/") ? `${SITE_URL}${image}` : image;
 }
@@ -106,8 +93,8 @@ function getEngineeringSectionById(sectionId: EngineeringSectionId) {
 }
 
 function getEngineeringArticlesForSection(sectionId: EngineeringSectionId): EngineeringArticle[] {
-    if (sectionId === "latest") return ARTICLES;
-    return ARTICLES.filter((article) => ARTICLE_SECTIONS[article.id] === sectionId);
+    if (sectionId === "latest") return ENGINEERING_ARTICLES;
+    return ENGINEERING_ARTICLES.filter((article) => ARTICLE_SECTIONS[article.id] === sectionId);
 }
 
 function getSectionArticleCount(sectionId: EngineeringSectionId): number {
@@ -222,6 +209,7 @@ export const meta: MetaFunction = ({ location }) => {
         { name: "robots", content: shouldIndex ? "index, follow" : "noindex, follow" },
         { httpEquiv: "Content-Language", content: locale.languageTag },
         { property: "og:locale", content: locale.ogLocale },
+        { property: "og:site_name", content: "Rejourney" },
         ...alternateOgLocales,
         { property: "og:title", content: copy.engineeringCollectionName },
         { property: "og:type", content: "website" },
@@ -269,8 +257,8 @@ export default function EngineeringIndexPage() {
                                 "@type": "ItemList",
                                 "@id": `${getLocalizedPublicUrl(locale, "/engineering")}#posts`,
                                 name: copy.engineeringCollectionName,
-                                numberOfItems: ARTICLES.length,
-                                itemListElement: ARTICLES.map((article, index) => {
+                                numberOfItems: ENGINEERING_ARTICLES.length,
+                                itemListElement: ENGINEERING_ARTICLES.map((article, index) => {
                                     const localizedArticle = getLocalizedArticleSeo(article, locale);
                                     return {
                                         "@type": "ListItem",

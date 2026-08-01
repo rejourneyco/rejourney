@@ -65,6 +65,7 @@ export const meta: Route.MetaFunction = ({ location }) => {
         { name: "robots", content: robots },
         { httpEquiv: "Content-Language", content: locale.languageTag },
         { property: "og:locale", content: locale.ogLocale },
+        { property: "og:site_name", content: "Rejourney" },
         ...alternateOgLocales,
         { property: "og:title", content: copy.ogTitle },
         {
@@ -73,10 +74,10 @@ export const meta: Route.MetaFunction = ({ location }) => {
         },
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "website" },
-        { property: "og:image", content: "https://rejourney.co/images/heatmaps.png" },
-        { property: "og:image:width", content: "998" },
-        { property: "og:image:height", content: "794" },
-        { property: "og:image:alt", content: "Rejourney heatmaps preview" },
+        { property: "og:image", content: "https://rejourney.co/images/readme/analytics-overview.png" },
+        { property: "og:image:width", content: "1286" },
+        { property: "og:image:height", content: "920" },
+        { property: "og:image:alt", content: "Rejourney lightweight product analytics dashboard" },
         { property: "og:image:type", content: "image/png" },
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: copy.twitterTitle },
@@ -84,8 +85,8 @@ export const meta: Route.MetaFunction = ({ location }) => {
             name: "twitter:description",
             content: copy.ogDescription,
         },
-        { name: "twitter:image", content: "https://rejourney.co/images/heatmaps.png" },
-        { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
+        { name: "twitter:image", content: "https://rejourney.co/images/readme/analytics-overview.png" },
+        { name: "twitter:image:alt", content: "Rejourney lightweight product analytics dashboard" },
         { tagName: "link", rel: "canonical", href: canonicalUrl },
         ...alternateLinks,
     ];
@@ -131,7 +132,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Starter",
-                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
+                                            serviceType: "Lightweight Product Analytics for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -143,7 +144,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Growth",
-                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
+                                            serviceType: "Lightweight Product Analytics for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -155,7 +156,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Pro",
-                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps",
+                                            serviceType: "Lightweight Product Analytics for Web and Mobile Apps",
                                         },
                                     },
                                     {
@@ -167,7 +168,7 @@ export default function Pricing() {
                                         itemOffered: {
                                             "@type": "Service",
                                             name: "Rejourney Scale",
-                                            serviceType: "Revenue Leak Prediction for Web and Mobile Apps with Smart Capture",
+                                            serviceType: "Lightweight Product Analytics for Web and Mobile Apps with Smart Capture",
                                         },
                                     },
                                 ],

@@ -10,9 +10,9 @@ import {
 
 export const meta: MetaFunction = () => {
   const canonicalUrl = `${SITE_URL}/benchmarks`;
-  const title = "Rejourney Benchmarks | SDK Size and Runtime Cost";
+  const title = "Lightweight Product Analytics Benchmarks | Rejourney";
   const description =
-    "Review Rejourney benchmark data for SDK bundle size, upload weight, script time, task duration, and heap usage across mobile and web apps.";
+    "Review Rejourney SDK bundle size, upload weight, script time, task duration, and heap usage benchmarks for web and mobile product analytics.";
 
   return [
     { title },
@@ -23,6 +23,7 @@ export const meta: MetaFunction = () => {
         "Rejourney benchmarks, SDK performance, session replay bundle size, web analytics benchmark, mobile SDK size",
     },
     { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
+    { property: "og:site_name", content: "Rejourney" },
     { property: "og:title", content: title },
     { property: "og:description", content: description },
     { property: "og:url", content: canonicalUrl },

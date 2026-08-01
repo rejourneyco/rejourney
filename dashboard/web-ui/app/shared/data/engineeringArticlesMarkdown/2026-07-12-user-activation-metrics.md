@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "User Activation Metrics: Measure the First Real Value, Not Setup"
 subtitle: "Activation is the moment a user receives enough value to continue. The metric should prove that outcome instead of rewarding checklist completion."
 slug: "user-activation-metrics"
@@ -140,4 +141,4 @@ Write the finding in product language. “Activation fell 6%” is a report. “
 
 Rejourney keeps the activation event beside the path that produced it. Compare users who reached the result with eligible users who stalled, using the same cohort window and release. The session reveals whether the event represents delivered value or merely a click that fired before the result.
 
-Build the preceding path with [onboarding funnel analytics](/engineering/2026-07-12/onboarding-funnel-analytics).
+Build the preceding path with [onboarding funnel analytics](/guides/2026-07-12/onboarding-funnel-analytics).

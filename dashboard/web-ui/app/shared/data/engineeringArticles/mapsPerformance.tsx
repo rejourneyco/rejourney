@@ -7,7 +7,7 @@ const MAP_ARTICLE_URL = "https://rejourney.co/engineering/2026-02-17/maps-perfor
 
 const mapArticleSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "TechArticle",
     headline: "Rejourney Session Replay: High-Performance Maps on iOS & Android",
     description:
         "How we solved 120Hz micro-stutter in map captures by hooking native SDK delegates for Mapbox, Apple Maps, and Google Maps.",
@@ -225,6 +225,7 @@ const MapArticleContent = () => (
 );
 
 export const mapsPerformanceArticle: Article = {
+    collection: "engineering",
     id: "maps-performance",
     title: "120Hz Map Performance: Hooking Native SDKs",
     subtitle: "Solving micro-stutter on Apple Maps, Google Maps, and Mapbox via delegate swizzling.",

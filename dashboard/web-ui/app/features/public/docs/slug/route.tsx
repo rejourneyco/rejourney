@@ -30,7 +30,7 @@ import {
     MARKETING_LOCALES,
 } from "~/shared/lib/internationalMarketing";
 import { useAuth } from "~/shared/providers/AuthContext";
-import { useSafeTeam } from "~/shared/providers/TeamContext";
+import { TeamProvider, useSafeTeam } from "~/shared/providers/TeamContext";
 
 function getSlugFromParams(params: any): string {
     // Route is configured as /docs/* so React Router provides the splat param as "*"
@@ -107,7 +107,7 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
     const title = `${localizedMetadata.title} - ${copy.docsTitleSuffix}`;
     const description = localizedMetadata.description ?? copy.docDefaultDescription(localizedMetadata.title);
     const keywords = localizedMetadata.keywords?.join(", ");
-    const socialPreviewImageUrl = `${domain}/images/heatmaps.png`;
+    const socialPreviewImageUrl = `${domain}/images/readme/analytics-overview.png`;
 
     return [
         { title },
@@ -126,16 +126,16 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
         { property: "og:type", content: "article" },
         { property: "og:site_name", content: copy.docsSiteName },
         { property: "og:image", content: socialPreviewImageUrl },
-        { property: "og:image:width", content: "998" },
-        { property: "og:image:height", content: "794" },
-        { property: "og:image:alt", content: "Rejourney heatmaps preview" },
+        { property: "og:image:width", content: "1286" },
+        { property: "og:image:height", content: "920" },
+        { property: "og:image:alt", content: "Rejourney lightweight product analytics dashboard" },
         { property: "og:image:type", content: "image/png" },
         // Twitter
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: title },
         { name: "twitter:description", content: description },
         { name: "twitter:image", content: socialPreviewImageUrl },
-        { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
+        { name: "twitter:image:alt", content: "Rejourney lightweight product analytics dashboard" },
     ];
 };
 
@@ -178,7 +178,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     };
 }
 
-export default function DocPage({ loaderData }: Route.ComponentProps) {
+function DocPageContent({ loaderData }: Route.ComponentProps) {
     const { content, metadata, localeCode, contentLocaleCode } = loaderData;
     const { isAuthenticated } = useAuth();
     const { currentTeam } = useSafeTeam();
@@ -332,5 +332,13 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                 }}
             />
         </DocsLayout>
+    );
+}
+
+export default function DocPage(props: Route.ComponentProps) {
+    return (
+        <TeamProvider>
+            <DocPageContent {...props} />
+        </TeamProvider>
     );
 }

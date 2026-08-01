@@ -26,7 +26,7 @@ import { getGoogleAdsConversionId, getPublicRuntimeEnvSnapshot } from "./shared/
 import {
     getLocalizedPublicUrl,
     getMarketingHomeCopy,
-    MARKETING_LOCALES,
+    getMarketingLocaleFromPathname,
 } from "./shared/lib/internationalMarketing";
 import { isGoogleAdsConsentBypassForInitialTestingEnabled } from "./shared/lib/googleAdsConsent";
 import { isAuthBootstrapData, isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
@@ -82,12 +82,6 @@ function renderGoogleAdsBootstrap(
 }
 
 export const links: Route.LinksFunction = () => [
-    { rel: "preconnect", href: "https://fonts.googleapis.com" },
-    { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-    {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap",
-    },
     // DNS prefetch for external domains
     { rel: "dns-prefetch", href: "https://api.rejourney.co" },
     { rel: "dns-prefetch", href: "https://ingest.rejourney.co" },
@@ -110,7 +104,8 @@ export const meta: Route.MetaFunction = () => [
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
     const googleAdsConversionId = getGoogleAdsConversionId();
-    const locale = MARKETING_LOCALES.en;
+    const location = useLocation();
+    const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getMarketingHomeCopy(locale);
 
     useEffect(() => {
@@ -167,7 +162,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "Service",
                                     "@id": "https://rejourney.co/#service",
                                     "name": "Rejourney",
-                                    "serviceType": "Revenue Leak Prediction for Web and Mobile Apps",
+                                    "serviceType": "Lightweight Product Analytics for Web and Mobile Apps",
                                     "provider": { "@id": "https://rejourney.co/#organization" },
                                     "url": "https://rejourney.co/",
                                     "description": locale.metaDescription,
@@ -191,12 +186,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "@type": "ItemList",
                                     "name": "Sitelinks",
                                     "itemListElement": [
-                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
-                                        { "@type": "SiteNavigationElement", "position": 2, "name": "Mobile Session Replay", "url": getLocalizedPublicUrl(locale, "/mobile-session-replay") },
-                                        { "@type": "SiteNavigationElement", "position": 3, "name": "How Rejourney Works", "url": getLocalizedPublicUrl(locale, "/how-it-works") },
-                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs") },
-                                        { "@type": "SiteNavigationElement", "position": 5, "name": "Live Demo", "url": getLocalizedPublicUrl(locale, "/demo") },
-                                        { "@type": "SiteNavigationElement", "position": 6, "name": copy.header.engineering, "url": getLocalizedPublicUrl(locale, "/engineering") }
+                                        { "@type": "SiteNavigationElement", "position": 1, "name": "Website Analytics", "url": getLocalizedPublicUrl(locale, "/website-analytics") },
+                                        { "@type": "SiteNavigationElement", "position": 2, "name": "App Analytics", "url": getLocalizedPublicUrl(locale, "/app-analytics") },
+                                        { "@type": "SiteNavigationElement", "position": 3, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
+                                        { "@type": "SiteNavigationElement", "position": 4, "name": "How Rejourney Works", "url": getLocalizedPublicUrl(locale, "/how-it-works") },
+                                        { "@type": "SiteNavigationElement", "position": 5, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs") },
+                                        { "@type": "SiteNavigationElement", "position": 6, "name": "Live Demo", "url": getLocalizedPublicUrl(locale, "/demo") }
                                     ]
                                 }
                             ]
@@ -219,7 +214,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 import { AuthProvider } from "./shared/providers/AuthContext";
-import { TeamProvider } from "./shared/providers/TeamContext";
 import { ToastProvider } from "./shared/providers/ToastContext";
 import { RejourneyConsentBanner } from "~/shared/compliance/RejourneyConsentBanner";
 
@@ -235,8 +229,6 @@ export default function App() {
     const publicSessionHint = matches
         .map((match) => match.data)
         .find((data) => isPublicSessionHintData(data)) ?? null;
-    const isDemoRoute = location.pathname === "/demo" || location.pathname.startsWith("/demo/");
-
     const appContent = (
         <ToastProvider>
             <Outlet />
@@ -252,15 +244,7 @@ export default function App() {
             initialError={publicAuthBootstrap?.error ?? null}
             initialSessionPresent={publicSessionHint?.hasSessionCookie ?? false}
         >
-            {isDemoRoute ? appContent : (
-                <TeamProvider
-                    initialTeams={shellBootstrap?.teams ?? []}
-                    initialCurrentTeamId={shellBootstrap?.currentTeamId ?? null}
-                    initialHydrated={!!shellBootstrap}
-                >
-                    {appContent}
-                </TeamProvider>
-            )}
+            {appContent}
         </AuthProvider>
     );
 }

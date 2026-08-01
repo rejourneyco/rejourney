@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Revenue Loss Prediction for Mobile Apps: Detect Risk Before Revenue Falls"
 subtitle: "Mobile revenue risk appears first in failed gestures, onboarding friction, paywall reach, crashes, API behavior, and subscription state."
 slug: "mobile-app-revenue-loss-prediction"
@@ -144,4 +145,4 @@ Recovered revenue is a healthy outcome that actually occurred, not the estimated
 
 A revenue warning in Rejourney includes the affected app transition and sessions from the concentrated cohort. Product and engineering can compare failed and healthy journeys from the same release while checking store, entitlement, request, crash, and ANR evidence.
 
-The underlying measurement is described in [mobile app conversion funnels](/engineering/2026-07-12/mobile-app-conversion-funnel) and the general [revenue leak detection guide](/engineering/2026-07-12/revenue-leak-detection).
+The underlying measurement is described in [mobile app conversion funnels](/guides/2026-07-12/mobile-app-conversion-funnel) and the general [revenue leak detection guide](/guides/2026-07-12/revenue-leak-detection).

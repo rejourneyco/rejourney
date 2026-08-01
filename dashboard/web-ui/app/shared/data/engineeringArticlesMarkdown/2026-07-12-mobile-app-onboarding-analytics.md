@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Mobile App Onboarding Analytics: Find First-Session Friction"
 subtitle: "Mobile onboarding depends on permissions, gestures, app state, devices, and network conditions that a screen-completion funnel cannot explain alone."
 slug: "mobile-app-onboarding-analytics"
@@ -148,4 +149,4 @@ Open post-release replays from healthy and failed paths. Aggregate improvement c
 
 Rejourney lets an onboarding report open the exact first sessions behind a verification drop, permission loop, or failed first result. Compare those recordings with activated users on the same app version. The difference gives the team a concrete issue to reproduce instead of another onboarding opinion.
 
-The companion guides cover [onboarding funnel analytics](/engineering/2026-07-12/onboarding-funnel-analytics) and [user activation metrics](/engineering/2026-07-12/user-activation-metrics).
+The companion guides cover [onboarding funnel analytics](/guides/2026-07-12/onboarding-funnel-analytics) and [user activation metrics](/guides/2026-07-12/user-activation-metrics).

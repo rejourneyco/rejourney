@@ -6,7 +6,7 @@ const TECH_ARTICLE_URL = "https://rejourney.co/engineering/2026-02-06/architectu
 
 const techArticleSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "TechArticle",
     headline: "Engineering - Rejourney Architecture",
     description:
         "How Rejourney delivers high-fidelity session replay without UI stutter. Learn about our async capture pipeline, run loop gating, and zero-trust privacy redaction.",
@@ -428,6 +428,7 @@ if (now - _lastScanTime >= 1.0) {
 );
 
 export const architectureDeepDiveArticle: Article = {
+    collection: "engineering",
     id: "architecture-deep-dive",
     title: "Rejourney Architecture",
     subtitle: "How we achieved pixel-perfect replay with 3 FPS and zero main-thread impact.",

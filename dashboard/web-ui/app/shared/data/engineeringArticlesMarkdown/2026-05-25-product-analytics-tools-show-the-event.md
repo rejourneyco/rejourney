@@ -1,4 +1,5 @@
 ---
+collection: guide
 title: "Product Analytics Tools Show the Event. Rejourney Shows the Moment."
 subtitle: "Why events, funnels, and cohorts need replay, journeys, heatmaps, rage clicks, crashes, and API context before teams can fix behavior."
 slug: "product-analytics-tools-show-the-event"
@@ -17,8 +18,6 @@ targetKeywords:
   - product analytics tools
   - product analytics software
   - best product analytics software
-  - mobile app analytics
-  - mobile app analytics tools
   - session replay analytics
   - heatmap analytics
   - user journey analytics
@@ -31,7 +30,7 @@ topicTags:
   - Mobile App Analytics
   - Heatmaps
   - UX Friction
-seoKeywords: "product analytics tools, product analytics software, best product analytics software, mobile app analytics, mobile app analytics tools, session replay analytics, heatmap analytics, user journey analytics, rage click tracking, product analytics platform"
+seoKeywords: "product analytics tools, product analytics software, best product analytics software, session replay analytics, heatmap analytics, user journey analytics, rage click tracking, product analytics platform"
 ---
 
 Most product analytics tools are very good at proving that something happened.
@@ -269,3 +268,5 @@ The heatmap says users touched the screen. The replay shows what they were tryin
 That is the practical difference. Teams do not need another dashboard that stops at "what happened." They need an analytics workflow that helps them decide what to fix.
 
 Product analytics tools show the event. Rejourney shows the moment.
+
+See how Rejourney connects the measurement layer to evidence in [mobile app analytics](/app-analytics), [user experience analytics for websites](/website-analytics), and its [session replay tools workflow](/record-user-sessions).

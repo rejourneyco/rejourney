@@ -6,7 +6,7 @@ const PRICING_ARTICLE_URL = "https://rejourney.co/engineering/2026-05-06/mobile-
 
 const pricingArticleSchema = {
     "@context": "https://schema.org",
-    "@type": "Article",
+    "@type": "TechArticle",
     headline: "How We Keep Mobile Session Replay 17× Cheaper Than PostHog",
     description:
         "A combo of cheap GDPR providers and SDK desgin choices.",
@@ -371,6 +371,7 @@ const PricingArticleContent = () => (
 );
 
 export const mobileSessionReplayCostArticle: Article = {
+    collection: "engineering",
     id: "mobile-session-replay-cost",
     title: "How We Keep Mobile Session Replay 17× Cheaper Than PostHog",
     subtitle: "The specific engineering decisions and great GDPR providers.",
