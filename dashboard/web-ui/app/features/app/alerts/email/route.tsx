@@ -21,6 +21,9 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
+import { useAuth } from '~/shared/providers/AuthContext';
+import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
+import { shouldShowIssueDetectionUi } from '~/shared/config/issueDetectionAccess';
 
 interface AlertRecipient {
     id: string;
@@ -209,10 +212,16 @@ function getLeakScanLocalTime() {
 
 export const AlertEmails: React.FC = () => {
     const { selectedProject } = useSessionData();
+    const { user } = useAuth();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const pathPrefix = usePathPrefix();
     const location = useLocation();
     const leakScanTiming = useMemo(() => getLeakScanLocalTime(), []);
+    const showIssueDetectionUi = shouldShowIssueDetectionUi({
+        featureEnabled: isIssueDetectionUiEnabled(location.pathname),
+        isDemoMode: pathPrefix === '/demo',
+        isSelfHosted: Boolean(user?.isSelfHosted),
+    });
 
     const navItems = [
         { href: '#recipients', label: 'Email Recipients' },
@@ -390,7 +399,7 @@ export const AlertEmails: React.FC = () => {
                         </div>
                     )}
 
-                    <div className="dashboard-surface overflow-hidden border border-[#dadce0] bg-white">
+                    {showIssueDetectionUi && <div className="dashboard-surface overflow-hidden border border-[#dadce0] bg-white">
                         <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2 text-xs font-bold uppercase text-[#1a73e8]">
@@ -411,13 +420,15 @@ export const AlertEmails: React.FC = () => {
                                 Open leak alert settings
                             </Link>
                         </div>
-                    </div>
+                    </div>}
 
                     {/* SECTION 1: RECIPIENTS */}
                     <SettingsSection
                         id="recipients"
                         title="Email Recipients"
-                        description="Choose which team members receive rising stability and leak-scan digests."
+                        description={showIssueDetectionUi
+                            ? "Choose which team members receive rising stability and leak-scan digests."
+                            : "Choose which team members receive rising stability digests."}
                         action={
                             <div className="flex items-center gap-3">
                                 <span className="text-xs font-semibold text-slate-500">{recipients.length} / 5 members</span>
@@ -500,7 +511,7 @@ export const AlertEmails: React.FC = () => {
                             >
                                 <option value="all">All Types</option>
                                 <option value="stability_digest">Stability Trends</option>
-                                <option value="leak_scan">Leak Scans</option>
+                                {showIssueDetectionUi && <option value="leak_scan">Leak Scans</option>}
                                 <option value="crash">Historical Crashes</option>
                                 <option value="anr">Historical ANRs</option>
                                 <option value="error_spike">Historical Error Spikes</option>
@@ -531,7 +542,11 @@ export const AlertEmails: React.FC = () => {
                                             <td colSpan={5} className="p-12 text-center bg-white">
                                                 <Mail className="mx-auto mb-3 h-10 w-10 text-slate-200" />
                                                 <p className="text-sm font-semibold text-slate-500">No emails sent yet</p>
-                                                <p className="mt-1 text-xs font-medium text-slate-400">Stability and leak-scan digests will appear here after delivery.</p>
+                                                <p className="mt-1 text-xs font-medium text-slate-400">
+                                                    {showIssueDetectionUi
+                                                        ? 'Stability and leak-scan digests will appear here after delivery.'
+                                                        : 'Stability digests will appear here after delivery.'}
+                                                </p>
                                             </td>
                                         </tr>
                                     ) : (
@@ -626,7 +641,9 @@ export const AlertEmails: React.FC = () => {
             >
                 <div className="space-y-4 py-2">
                     <p className="text-xs font-medium text-slate-500">
-                        Choose a team member to receive stability and leak-scan digests.
+                        {showIssueDetectionUi
+                            ? 'Choose a team member to receive stability and leak-scan digests.'
+                            : 'Choose a team member to receive stability digests.'}
                     </p>
                     {nonRecipientMembers.length === 0 ? (
                         <div className="py-8 text-center">

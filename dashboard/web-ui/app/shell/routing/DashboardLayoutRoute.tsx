@@ -21,6 +21,7 @@ import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable"
 import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
 import { useToast } from "~/shared/providers/ToastContext";
 import { TeamProvider } from "~/shared/providers/TeamContext";
+import { isHostedOnlyIssueDetectionPath } from "~/shared/config/issueDetectionAccess";
 
 export const meta: Route.MetaFunction = () => [
     // Authenticated app; crawlers without a session get redirected to /login.
@@ -47,6 +48,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     if (bootstrap) {
         const url = new URL(request.url);
+        if (bootstrap.user.isSelfHosted && isHostedOnlyIssueDetectionPath(url.pathname)) {
+            throw redirect("/dashboard/general");
+        }
         const isSetupPage = isSetupSupportRoute(url.pathname);
         const isSetupWizardPage = isSetupWizardRoute(url.pathname);
         const selectedProject = bootstrap.projects.find((p) => p.id === bootstrap.selectedProjectId) ?? bootstrap.projects[0] ?? null;

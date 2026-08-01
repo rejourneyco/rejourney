@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { v4 as uuidv4 } from 'uuid';
 import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
+import { getSafeRequestLogPath, serializeRequestForLogs } from './utils/httpLogging.js';
 import { pool } from './db/client.js';
 import { getRedis, getRedisDiagnosticsForLog, initRedis, closeRedis } from './db/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
@@ -39,16 +40,17 @@ app.use((req, res, next) => {
 
 app.use(pinoHttp({
     logger,
+    serializers: { req: serializeRequestForLogs },
     genReqId: (req: Request) => req.headers['x-request-id'] as string,
     customLogLevel: (_req: Request, res: Response, error: Error | undefined) => {
         if (error || res.statusCode >= 500) return 'error';
         if (res.statusCode >= 400) return 'warn';
         return 'info';
     },
-    customSuccessMessage: (req: Request, res: Response) => `${req.method} ${req.url} ${res.statusCode}`,
-    customErrorMessage: (req: Request, res: Response) => `${req.method} ${req.url} ${res.statusCode}`,
+    customSuccessMessage: (req: Request, res: Response) => `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`,
+    customErrorMessage: (req: Request, res: Response) => `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`,
     autoLogging: {
-        ignore: (req: Request) => req.url === '/health',
+        ignore: (req: Request) => getSafeRequestLogPath(req) === '/health',
     },
 }));
 

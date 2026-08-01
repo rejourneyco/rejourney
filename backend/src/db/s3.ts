@@ -24,6 +24,7 @@ import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { safeDecrypt } from '../services/crypto.js';
+import { resolvePublicStorageEndpointForSignedUrls } from '../utils/storageEndpoint.js';
 import { isAbortLikeError } from '../utils/abortLikeError.js';
 
 // =============================================================================
@@ -90,7 +91,7 @@ interface CachedEndpoint {
 
 interface S3ClientEntry {
     client: S3Client;
-    publicClient: S3Client;
+    publicClient: S3Client | null;
     bucket: string;
 }
 
@@ -599,19 +600,22 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
     // Create internal client (for server-side operations)
     const client = new S3Client(clientConfig);
 
-    // Create public client for presigned URLs
-    // Replace Docker internal hostnames for local dev
-    let publicEndpoint = config.S3_PUBLIC_ENDPOINT || endpoint.endpointUrl;
-    if (!config.S3_PUBLIC_ENDPOINT && publicEndpoint.includes('minio:9000')) {
-        publicEndpoint = publicEndpoint.replace('minio:9000', 'localhost:9000');
-    }
-    const normalizedPublicEndpoint = normalizeStorageEndpointForS3Client(publicEndpoint, endpoint.bucket);
-
-    const publicClient = new S3Client({
-        ...clientConfig,
-        endpoint: normalizedPublicEndpoint.endpointUrl,
-        forcePathStyle: normalizedPublicEndpoint.forcePathStyle,
+    const publicEndpoint = resolvePublicStorageEndpointForSignedUrls({
+        endpointUrl: endpoint.endpointUrl,
+        configuredPublicEndpoint: config.S3_PUBLIC_ENDPOINT,
+        nodeEnv: config.NODE_ENV,
     });
+    const normalizedPublicEndpoint = publicEndpoint
+        ? normalizeStorageEndpointForS3Client(publicEndpoint, endpoint.bucket)
+        : null;
+
+    const publicClient = normalizedPublicEndpoint
+        ? new S3Client({
+            ...clientConfig,
+            endpoint: normalizedPublicEndpoint.endpointUrl,
+            forcePathStyle: normalizedPublicEndpoint.forcePathStyle,
+        })
+        : null;
 
     const entry: S3ClientEntry = {
         client,
@@ -892,6 +896,7 @@ export async function getSignedDownloadUrl(
         }
 
         const { publicClient, bucket } = getS3ClientForEndpoint(endpoint);
+        if (!publicClient) return null;
 
         const command = new GetObjectCommand({
             Bucket: bucket,

@@ -13,6 +13,7 @@ Pick the symptom that best matches what you are seeing.
 | Install exits during bootstrap | [Install or update fails before or during bootstrap](#1-install-or-update-fails-before-or-during-bootstrap) |
 | Dashboard opens, but recordings are empty | [Sessions are counted but Replay stays empty](#2-sessions-are-counted-but-replay-stays-empty) |
 | Dashboard loads, but requests fail | [Dashboard loads, but auth or API calls fail](#3-dashboard-loads-but-auth-or-api-calls-fail) |
+| Login says a code was sent, but no email arrives | [Dashboard loads, but auth or API calls fail](#3-dashboard-loads-but-auth-or-api-calls-fail) |
 | Browser SDK says config is forbidden | [Web SDK config returns 403](#4-web-sdk-config-returns-403) |
 | HTTPS does not issue | [TLS or certificate issues](#5-tls-or-certificate-issues) |
 | S3 credentials work locally, but uploads fail | [External S3 works in CLI, but Rejourney cannot upload](#6-external-s3-works-in-cli-but-rejourney-cannot-upload) |
@@ -182,6 +183,14 @@ Inspect:
 ./scripts/selfhosted/deploy.sh logs api
 ```
 
+If the login form accepts an email but no OTP arrives, check `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and the API logs. Email OTP cannot work with blank SMTP settings. Use `SMTP_SECURE=false` for STARTTLS on port `587`; use `true` for implicit TLS, normally on port `465`. After editing `.env.selfhosted`, run:
+
+```bash
+./scripts/selfhosted/deploy.sh update
+```
+
+The login response is intentionally generic so it does not reveal whether an account exists. The API log is the source of truth for SMTP delivery errors.
+
 ---
 
 ## 4. Web SDK config returns 403
@@ -255,6 +264,7 @@ If you changed them, rerun:
 ```
 
 The `minio-setup` one-shot should create the bucket named by `S3_BUCKET`.
+The bucket should remain private; replay downloads use the authenticated API proxy. Do not expose MinIO port `9000` just to make replay work.
 
 If you changed the bucket name after first install, run:
 
@@ -285,7 +295,7 @@ Run:
 ./scripts/selfhosted/deploy.sh update
 ```
 
-The update path reruns bootstrap and resyncs the active `storage_endpoints` row.
+For the standard self-hosted layout, the update path reruns bootstrap and resyncs the single global, non-shadow `storage_endpoints` row. If more than one global endpoint exists, sync stops rather than overwriting an advanced multi-endpoint configuration.
 
 ---
 

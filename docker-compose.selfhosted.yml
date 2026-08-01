@@ -14,6 +14,7 @@ x-app-env: &app-env
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
   JWT_SECRET: ${JWT_SECRET}
   JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+  SHARE_LINK_SECRET: ${SHARE_LINK_SECRET}
   INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
   STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY}
   SUPERWALL_API_KEY_ENCRYPTION_KEY: ${SUPERWALL_API_KEY_ENCRYPTION_KEY:-}
@@ -33,7 +34,7 @@ x-app-env: &app-env
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASS: ${SMTP_PASS:-}
   SMTP_FROM: ${SMTP_FROM:-}
-  SMTP_SECURE: ${SMTP_SECURE:-true}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
   GEOIP_PREFER_MMDB: ${GEOIP_PREFER_MMDB:-true}
   GEOIP_MMDB_AUTO_DOWNLOAD: ${GEOIP_MMDB_AUTO_DOWNLOAD:-true}
   GEOIP_MMDB_URL: ${GEOIP_MMDB_URL:-https://cdn.jsdelivr.net/npm/geolite2-city/GeoLite2-City.mmdb.gz}
@@ -45,9 +46,9 @@ x-app-env: &app-env
   INGEST_PROJECT_BYTES_PER_DAY: ${INGEST_PROJECT_BYTES_PER_DAY:-107374182400}
   INGEST_IP_BYTES_PER_MINUTE: ${INGEST_IP_BYTES_PER_MINUTE:-104857600}
   INGEST_IP_BYTES_PER_DAY: ${INGEST_IP_BYTES_PER_DAY:-5368709120}
-  SHOW_ISSUE_DETECTION_UI: ${SHOW_ISSUE_DETECTION_UI:-true}
-  ISSUE_DETECTION_API_URL: ${ISSUE_DETECTION_API_URL:-}
-  ISSUE_DETECTION_SERVICE_SECRET: ${ISSUE_DETECTION_SERVICE_SECRET:-}
+  # Leaks and Automations depend on Rejourney's managed AI service and are not
+  # part of the open-source self-hosted stack.
+  SHOW_ISSUE_DETECTION_UI: "false"
   REJOURNEY_INTERNAL_API_URL: ${REJOURNEY_INTERNAL_API_URL:-}
   REJOURNEY_INTERNAL_SERVICE_SECRET: ${REJOURNEY_INTERNAL_SERVICE_SECRET:-}
 
@@ -57,7 +58,7 @@ x-migration-image: &migration-image ghcr.io/rejourneyco/rejourney/migration:${IM
 
 services:
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.7.1
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -68,8 +69,6 @@ services:
       - --providers.docker.network=rejourney-network
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --entrypoints.web.forwardedHeaders.insecure=true
-      - --entrypoints.websecure.forwardedHeaders.insecure=true
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
@@ -92,7 +91,7 @@ services:
       - traefik.http.middlewares.rejourney-security.headers.contentTypeNosniff=true
       - traefik.http.middlewares.rejourney-security.headers.browserXssFilter=true
       - traefik.http.middlewares.rejourney-security.headers.referrerPolicy=strict-origin-when-cross-origin
-      - "traefik.http.middlewares.rejourney-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://${API_DOMAIN} wss://${API_DOMAIN} https://${INGEST_DOMAIN} https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://ad.doubleclick.net https://www.google.com https://google.com; media-src 'self' https: blob:; worker-src 'self' blob:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.googletagmanager.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+      - "traefik.http.middlewares.rejourney-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https://${API_DOMAIN} wss://${API_DOMAIN} https://${INGEST_DOMAIN} https://api.github.com https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://ad.doubleclick.net https://www.google.com https://google.com; media-src 'self' https: blob:; worker-src 'self' blob:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.googletagmanager.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
       - traefik.http.middlewares.rejourney-security.headers.permissionsPolicy=geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()
       - traefik.http.middlewares.rejourney-security.headers.customResponseHeaders.X-Powered-By=
       - traefik.http.middlewares.rejourney-security.headers.customResponseHeaders.Server=
@@ -107,7 +106,7 @@ services:
       - rejourney-network
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-rejourney}
@@ -125,7 +124,7 @@ services:
       - rejourney-network
 
   redis:
-    image: redis:8.4-alpine
+    image: redis:8.4.4-alpine
     restart: unless-stopped
     command: >
       redis-server
@@ -143,13 +142,12 @@ services:
       - rejourney-network
 
   minio:
-    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     volumes:
       - miniodata:/data
     profiles:
@@ -158,7 +156,7 @@ services:
       - rejourney-network
 
   minio-setup:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     restart: "no"
     # Image default ENTRYPOINT is `mc`; override so we run a shell script (see local-k8s/minio.yaml).
     entrypoint: ["/bin/sh", "-c"]
@@ -170,7 +168,7 @@ services:
           sleep 2
         done
         mc mb -p "local/${S3_BUCKET}" || true
-        mc anonymous set download "local/${S3_BUCKET}" || true
+        mc anonymous set none "local/${S3_BUCKET}" || true
     depends_on:
       - minio
     profiles:
@@ -199,7 +197,7 @@ services:
         node --import tsx scripts/applyDatabaseSchema.ts && \
         node --import tsx scripts/seedIfDatabaseEmpty.ts && \
         node --import tsx scripts/bootstrapSystemData.ts && \
-        node --import tsx scripts/syncStorageEndpoint.ts
+        node --import tsx scripts/syncSelfHostedStorageEndpoint.ts
     networks:
       - rejourney-network
 
@@ -275,7 +273,7 @@ services:
       NODE_ENV: production
       API_URL: http://api:3000
       VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
-      SHOW_ISSUE_DETECTION_UI: ${SHOW_ISSUE_DETECTION_UI:-true}
+      SHOW_ISSUE_DETECTION_UI: "false"
     depends_on:
       api:
         condition: service_healthy

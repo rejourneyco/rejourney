@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
+import { getSafeRequestLogPath, serializeRequestForLogs } from './utils/httpLogging.js';
 import pg from 'pg';
 import { pool } from './db/client.js';
 import { getRedis, getRedisDiagnosticsForLog, closeRedis, initRedis } from './db/redis.js';
@@ -113,6 +114,7 @@ app.use((req, res, next) => {
 
 app.use(pinoHttp({
     logger,
+    serializers: { req: serializeRequestForLogs },
     genReqId: (req: Request) => req.headers['x-request-id'] as string,
     customLogLevel: (_req: Request, res: Response, error: Error | undefined) => {
         if (error || res.statusCode >= 500) return 'error';
@@ -120,13 +122,13 @@ app.use(pinoHttp({
         return 'info';
     },
     customSuccessMessage: (req: Request, res: Response) => {
-        return `${req.method} ${req.url} ${res.statusCode}`;
+        return `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`;
     },
     customErrorMessage: (req: Request, res: Response) => {
-        return `${req.method} ${req.url} ${res.statusCode}`;
+        return `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`;
     },
     autoLogging: {
-        ignore: (req: Request) => req.url === '/health' || req.url === '/health/live' || req.url === '/health/ready' || req.url === '/ready',
+        ignore: (req: Request) => ['/health', '/health/live', '/health/ready', '/ready'].includes(getSafeRequestLogPath(req)),
     },
 }));
 

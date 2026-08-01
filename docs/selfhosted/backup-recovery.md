@@ -36,6 +36,10 @@ What it does:
 - `.env.selfhosted` copy every time
 - MinIO object data when `--full` is used and built-in MinIO is enabled
 
+A full built-in-MinIO backup briefly stops MinIO while copying its volume, then starts it again. This avoids taking a raw volume snapshot while object files are changing; expect a short replay-upload interruption during that step.
+
+The helper creates `backups/` with mode `0700` and backup files with mode `0600`. These files contain credentials, user data, and recorded session content; keep the same restrictions after copying them elsewhere.
+
 Use `--full` before server moves, major upgrades, or any maintenance where replacing the machine is on the table.
 
 ---
@@ -77,15 +81,15 @@ If the answer to "Do I have the matching `.env.selfhosted`?" is no, stop and rec
 
 Put the saved `.env.selfhosted` back in the repo root.
 
-### 2. Start infrastructure and bootstrap
+### 2. Start only the fresh Postgres service
 
 ```bash
-./scripts/selfhosted/deploy.sh update
+docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted up -d postgres
 ```
 
-This brings the services back and recreates the `storage_endpoints` row from your saved config.
+Do not run `deploy.sh update` yet. Bootstrap creates application tables, and a plain `pg_dump` must be restored into the fresh, empty database before those tables exist.
 
-### 3. Restore Postgres
+Wait until Postgres is healthy, then restore it:
 
 ```bash
 gunzip -c backups/postgres-YYYYMMDD-HHMMSS.sql.gz | \
@@ -93,22 +97,25 @@ gunzip -c backups/postgres-YYYYMMDD-HHMMSS.sql.gz | \
   psql -U rejourney rejourney
 ```
 
-### 4. Restore MinIO, if applicable
+### 3. Restore MinIO, if applicable
 
 If you use built-in MinIO and you took a `--full` backup:
 
 ```bash
+docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted --profile minio create minio
 gunzip -c backups/minio-YYYYMMDD-HHMMSS.tar.gz | \
   docker run --rm -i -v rejourney_miniodata:/data alpine tar xf - -C /data
 ```
 
-### 5. Restart app services
+Restore the MinIO volume before starting MinIO so nothing writes to it during extraction.
+
+### 4. Bootstrap and start the application
 
 ```bash
 ./scripts/selfhosted/deploy.sh update
 ```
 
-That reruns bootstrap and restarts the app services after the restore.
+That applies any migrations newer than the backup, safely syncs the standard single storage endpoint, and starts the app services.
 
 ---
 

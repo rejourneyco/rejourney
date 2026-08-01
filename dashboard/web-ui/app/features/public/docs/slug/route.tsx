@@ -307,7 +307,7 @@ function DocPageContent({ loaderData }: Route.ComponentProps) {
                                 labels={isSelfHostedOverview
                                     ? {
                                         heading: "Use AI to deploy self-hosted",
-                                        copyButton: "Copy Full Deployment Prompt",
+                                        copyButton: "Copy AI Deployment Brief",
                                         copied: copy.docsCopied,
                                     }
                                     : {

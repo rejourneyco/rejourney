@@ -525,7 +525,7 @@ function generateEmailHtml({
  */
 export async function sendOtpEmail(email: string, code: string): Promise<void> {
   const transport = getTransporter();
-  if (!transport) return;
+  if (!transport) throw new Error('SMTP is not configured; OTP email was not sent');
 
   const html = generateEmailHtml({
     title: 'Verify Email',

@@ -1,6 +1,6 @@
 {
   "name": "rejourney-monorepo",
-  "version": "4.1.63",
+  "version": "4.1.64",
   "private": true,
   "description": "Rejourney Monorepo - Session Recording Platform",
   "workspaces": [
@@ -72,9 +72,9 @@
     "qs": "^6.15.0",
     "esbuild": "^0.25.0",
     "fast-xml-parser": "^5.3.4",
-    "nodemailer": "^8.0.1",
-    "minimatch": "^10.2.2",
-    "postcss": "^8.5.10"
+    "nodemailer": "^9.0.3",
+    "minimatch": "^10.2.6",
+    "postcss": "^8.5.25"
   },
   "engines": {
     "node": ">=24.0.0"

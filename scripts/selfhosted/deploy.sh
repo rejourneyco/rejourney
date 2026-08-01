@@ -46,14 +46,11 @@ check_prerequisites() {
     exit 1
   fi
 
-  if docker compose version >/dev/null 2>&1; then
-    COMPOSE_BIN=(docker compose)
-  elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_BIN=(docker-compose)
-  else
-    print_error "Docker Compose is not installed"
+  if ! docker compose version >/dev/null 2>&1; then
+    print_error "Docker Compose v2 (the docker compose plugin) is not installed"
     exit 1
   fi
+  COMPOSE_BIN=(docker compose)
 
   if ! command -v openssl >/dev/null 2>&1; then
     print_error "OpenSSL is required to generate secrets"
@@ -118,20 +115,63 @@ preflight_install_state() {
   exit 1
 }
 
+run_compose() {
+  local -a clean_env=(env -i "PATH=$PATH")
+  local key value
+
+  # Keep Docker connectivity and CLI configuration, but do not let arbitrary
+  # shell variables override the authoritative self-hosted dotenv file.
+  for key in \
+    HOME DOCKER_API_VERSION DOCKER_CERT_PATH DOCKER_CONFIG DOCKER_CONTEXT \
+    DOCKER_DEFAULT_PLATFORM DOCKER_HOST DOCKER_TLS_VERIFY SSH_AUTH_SOCK \
+    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy \
+    LANG LC_ALL TMPDIR; do
+    if value="$(printenv "$key" 2>/dev/null)"; then
+      clean_env+=("$key=$value")
+    fi
+  done
+
+  "${clean_env[@]}" "${COMPOSE_BIN[@]}" "$@"
+}
+
 load_env() {
   if [ ! -f "$ENV_FILE" ]; then
     print_error "Missing $ENV_FILE. Run $SELF_HOSTED_CMD install first."
     exit 1
   fi
 
-  set -a
-  source "$ENV_FILE"
-  set +a
+  local compose_environment
+  compose_environment="$(run_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config --environment)"
 
+  read_compose_env() {
+    local key="$1"
+    local line
+    while IFS= read -r line; do
+      if [[ "$line" == "$key="* ]]; then
+        printf '%s' "${line#*=}"
+        return 0
+      fi
+    done <<< "$compose_environment"
+    return 1
+  }
+
+  STORAGE_BACKEND="$(read_compose_env STORAGE_BACKEND || true)"
   STORAGE_BACKEND="${STORAGE_BACKEND:-minio}"
-  BASE_DOMAIN="${BASE_DOMAIN:-${DASHBOARD_DOMAIN:-}}"
+  DASHBOARD_DOMAIN="$(read_compose_env DASHBOARD_DOMAIN || true)"
+  BASE_DOMAIN="$(read_compose_env BASE_DOMAIN || true)"
+  BASE_DOMAIN="${BASE_DOMAIN:-$DASHBOARD_DOMAIN}"
+  API_DOMAIN="$(read_compose_env API_DOMAIN || true)"
+  API_DOMAIN="${API_DOMAIN:-api.${BASE_DOMAIN}}"
+  WWW_DOMAIN="$(read_compose_env WWW_DOMAIN || true)"
   WWW_DOMAIN="${WWW_DOMAIN:-www.${BASE_DOMAIN}}"
+  INGEST_DOMAIN="$(read_compose_env INGEST_DOMAIN || true)"
   INGEST_DOMAIN="${INGEST_DOMAIN:-ingest.${BASE_DOMAIN}}"
+  PUBLIC_DASHBOARD_URL="$(read_compose_env PUBLIC_DASHBOARD_URL || true)"
+  PUBLIC_DASHBOARD_URL="${PUBLIC_DASHBOARD_URL:-https://${DASHBOARD_DOMAIN}}"
+  PUBLIC_API_URL="$(read_compose_env PUBLIC_API_URL || true)"
+  PUBLIC_API_URL="${PUBLIC_API_URL:-https://${API_DOMAIN}}"
+  PUBLIC_INGEST_URL="$(read_compose_env PUBLIC_INGEST_URL || true)"
+  PUBLIC_INGEST_URL="${PUBLIC_INGEST_URL:-https://${INGEST_DOMAIN}}"
   PROFILE_ARGS=()
   if [ "$STORAGE_BACKEND" = "minio" ]; then
     PROFILE_ARGS+=(--profile minio)
@@ -139,8 +179,7 @@ load_env() {
 }
 
 compose_cmd() {
-  load_env
-  "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "${PROFILE_ARGS[@]}" "$@"
+  run_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "${PROFILE_ARGS[@]}" "$@"
 }
 
 setup_environment() {
@@ -221,10 +260,36 @@ setup_environment() {
     S3_SECRET_KEY_VALUE="$MINIO_ROOT_PASSWORD_VALUE"
   fi
 
+  echo ""
+  echo "SMTP for passwordless email login"
+  echo "Leave the host blank only if you will configure GitHub OAuth before signing in."
+  read -r -p "SMTP host: " SMTP_HOST_VALUE || true
+  SMTP_PORT_VALUE="587"
+  SMTP_USER_VALUE=""
+  SMTP_PASS_VALUE=""
+  SMTP_FROM_VALUE="noreply@$BASE_DOMAIN"
+  SMTP_SECURE_VALUE="false"
+  if [ -n "$SMTP_HOST_VALUE" ]; then
+    read -r -p "SMTP port [587]: " SMTP_PORT_VALUE || true
+    SMTP_PORT_VALUE="${SMTP_PORT_VALUE:-587}"
+    read -r -p "SMTP username (optional): " SMTP_USER_VALUE || true
+    read -r -s -p "SMTP password (optional): " SMTP_PASS_VALUE || true
+    echo ""
+    read -r -p "From address [noreply@$BASE_DOMAIN]: " SMTP_FROM_VALUE || true
+    SMTP_FROM_VALUE="${SMTP_FROM_VALUE:-noreply@$BASE_DOMAIN}"
+    read -r -p "Use implicit TLS (normally yes only for port 465)? (y/N): " smtp_secure || true
+    if [[ "${smtp_secure:-N}" =~ ^[Yy]$ ]]; then
+      SMTP_SECURE_VALUE="true"
+    fi
+  else
+    print_warning "Email OTP login will not work until SMTP or GitHub OAuth is configured."
+  fi
+
   POSTGRES_PASSWORD="$(generate_password)"
   REDIS_PASSWORD="$(generate_password)"
   JWT_SECRET="$(generate_secret)"
   JWT_SIGNING_KEY="$(generate_secret)"
+  SHARE_LINK_SECRET="$(generate_secret)"
   INGEST_HMAC_SECRET="$(generate_secret)"
   STORAGE_ENCRYPTION_KEY="$(generate_secret)"
   SUPERWALL_API_KEY_ENCRYPTION_KEY="$(generate_secret)"
@@ -265,17 +330,18 @@ S3_SECRET_ACCESS_KEY=$S3_SECRET_KEY_VALUE
 
 JWT_SECRET=$JWT_SECRET
 JWT_SIGNING_KEY=$JWT_SIGNING_KEY
+SHARE_LINK_SECRET=$SHARE_LINK_SECRET
 INGEST_HMAC_SECRET=$INGEST_HMAC_SECRET
 STORAGE_ENCRYPTION_KEY=$STORAGE_ENCRYPTION_KEY
 SUPERWALL_API_KEY_ENCRYPTION_KEY=$SUPERWALL_API_KEY_ENCRYPTION_KEY
 REVENUECAT_API_KEY_ENCRYPTION_KEY=$REVENUECAT_API_KEY_ENCRYPTION_KEY
 
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM=noreply@$BASE_DOMAIN
-SMTP_SECURE=true
+SMTP_HOST=$SMTP_HOST_VALUE
+SMTP_PORT=$SMTP_PORT_VALUE
+SMTP_USER=$SMTP_USER_VALUE
+SMTP_PASS=$SMTP_PASS_VALUE
+SMTP_FROM=$SMTP_FROM_VALUE
+SMTP_SECURE=$SMTP_SECURE_VALUE
 
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
@@ -293,6 +359,9 @@ ENV
   chmod 600 "$ENV_FILE"
   print_success "Wrote $ENV_FILE"
   print_warning "Back this file up securely. It contains all secrets for the deployment."
+  if [ -z "$SMTP_HOST_VALUE" ]; then
+    print_warning "Configure SMTP or GitHub OAuth in $ENV_FILE before attempting the first login."
+  fi
 }
 
 pull_images() {
@@ -366,7 +435,49 @@ run_bootstrap() {
 
 start_application_services() {
   print_info "Starting API, upload relay, web, and workers"
-  compose_cmd up -d api ingest-upload web ingest-worker replay-worker session-lifecycle-worker retention-worker alert-worker
+  compose_cmd up -d api ingest-upload web ingest-worker replay-worker session-lifecycle-worker retention-worker alert-worker revenue-sync-worker
+}
+
+wait_for_application_services() {
+  local -a services=(api ingest-upload web)
+  local attempt service container_id state
+
+  print_info "Waiting for API, upload relay, and web health checks"
+  for attempt in $(seq 1 150); do
+    local all_healthy=true
+    for service in "${services[@]}"; do
+      container_id="$(compose_cmd ps -q "$service")"
+      if [ -z "$container_id" ]; then
+        all_healthy=false
+        continue
+      fi
+
+      state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
+      case "$state" in
+        healthy)
+          ;;
+        unhealthy|exited|dead)
+          print_error "$service entered state: $state"
+          compose_cmd logs --tail=100 "$service" || true
+          exit 1
+          ;;
+        *)
+          all_healthy=false
+          ;;
+      esac
+    done
+
+    if [ "$all_healthy" = true ]; then
+      print_success "Application health checks passed"
+      return
+    fi
+    sleep 2
+  done
+
+  print_error "Timed out waiting for application health checks"
+  compose_cmd ps
+  compose_cmd logs --tail=100 api ingest-upload web || true
+  exit 1
 }
 
 deploy_stack() {
@@ -376,6 +487,7 @@ deploy_stack() {
   verify_database_credentials
   run_bootstrap
   start_application_services
+  wait_for_application_services
   print_success "Deployment complete"
   echo ""
   echo "Dashboard: https://$DASHBOARD_DOMAIN"
@@ -423,9 +535,9 @@ reset_services() {
 
   print_info "Stopping stack and removing Compose resources"
   if [ -f "$ENV_FILE" ]; then
-    "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile minio down --remove-orphans --volumes || true
+    run_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile minio down --remove-orphans --volumes || true
   else
-    "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --profile minio down --remove-orphans --volumes || true
+    run_compose -f "$COMPOSE_FILE" --profile minio down --remove-orphans --volumes || true
   fi
 
   # When .env is missing, compose may leave profile-scoped containers behind; clean them explicitly.

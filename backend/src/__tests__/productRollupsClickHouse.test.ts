@@ -19,7 +19,9 @@ import {
     buildClickHouseProductAnalyticsDailyRollupRows,
     buildClickHouseScreenHeatmapDailyRollupRows,
     hasClickHouseDeviceUsageDailyRollupValue,
+    writeDeviceUsageDailyRollupToClickHouse,
     writeProductAnalyticsDailyRollupToClickHouse,
+    writeScreenHeatmapDailyRollupsToClickHouse,
 } from '../services/clickhouseProductRollupsSink.js';
 import {
     queryDeviceUsageDailyRollupsFromClickHouse,
@@ -135,6 +137,37 @@ describe('ClickHouse product analytics rollups', () => {
         expect(mocks.insert).toHaveBeenCalledTimes(2);
         expect(mocks.insert.mock.calls[0]?.[0].table).toBe('app_daily_rollups');
         expect(mocks.insert.mock.calls[1]?.[0].table).toBe('app_dimension_daily_rollups');
+    });
+
+    it('skips every product-rollup write when ClickHouse writes are disabled', async () => {
+        mocks.isProductWritesEnabled.mockReturnValue(false);
+        const rows = buildClickHouseProductAnalyticsDailyRollupRows({
+            projectId: '3f4f7d8a-7660-4a78-b944-442051c62eca',
+            date: '2026-05-21',
+            totalSessions: 1,
+        });
+        const heatmapRows = buildClickHouseScreenHeatmapDailyRollupRows({
+            projectId: '3f4f7d8a-7660-4a78-b944-442051c62eca',
+            date: '2026-05-21',
+            screenName: '/checkout',
+            touchBuckets: { '0.10,0.20': 1 },
+        });
+
+        await writeProductAnalyticsDailyRollupToClickHouse(rows);
+        await writeScreenHeatmapDailyRollupsToClickHouse({ rows: heatmapRows });
+        await writeDeviceUsageDailyRollupToClickHouse({
+            project_id: '3f4f7d8a-7660-4a78-b944-442051c62eca',
+            period: '2026-05-21',
+            bytes_uploaded: '1',
+            minutes_recorded: '1',
+            sessions_started: '1',
+            request_count: '1',
+            source: 'test',
+            schema_version: 1,
+            updated_at: '2026-05-21 12:00:00.000',
+        });
+
+        expect(mocks.insert).not.toHaveBeenCalled();
     });
 
     it('reads daily stats with dashboard-compatible breakdown fields', async () => {

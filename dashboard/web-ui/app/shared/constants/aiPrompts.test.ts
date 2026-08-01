@@ -6,6 +6,7 @@ import {
     buildProjectAIPromptById,
     buildProjectAIPromptLinkInstruction,
     buildProjectAIIntegrationPrompt,
+    buildSelfHostedAIDeploymentPrompt,
     getAIPromptIdsForProject,
 } from './aiPrompts';
 
@@ -84,6 +85,23 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(instruction).toContain('https://example.test/docs/ai-prompts/web?');
     expect(instruction).toContain('The URL returns the full plain-text prompt');
     expect(instruction).not.toContain('IF REACT NATIVE');
+  });
+
+  it('copies a concise self-hosted handoff with the canonical guide and routing warning', () => {
+    const instruction = buildSelfHostedAIDeploymentPrompt();
+
+    expect(instruction).toContain('https://rejourney.co/docs/selfhosted');
+    expect(instruction).toContain("manually set the self-hosted API URL");
+    expect(instruction).toContain("apiUrl: 'https://api.<domain>'");
+    expect(instruction).toContain('apiURL: URL(string: "https://api.<domain>")!');
+    expect(instruction).toContain('SDK defaults to https://api.rejourney.co');
+    expect(instruction).toContain('recordings go to Rejourney Cloud instead of my server');
+    expect(instruction).toContain('Use a project public key created in my self-hosted dashboard');
+    expect(instruction).toContain('Leaks, Automations, and their GitHub setup to be hidden');
+    expect(instruction).toContain('Keep built-in MinIO private');
+    expect(instruction).toContain('recording a real test session');
+    expect(instruction.length).toBeLessThan(3000);
+    expect(instruction).not.toContain('Troubleshooting hints to include:');
   });
 
   it('returns a web-only prompt body from the hidden prompt builder', () => {

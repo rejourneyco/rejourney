@@ -1,7 +1,7 @@
 # Self-hosting Rejourney
 
 <!-- AI_PROMPT_SECTION -->
-**Using Cursor, Claude, or ChatGPT?** Copy the full self-hosted deployment prompt to turn this guide into a server-specific checklist for DNS, Docker, storage, SDK setup, backups, and troubleshooting.
+**Using Cursor, Claude, or ChatGPT?** Copy a concise AI deployment brief with a link to this live guide and critical reminders for SDK endpoint routing, login, private storage, backups, and end-to-end recording verification.
 
 <!-- /AI_PROMPT_SECTION -->
 
@@ -17,6 +17,9 @@ After setup you get:
 - Postgres, Redis, and either built-in MinIO or your own S3-compatible storage.
 - Background workers for ingest, replay processing, retention, lifecycle, and alerts.
 
+> [!NOTE]
+> **Leaks and Automations are not included in the open-source self-hosted stack.** They depend on Rejourney's managed AI services, so the self-hosted dashboard hides those pages and their GitHub automation setup. The public demo may still show them as a product preview.
+
 All commands below assume you are in the repository root, the folder that contains `docker-compose.selfhosted.yml`.
 
 ---
@@ -31,7 +34,7 @@ cd rejourney
 ./scripts/selfhosted/deploy.sh install
 ```
 
-The installer asks for your domain, Let's Encrypt email, and storage choice. It creates `.env.selfhosted`, starts the stack, runs database bootstrap, and prints your URLs.
+The installer asks for your domain, Let's Encrypt email, storage choice, and SMTP settings for passwordless login. It creates `.env.selfhosted`, starts the stack, waits for the public services to become healthy, and prints your URLs.
 
 > [!IMPORTANT]
 > Save `.env.selfhosted` somewhere secure right after install. It contains all deployment secrets, including the key used to decrypt stored storage credentials.
@@ -48,6 +51,7 @@ Use this checklist before running the installer.
 - [ ] I control a base domain, for example `example.com`.
 - [ ] I know which storage path I want: built-in MinIO or external S3-compatible storage.
 - [ ] I have an email address for Let's Encrypt certificate notices.
+- [ ] I have SMTP credentials for passwordless email login, or I will configure GitHub OAuth before signing in.
 - [ ] I have a safe place to store `.env.selfhosted`.
 
 ### Recommended server
@@ -86,7 +90,9 @@ The installer asks which storage backend to use.
 
 ### Built-in MinIO
 
-Built-in MinIO is the default and recommended path for a simple VPS. It runs inside Docker and is not exposed publicly by default. Session bytes are uploaded to your Rejourney ingest relay first, then written server-side to MinIO.
+Built-in MinIO is the default and recommended path for a simple VPS. It runs inside Docker and is not exposed publicly by default. Session bytes are uploaded to your Rejourney ingest relay first, then written server-side to MinIO. The dashboard reads replay segments through an authenticated same-origin API proxy, so you do not need to publish port `9000` or make the bucket public.
+
+The Compose stack pins the final official community MinIO container line rather than a mutable tag. MinIO's community repository is archived, so security-conscious or long-lived installations should prefer a maintained external S3-compatible service and include storage-provider replacement in their upgrade plan.
 
 ### External S3-compatible storage
 
@@ -132,13 +138,14 @@ The installer will:
 1. Ask for your base domain, for example `example.com`.
 2. Ask for your Let's Encrypt email.
 3. Ask whether to use built-in MinIO or external S3-compatible storage.
-4. Create `.env.selfhosted` with generated passwords and secrets.
-5. Pull published application images.
-6. Build the bootstrap image from your local checkout.
-7. Start Postgres, Redis, Traefik, and MinIO when selected.
-8. Validate database connectivity before bootstrap.
-9. Apply the database schema, seed first-time system data, and configure storage.
-10. Start the API, upload relay, web dashboard, and workers.
+4. Ask for SMTP settings. SMTP is required for email OTP login; leave it blank only if you will configure GitHub OAuth.
+5. Create `.env.selfhosted` with generated passwords and secrets.
+6. Pull published application images.
+7. Build the bootstrap image from your local checkout.
+8. Start Postgres, Redis, Traefik, and MinIO when selected.
+9. Validate database connectivity before bootstrap.
+10. Apply the database schema, seed first-time system data, and configure storage.
+11. Start the API, upload relay, web dashboard, and workers, then wait for their health checks.
 
 First install can take several minutes.
 
@@ -192,6 +199,7 @@ Replace `example.com` with your domain.
 ### First recording
 
 - [ ] Open the dashboard.
+- [ ] Confirm SMTP is configured (or GitHub OAuth is enabled) before requesting the first login code.
 - [ ] Create an account.
 - [ ] Create a project.
 - [ ] Add the SDK to a test app.
@@ -206,6 +214,9 @@ If sessions are counted but Replay is empty, check [Troubleshooting](/docs/selfh
 
 Point SDKs at your API host. The API host must match `PUBLIC_API_URL` / `API_DOMAIN`.
 
+> [!IMPORTANT]
+> This is a required self-hosting step. Rejourney SDKs default to `https://api.rejourney.co` when `apiUrl` / `apiURL` is omitted, so recordings will go to Rejourney Cloud instead of your server. Use a project public key created in your self-hosted dashboard and explicitly set the self-hosted API URL in every app's initialization code.
+
 ### React Native
 
 ```ts
@@ -219,6 +230,23 @@ startRejourney();
 ```
 
 Upload URLs are derived from server config when `PUBLIC_INGEST_URL` is correct.
+
+### Flutter
+
+```dart
+import 'package:rejourney/rejourney.dart';
+
+await Rejourney.init(
+  'rj_your_public_key',
+  config: const RejourneyConfig(
+    apiUrl: 'https://api.example.com',
+  ),
+);
+
+await Rejourney.start();
+```
+
+Flutter reads its upload relay configuration from the self-hosted API, so `apiUrl` must point at `PUBLIC_API_URL` rather than the ingest hostname.
 
 ### Swift iOS
 
@@ -312,13 +340,17 @@ The installer writes `.env.selfhosted`. These are the values you are most likely
 | Database | `DATABASE_URL`, `POSTGRES_*` |
 | Redis | `REDIS_URL`, `REDIS_PASSWORD` |
 | Storage | `STORAGE_BACKEND`, `S3_*`, `MINIO_*` |
-| Security | `JWT_SECRET`, `JWT_SIGNING_KEY`, `INGEST_HMAC_SECRET`, `STORAGE_ENCRYPTION_KEY`, `SUPERWALL_API_KEY_ENCRYPTION_KEY`, `REVENUECAT_API_KEY_ENCRYPTION_KEY` |
+| Security | `JWT_SECRET`, `JWT_SIGNING_KEY`, `SHARE_LINK_SECRET`, `INGEST_HMAC_SECRET`, `STORAGE_ENCRYPTION_KEY`, `SUPERWALL_API_KEY_ENCRYPTION_KEY`, `REVENUECAT_API_KEY_ENCRYPTION_KEY` |
+| Email login | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SECURE` |
 
-Optional integrations can stay blank until you need them:
+SMTP is required for passwordless email login. For the usual STARTTLS submission port `587`, set `SMTP_SECURE=false`; use `true` for implicit TLS, normally on port `465`. SMTP may stay blank only if GitHub OAuth is configured as the login path.
+
+Other optional integrations can stay blank until you need them:
 
 - Stripe
-- SMTP
 - GitHub OAuth
+
+The deployment script reads this file through Docker Compose's dotenv parser; it does not execute it as a shell script. Standard quoted dotenv values are supported for credentials containing spaces or shell metacharacters.
 
 After changing domain or storage settings, run:
 
@@ -335,10 +367,12 @@ You normally do not need to run SQL by hand.
 | Situation | What bootstrap does |
 |---|---|
 | Empty database | Applies the current schema, stamps satisfied migrations, seeds system data, and configures storage |
-| Existing initialized database | Applies only pending migrations and refreshes safe system/storage data |
+| Existing initialized database | Applies pending migrations and refreshes safe system data; for a standard single-endpoint self-host, syncs the one global storage endpoint from `.env.selfhosted` |
 | Database has tables but no migration history | Stops instead of guessing, to avoid damaging data |
 
 If bootstrap stops because credentials do not match existing Postgres data, restore the original `.env.selfhosted` and run `update`. Only use `reset` if losing the existing data is acceptable.
+
+The self-hosted storage sync deliberately stops if it finds multiple global endpoints. Advanced multi-endpoint installations are operator-managed, and an update will not overwrite them.
 
 ---
 
@@ -366,6 +400,7 @@ The bootstrap image is always built locally from your checkout, so database setu
 | session-lifecycle-worker | Finalizes and reconciles sessions |
 | retention-worker | Runs scheduled retention cleanup |
 | alert-worker | Sends alert-related work |
+| revenue-sync-worker | Reconciles configured revenue integrations |
 
 ---
 

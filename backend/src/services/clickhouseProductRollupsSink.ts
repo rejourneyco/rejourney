@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { getClickHouseClient } from '../db/clickhouse.js';
+import { getClickHouseClient, isClickHouseProductRollupsWritesEnabled } from '../db/clickhouse.js';
 import { logger } from '../logger.js';
 import { normalizeHeatmapScreenName } from '../utils/heatmapScreens.js';
 
@@ -394,6 +394,8 @@ export async function writeProductAnalyticsDailyRollupToClickHouse(params: {
     dailyRow: ClickHouseAppDailyRollupRow;
     dimensionRows: ClickHouseAppDimensionDailyRollupRow[];
 }): Promise<void> {
+    if (!isClickHouseProductRollupsWritesEnabled()) return;
+
     try {
         await getClickHouseClient().insert({
             table: 'app_daily_rollups',
@@ -431,6 +433,7 @@ export async function writeScreenHeatmapDailyRollupsToClickHouse(params: {
     rows: ClickHouseScreenHeatmapDailyRollupRow[];
 }): Promise<void> {
     if (params.rows.length === 0) return;
+    if (!isClickHouseProductRollupsWritesEnabled()) return;
 
     try {
         await getClickHouseClient().insert({
@@ -451,6 +454,7 @@ export async function writeScreenHeatmapDailyRollupsToClickHouse(params: {
 
 export async function writeDeviceUsageDailyRollupToClickHouse(row: ClickHouseDeviceUsageDailyRollupRow): Promise<void> {
     if (!hasClickHouseDeviceUsageDailyRollupValue(row)) return;
+    if (!isClickHouseProductRollupsWritesEnabled()) return;
 
     try {
         await getClickHouseClient().insert({

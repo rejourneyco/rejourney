@@ -30,6 +30,8 @@ import {
 } from '~/shared/constants/aiPrompts';
 import { cn } from '~/shared/lib/cn';
 import { useAuth } from '~/shared/providers/AuthContext';
+import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
+import { shouldShowIssueDetectionUi } from '~/shared/config/issueDetectionAccess';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { Button } from '~/shared/ui/core/Button';
@@ -104,6 +106,11 @@ export const SetupRoute: React.FC = () => {
   } = useSessionData();
   const [searchParams] = useSearchParams();
   const pathPrefix = usePathPrefix();
+  const showIssueDetectionUi = shouldShowIssueDetectionUi({
+    featureEnabled: isIssueDetectionUiEnabled(),
+    isDemoMode: pathPrefix === '/demo',
+    isSelfHosted: Boolean(user?.isSelfHosted),
+  });
 
   const [newTeamName, setNewTeamName] = useState('');
   const [teamError, setTeamError] = useState<string | null>(null);
@@ -692,7 +699,7 @@ export const SetupRoute: React.FC = () => {
       actionBarPrimaryAction = (
         <Link
           key="verify-open"
-          to={`${pathPrefix}/leaks`}
+          to={`${pathPrefix}/${showIssueDetectionUi ? 'leaks' : 'general'}`}
           onClick={handleOpenDashboard}
           className="inline-flex h-8 items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 text-xs font-bold uppercase text-white shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 tracking-wide"
         >
