@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '~/shared/providers/AuthContext';
-import { ChevronDown, Menu, Star, X } from 'lucide-react';
+import { ChevronDown, Loader2, Menu, Star, X } from 'lucide-react';
 import {
   MARKETING_LOCALES,
   getLocalizedPublicPath,
@@ -68,6 +68,8 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const [isOpen, setIsOpen] = useState(false);
   const [githubStars, setGithubStars] = useState(FALLBACK_GITHUB_STARS);
   const [isMobilePlatformOpen, setIsMobilePlatformOpen] = useState(false);
+  const [pendingAuthLink, setPendingAuthLink] = useState<string | null>(null);
+  const authNavigationStartedRef = useRef(false);
   const navigationLocale = getMarketingLocaleFromPathname(location.pathname) ?? MARKETING_LOCALES.en;
   const copy = getMarketingHomeCopy(navigationLocale).header;
   const localizedLocaleCode = isSeoLocalizedLocaleCode(navigationLocale.code) ? navigationLocale.code : null;
@@ -90,6 +92,22 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
   const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-200 bg-white px-4 py-1.5 font-sans text-sm font-semibold text-slate-600 rounded-none transition hover:bg-slate-50";
   
   const isHomePage = location.pathname === "/";
+
+  const handleAuthNavigation = (linkId: string, closeMobileMenu = false) => (
+    event: React.MouseEvent<HTMLAnchorElement>,
+  ) => {
+    // Preserve browser behavior for new-tab/new-window navigation.
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    if (authNavigationStartedRef.current) {
+      event.preventDefault();
+      return;
+    }
+
+    authNavigationStartedRef.current = true;
+    setPendingAuthLink(linkId);
+    if (closeMobileMenu) setIsOpen(false);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -242,15 +260,40 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
           <div className="flex items-center gap-2 sm:gap-3">
 
             {!isAuthenticated && (
-              <Link to="/login" className="hidden min-h-10 items-center rounded-none px-3.5 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 sm:inline-flex">
-                {localizedHeaderCopy?.login ?? copy.login}
+              <Link
+                to="/login"
+                onClick={handleAuthNavigation('desktop-login')}
+                aria-busy={pendingAuthLink === 'desktop-login'}
+                aria-disabled={pendingAuthLink !== null}
+                className={`hidden min-h-10 items-center justify-center gap-2 rounded-none border px-3.5 text-sm font-semibold transition-[transform,background-color,border-color,box-shadow,color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none sm:inline-flex ${
+                  pendingAuthLink !== null
+                    ? 'pointer-events-none cursor-wait border-slate-300 bg-slate-100 text-slate-900 shadow-inner'
+                    : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:text-slate-950 hover:shadow-md active:translate-y-px active:scale-[0.98] active:bg-slate-200 active:shadow-none'
+                }`}
+              >
+                {pendingAuthLink === 'desktop-login' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                <span>{pendingAuthLink === 'desktop-login' ? 'Opening…' : (localizedHeaderCopy?.login ?? copy.login)}</span>
               </Link>
             )}
             <Link
               to={isAuthenticated ? "/dashboard" : "/login"}
-              className="hidden min-h-10 items-center justify-center rounded-none bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-slate-800 sm:inline-flex"
+              onClick={handleAuthNavigation('desktop-primary')}
+              aria-busy={pendingAuthLink === 'desktop-primary'}
+              aria-disabled={pendingAuthLink !== null}
+              className={`hidden min-h-10 items-center justify-center gap-2 rounded-none border px-5 py-2 font-sans text-sm font-semibold text-white transition-[transform,background-color,border-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none sm:inline-flex ${
+                pendingAuthLink !== null
+                  ? 'pointer-events-none cursor-wait translate-y-px border-slate-700 bg-slate-700 shadow-none'
+                  : 'border-slate-900 bg-slate-900 shadow-[0_2px_0_rgba(15,23,42,0.35)] hover:-translate-y-0.5 hover:border-slate-700 hover:bg-slate-700 hover:shadow-[0_5px_0_rgba(15,23,42,0.28)] active:translate-y-px active:scale-[0.98] active:shadow-none'
+              }`}
             >
-              {isAuthenticated ? (localizedHeaderCopy?.dashboard ?? copy.dashboard) : (localizedHeaderCopy?.getStarted ?? "Get started")}
+              {pendingAuthLink === 'desktop-primary' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+              <span>
+                {pendingAuthLink === 'desktop-primary'
+                  ? 'Opening…'
+                  : isAuthenticated
+                    ? (localizedHeaderCopy?.dashboard ?? copy.dashboard)
+                    : (localizedHeaderCopy?.getStarted ?? "Get started")}
+              </span>
             </Link>
 
             {/* Hamburger Button */}
@@ -329,16 +372,32 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
               
               <div className="flex flex-col gap-3">
                 {!isAuthenticated && (
-                  <Link to="/login" onClick={() => setIsOpen(false)} className="flex items-center justify-center text-sm font-semibold text-slate-700 py-2 border border-slate-200 rounded-none bg-white hover:bg-slate-50 transition-colors duration-200">
-                    {localizedHeaderCopy?.login ?? copy.login}
+                  <Link
+                    to="/login"
+                    onClick={handleAuthNavigation('mobile-login', true)}
+                    aria-busy={pendingAuthLink === 'mobile-login'}
+                    aria-disabled={pendingAuthLink !== null}
+                    className="flex items-center justify-center gap-2 rounded-none border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 shadow-sm transition-[transform,background-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md active:translate-y-px active:scale-[0.98] active:bg-slate-200 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none"
+                  >
+                    {pendingAuthLink === 'mobile-login' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                    <span>{pendingAuthLink === 'mobile-login' ? 'Opening…' : (localizedHeaderCopy?.login ?? copy.login)}</span>
                   </Link>
                 )}
                 <Link
                   to={isAuthenticated ? "/dashboard" : "/login"}
-                  onClick={() => setIsOpen(false)}
-                  className="flex min-h-10 items-center justify-center rounded-none bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-sm transition-colors duration-200 hover:bg-slate-800"
+                  onClick={handleAuthNavigation('mobile-primary', true)}
+                  aria-busy={pendingAuthLink === 'mobile-primary'}
+                  aria-disabled={pendingAuthLink !== null}
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-none border border-slate-900 bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-[0_2px_0_rgba(15,23,42,0.35)] transition-[transform,background-color,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-slate-700 hover:bg-slate-700 hover:shadow-[0_5px_0_rgba(15,23,42,0.28)] active:translate-y-px active:scale-[0.98] active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none"
                 >
-                  {isAuthenticated ? (localizedHeaderCopy?.dashboard ?? copy.dashboard) : (localizedHeaderCopy?.getStarted ?? "Get started")}
+                  {pendingAuthLink === 'mobile-primary' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                  <span>
+                    {pendingAuthLink === 'mobile-primary'
+                      ? 'Opening…'
+                      : isAuthenticated
+                        ? (localizedHeaderCopy?.dashboard ?? copy.dashboard)
+                        : (localizedHeaderCopy?.getStarted ?? "Get started")}
+                  </span>
                 </Link>
               </div>
             </nav>
