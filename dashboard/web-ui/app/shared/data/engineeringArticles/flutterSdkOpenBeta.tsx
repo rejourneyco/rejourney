@@ -64,7 +64,7 @@ await Rejourney.start();`}</pre>
                     01 // THE BRIDGE
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    Keep the Dart side small
+                    Native Side Code & Dart For Translation 
                 </h2>
             </div>
             <p>
@@ -110,7 +110,7 @@ await Rejourney.start();`}</pre>
                     02 // ANDROID GPU CAPTURE
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    PixelCopy said success. The replay was black.
+                    PixelCopy & Flutter GPU Issues Solved
                 </h2>
             </div>
             <p>
@@ -155,7 +155,7 @@ return (nearBlackRatio >= 0.985 && maximumLuma < 48) ||
                     03 // RETAINED LAYERS
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    The fallback asks Dart for pixels
+                    Fallback Methods
                 </h2>
             </div>
             <p>
@@ -217,7 +217,7 @@ final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);`}</pre
                     04 // PRIVACY MASKS
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    A mask has to follow time as well as space
+                    Masks Follow Time & Space
                 </h2>
             </div>
             <p>
@@ -298,7 +298,7 @@ _settleTimer = Timer(safetyWindow, () {
                     06 // ERRORS
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    Error capture should not steal the app&apos;s handlers
+                    Error capture & Handlers
                 </h2>
             </div>
             <p>
@@ -331,7 +331,7 @@ _settleTimer = Timer(safetyWindow, () {
                     07 // NETWORK AND STOP
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    Measure the response the caller actually consumes
+                    Measuring The Response to Caller 
                 </h2>
             </div>
             <p>
@@ -399,7 +399,7 @@ export const flutterSdkOpenBetaArticle: Article = {
     id: "flutter-sdk-open-beta",
     title: "Rejourney Flutter SDK Is Now in Open Beta",
     subtitle:
-        "Why PixelCopy can return a black Flutter surface, how retained-layer capture recovers it, and why privacy masks lag behind route transitions on purpose.",
+        "How we built session replay to support Flutter GPU and Impeller on iOS and Android with performance in mind.",
     seoKeywords:
         "Rejourney Flutter SDK, Flutter session replay, Flutter observability SDK, Android PixelCopy black frame, Flutter GPU capture, Flutter retained layer capture, Flutter privacy masking",
     seo: {
