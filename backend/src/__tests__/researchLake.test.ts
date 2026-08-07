@@ -202,12 +202,18 @@ describe('research lake anonymized payload shape', () => {
             `${process.cwd()}/../k8s/workers.yaml`,
             'utf8',
         );
+        const v2WorkerStart = manifest.indexOf('name: research-lake-v2-worker');
+        const v2WorkerEnd = manifest.indexOf('# Research Lake Compactor CronJob', v2WorkerStart);
+        const v2WorkerManifest = manifest.slice(v2WorkerStart, v2WorkerEnd);
 
         expect(manifest).toContain('- name: RESEARCH_LAKE_PREFIX\n                  value: "v1"');
         expect(manifest).toContain('- name: RESEARCH_LAKE_UPLOAD_CONCURRENCY\n                  value: "3"');
         expect(manifest.match(/- name: RESEARCH_LAKE_V2_ENABLED/g)).toHaveLength(4);
         expect(manifest).toContain('name: research-lake-v2-worker');
         expect(manifest).toContain('name: research-lake-v2-compactor');
+        expect(v2WorkerManifest).toContain('- --once');
+        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_BATCH_SIZE\n                  value: "180"');
+        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_CONCURRENCY\n                  value: "6"');
     });
 
     it('migration preserves interaction rows while replacing session-only uniqueness', () => {

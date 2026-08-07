@@ -1040,9 +1040,9 @@ spec:
                 - name: RESEARCH_LAKE_V2_PREFIX
                   value: "v2"
                 - name: RESEARCH_LAKE_V2_BATCH_SIZE
-                  value: "120"
+                  value: "180"
                 - name: RESEARCH_LAKE_V2_CONCURRENCY
-                  value: "4"
+                  value: "6"
                 - name: RESEARCH_LAKE_V2_MAX_RUNTIME_MS
                   value: "5400000"
                 - name: RESEARCH_LAKE_V2_BACKFILL_PERCENT
