@@ -10,6 +10,9 @@ export interface GeoViewportState {
 }
 
 export interface GeoNavigationState {
+    metric: 'sessions' | 'issueRate' | 'latency';
+    country: string | null;
+    city: string | null;
     markerLocation: GeoMarkerLocationState | null;
     clusterId: string | null;
     visitorId: string | null;
@@ -18,6 +21,9 @@ export interface GeoNavigationState {
 }
 
 const EMPTY_GEO_NAVIGATION_STATE: GeoNavigationState = {
+    metric: 'sessions',
+    country: null,
+    city: null,
     markerLocation: null,
     clusterId: null,
     visitorId: null,
@@ -45,6 +51,9 @@ export function normalizeGeoNavigationState(value: unknown): GeoNavigationState 
     const rawMarkerLocation = isRecord(value.markerLocation) ? value.markerLocation : null;
     const country = getTrimmedString(rawMarkerLocation?.country);
     const city = getTrimmedString(rawMarkerLocation?.city);
+    const selectedCountry = getTrimmedString(value.country) ?? country;
+    const selectedCity = getTrimmedString(value.city) ?? city;
+    const metric = value.metric === 'issueRate' || value.metric === 'latency' ? value.metric : 'sessions';
     const rawViewport = isRecord(value.viewport) ? value.viewport : null;
     const latitude = getFiniteNumber(rawViewport?.latitude);
     const longitude = getFiniteNumber(rawViewport?.longitude);
@@ -61,6 +70,9 @@ export function normalizeGeoNavigationState(value: unknown): GeoNavigationState 
         zoom <= 24;
 
     return {
+        metric,
+        country: selectedCountry,
+        city: selectedCountry ? selectedCity : null,
         markerLocation: country && city ? { country, city } : null,
         clusterId: getTrimmedString(value.clusterId),
         visitorId: getTrimmedString(value.visitorId),
@@ -87,6 +99,9 @@ export function parseStoredGeoNavigationState(rawValue: string | null): GeoNavig
 
 export function geoNavigationStatesEqual(left: GeoNavigationState, right: GeoNavigationState): boolean {
     return (
+        left.metric === right.metric &&
+        left.country === right.country &&
+        left.city === right.city &&
         left.markerLocation?.country === right.markerLocation?.country &&
         left.markerLocation?.city === right.markerLocation?.city &&
         left.clusterId === right.clusterId &&

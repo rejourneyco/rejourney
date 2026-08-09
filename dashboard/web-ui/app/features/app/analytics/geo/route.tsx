@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { ChevronsLeft, ChevronsRight, Globe, GripVertical, Monitor, Play, ShieldAlert, Smartphone, X } from 'lucide-react';
+import { Activity, AlertTriangle, ChevronRight, ChevronsLeft, ChevronsRight, Clock3, Globe, GripVertical, MapPin, Monitor, Play, ShieldAlert, Smartphone, Users, X } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -29,6 +29,14 @@ import {
     configureGeoMapZoomSensitivity,
     getGeoMapWheelZoomDelta,
 } from './geoMapZoom';
+import {
+    buildGeoAnalytics,
+    GEO_LOW_SAMPLE_SESSION_COUNT,
+    getGeoMetricValue,
+    sortGeoCountries,
+    type GeoCountryAnalytics,
+    type GeoMetric,
+} from './geoAnalyticsModel';
 // @ts-ignore: react-map-gl typing can fail under current tsconfig
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -1222,6 +1230,637 @@ function formatDateTime(value?: string | number | null): string {
     }).format(date);
 }
 
+const GEO_METRICS: Array<{ id: GeoMetric; label: string }> = [
+    { id: 'sessions', label: 'Sessions' },
+    { id: 'issueRate', label: 'Issue rate' },
+    { id: 'latency', label: 'API latency' },
+];
+
+function formatGeoMetricValue(location: Pick<GeoCountryAnalytics, 'sessions' | 'issueRate' | 'avgLatencyMs'>, metric: GeoMetric): string {
+    if (metric === 'issueRate') return `${(location.issueRate * 100).toFixed(1)}%`;
+    if (metric === 'latency') return location.avgLatencyMs ? `${Math.round(location.avgLatencyMs).toLocaleString()} ms` : 'No data';
+    return location.sessions.toLocaleString();
+}
+
+function getGeoMetricColor(country: Pick<GeoCountryAnalytics, 'sessions' | 'issueRate' | 'avgLatencyMs'>, metric: GeoMetric): string {
+    if (metric === 'sessions') return '#059669';
+    if (metric === 'latency') return LATENCY_STYLE[getLatencyTier(country.avgLatencyMs)].solid;
+    if (country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT) return '#64748b';
+    if (country.issueRate >= 0.2) return '#e11d48';
+    if (country.issueRate >= 0.1) return '#f97316';
+    if (country.issueRate >= 0.05) return '#f59e0b';
+    return '#059669';
+}
+
+function getCountryMarkerSize(country: GeoCountryAnalytics, metric: GeoMetric, maxValue: number): number {
+    const value = metric === 'sessions' ? country.sessions : Math.max(country.sessions, 1);
+    const denominator = Math.max(maxValue, 1);
+    return Math.round(24 + Math.sqrt(value / denominator) * 30);
+}
+
+function GeoMetricLegend({ metric }: { metric: GeoMetric }) {
+    if (metric === 'sessions') {
+        return <span>Circle size represents session volume</span>;
+    }
+    if (metric === 'issueRate') {
+        return (
+            <span className="flex flex-wrap items-center gap-3">
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-emerald-600" />Low</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />Elevated</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-rose-600" />Critical</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-slate-500" />Low sample</span>
+            </span>
+        );
+    }
+    return (
+        <span className="flex flex-wrap items-center gap-3">
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-emerald-600" />&lt;600 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-blue-600" />600–899 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-pink-600" />900–1199 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-red-700" />≥1200 ms</span>
+        </span>
+    );
+}
+
+export const RedesignedGeo: React.FC = () => {
+    const { selectedProject } = useSessionData();
+    const manualRefreshVersion = useDashboardManualRefreshVersion();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const pathPrefix = usePathPrefix();
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const storageKey = getGeoNavigationStorageKey(pathPrefix, selectedProject?.id);
+    const initialStateRef = React.useRef<GeoNavigationState | null>(null);
+    const routeNavigationState = location.state && typeof location.state === 'object'
+        ? (location.state as { geoNavigation?: unknown }).geoNavigation
+        : undefined;
+
+    if (initialStateRef.current === null) {
+        initialStateRef.current = normalizeGeoNavigationState(routeNavigationState);
+    }
+
+    const initialState = initialStateRef.current;
+    const mapRef = React.useRef<any>(null);
+    const mapInteractionHostRef = React.useRef<HTMLDivElement | null>(null);
+    const [issues, setIssues] = useState<GeoIssuesSummary>(EMPTY_ISSUES);
+    const [latency, setLatency] = useState<ApiLatencyByLocationResponse>(EMPTY_LATENCY);
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [metric, setMetric] = useState<GeoMetric>(initialState.metric);
+    const [selectedCountry, setSelectedCountry] = useState<string | null>(initialState.country);
+    const [selectedCity, setSelectedCity] = useState<string | null>(initialState.city);
+    const [hoveredCountry, setHoveredCountry] = useState<string | null>(null);
+    const [hoveredCity, setHoveredCity] = useState<string | null>(null);
+    const [drawerOpen, setDrawerOpen] = useState(Boolean(initialState.country));
+    const [mapViewport, setMapViewport] = useState<GeoViewportState | null>(initialState.viewport);
+    const [detailSessions, setDetailSessions] = useState<GeoSessionRow[]>([]);
+    const [detailSessionsState, setDetailSessionsState] = useState<'idle' | 'loading' | 'error'>('idle');
+    const [storageReady, setStorageReady] = useState(routeNavigationState !== undefined);
+    const [isMapDragging, setIsMapDragging] = useState(false);
+
+    useEffect(() => {
+        if (storageReady) return;
+        try {
+            const storedState = parseStoredGeoNavigationState(window.sessionStorage.getItem(storageKey));
+            if (storedState) {
+                setMetric(storedState.metric);
+                setSelectedCountry(storedState.country);
+                setSelectedCity(storedState.city);
+                setMapViewport(storedState.viewport);
+                setDrawerOpen(Boolean(storedState.country));
+            }
+        } catch {
+            // Storage can be unavailable in privacy-restricted contexts.
+        }
+        setStorageReady(true);
+    }, [storageKey, storageReady]);
+
+    useEffect(() => {
+        disableMapboxTelemetry();
+    }, []);
+
+    useEffect(() => {
+        const host = mapInteractionHostRef.current;
+        if (!host || !isMapboxConfigured()) return undefined;
+
+        const zoomAroundPointer = (clientX: number, clientY: number, deltaZoom: number) => {
+            const map = getMapInstance(mapRef);
+            if (!map || !deltaZoom || typeof map.getZoom !== 'function' || typeof map.easeTo !== 'function') return;
+            const rect = host.getBoundingClientRect();
+            const point = [
+                Math.max(0, Math.min(rect.width, clientX - rect.left)),
+                Math.max(0, Math.min(rect.height, clientY - rect.top)),
+            ];
+            const around = typeof map.unproject === 'function' ? map.unproject(point) : undefined;
+            map.easeTo({
+                zoom: Math.max(1.1, Math.min(8.6, map.getZoom() + deltaZoom)),
+                ...(around ? { around } : {}),
+                duration: 90,
+                essential: true,
+            });
+        };
+
+        const stopBrowserZoom = (event: Event) => {
+            if (event.cancelable) event.preventDefault();
+            event.stopPropagation();
+        };
+        const handleWheel = (event: WheelEvent) => {
+            // Browsers expose trackpad pinch as a ctrl/meta-modified wheel event.
+            // Keep that gesture on the map instead of zooming the entire dashboard.
+            if (!event.ctrlKey && !event.metaKey) return;
+            stopBrowserZoom(event);
+            zoomAroundPointer(event.clientX, event.clientY, getGeoMapWheelZoomDelta(event.deltaY, event.deltaMode));
+        };
+        let previousGestureScale = 1;
+        const handleGestureStart = (event: Event & { scale?: number }) => {
+            stopBrowserZoom(event);
+            previousGestureScale = Number.isFinite(event.scale) ? Number(event.scale) : 1;
+        };
+        const handleGestureChange = (event: Event & { scale?: number; clientX?: number; clientY?: number }) => {
+            stopBrowserZoom(event);
+            const nextScale = Number.isFinite(event.scale) ? Number(event.scale) : previousGestureScale;
+            const scaleDelta = nextScale / Math.max(previousGestureScale, 0.001);
+            previousGestureScale = nextScale;
+            const deltaZoom = Math.max(-0.6, Math.min(0.6, Math.log(scaleDelta) * 1.6));
+            const rect = host.getBoundingClientRect();
+            zoomAroundPointer(event.clientX ?? rect.left + rect.width / 2, event.clientY ?? rect.top + rect.height / 2, deltaZoom);
+        };
+        const handleGestureEnd = (event: Event) => {
+            stopBrowserZoom(event);
+            previousGestureScale = 1;
+        };
+        const options: AddEventListenerOptions = { passive: false, capture: true };
+
+        host.addEventListener('wheel', handleWheel, options);
+        host.addEventListener('gesturestart', handleGestureStart as EventListener, options);
+        host.addEventListener('gesturechange', handleGestureChange as EventListener, options);
+        host.addEventListener('gestureend', handleGestureEnd, options);
+        return () => {
+            host.removeEventListener('wheel', handleWheel, options);
+            host.removeEventListener('gesturestart', handleGestureStart as EventListener, options);
+            host.removeEventListener('gesturechange', handleGestureChange as EventListener, options);
+            host.removeEventListener('gestureend', handleGestureEnd, options);
+        };
+    }, [selectedProject?.id]);
+
+    useEffect(() => {
+        if (!selectedProject?.id) {
+            setIssues(EMPTY_ISSUES);
+            setLatency(EMPTY_LATENCY);
+            setIsLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setIsLoading(true);
+        setLoadError(null);
+        void getGeoOverview(selectedProject.id, timeRange, platform)
+            .then((overview) => {
+                if (cancelled) return;
+                setIssues(overview.issues);
+                setLatency(overview.latencyByLocation);
+                setLoadError(overview.failedSections.length ? 'Some geographic metrics are temporarily unavailable.' : null);
+            })
+            .catch((error) => {
+                console.error('Failed to load geographic overview:', error);
+                if (cancelled) return;
+                setIssues(EMPTY_ISSUES);
+                setLatency(EMPTY_LATENCY);
+                setLoadError('Could not load geographic analytics.');
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [manualRefreshVersion, platform, selectedProject?.id, timeRange]);
+
+    const analytics = useMemo(() => buildGeoAnalytics(issues, latency), [issues, latency]);
+    const rankedCountries = useMemo(() => sortGeoCountries(analytics.countries, metric), [analytics.countries, metric]);
+    const selectedCountryData = useMemo(
+        () => analytics.countries.find((country) => normalizeCountry(country.country) === normalizeCountry(selectedCountry || undefined)) || null,
+        [analytics.countries, selectedCountry],
+    );
+    const selectedCityData = useMemo(
+        () => selectedCountryData?.cities.find((city) => normalizeCity(city.city) === normalizeCity(selectedCity || undefined)) || null,
+        [selectedCity, selectedCountryData],
+    );
+    const maxCountrySessions = Math.max(...analytics.countries.map((country) => country.sessions), 1);
+    const maxMetricValue = Math.max(...analytics.countries.map((country) => getGeoMetricValue(country, metric)), 1);
+
+    useEffect(() => {
+        if (!isLoading && selectedCountry && !selectedCountryData) {
+            setSelectedCountry(null);
+            setSelectedCity(null);
+            setDrawerOpen(false);
+        }
+    }, [isLoading, selectedCountry, selectedCountryData]);
+
+    useEffect(() => {
+        if (!selectedProject?.id || !selectedCountryData) {
+            setDetailSessions([]);
+            setDetailSessionsState('idle');
+            return;
+        }
+
+        let cancelled = false;
+        setDetailSessions([]);
+        setDetailSessionsState('loading');
+        void getSessionsPaginated({
+            projectId: selectedProject.id,
+            timeRange,
+            platform,
+            hasRecording: true,
+            includeTotal: false,
+            limit: GEO_LOCATION_SESSION_LIMIT,
+            sort: 'date',
+            sortDir: 'desc',
+            geoCountry: selectedCountryData.country,
+            geoCity: selectedCityData && selectedCityData.city !== 'Unknown' ? selectedCityData.city : undefined,
+        })
+            .then((result) => {
+                if (cancelled) return;
+                setDetailSessions((result.sessions || []).filter((session) => session.canOpenReplay ?? session.hasSuccessfulRecording ?? true));
+                setDetailSessionsState('idle');
+            })
+            .catch((error) => {
+                console.error('Failed to load geographic replay sessions:', error);
+                if (cancelled) return;
+                setDetailSessions([]);
+                setDetailSessionsState('error');
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [manualRefreshVersion, platform, selectedCityData, selectedCountryData, selectedProject?.id, timeRange]);
+
+    const navigationState = useMemo<GeoNavigationState>(() => ({
+        metric,
+        country: selectedCountryData?.country || null,
+        city: selectedCityData?.city || null,
+        markerLocation: selectedCountryData && selectedCityData
+            ? { country: selectedCountryData.country, city: selectedCityData.city }
+            : null,
+        clusterId: null,
+        visitorId: null,
+        activeSessionId: null,
+        viewport: mapViewport,
+    }), [mapViewport, metric, selectedCityData, selectedCountryData]);
+
+    useEffect(() => {
+        if (!storageReady) return;
+        const routeState = location.state && typeof location.state === 'object' ? location.state as Record<string, unknown> : {};
+        const current = normalizeGeoNavigationState(routeState.geoNavigation);
+        if (!geoNavigationStatesEqual(current, navigationState)) {
+            navigate(`${location.pathname}${location.search}${location.hash}`, {
+                replace: true,
+                state: { ...routeState, geoNavigation: navigationState },
+            });
+        }
+        try {
+            window.sessionStorage.setItem(storageKey, JSON.stringify(navigationState));
+        } catch {
+            // Storage can be unavailable in privacy-restricted contexts.
+        }
+    }, [location.hash, location.pathname, location.search, location.state, navigate, navigationState, storageKey, storageReady]);
+
+    const initialViewState = useMemo(() => {
+        if (initialState.viewport) return { ...initialState.viewport, pitch: 0, bearing: 0 };
+        const valid = analytics.countries.filter((country) => Number.isFinite(country.lat) && Number.isFinite(country.lng));
+        const total = valid.reduce((sum, country) => sum + Math.max(country.sessions, 1), 0);
+        return {
+            latitude: total ? valid.reduce((sum, country) => sum + country.lat * Math.max(country.sessions, 1), 0) / total : 28,
+            longitude: total ? valid.reduce((sum, country) => sum + country.lng * Math.max(country.sessions, 1), 0) / total : 22,
+            zoom: GEO_MAP_OVERVIEW_ZOOM,
+            pitch: 0,
+            bearing: 0,
+        };
+    }, [analytics.countries, initialState.viewport]);
+
+    const focusCountry = React.useCallback((country: GeoCountryAnalytics) => {
+        setSelectedCountry(country.country);
+        setSelectedCity(null);
+        setDrawerOpen(true);
+        const map = getMapInstance(mapRef);
+        map?.easeTo?.({ center: [country.lng, country.lat], zoom: Math.max(map.getZoom?.() || 0, 4.1), duration: 550, essential: true });
+    }, []);
+
+    const focusCity = React.useCallback((city: GeoCountryAnalytics['cities'][number]) => {
+        setSelectedCity(city.city);
+        const map = getMapInstance(mapRef);
+        map?.easeTo?.({ center: [city.lng, city.lat], zoom: Math.max(map.getZoom?.() || 0, 6.2), duration: 450, essential: true });
+    }, []);
+
+    const clearSelection = React.useCallback(() => {
+        setSelectedCountry(null);
+        setSelectedCity(null);
+        setDrawerOpen(false);
+        const map = getMapInstance(mapRef);
+        map?.easeTo?.({ center: [initialViewState.longitude, initialViewState.latitude], zoom: GEO_MAP_OVERVIEW_ZOOM, duration: 550, essential: true });
+    }, [initialViewState.latitude, initialViewState.longitude]);
+
+    const hoveredCountryData = hoveredCountry
+        ? analytics.countries.find((country) => country.id === hoveredCountry) || null
+        : null;
+    const hoveredCityData = hoveredCity && selectedCountryData
+        ? selectedCountryData.cities.find((city) => city.id === hoveredCity) || null
+        : null;
+    const geoReturnTo = `${location.pathname}${location.search}${location.hash}`;
+    const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+
+    if (shouldShowInitialGhost && selectedProject?.id) return <DashboardGhostLoader variant="map" />;
+
+    return (
+        <div className="flex h-full min-h-0 flex-col bg-[#f8fafc] font-sans text-slate-950">
+            <DashboardPageHeader title="Geographic Analysis" {...dashboardPageHeaderProps('geo')}>
+                <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
+            </DashboardPageHeader>
+
+            {!selectedProject?.id ? (
+                <div className="grid min-h-0 flex-1 place-items-center text-sm text-slate-500">Select a project.</div>
+            ) : (
+                <main className="relative flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:p-4">
+                    <section className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Geographic summary">
+                        {[
+                            { label: 'Geolocated sessions', value: analytics.summary.totalSessions.toLocaleString(), icon: Activity },
+                            { label: 'Active countries', value: analytics.summary.activeCountries.toLocaleString(), icon: Globe },
+                            { label: 'Total issues', value: analytics.summary.totalIssues.toLocaleString(), icon: AlertTriangle },
+                            { label: 'Average API latency', value: analytics.summary.avgLatencyMs ? `${Math.round(analytics.summary.avgLatencyMs).toLocaleString()} ms` : 'No data', icon: Clock3 },
+                        ].map((item) => (
+                            <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-4">
+                                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                    <item.icon className="h-3.5 w-3.5" />
+                                    {item.label}
+                                </div>
+                                <div className="mt-1 font-mono text-xl font-black tracking-tight text-slate-950">{item.value}</div>
+                            </div>
+                        ))}
+                    </section>
+
+                    {loadError && (
+                        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{loadError}</div>
+                    )}
+
+                    <section className="relative grid min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[minmax(0,1fr)_360px]">
+                        <div className="relative flex min-h-[360px] min-w-0 flex-col border-b border-slate-200 lg:min-h-0 lg:border-b-0 lg:border-r">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4">
+                                <div className="inline-flex rounded-lg bg-slate-100 p-1" role="group" aria-label="Map metric">
+                                    {GEO_METRICS.map((option) => (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            aria-pressed={metric === option.id}
+                                            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${metric === option.id ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                            onClick={() => setMetric(option.id)}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="text-[11px] font-semibold text-slate-500"><GeoMetricLegend metric={metric} /></div>
+                            </div>
+
+                            <div
+                                ref={mapInteractionHostRef}
+                                className="relative min-h-0 flex-1 bg-[#dbe4e7]"
+                                style={{ overscrollBehavior: 'contain', touchAction: 'none' }}
+                            >
+                                {!isMapboxConfigured() ? (
+                                    <div className="absolute inset-0 grid place-items-center p-6 text-center">
+                                        <div className="max-w-xs rounded-xl border border-slate-200 bg-white/95 p-5 shadow-sm">
+                                            <ShieldAlert className="mx-auto h-7 w-7 text-slate-400" />
+                                            <h2 className="mt-2 text-sm font-bold text-slate-900">Map unavailable</h2>
+                                            <p className="mt-1 text-xs leading-relaxed text-slate-500">Country rankings and drill-down analytics remain available.</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <MapGL
+                                        ref={mapRef}
+                                        mapboxAccessToken={MAPBOX_TOKEN}
+                                        reuseMaps
+                                        initialViewState={initialViewState}
+                                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                                        mapStyle={GEO_MAP_STYLE}
+                                        projection={{ name: 'mercator' }}
+                                        dragPan
+                                        dragRotate={false}
+                                        scrollZoom
+                                        doubleClickZoom
+                                        keyboard
+                                        touchZoomRotate
+                                        cursor={isMapDragging ? 'grabbing' : 'grab'}
+                                        onDragStart={() => setIsMapDragging(true)}
+                                        onDragEnd={() => setIsMapDragging(false)}
+                                        onMoveEnd={(event: any) => {
+                                            const { latitude, longitude, zoom } = event.viewState || {};
+                                            if ([latitude, longitude, zoom].every(Number.isFinite)) setMapViewport({ latitude, longitude, zoom });
+                                        }}
+                                        onLoad={(event: any) => {
+                                            mapRef.current = event.target;
+                                            applyGeoMapConfig(event.target);
+                                            configureGeoMapZoomSensitivity(event.target);
+                                            event.target?.touchZoomRotate?.disableRotation?.();
+                                        }}
+                                    >
+                                        <NavigationControl position="bottom-right" showCompass={false} />
+                                        {!selectedCountryData && analytics.countries.filter((country) => Number.isFinite(country.lat) && Number.isFinite(country.lng)).map((country) => {
+                                            const size = getCountryMarkerSize(country, metric, metric === 'sessions' ? maxMetricValue : maxCountrySessions);
+                                            const active = hoveredCountry === country.id;
+                                            const code = getCountryCodeForName(country.country)?.slice(0, 2) || country.country.slice(0, 2).toUpperCase();
+                                            return (
+                                                <Marker key={country.id} latitude={country.lat} longitude={country.lng} anchor="center" style={{ pointerEvents: 'none' }}>
+                                                    <button
+                                                        type="button"
+                                                        className="grid place-items-center rounded-full border-2 border-white text-[10px] font-black text-white shadow-lg transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                        style={{ width: size, height: size, backgroundColor: getGeoMetricColor(country, metric), pointerEvents: 'auto', transform: active ? 'scale(1.14)' : 'scale(1)' }}
+                                                        aria-label={`${country.country}: ${formatGeoMetricValue(country, metric)}, ${country.sessions.toLocaleString()} sessions`}
+                                                        onClick={() => focusCountry(country)}
+                                                        onMouseEnter={() => setHoveredCountry(country.id)}
+                                                        onMouseLeave={() => setHoveredCountry(null)}
+                                                        onFocus={() => setHoveredCountry(country.id)}
+                                                        onBlur={() => setHoveredCountry(null)}
+                                                    >
+                                                        {code}
+                                                    </button>
+                                                </Marker>
+                                            );
+                                        })}
+                                        {selectedCountryData?.cities.map((city) => {
+                                            const active = normalizeCity(selectedCity || undefined) === normalizeCity(city.city) || hoveredCity === city.id;
+                                            const size = 14 + Math.sqrt(city.sessions / Math.max(selectedCountryData.sessions, 1)) * 20;
+                                            return (
+                                                <Marker key={city.id} latitude={city.lat} longitude={city.lng} anchor="center" style={{ pointerEvents: 'none' }}>
+                                                    <button
+                                                        type="button"
+                                                        className="rounded-full border-2 border-white bg-emerald-600 shadow-md transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                        style={{ width: size, height: size, pointerEvents: 'auto', backgroundColor: getGeoMetricColor(city, metric), transform: active ? 'scale(1.2)' : 'scale(1)' }}
+                                                        aria-label={`${city.city}: ${city.sessions.toLocaleString()} sessions, ${city.uniqueUsers.toLocaleString()} users, ${city.totalIssues.toLocaleString()} issues, ${city.avgLatencyMs ? `${Math.round(city.avgLatencyMs).toLocaleString()} milliseconds API latency` : 'no API latency data'}`}
+                                                        onClick={() => focusCity(city)}
+                                                        onMouseEnter={() => setHoveredCity(city.id)}
+                                                        onMouseLeave={() => setHoveredCity(null)}
+                                                        onFocus={() => setHoveredCity(city.id)}
+                                                        onBlur={() => setHoveredCity(null)}
+                                                    />
+                                                </Marker>
+                                            );
+                                        })}
+                                        {hoveredCityData && selectedCountryData && (
+                                            <Popup
+                                                longitude={hoveredCityData.lng}
+                                                latitude={hoveredCityData.lat}
+                                                closeButton={false}
+                                                closeOnClick={false}
+                                                anchor="bottom"
+                                                offset={24}
+                                                style={{ pointerEvents: 'none' }}
+                                            >
+                                                <div className="min-w-[210px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
+                                                    <div className="font-bold text-slate-950">{hoveredCityData.city}</div>
+                                                    <div className="mt-0.5 text-[11px] font-semibold text-slate-500">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</div>
+                                                    <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-slate-500">
+                                                        <dt>{GEO_METRICS.find((item) => item.id === metric)?.label}</dt>
+                                                        <dd className="font-mono font-bold text-slate-950">{formatGeoMetricValue(hoveredCityData, metric)}</dd>
+                                                        <dt>Sessions</dt>
+                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.sessions.toLocaleString()}</dd>
+                                                        <dt>Users</dt>
+                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.uniqueUsers.toLocaleString()}</dd>
+                                                        <dt>Issues</dt>
+                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.totalIssues.toLocaleString()}</dd>
+                                                        <dt>Country traffic</dt>
+                                                        <dd className="font-mono font-bold text-slate-950">{((hoveredCityData.sessions / Math.max(selectedCountryData.sessions, 1)) * 100).toFixed(1)}%</dd>
+                                                    </dl>
+                                                    <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-400">Click to filter the drawer to this city</div>
+                                                </div>
+                                            </Popup>
+                                        )}
+                                        {hoveredCountryData && !selectedCountryData && (
+                                            <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32}>
+                                                <div className="min-w-[180px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
+                                                    <div className="font-bold text-slate-950">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
+                                                    <div className="mt-1 flex items-center justify-between gap-4 text-slate-500"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-mono text-slate-950">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
+                                                    <div className="mt-1 flex items-center justify-between gap-4 text-slate-500"><span>Traffic share</span><strong className="font-mono text-slate-950">{(hoveredCountryData.trafficShare * 100).toFixed(1)}%</strong></div>
+                                                </div>
+                                            </Popup>
+                                        )}
+                                    </MapGL>
+                                )}
+                                {selectedCountryData && (
+                                    <button type="button" onClick={clearSelection} className="absolute left-3 top-3 z-20 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                                        <Globe className="h-3.5 w-3.5" /> All countries
+                                    </button>
+                                )}
+                                {isMapboxConfigured() && (
+                                    <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur">
+                                        Drag to move · Scroll or pinch to zoom
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <aside className="flex min-h-[360px] flex-col bg-white lg:min-h-0" aria-label="Country ranking">
+                            <div className="border-b border-slate-200 px-4 py-3">
+                                <div className="text-sm font-black text-slate-950">Countries</div>
+                                <div className="mt-0.5 text-xs text-slate-500">Ranked by {GEO_METRICS.find((item) => item.id === metric)?.label.toLowerCase()}</div>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                {rankedCountries.length === 0 && !isLoading && <div className="px-4 py-10 text-center text-sm text-slate-500">No geographic activity for this filter.</div>}
+                                {rankedCountries.map((country, index) => {
+                                    const active = selectedCountryData?.id === country.id;
+                                    return (
+                                        <button
+                                            key={country.id}
+                                            type="button"
+                                            className={`group w-full border-b border-slate-100 px-4 py-3 text-left transition ${active ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
+                                            onClick={() => focusCountry(country)}
+                                            onMouseEnter={() => setHoveredCountry(country.id)}
+                                            onMouseLeave={() => setHoveredCountry(null)}
+                                        >
+                                            <span className="flex items-center gap-3">
+                                                <span className="w-5 shrink-0 text-right font-mono text-[11px] font-bold text-slate-400">{index + 1}</span>
+                                                <CountryFlag countryCode={getCountryCodeForName(country.country)} countryLabel={country.country} className="h-5" imageClassName="h-5 w-5" decorative />
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="flex items-center justify-between gap-3">
+                                                        <span className="truncate text-sm font-bold text-slate-900">{formatCountryDisplayName(country.country) || country.country}</span>
+                                                        <span className="shrink-0 font-mono text-sm font-black text-slate-950">{formatGeoMetricValue(country, metric)}</span>
+                                                    </span>
+                                                    <span className="mt-1.5 flex items-center gap-2">
+                                                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                                                            <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (getGeoMetricValue(country, metric) / maxMetricValue) * 100)}%`, backgroundColor: getGeoMetricColor(country, metric) }} />
+                                                        </span>
+                                                        <span className="w-12 text-right font-mono text-[10px] font-semibold text-slate-500">{(country.trafficShare * 100).toFixed(1)}%</span>
+                                                    </span>
+                                                    {metric === 'issueRate' && country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT && <span className="mt-1 block text-[10px] font-semibold text-slate-500">Low sample · {country.sessions.toLocaleString()} sessions</span>}
+                                                </span>
+                                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" />
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </aside>
+
+                        {drawerOpen && selectedCountryData && (
+                            <>
+                                <button type="button" className="fixed inset-0 z-[39] bg-slate-950/25 backdrop-blur-[1px] lg:hidden" onClick={() => setDrawerOpen(false)} aria-label="Close country details" />
+                                <aside className="fixed inset-x-3 bottom-3 z-40 flex max-h-[84dvh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl lg:absolute lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[390px] lg:rounded-none lg:rounded-l-2xl" aria-label={`${selectedCountryData.country} details`}>
+                                    <div className="flex items-start gap-3 border-b border-slate-200 px-4 py-4">
+                                        <CountryFlag countryCode={getCountryCodeForName(selectedCountryData.country)} countryLabel={selectedCountryData.country} className="h-8" imageClassName="h-8 w-8" decorative />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Country detail</div>
+                                            <h2 className="truncate text-lg font-black text-slate-950">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</h2>
+                                            {selectedCityData && <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-emerald-700"><MapPin className="h-3 w-3" /> {selectedCityData.city}</div>}
+                                        </div>
+                                        <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900" onClick={clearSelection} aria-label="Close country details"><X className="h-4 w-4" /></button>
+                                    </div>
+                                    <div className="min-h-0 flex-1 overflow-y-auto">
+                                        <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 lg:grid-cols-2">
+                                            {[
+                                                ['Sessions', (selectedCityData?.sessions ?? selectedCountryData.sessions).toLocaleString()],
+                                                ['Users', (selectedCityData?.uniqueUsers ?? selectedCountryData.uniqueUsers).toLocaleString()],
+                                                ['Issues', (selectedCityData?.totalIssues ?? selectedCountryData.totalIssues).toLocaleString()],
+                                                ['API latency', (selectedCityData?.avgLatencyMs ?? selectedCountryData.avgLatencyMs) ? `${Math.round(selectedCityData?.avgLatencyMs ?? selectedCountryData.avgLatencyMs ?? 0).toLocaleString()} ms` : 'No data'],
+                                            ].map(([label, value]) => (
+                                                <div key={label} className="bg-white px-4 py-3"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</div><div className="mt-1 font-mono text-base font-black text-slate-950">{value}</div></div>
+                                            ))}
+                                        </div>
+                                        <section className="border-b border-slate-200">
+                                            <div className="flex items-center justify-between px-4 py-3"><h3 className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Top cities</h3>{selectedCityData && <button type="button" onClick={() => setSelectedCity(null)} className="text-xs font-bold text-emerald-700 hover:text-emerald-900">All cities</button>}</div>
+                                            <div className="px-2 pb-2">
+                                                {selectedCountryData.cities.slice(0, 8).map((city) => {
+                                                    const active = selectedCityData?.id === city.id;
+                                                    return <button key={city.id} type="button" onClick={() => focusCity(city)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left ${active ? 'bg-emerald-50 text-emerald-900' : 'hover:bg-slate-50'}`}><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="min-w-0 flex-1 truncate text-xs font-bold">{city.city}</span><span className="font-mono text-xs font-bold">{city.sessions.toLocaleString()}</span></button>;
+                                                })}
+                                            </div>
+                                        </section>
+                                        <section>
+                                            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><h3 className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Latest replays</h3><p className="mt-0.5 text-[11px] text-slate-500">{selectedCityData ? selectedCityData.city : selectedCountryData.country}</p></div><Users className="h-4 w-4 text-slate-400" /></div>
+                                            {detailSessionsState === 'loading' && <div className="px-4 py-8 text-center text-xs font-semibold text-slate-500">Loading replay sessions…</div>}
+                                            {detailSessionsState === 'error' && <div className="px-4 py-8 text-center text-xs font-semibold text-rose-700">Could not load replay sessions.</div>}
+                                            {detailSessionsState === 'idle' && detailSessions.length === 0 && <div className="px-4 py-8 text-center text-xs font-semibold text-slate-500">No replay-ready sessions for this location.</div>}
+                                            {detailSessions.map((session) => (
+                                                <Link key={session.id} to={`${pathPrefix}/sessions/${session.id}`} state={{ returnTo: geoReturnTo, returnState: { geoNavigation: navigationState } }} className="group flex items-center gap-3 border-b border-slate-100 px-4 py-3 hover:bg-slate-50">
+                                                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"><Play className="h-3.5 w-3.5" /></span>
+                                                    <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs font-black text-slate-900">{formatRoute(session)}</span><span className="mt-0.5 block truncate text-[11px] font-semibold text-slate-500">{formatSessionStarted(session.startedAt)} · {formatSessionDuration(session.durationSeconds)} · {getSessionStatusLabel(session)}</span></span>
+                                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-slate-600" />
+                                                </Link>
+                                            ))}
+                                        </section>
+                                    </div>
+                                </aside>
+                            </>
+                        )}
+                    </section>
+                </main>
+            )}
+        </div>
+    );
+};
+
 export const Geo: React.FC = () => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
@@ -1424,6 +2063,9 @@ export const Geo: React.FC = () => {
 
     const geoNavigationState = useMemo<GeoNavigationState>(
         () => ({
+            metric: 'sessions',
+            country: selectedMarkerLocation?.country || null,
+            city: selectedMarkerLocation?.city || null,
             markerLocation: selectedMarkerLocation,
             clusterId: selectedClusterId,
             visitorId: selectedVisitorId,
@@ -2589,4 +3231,4 @@ export const Geo: React.FC = () => {
     );
 };
 
-export default Geo;
+export default RedesignedGeo;

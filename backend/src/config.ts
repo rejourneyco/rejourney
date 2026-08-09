@@ -152,6 +152,7 @@ const envSchema = z.object({
     RESEARCH_LAKE_V2_BATCH_SIZE: z.string().transform(Number).default('120'),
     RESEARCH_LAKE_V2_CONCURRENCY: z.string().transform(Number).default('4'),
     RESEARCH_LAKE_V2_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
+    RESEARCH_LAKE_V2_DRAIN_BUFFER_MS: z.string().transform(Number).default('30000'),
     RESEARCH_LAKE_V2_BACKFILL_PERCENT: z.string().transform(Number).default('20'),
     RESEARCH_LAKE_V2_SEED_MULTIPLIER: z.string().transform(Number).default('2'),
     RESEARCH_LAKE_V2_SPINE_RATE_BPS: z.string().transform(Number).default('300'),

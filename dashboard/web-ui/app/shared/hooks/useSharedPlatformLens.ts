@@ -12,7 +12,12 @@ function isPlatformLens(value: string | null): value is PlatformLens {
 }
 
 function hasMobilePlatform(platforms?: readonly Platform[] | null): boolean {
-    return Boolean(platforms?.some((platform) => platform === 'ios' || platform === 'android' || platform === 'react-native'));
+    return Boolean(platforms?.some((platform) => (
+        platform === 'ios'
+        || platform === 'android'
+        || platform === 'react-native'
+        || platform === 'flutter'
+    )));
 }
 
 function hasWebPlatform(platforms?: readonly Platform[] | null): boolean {

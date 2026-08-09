@@ -5800,8 +5800,12 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_V2_MAX_RUNTIME_MS));
     const startedAt = Date.now();
     const deadlineAtMs = startedAt + maxRuntimeMs;
+    // Stop claiming well before the worker's runtime limit so the final batch can drain.
+    const configuredDrainBufferMs = Math.max(0, Math.trunc(config.RESEARCH_LAKE_V2_DRAIN_BUFFER_MS));
+    const drainBufferMs = Math.min(Math.max(0, maxRuntimeMs - 30_000), configuredDrainBufferMs);
+    const workDeadlineAtMs = deadlineAtMs - drainBufferMs;
 
-    while (Date.now() < deadlineAtMs) {
+    while (Date.now() < workDeadlineAtMs) {
         const pauseBackfill = summary.failed > 0 || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
         let seededThisRound = 0;
         if (!pauseBackfill && seedLimit > 0) {
@@ -5813,7 +5817,7 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         }
         let claimed = 0;
         for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
-            if (Date.now() >= deadlineAtMs) break;
+            if (Date.now() >= workDeadlineAtMs) break;
             const freshJobs = await claimV2Jobs(lakeType, 'fresh', freshLimit);
             const backfillJobs = pauseBackfill ? [] : await claimV2Jobs(lakeType, 'backfill', backfillLimit);
             const jobs = [...freshJobs, ...backfillJobs];
@@ -5822,7 +5826,7 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
                 jobs,
                 {
                     concurrency: Math.max(1, Math.trunc(config.RESEARCH_LAKE_V2_CONCURRENCY)),
-                    deadlineAtMs,
+                    deadlineAtMs: workDeadlineAtMs,
                 },
                 async (job) => {
                     const lane = summary.byLake[job.lake_type as ResearchLakeV2Type];
@@ -5854,7 +5858,12 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         if (claimed === 0 && seededThisRound === 0) break;
     }
     addV2LaneSummaryTotals(summary);
-    logger.info(summary, 'Research lake V2 extraction cycle completed independently of V1');
+    logger.info({
+        ...summary,
+        maxRuntimeMs,
+        drainBufferMs,
+        workRuntimeMs: workDeadlineAtMs - startedAt,
+    }, 'Research lake V2 extraction cycle completed independently of V1');
     return summary;
 }
 

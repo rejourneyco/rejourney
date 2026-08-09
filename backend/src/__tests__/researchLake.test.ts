@@ -214,6 +214,18 @@ describe('research lake anonymized payload shape', () => {
         expect(v2WorkerManifest).toContain('- --once');
         expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_BATCH_SIZE\n                  value: "180"');
         expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_CONCURRENCY\n                  value: "6"');
+        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_DRAIN_BUFFER_MS\n                  value: "2700000"');
+    });
+
+    it('reserves V2 worker time for in-flight screenshot archive exports', () => {
+        const serviceSource = readFileSync(
+            `${process.cwd()}/src/services/researchLake.ts`,
+            'utf8',
+        );
+
+        expect(serviceSource).toContain('const workDeadlineAtMs = deadlineAtMs - drainBufferMs');
+        expect(serviceSource).toContain('while (Date.now() < workDeadlineAtMs)');
+        expect(serviceSource).toContain('deadlineAtMs: workDeadlineAtMs');
     });
 
     it('migration preserves interaction rows while replacing session-only uniqueness', () => {

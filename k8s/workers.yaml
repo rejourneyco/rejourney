@@ -1045,6 +1045,8 @@ spec:
                   value: "6"
                 - name: RESEARCH_LAKE_V2_MAX_RUNTIME_MS
                   value: "5400000"
+                - name: RESEARCH_LAKE_V2_DRAIN_BUFFER_MS
+                  value: "2700000"
                 - name: RESEARCH_LAKE_V2_BACKFILL_PERCENT
                   value: "20"
                 - name: RESEARCH_LAKE_V2_SEED_MULTIPLIER

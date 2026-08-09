@@ -232,7 +232,7 @@ function parseAndroidBinaryArchive(
         offset += jpegSize;
     }
     
-    logger.info({
+    logger.debug({
         frameCount: frames.length,
         bufferSize: buf.length,
         sessionStartTime,
@@ -557,21 +557,21 @@ export async function extractFramesFromArchive(
         
         if (isAndroidBinaryFormat(rawBuffer)) {
             // Android custom binary format
-            logger.info({ bufferSize: rawBuffer.length, sessionStartTime }, '[screenshotFrames] Detected Android binary format');
+            logger.debug({ bufferSize: rawBuffer.length, sessionStartTime }, '[screenshotFrames] Detected Android binary format');
             frames = parseAndroidBinaryArchive(rawBuffer, sessionStartTime);
         } else {
             // Try standard tar parsing (iOS)
             const files = parseTarArchive(rawBuffer);
             
-            logger.info({ 
-                tarSize: rawBuffer.length, 
+            logger.debug({
+                tarSize: rawBuffer.length,
                 fileCount: files.length,
                 fileNames: files.map(f => f.name),
             }, '[screenshotFrames] Parsed tar archive - all filenames');
             
             // If tar produced 0 files but buffer has data, try Android binary as fallback
             if (files.length === 0 && rawBuffer.length > 12) {
-                logger.info('[screenshotFrames] Tar produced 0 files, trying Android binary fallback');
+                logger.debug('[screenshotFrames] Tar produced 0 files, trying Android binary fallback');
                 frames = parseAndroidBinaryArchive(rawBuffer, sessionStartTime);
             } else {
                 // Standard tar path — filter to JPEG files and extract timestamps
@@ -604,7 +604,7 @@ export async function extractFramesFromArchive(
             frame.index = idx;
         });
         
-        logger.info({
+        logger.debug({
             archiveSize: archiveBuffer.length,
             rawSize: rawBuffer.length,
             frameCount: frames.length,

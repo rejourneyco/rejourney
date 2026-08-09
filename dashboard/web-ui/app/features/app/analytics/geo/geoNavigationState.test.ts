@@ -10,6 +10,9 @@ import {
 describe('geographic navigation state', () => {
     it('restores the selected location, visitor, session, cluster, and viewport', () => {
         const state: GeoNavigationState = {
+            metric: 'latency',
+            country: 'France',
+            city: 'Paris',
             markerLocation: { country: 'France', city: 'Paris' },
             clusterId: 'cluster:12:9:4',
             visitorId: 'visitor-123',
@@ -28,6 +31,7 @@ describe('geographic navigation state', () => {
 
         expect(state.markerLocation).toBeNull();
         expect(state.viewport).toBeNull();
+        expect(state.metric).toBe('sessions');
     });
 
     it('compares restored states by value', () => {
@@ -44,6 +48,9 @@ describe('geographic navigation state', () => {
 
     it('round-trips state saved while navigating between dashboard pages', () => {
         const state: GeoNavigationState = {
+            metric: 'sessions',
+            country: 'France',
+            city: 'Paris',
             markerLocation: { country: 'France', city: 'Paris' },
             clusterId: null,
             visitorId: 'visitor-123',
@@ -53,6 +60,16 @@ describe('geographic navigation state', () => {
 
         expect(parseStoredGeoNavigationState(JSON.stringify(state))).toEqual(state);
         expect(parseStoredGeoNavigationState('{bad json')).toBeNull();
+    });
+
+    it('migrates legacy marker selections into the country and city drill-down', () => {
+        const state = normalizeGeoNavigationState({
+            markerLocation: { country: 'France', city: 'Paris' },
+        });
+
+        expect(state.country).toBe('France');
+        expect(state.city).toBe('Paris');
+        expect(state.metric).toBe('sessions');
     });
 
     it('isolates stored state by route scope and project', () => {

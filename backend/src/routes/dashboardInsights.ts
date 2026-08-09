@@ -430,6 +430,11 @@ router.get(
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...conditions))
+            // screenStats keeps the first few session IDs as replay-preview candidates.
+            // Prefer recent sessions because older sessions can legitimately outlive their
+            // retained screenshot/rrweb artifacts, leaving otherwise healthy heatmaps with
+            // no visual base.
+            .orderBy(desc(sessions.startedAt))
             .limit(5000);
 
         // Aggregate per-screen exposure from observed session paths.
@@ -469,7 +474,10 @@ router.get(
                 screenStats[screen].approxRageTaps += perScreenRage;
                 screenStats[screen].errors += perScreenErrors;
 
-                if (screenStats[screen].sessionIds.length < 20) {
+                if (
+                    screenStats[screen].sessionIds.length < 20
+                    && !screenStats[screen].sessionIds.includes(s.id)
+                ) {
                     screenStats[screen].sessionIds.push(s.id);
                 }
             }
