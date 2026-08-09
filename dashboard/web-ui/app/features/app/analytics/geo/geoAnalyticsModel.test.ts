@@ -37,6 +37,25 @@ describe('geographic analytics model', () => {
         expect(result.countries.find((country) => country.country === 'France')?.cities[0].avgLatencyMs).toBe(910);
     });
 
+    it('keeps Taiwan markers near Taiwan when the API returns an implausible coordinate', () => {
+        const result = buildGeoAnalytics({
+            locations: [
+                { country: 'Taiwan', city: 'Unknown', lat: 5.56, lng: -0.2, sessions: 2, uniqueUsers: 2, issues: { crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0, total: 0 } },
+            ],
+            countries: [
+                { country: 'Taiwan', sessions: 2, uniqueUsers: 2, crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0, totalIssues: 0, issueRate: 0 },
+            ],
+            summary: { totalIssues: 0, byType: { crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0 } },
+        }, {
+            locations: [],
+            regions: [],
+            summary: { avgLatency: 0, totalRequests: 0 },
+        });
+
+        expect(result.countries[0]).toMatchObject({ lat: 23.6978, lng: 120.9605 });
+        expect(result.countries[0].cities[0]).toMatchObject({ lat: 23.6978, lng: 120.9605 });
+    });
+
     it('sorts traffic and latency from highest to lowest', () => {
         const { countries } = buildGeoAnalytics(issues, latency);
         expect(sortGeoCountries(countries, 'sessions').map((country) => country.country)).toEqual(['United States', 'France', 'Iceland']);

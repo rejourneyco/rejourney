@@ -38,12 +38,34 @@ export interface GeoAnalyticsSummary {
 
 export const GEO_LOW_SAMPLE_SESSION_COUNT = 20;
 
+const COUNTRY_MARKER_CENTROIDS = new Map<string, { lat: number; lng: number; maxDistanceKm: number }>([
+    ['taiwan', { lat: 23.6978, lng: 120.9605, maxDistanceKm: 650 }],
+]);
+
 function normalize(value?: string | null): string {
     return (value || '').trim().toLowerCase();
 }
 
 function locationKey(country?: string | null, city?: string | null): string {
     return `${normalize(country)}:${normalize(city)}`;
+}
+
+function distanceInKm(left: { lat: number; lng: number }, right: { lat: number; lng: number }): number {
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+    const latitudeDelta = toRadians(right.lat - left.lat);
+    const longitudeDelta = toRadians(right.lng - left.lng);
+    const leftLatitude = toRadians(left.lat);
+    const rightLatitude = toRadians(right.lat);
+    const haversine = Math.sin(latitudeDelta / 2) ** 2
+        + Math.cos(leftLatitude) * Math.cos(rightLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function getSafeLocationCoordinates(country: string, lat: number, lng: number): { lat: number; lng: number } {
+    const fallback = COUNTRY_MARKER_CENTROIDS.get(normalize(country));
+    if (!fallback) return { lat, lng };
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback;
+    return distanceInKm(fallback, { lat, lng }) <= fallback.maxDistanceKm ? { lat, lng } : fallback;
 }
 
 export function buildGeoAnalytics(
@@ -66,23 +88,27 @@ export function buildGeoAnalytics(
     const totalSessions = issues.countries.reduce((sum, country) => sum + Math.max(0, country.sessions || 0), 0);
     const countries = issues.countries.map((country) => {
         const locations = locationsByCountry.get(normalize(country.country)) || [];
-        const weightedLocations = locations.filter((location) => Number.isFinite(location.lat) && Number.isFinite(location.lng));
-        const coordinateWeight = weightedLocations.reduce((sum, location) => sum + Math.max(1, location.sessions || 0), 0);
-        const fallback = weightedLocations[0];
+        const positionedLocations = locations.map((location) => ({
+            location,
+            ...getSafeLocationCoordinates(location.country, location.lat, location.lng),
+        }));
+        const weightedLocations = positionedLocations.filter(({ lat, lng }) => Number.isFinite(lat) && Number.isFinite(lng));
+        const coordinateWeight = weightedLocations.reduce((sum, { location }) => sum + Math.max(1, location.sessions || 0), 0);
+        const countryCentroid = COUNTRY_MARKER_CENTROIDS.get(normalize(country.country));
         const lat = coordinateWeight > 0
-            ? weightedLocations.reduce((sum, location) => sum + location.lat * Math.max(1, location.sessions || 0), 0) / coordinateWeight
-            : fallback?.lat ?? 0;
+            ? weightedLocations.reduce((sum, positioned) => sum + positioned.lat * Math.max(1, positioned.location.sessions || 0), 0) / coordinateWeight
+            : countryCentroid?.lat ?? 0;
         const lng = coordinateWeight > 0
-            ? weightedLocations.reduce((sum, location) => sum + location.lng * Math.max(1, location.sessions || 0), 0) / coordinateWeight
-            : fallback?.lng ?? 0;
+            ? weightedLocations.reduce((sum, positioned) => sum + positioned.lng * Math.max(1, positioned.location.sessions || 0), 0) / coordinateWeight
+            : countryCentroid?.lng ?? 0;
 
-        const cities = locations
-            .map<GeoCityAnalytics>((location) => ({
+        const cities = positionedLocations
+            .map<GeoCityAnalytics>(({ location, lat: cityLat, lng: cityLng }) => ({
                 id: `${normalize(location.country)}:${normalize(location.city)}`,
                 country: location.country,
                 city: location.city || 'Unknown',
-                lat: location.lat,
-                lng: location.lng,
+                lat: cityLat,
+                lng: cityLng,
                 sessions: location.sessions || 0,
                 uniqueUsers: location.uniqueUsers || 0,
                 totalIssues: location.issues.total || 0,
@@ -139,4 +165,3 @@ export function getGeoMetricValue(country: Pick<GeoCountryAnalytics, 'sessions' 
     if (metric === 'latency') return country.avgLatencyMs || 0;
     return country.sessions;
 }
-
