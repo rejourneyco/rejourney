@@ -52,8 +52,43 @@ describe('geographic analytics model', () => {
             summary: { avgLatency: 0, totalRequests: 0 },
         });
 
-        expect(result.countries[0]).toMatchObject({ lat: 23.6978, lng: 120.9605 });
-        expect(result.countries[0].cities[0]).toMatchObject({ lat: 23.6978, lng: 120.9605 });
+        expect(result.countries[0]).toMatchObject({ lat: 23.5, lng: 121 });
+        expect(result.countries[0].cities[0]).toMatchObject({ lat: 23.5, lng: 121 });
+    });
+
+    it('uses the ISO country representative point when a country has no location coordinates', () => {
+        const result = buildGeoAnalytics({
+            locations: [],
+            countries: [
+                { country: 'UG', sessions: 1, uniqueUsers: 1, crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0, totalIssues: 0, issueRate: 0 },
+                { country: 'TW', sessions: 2, uniqueUsers: 2, crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0, totalIssues: 0, issueRate: 0 },
+            ],
+            summary: { totalIssues: 0, byType: { crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0 } },
+        }, {
+            locations: [],
+            regions: [],
+            summary: { avgLatency: 0, totalRequests: 0 },
+        });
+
+        expect(result.countries.find((country) => country.country === 'UG')).toMatchObject({ lat: 1, lng: 32 });
+        expect(result.countries.find((country) => country.country === 'TW')).toMatchObject({ lat: 23.5, lng: 121 });
+    });
+
+    it('does not invent a Null Island marker for an unrecognized country', () => {
+        const result = buildGeoAnalytics({
+            locations: [],
+            countries: [
+                { country: 'Unknown', sessions: 1, uniqueUsers: 1, crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0, totalIssues: 0, issueRate: 0 },
+            ],
+            summary: { totalIssues: 0, byType: { crashes: 0, anrs: 0, errors: 0, rageTaps: 0, apiErrors: 0 } },
+        }, {
+            locations: [],
+            regions: [],
+            summary: { avgLatency: 0, totalRequests: 0 },
+        });
+
+        expect(Number.isFinite(result.countries[0].lat)).toBe(false);
+        expect(Number.isFinite(result.countries[0].lng)).toBe(false);
     });
 
     it('sorts traffic and latency from highest to lowest', () => {

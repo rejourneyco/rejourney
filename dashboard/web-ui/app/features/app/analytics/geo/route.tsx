@@ -258,7 +258,9 @@ function normalizeCountry(value?: string): string {
 
 function getCountryCodeForName(country?: string | null): string | null {
     const normalizedCountry = normalizeCountry(country || undefined);
-    return normalizedCountry ? COUNTRY_NAME_TO_CODE[normalizedCountry] || null : null;
+    if (!normalizedCountry) return null;
+    if (/^[a-z]{2}$/.test(normalizedCountry)) return normalizedCountry.toUpperCase();
+    return COUNTRY_NAME_TO_CODE[normalizedCountry] || null;
 }
 
 function normalizeCity(value?: string): string {
@@ -1313,7 +1315,6 @@ export const RedesignedGeo: React.FC = () => {
     const [selectedCity, setSelectedCity] = useState<string | null>(initialState.city);
     const [hoveredCountry, setHoveredCountry] = useState<string | null>(null);
     const [hoveredCity, setHoveredCity] = useState<string | null>(null);
-    const [drawerOpen, setDrawerOpen] = useState(Boolean(initialState.country));
     const [mapViewport, setMapViewport] = useState<GeoViewportState | null>(initialState.viewport);
     const [detailSessions, setDetailSessions] = useState<GeoSessionRow[]>([]);
     const [detailSessionsState, setDetailSessionsState] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -1329,7 +1330,6 @@ export const RedesignedGeo: React.FC = () => {
                 setSelectedCountry(storedState.country);
                 setSelectedCity(storedState.city);
                 setMapViewport(storedState.viewport);
-                setDrawerOpen(Boolean(storedState.country));
             }
         } catch {
             // Storage can be unavailable in privacy-restricted contexts.
@@ -1456,7 +1456,6 @@ export const RedesignedGeo: React.FC = () => {
         if (!isLoading && selectedCountry && !selectedCountryData) {
             setSelectedCountry(null);
             setSelectedCity(null);
-            setDrawerOpen(false);
         }
     }, [isLoading, selectedCountry, selectedCountryData]);
 
@@ -1545,7 +1544,6 @@ export const RedesignedGeo: React.FC = () => {
     const focusCountry = React.useCallback((country: GeoCountryAnalytics) => {
         setSelectedCountry(country.country);
         setSelectedCity(null);
-        setDrawerOpen(true);
         const map = getMapInstance(mapRef);
         map?.easeTo?.({ center: [country.lng, country.lat], zoom: Math.max(map.getZoom?.() || 0, 4.1), duration: 550, essential: true });
     }, []);
@@ -1559,7 +1557,6 @@ export const RedesignedGeo: React.FC = () => {
     const clearSelection = React.useCallback(() => {
         setSelectedCountry(null);
         setSelectedCity(null);
-        setDrawerOpen(false);
         const map = getMapInstance(mapRef);
         map?.easeTo?.({ center: [initialViewState.longitude, initialViewState.latitude], zoom: GEO_MAP_OVERVIEW_ZOOM, duration: 550, essential: true });
     }, [initialViewState.latitude, initialViewState.longitude]);
@@ -1741,52 +1738,9 @@ export const RedesignedGeo: React.FC = () => {
                             </div>
                         </div>
 
-                        <aside className="flex min-h-[360px] flex-col bg-white lg:min-h-0" aria-label="Country ranking">
-                            <div className="border-b border-slate-200 px-4 py-3">
-                                <div className="text-sm font-black text-slate-950">Countries</div>
-                                <div className="mt-0.5 text-xs text-slate-500">Ranked by {GEO_METRICS.find((item) => item.id === metric)?.label.toLowerCase()}</div>
-                            </div>
-                            <div className="min-h-0 flex-1 overflow-y-auto">
-                                {rankedCountries.length === 0 && !isLoading && <div className="px-4 py-10 text-center text-sm text-slate-500">No geographic activity for this filter.</div>}
-                                {rankedCountries.map((country, index) => {
-                                    const active = selectedCountryData?.id === country.id;
-                                    return (
-                                        <button
-                                            key={country.id}
-                                            type="button"
-                                            className={`group w-full border-b border-slate-100 px-4 py-3 text-left transition ${active ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
-                                            onClick={() => focusCountry(country)}
-                                            onMouseEnter={() => setHoveredCountry(country.id)}
-                                            onMouseLeave={() => setHoveredCountry(null)}
-                                        >
-                                            <span className="flex items-center gap-3">
-                                                <span className="w-5 shrink-0 text-right font-mono text-[11px] font-bold text-slate-400">{index + 1}</span>
-                                                <CountryFlag countryCode={getCountryCodeForName(country.country)} countryLabel={country.country} className="h-5" imageClassName="h-5 w-5" decorative />
-                                                <span className="min-w-0 flex-1">
-                                                    <span className="flex items-center justify-between gap-3">
-                                                        <span className="truncate text-sm font-bold text-slate-900">{formatCountryDisplayName(country.country) || country.country}</span>
-                                                        <span className="shrink-0 font-mono text-sm font-black text-slate-950">{formatGeoMetricValue(country, metric)}</span>
-                                                    </span>
-                                                    <span className="mt-1.5 flex items-center gap-2">
-                                                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                                                            <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (getGeoMetricValue(country, metric) / maxMetricValue) * 100)}%`, backgroundColor: getGeoMetricColor(country, metric) }} />
-                                                        </span>
-                                                        <span className="w-12 text-right font-mono text-[10px] font-semibold text-slate-500">{(country.trafficShare * 100).toFixed(1)}%</span>
-                                                    </span>
-                                                    {metric === 'issueRate' && country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT && <span className="mt-1 block text-[10px] font-semibold text-slate-500">Low sample · {country.sessions.toLocaleString()} sessions</span>}
-                                                </span>
-                                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" />
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </aside>
-
-                        {drawerOpen && selectedCountryData && (
-                            <>
-                                <button type="button" className="fixed inset-0 z-[39] bg-slate-950/25 backdrop-blur-[1px] lg:hidden" onClick={() => setDrawerOpen(false)} aria-label="Close country details" />
-                                <aside className="fixed inset-x-3 bottom-3 z-40 flex max-h-[84dvh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl lg:absolute lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[390px] lg:rounded-none lg:rounded-l-2xl" aria-label={`${selectedCountryData.country} details`}>
+                        <aside className="flex min-h-[360px] flex-col bg-white lg:min-h-0" aria-label={selectedCountryData ? `${selectedCountryData.country} details` : 'Country ranking'}>
+                            {selectedCountryData ? (
+                                <>
                                     <div className="flex items-start gap-3 border-b border-slate-200 px-4 py-4">
                                         <CountryFlag countryCode={getCountryCodeForName(selectedCountryData.country)} countryLabel={selectedCountryData.country} className="h-8" imageClassName="h-8 w-8" decorative />
                                         <div className="min-w-0 flex-1">
@@ -1830,9 +1784,48 @@ export const RedesignedGeo: React.FC = () => {
                                             ))}
                                         </section>
                                     </div>
-                                </aside>
-                            </>
-                        )}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="border-b border-slate-200 px-4 py-3">
+                                        <div className="text-sm font-black text-slate-950">Countries</div>
+                                        <div className="mt-0.5 text-xs text-slate-500">Ranked by {GEO_METRICS.find((item) => item.id === metric)?.label.toLowerCase()}</div>
+                                    </div>
+                                    <div className="min-h-0 flex-1 overflow-y-auto">
+                                        {rankedCountries.length === 0 && !isLoading && <div className="px-4 py-10 text-center text-sm text-slate-500">No geographic activity for this filter.</div>}
+                                        {rankedCountries.map((country, index) => (
+                                            <button
+                                                key={country.id}
+                                                type="button"
+                                                className="group w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50"
+                                                onClick={() => focusCountry(country)}
+                                                onMouseEnter={() => setHoveredCountry(country.id)}
+                                                onMouseLeave={() => setHoveredCountry(null)}
+                                            >
+                                                <span className="flex items-center gap-3">
+                                                    <span className="w-5 shrink-0 text-right font-mono text-[11px] font-bold text-slate-400">{index + 1}</span>
+                                                    <CountryFlag countryCode={getCountryCodeForName(country.country)} countryLabel={country.country} className="h-5" imageClassName="h-5 w-5" decorative />
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="flex items-center justify-between gap-3">
+                                                            <span className="truncate text-sm font-bold text-slate-900">{formatCountryDisplayName(country.country) || country.country}</span>
+                                                            <span className="shrink-0 font-mono text-sm font-black text-slate-950">{formatGeoMetricValue(country, metric)}</span>
+                                                        </span>
+                                                        <span className="mt-1.5 flex items-center gap-2">
+                                                            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                                                                <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (getGeoMetricValue(country, metric) / maxMetricValue) * 100)}%`, backgroundColor: getGeoMetricColor(country, metric) }} />
+                                                            </span>
+                                                            <span className="w-12 text-right font-mono text-[10px] font-semibold text-slate-500">{(country.trafficShare * 100).toFixed(1)}%</span>
+                                                        </span>
+                                                        {metric === 'issueRate' && country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT && <span className="mt-1 block text-[10px] font-semibold text-slate-500">Low sample · {country.sessions.toLocaleString()} sessions</span>}
+                                                    </span>
+                                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" />
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </aside>
                     </section>
                 </main>
             )}

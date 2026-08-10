@@ -1,4 +1,5 @@
 import type { ApiLatencyByLocationResponse, GeoIssuesSummary } from '~/shared/api/client';
+import { COUNTRY_CENTROIDS } from './countryCentroids';
 
 export type GeoMetric = 'sessions' | 'issueRate' | 'latency';
 
@@ -38,13 +39,20 @@ export interface GeoAnalyticsSummary {
 
 export const GEO_LOW_SAMPLE_SESSION_COUNT = 20;
 
-const COUNTRY_MARKER_CENTROIDS = new Map<string, { lat: number; lng: number; maxDistanceKm: number }>([
-    ['taiwan', { lat: 23.6978, lng: 120.9605, maxDistanceKm: 650 }],
-]);
-
 function normalize(value?: string | null): string {
     return (value || '').trim().toLowerCase();
 }
+
+const COUNTRY_MARKER_CENTROIDS = new Map<string, { lat: number; lng: number }>();
+
+for (const country of COUNTRY_CENTROIDS) {
+    const centroid = { lat: country.lat, lng: country.lng };
+    COUNTRY_MARKER_CENTROIDS.set(normalize(country.code), centroid);
+    COUNTRY_MARKER_CENTROIDS.set(normalize(country.name), centroid);
+}
+
+COUNTRY_MARKER_CENTROIDS.set('uk', COUNTRY_MARKER_CENTROIDS.get('gb')!);
+COUNTRY_MARKER_CENTROIDS.set('palestine / israel', COUNTRY_MARKER_CENTROIDS.get('ps')!);
 
 function locationKey(country?: string | null, city?: string | null): string {
     return `${normalize(country)}:${normalize(city)}`;
@@ -65,7 +73,11 @@ function getSafeLocationCoordinates(country: string, lat: number, lng: number): 
     const fallback = COUNTRY_MARKER_CENTROIDS.get(normalize(country));
     if (!fallback) return { lat, lng };
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback;
-    return distanceInKm(fallback, { lat, lng }) <= fallback.maxDistanceKm ? { lat, lng } : fallback;
+    if (Math.abs(lat) < 0.5 && Math.abs(lng) < 0.5) return fallback;
+    if (normalize(country) === 'taiwan' || normalize(country) === 'tw') {
+        return distanceInKm(fallback, { lat, lng }) <= 650 ? { lat, lng } : fallback;
+    }
+    return { lat, lng };
 }
 
 export function buildGeoAnalytics(
@@ -97,10 +109,10 @@ export function buildGeoAnalytics(
         const countryCentroid = COUNTRY_MARKER_CENTROIDS.get(normalize(country.country));
         const lat = coordinateWeight > 0
             ? weightedLocations.reduce((sum, positioned) => sum + positioned.lat * Math.max(1, positioned.location.sessions || 0), 0) / coordinateWeight
-            : countryCentroid?.lat ?? 0;
+            : countryCentroid?.lat ?? Number.NaN;
         const lng = coordinateWeight > 0
             ? weightedLocations.reduce((sum, positioned) => sum + positioned.lng * Math.max(1, positioned.location.sessions || 0), 0) / coordinateWeight
-            : countryCentroid?.lng ?? 0;
+            : countryCentroid?.lng ?? Number.NaN;
 
         const cities = positionedLocations
             .map<GeoCityAnalytics>(({ location, lat: cityLat, lng: cityLng }) => ({
