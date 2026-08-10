@@ -1150,6 +1150,7 @@ export type SessionArchiveQuery = {
     screenOutcome?: 'bounced' | 'continued';
     /** Pipe-separated ordered screen path, e.g. "HomeScreen|CheckoutScreen|ConfirmationScreen" */
     screenPath?: string;
+    screenPathMode?: 'ordered' | 'consecutive';
     /** Exact geo filters used by map drilldowns. */
     geoCountry?: string;
     geoCity?: string;
@@ -1190,6 +1191,7 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
         screenName,
         screenOutcome,
         screenPath,
+        screenPathMode,
         geoCountry,
         geoCity,
         metaKey,
@@ -1228,6 +1230,7 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     if (screenName) queryParams.set('screenName', screenName);
     if (screenName && screenOutcome) queryParams.set('screenOutcome', screenOutcome);
     if (screenPath) queryParams.set('screenPath', screenPath);
+    if (screenPath && screenPathMode === 'consecutive') queryParams.set('screenPathMode', screenPathMode);
     if (geoCountry) queryParams.set('geoCountry', geoCountry);
     if (geoCity) queryParams.set('geoCity', geoCity);
     if (metaKey) queryParams.set('metaKey', metaKey);
@@ -3573,7 +3576,7 @@ export async function getJourneysOverview(
     if (normalizedPlatform) params.set('platform', normalizedPlatform);
     if (normalizedAppVersion) params.set('appVersion', normalizedAppVersion);
     const endpoint = `/api/overview/journeys?${params.toString()}`;
-    const cacheKey = `overview:journeys:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v2`;
+    const cacheKey = `overview:journeys:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v3`;
     return fetchWithCache<JourneysOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
@@ -5047,6 +5050,50 @@ export interface ObservabilityJourneySummary {
         degraded: number;
         problematic: number;
     };
+    positionedGraph?: {
+        sampledSessions: number;
+        maxAvailableStep: number;
+        maxRenderedSteps: number;
+        nodes: Array<{
+            id: string;
+            step: number;
+            screen: string;
+            kind: 'screen' | 'other' | 'exit' | 'continue';
+            count: number;
+            share: number;
+            exitCount: number;
+            continuationCount: number;
+            replayCount: number;
+            crashCount: number;
+            anrCount: number;
+            rageTapCount: number;
+            apiErrorCount: number;
+            avgApiLatencyMs: number;
+            health: 'healthy' | 'degraded' | 'problematic';
+            sampleSessionIds: string[];
+        }>;
+        links: Array<{
+            id: string;
+            step: number;
+            sourceId: string;
+            targetId: string;
+            from: string;
+            to: string;
+            count: number;
+            trafficShare: number;
+            replayCount: number;
+            crashCount: number;
+            anrCount: number;
+            rageTapCount: number;
+            apiErrorCount: number;
+            apiErrorRate: number;
+            avgApiLatencyMs: number;
+            health: 'healthy' | 'degraded' | 'problematic';
+            sampleSessionIds: string[];
+            isAggregate: boolean;
+            isTerminal: boolean;
+        }>;
+    };
     appVersions: Array<{ version: string; count: number }>;
     flows: Array<{
         from: string;
@@ -5138,7 +5185,7 @@ export async function getJourneyObservability(
     if (normalizedPlatform) params.set('platform', normalizedPlatform);
     if (normalizedAppVersion) params.set('appVersion', normalizedAppVersion);
     const qs = params.toString() ? `?${params.toString()}` : '';
-    const cacheKey = `analytics:journey-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v2`;
+    const cacheKey = `analytics:journey-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}:${normalizedPlatform || 'all'}:${normalizedAppVersion || 'all'}:v3`;
     return fetchWithCache<ObservabilityJourneySummary>(`/api/analytics/journey-observability${qs}`, {}, cacheKey);
 }
 

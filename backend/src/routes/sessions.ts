@@ -313,6 +313,8 @@ function buildSessionArchiveBaseConditions(
         screenOutcome?: string;
         /** Pipe-separated ordered screen path, e.g. "HomeScreen|CheckoutScreen|ConfirmationScreen" */
         screenPath?: string;
+        /** Consecutive requires each step to immediately follow the previous step. */
+        screenPathMode?: string;
         /** Exact geo filters used by map drilldowns. */
         geoCountry?: string;
         geoCity?: string;
@@ -348,6 +350,7 @@ function buildSessionArchiveBaseConditions(
         screenName,
         screenOutcome,
         screenPath,
+        screenPathMode,
         geoCountry,
         geoCity,
         conditionLogic,
@@ -539,18 +542,30 @@ function buildSessionArchiveBaseConditions(
         ? screenPath.split('|').map((s) => s.trim()).filter(Boolean)
         : [];
     if (screenPathSteps.length >= 2) {
-        const nullChecks = screenPathSteps.map((step) =>
-            sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) IS NOT NULL`
-        );
-        const orderChecks = screenPathSteps.slice(0, -1).map((step, i) => {
-            const nextStep = screenPathSteps[i + 1];
-            return sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) < MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${nextStep}))`;
-        });
-        const allChecks = sql.join([...nullChecks, ...orderChecks], sql` AND `);
-        userFilterConditions.push(sql`(
-            SELECT CASE WHEN ${allChecks} THEN true ELSE false END
-            FROM unnest(COALESCE(${sessionMetrics.screensVisited}, ARRAY[]::text[])) WITH ORDINALITY AS t(s, idx)
-        )`);
+        if (screenPathMode === 'consecutive') {
+            const screensArray = sql`COALESCE(${sessionMetrics.screensVisited}, ARRAY[]::text[])`;
+            const adjacentChecks = screenPathSteps.map((step, index) =>
+                sql`lower((${screensArray})[start_idx + ${index}]) = lower(${step})`
+            );
+            userFilterConditions.push(sql`EXISTS (
+                SELECT 1
+                FROM generate_series(1, GREATEST(0, cardinality(${screensArray}) - ${screenPathSteps.length} + 1)) AS start_idx
+                WHERE ${sql.join(adjacentChecks, sql` AND `)}
+            )`);
+        } else {
+            const nullChecks = screenPathSteps.map((step) =>
+                sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) IS NOT NULL`
+            );
+            const orderChecks = screenPathSteps.slice(0, -1).map((step, i) => {
+                const nextStep = screenPathSteps[i + 1];
+                return sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) < MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${nextStep}))`;
+            });
+            const allChecks = sql.join([...nullChecks, ...orderChecks], sql` AND `);
+            userFilterConditions.push(sql`(
+                SELECT CASE WHEN ${allChecks} THEN true ELSE false END
+                FROM unnest(COALESCE(${sessionMetrics.screensVisited}, ARRAY[]::text[])) WITH ORDINALITY AS t(s, idx)
+            )`);
+        }
     }
 
     // Text search from the search bar is always AND'd (not part of the query builder)
@@ -2973,6 +2988,7 @@ router.get(
             screenName,
             screenOutcome,
             screenPath,
+            screenPathMode,
             conditionLogic,
             q,
             sort: sortRaw,
@@ -3038,6 +3054,7 @@ router.get(
                 screenName,
                 screenOutcome,
                 screenPath,
+                screenPathMode,
                 geoCountry: typeof req.query.geoCountry === 'string' ? req.query.geoCountry : undefined,
                 geoCity: typeof req.query.geoCity === 'string' ? req.query.geoCity : undefined,
                 conditionLogic,
@@ -3153,6 +3170,7 @@ router.get(
             screenName,
             screenOutcome,
             screenPath,
+            screenPathMode,
             conditionLogic,
             q,
             geoCountry,
@@ -3219,6 +3237,7 @@ router.get(
                 screenName,
                 screenOutcome,
                 screenPath,
+                screenPathMode,
                 geoCountry: typeof geoCountry === 'string' ? geoCountry : undefined,
                 geoCity: typeof geoCity === 'string' ? geoCity : undefined,
                 conditionLogic,

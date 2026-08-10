@@ -38,6 +38,7 @@ import {
     type ProductAnalyticsDailyStatsRow,
 } from '../services/productRollupsClickHouse.js';
 import { canOpenReplayFromSessionFields } from '../services/replayAvailability.js';
+import { buildPositionedJourneyGraph } from '../services/positionedJourneyGraph.js';
 
 const router = Router();
 const redis = getRedis();
@@ -2771,6 +2772,7 @@ router.get(
             if (teamIds.length === 0) {
                 res.json({
                     healthSummary: { healthy: 0, degraded: 0, problematic: 0 },
+                    positionedGraph: { sampledSessions: 0, maxAvailableStep: 0, maxRenderedSteps: 10, nodes: [], links: [] },
                     flows: [],
                     problematicJourneys: [],
                     happyPathJourney: null,
@@ -2792,6 +2794,7 @@ router.get(
         if (projectIds.length === 0) {
             res.json({
                 healthSummary: { healthy: 0, degraded: 0, problematic: 0 },
+                positionedGraph: { sampledSessions: 0, maxAvailableStep: 0, maxRenderedSteps: 10, nodes: [], links: [] },
                 flows: [],
                 problematicJourneys: [],
                 happyPathJourney: null,
@@ -2811,7 +2814,7 @@ router.get(
         const journeyPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all' ? req.query.platform : undefined;
         const requestedAppVersion = typeof req.query.appVersion === 'string' ? req.query.appVersion.trim() : '';
         const journeyAppVersion = requestedAppVersion && requestedAppVersion !== 'all' ? requestedAppVersion : undefined;
-        const cacheKey = `analytics:journey-observability:v5:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${journeyPlatform || 'all'}:${journeyAppVersion || 'all'}`;
+        const cacheKey = `analytics:journey-observability:v6:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${journeyPlatform || 'all'}:${journeyAppVersion || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2933,6 +2936,7 @@ router.get(
                     degraded: 0,
                     problematic: 0,
                 },
+                positionedGraph: { sampledSessions: 0, maxAvailableStep: 0, maxRenderedSteps: 10, nodes: [], links: [] },
                 flows,
                 problematicJourneys: [],
                 happyPathJourney: null,
@@ -3377,6 +3381,20 @@ router.get(
 
         const result = {
             healthSummary,
+            positionedGraph: buildPositionedJourneyGraph(
+                sessionsWithMetrics.map((session) => ({
+                    id: session.id,
+                    screensVisited: session.screensVisited,
+                    replayAvailable: canOpenReplayFromSessionFields(session),
+                    crashCount: Number(session.crashCount || 0),
+                    anrCount: Number(session.anrCount || 0),
+                    rageTapCount: Number(session.rageTapCount || 0),
+                    apiErrorCount: Number(session.apiErrorCount || 0),
+                    apiTotalCount: Number(session.apiTotalCount || 0),
+                    apiAvgResponseMs: Number(session.apiAvgResponseMs || 0),
+                })),
+                configuredHappyPath?.path || happyPathJourney?.path || null,
+            ),
             flows,
             problematicJourneys,
             happyPathJourney,

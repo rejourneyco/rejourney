@@ -19,7 +19,7 @@ import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
-import { SankeyJourney, type SankeyEvidenceSession, type SankeyFlow } from '~/features/app/analytics/journeys/components/SankeyJourney';
+import { SankeyJourney, type SankeyEvidenceSession, type SankeyFlow, type StepJourneyGraph, type StepJourneyLink } from '~/features/app/analytics/journeys/components/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import {
@@ -43,6 +43,7 @@ import {
     generateGroupId,
     type QueryGroup,
 } from '~/features/app/sessions/index/queryBuilderTypes';
+import { buildSelectedJourneyPath, resolveJourneySelectionIds, toggleContiguousJourneySelection } from './journeySelection';
 
 type HappyPathStage = {
     from: string;
@@ -63,6 +64,7 @@ type TransitionReplayOption = {
     priority: 'high' | 'medium' | 'low';
     detail: string;
     evidenceRows: SankeyEvidenceSession[];
+    step: number;
 };
 
 type QueryReplaySession = SankeyEvidenceSession & {
@@ -89,21 +91,23 @@ const formatCompact = (value: number): string => {
     return value.toLocaleString();
 };
 
-const getFlowHealth = (flow: ObservabilityJourneySummary['flows'][number]): 'healthy' | 'degraded' | 'problematic' => {
+type JourneyHealthFlow = Pick<SankeyFlow, 'health' | 'crashCount' | 'anrCount' | 'apiErrorRate' | 'rageTapCount' | 'avgApiLatencyMs'>;
+
+const getFlowHealth = (flow: JourneyHealthFlow): 'healthy' | 'degraded' | 'problematic' => {
     if (flow.health) return flow.health;
     if (flow.crashCount > 0 || flow.anrCount > 0) return 'problematic';
-    if (flow.apiErrorRate > 5 || flow.rageTapCount >= 2 || flow.avgApiLatencyMs > 1000) return 'degraded';
+    if (flow.apiErrorRate > 5 || flow.rageTapCount >= 2 || (flow.avgApiLatencyMs || 0) > 1000) return 'degraded';
     return 'healthy';
 };
 
-const getFlowEvidencePriority = (flow: ObservabilityJourneySummary['flows'][number]): 'high' | 'medium' | 'low' => {
+const getFlowEvidencePriority = (flow: JourneyHealthFlow): 'high' | 'medium' | 'low' => {
     const health = getFlowHealth(flow);
     if (health === 'problematic') return 'high';
     if (health === 'degraded') return 'medium';
     return 'low';
 };
 
-const getFlowEvidenceSignal = (flow: ObservabilityJourneySummary['flows'][number]): string => {
+const getFlowEvidenceSignal = (flow: JourneyHealthFlow): string => {
     if (flow.crashCount > 0 || flow.anrCount > 0) return `${flow.crashCount} crashes / ${flow.anrCount} ANRs`;
     if (flow.rageTapCount > 0) return `${flow.rageTapCount} rage taps`;
     if (flow.apiErrorRate > 0) return `${flow.apiErrorRate.toFixed(1)}% API errors`;
@@ -273,6 +277,61 @@ const parseStoredSelectedTransitionIds = (raw: string | null): string[] => {
     }
 };
 
+const buildLegacyPositionedGraph = (flows: SankeyFlow[], happyPath: string[] | null, sampledSessions: number): StepJourneyGraph => {
+    const levels = new Map<string, number>((happyPath || []).slice(0, 10).map((screen, step) => [screen, step]));
+    for (let pass = 0; pass < 6; pass += 1) {
+        for (const flow of flows) {
+            const sourceLevel = levels.get(flow.from);
+            const targetLevel = levels.get(flow.to);
+            if (sourceLevel !== undefined && targetLevel === undefined) levels.set(flow.to, Math.min(9, sourceLevel + 1));
+            else if (sourceLevel === undefined && targetLevel !== undefined) levels.set(flow.from, Math.max(0, targetLevel - 1));
+        }
+    }
+    const nodeMap = new Map<string, StepJourneyGraph['nodes'][number]>();
+    const positionedLinks = flows.slice(0, 50).map((flow) => {
+        const step = Math.min(8, Math.max(0, levels.get(flow.from) ?? 0));
+        const sourceId = `${step}:screen:${encodeURIComponent(flow.from)}`;
+        const targetId = `${step + 1}:screen:${encodeURIComponent(flow.to)}`;
+        const upsertNode = (id: string, screen: string, nodeStep: number) => {
+            const current = nodeMap.get(id);
+            const count = Math.max(current?.count || 0, flow.count);
+            nodeMap.set(id, {
+                id, step: nodeStep, screen, kind: 'screen', count,
+                share: sampledSessions > 0 ? count / sampledSessions : 0,
+                exitCount: 0, continuationCount: count, replayCount: Math.max(current?.replayCount || 0, flow.replayCount || 0),
+                crashCount: Math.max(current?.crashCount || 0, flow.crashCount), anrCount: Math.max(current?.anrCount || 0, flow.anrCount),
+                rageTapCount: Math.max(current?.rageTapCount || 0, flow.rageTapCount), apiErrorCount: Math.max(current?.apiErrorCount || 0, flow.apiErrors || 0),
+                avgApiLatencyMs: Math.max(current?.avgApiLatencyMs || 0, flow.avgApiLatencyMs || 0), health: getSankeyFlowHealth(flow),
+                sampleSessionIds: Array.from(new Set([...(current?.sampleSessionIds || []), ...(flow.sampleSessionIds || [])])).slice(0, 6),
+            });
+        };
+        upsertNode(sourceId, flow.from, step);
+        upsertNode(targetId, flow.to, step + 1);
+        return {
+            id: `p${step}:${encodeURIComponent(flow.from)}→${encodeURIComponent(flow.to)}`,
+            step, sourceId, targetId, from: flow.from, to: flow.to, count: flow.count,
+            trafficShare: 0, replayCount: flow.replayCount || 0, crashCount: flow.crashCount, anrCount: flow.anrCount,
+            rageTapCount: flow.rageTapCount, apiErrorCount: flow.apiErrors || 0, apiErrorRate: flow.apiErrorRate,
+            avgApiLatencyMs: flow.avgApiLatencyMs || 0, health: getSankeyFlowHealth(flow), sampleSessionIds: flow.sampleSessionIds || [],
+            isAggregate: Boolean(flow.isAggregate), isTerminal: false,
+        } satisfies StepJourneyLink;
+    });
+    const stepTotals = new Map<number, number>();
+    for (const node of nodeMap.values()) {
+        stepTotals.set(node.step, (stepTotals.get(node.step) || 0) + node.count);
+    }
+    const nodes = Array.from(nodeMap.values(), (node) => ({
+        ...node,
+        share: node.count / Math.max(1, stepTotals.get(node.step) || node.count),
+    }));
+    const nodeCounts = new Map(nodes.map((node) => [node.id, node.count]));
+    const links = positionedLinks.map((link) => ({
+        ...link,
+        trafficShare: link.count / Math.max(1, nodeCounts.get(link.sourceId) || link.count),
+    }));
+    return { sampledSessions, maxAvailableStep: Math.max(0, ...nodes.map((node) => node.step + 1)), maxRenderedSteps: 10, nodes, links };
+};
+
 const dedupeEvidenceRows = (rows: SankeyEvidenceSession[], limit = 18): SankeyEvidenceSession[] => {
     const deduped = new Map<string, SankeyEvidenceSession>();
 
@@ -366,40 +425,11 @@ const buildJourneyQueryGroups = (path: string[]): QueryGroup[] => [
                 id: generateConditionId(),
                 type: 'journey',
                 steps: path,
+                matchMode: 'consecutive',
             },
         ],
     },
 ];
-
-const buildContiguousJourneyPath = (options: TransitionReplayOption[]): string[] | null => {
-    if (options.length === 0) return null;
-    if (options.length === 1) return options[0].path;
-
-    const outgoing = new Map<string, string>();
-    const incoming = new Map<string, string>();
-
-    for (const option of options) {
-        const [from, to] = option.path;
-        if (!from || !to || outgoing.has(from) || incoming.has(to)) return null;
-        outgoing.set(from, to);
-        incoming.set(to, from);
-    }
-
-    const starts = Array.from(outgoing.keys()).filter((node) => !incoming.has(node));
-    if (starts.length !== 1) return null;
-
-    const path = [starts[0]];
-    let current = starts[0];
-
-    while (outgoing.has(current)) {
-        current = outgoing.get(current)!;
-        if (path.includes(current)) return null;
-        path.push(current);
-    }
-
-    return path.length === options.length + 1 ? path : null;
-};
-
 
 export const Journeys: React.FC = () => {
     const { selectedProject } = useSessionData();
@@ -510,6 +540,11 @@ export const Journeys: React.FC = () => {
         if (configured && configured.length > 0) return configured;
         return data?.happyPathJourney?.path || null;
     }, [data]);
+
+    const positionedGraph = useMemo(
+        () => data?.positionedGraph || buildLegacyPositionedGraph(data?.flows || [], canonicalHappyPath, totalSessions),
+        [canonicalHappyPath, data?.flows, data?.positionedGraph, totalSessions],
+    );
 
     const pathCoverageRate = useMemo(() => {
         if (totalSessions === 0) return 0;
@@ -672,21 +707,18 @@ export const Journeys: React.FC = () => {
         return result;
     }, [data]);
 
-    const journeyFlowPresentation = useMemo(
-        () => buildJourneyFlowPresentation(data?.flows || [], canonicalHappyPath),
-        [data?.flows, canonicalHappyPath],
-    );
-
     const transitionReplayOptions = useMemo<TransitionReplayOption[]>(() => {
         if (!data) return [];
 
-        return data.flows.map((flow) => {
+        return positionedGraph.links
+            .filter((flow) => !flow.isAggregate && !flow.isTerminal)
+            .map((flow) => {
             const transitionKey = getTransitionKey(flow.from, flow.to);
             const priority = getFlowEvidencePriority(flow);
             const signal = getFlowEvidenceSignal(flow);
 
             return {
-                id: transitionKey,
+                id: flow.id,
                 label: `${flow.from} → ${flow.to}`,
                 path: [flow.from, flow.to],
                 sessionCount: flow.count,
@@ -702,9 +734,10 @@ export const Journeys: React.FC = () => {
                     })),
                     ...(sankeyTransitionEvidence[transitionKey] || []),
                 ]),
+                step: flow.step,
             };
         });
-    }, [data, sankeyTransitionEvidence]);
+    }, [data, positionedGraph.links, sankeyTransitionEvidence]);
 
     const transitionReplayOptionMap = useMemo(
         () => new Map(transitionReplayOptions.map((option) => [option.id, option])),
@@ -713,12 +746,12 @@ export const Journeys: React.FC = () => {
 
     useEffect(() => {
         if (selectedTransitionIds.length === 0) return;
-        const available = new Set(transitionReplayOptions.map((option) => option.id));
-        const nextSelected = selectedTransitionIds.filter((id) => available.has(id));
-        if (nextSelected.length !== selectedTransitionIds.length) {
+        const positionedLinks = positionedGraph.links.filter((link) => !link.isAggregate && !link.isTerminal);
+        const nextSelected = resolveJourneySelectionIds(selectedTransitionIds, positionedLinks);
+        if (nextSelected.join('|') !== selectedTransitionIds.join('|')) {
             setSelectedTransitionIds(nextSelected);
         }
-    }, [selectedTransitionIds, transitionReplayOptions]);
+    }, [positionedGraph.links, selectedTransitionIds, transitionReplayOptions]);
 
     const selectedTransitionOptions = useMemo(
         () => selectedTransitionIds
@@ -830,15 +863,12 @@ export const Journeys: React.FC = () => {
         [transitionReplayOptions],
     );
     const selectedContiguousJourneyPath = useMemo(
-        () => buildContiguousJourneyPath(selectedTransitionOptions),
-        [selectedTransitionOptions],
+        () => buildSelectedJourneyPath(selectedTransitionIds, positionedGraph.links),
+        [positionedGraph.links, selectedTransitionIds],
     );
 
-    const toggleSelectedTransition = (flow: Pick<SankeyFlow, 'from' | 'to'>) => {
-        const transitionKey = getTransitionKey(flow.from, flow.to);
-        setSelectedTransitionIds((current) => current.includes(transitionKey)
-            ? current.filter((id) => id !== transitionKey)
-            : [...current, transitionKey]);
+    const toggleSelectedTransition = (flow: StepJourneyLink) => {
+        setSelectedTransitionIds((current) => toggleContiguousJourneySelection(current, flow, positionedGraph.links));
     };
 
     const applyJourneyQuery = (path: string[]) => {
@@ -1010,8 +1040,7 @@ export const Journeys: React.FC = () => {
                         />
 
                         <SankeyJourney
-                            flows={journeyFlowPresentation.flows}
-                            height={700}
+                            graph={positionedGraph}
                             happyPath={canonicalHappyPath}
                             selectedTransitionIds={selectedTransitionIds}
                             onFlowToggle={toggleSelectedTransition}
@@ -1061,7 +1090,7 @@ export const Journeys: React.FC = () => {
                                                         <button
                                                             key={option.id}
                                                             type="button"
-                                                            onClick={() => setSelectedTransitionIds((current) => current.filter((id) => id !== option.id))}
+                                                            onClick={() => setSelectedTransitionIds((current) => current.slice(0, current.indexOf(option.id)).filter(Boolean))}
                                                             className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#dadce0] bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-700 transition-colors hover:border-[#fbcfe8] hover:bg-[#fdf2f8] hover:text-[#be185d]"
                                                             title="Remove clause"
                                                         >

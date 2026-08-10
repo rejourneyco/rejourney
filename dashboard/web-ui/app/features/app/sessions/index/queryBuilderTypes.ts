@@ -107,6 +107,7 @@ export type JourneyCondition = {
   id: string;
   type: 'journey';
   steps: string[];
+  matchMode?: 'ordered' | 'consecutive';
 };
 
 export type SmartCaptureCondition = {
@@ -231,6 +232,7 @@ export function conditionsToArchiveQuery(
         const validSteps = cond.steps.filter(Boolean);
         if (validSteps.length >= 2) {
           result.screenPath = validSteps.join('|');
+          if (cond.matchMode === 'consecutive') result.screenPathMode = 'consecutive';
         }
         break;
       }
@@ -378,7 +380,7 @@ export function buildHumanSummary(conditions: QueryCondition[], logic: 'AND' | '
       case 'journey': {
         const steps = cond.steps.filter(Boolean);
         if (steps.length === 0) return 'journey (incomplete)';
-        return 'journey: ' + steps.join(' -> ');
+        return `${cond.matchMode === 'consecutive' ? 'exact journey' : 'journey'}: ` + steps.join(' -> ');
       }
       case 'smart_capture':
         return cond.ruleName || cond.ruleId || (cond.status ? `Smart Capture ${cond.status}` : 'Smart Capture rule');
