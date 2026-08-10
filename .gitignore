@@ -77,6 +77,17 @@ local.properties
 /scripts/generate_research_lake_integrated_report.py
 /scripts/__pycache__/generate_research_lake_integrated_report*.pyc
 /tmp/pdfs/
+/tmp/labeled_data/
+/scripts/research_lake_labeling_operator.py
+/scripts/research_lake_remote_pack.py
+/scripts/research_lake_remote_upload.py
+/scripts/research_lake_labeling_runner.py
+/scripts/research_lake_labeling_batch_runner.py
+/scripts/research_lake_labeling_exact_runner.py
+/scripts/research_lake_labeling_pdf_batch_runner.py
+/scripts/research_lake_remote_batch_pack.mjs
+/scripts/research_lake_remote_upload.mjs
+/scripts/__pycache__/
 /output/pdf/
 /dev_docs/research_lake_integrated_reference_source.txt
 

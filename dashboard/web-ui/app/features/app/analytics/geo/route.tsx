@@ -14,7 +14,6 @@ import { getGeoOverview, getSessionsPaginated, type ApiLatencyByLocationResponse
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
-import { KpiCardsGrid, type KpiCardItem } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
 import {
@@ -1441,40 +1440,6 @@ export const RedesignedGeo: React.FC = () => {
     }, [manualRefreshVersion, platform, selectedProject?.id, timeRange]);
 
     const analytics = useMemo(() => buildGeoAnalytics(issues, latency), [issues, latency]);
-    const summaryCards = useMemo<KpiCardItem[]>(() => [
-        {
-            id: 'geolocated-sessions',
-            label: 'Geolocated Sessions',
-            value: analytics.summary.totalSessions.toLocaleString(),
-            sortValue: analytics.summary.totalSessions,
-            info: 'Sessions with enough geographic information to appear in this view.',
-            comparisonText: 'Current filtered window',
-        },
-        {
-            id: 'active-countries',
-            label: 'Active Countries',
-            value: analytics.summary.activeCountries.toLocaleString(),
-            sortValue: analytics.summary.activeCountries,
-            info: 'Countries with at least one geolocated session in the current filters.',
-            comparisonText: 'Countries with traffic',
-        },
-        {
-            id: 'total-issues',
-            label: 'Total Issues',
-            value: analytics.summary.totalIssues.toLocaleString(),
-            sortValue: analytics.summary.totalIssues,
-            info: 'Captured crashes, errors, rage taps, ANRs, and API errors from geolocated sessions.',
-            comparisonText: 'Across geolocated sessions',
-        },
-        {
-            id: 'average-api-latency',
-            label: 'Average API Latency',
-            value: analytics.summary.avgLatencyMs ? `${Math.round(analytics.summary.avgLatencyMs).toLocaleString()} ms` : 'No data',
-            sortValue: analytics.summary.avgLatencyMs || null,
-            info: 'Average API response latency across geographic request telemetry.',
-            comparisonText: 'Request-weighted average',
-        },
-    ], [analytics.summary]);
     const rankedCountries = useMemo(() => sortGeoCountries(analytics.countries, metric), [analytics.countries, metric]);
     const selectedCountryData = useMemo(
         () => analytics.countries.find((country) => normalizeCountry(country.country) === normalizeCountry(selectedCountry || undefined)) || null,
@@ -1620,17 +1585,6 @@ export const RedesignedGeo: React.FC = () => {
                 <div className="grid min-h-0 flex-1 place-items-center text-sm text-slate-500">Select a project.</div>
             ) : (
                 <main className="relative flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:p-4">
-                    <div className="rejourney-api-page shrink-0" aria-label="Geographic summary">
-                        <KpiCardsGrid
-                            cards={summaryCards}
-                            timeRange={timeRange}
-                            storageKey="analytics-geographic-summary"
-                            className="geo-summary-kpis"
-                            showControls={false}
-                            gridClassName="grid grid-cols-2 gap-3 lg:grid-cols-4"
-                        />
-                    </div>
-
                     {loadError && (
                         <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{loadError}</div>
                     )}
@@ -1746,6 +1700,7 @@ export const RedesignedGeo: React.FC = () => {
                                                 closeOnClick={false}
                                                 anchor="bottom"
                                                 offset={24}
+                                                className="geo-analytics-popup"
                                                 style={{ pointerEvents: 'none' }}
                                             >
                                                 <div className="min-w-[210px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
@@ -1768,7 +1723,7 @@ export const RedesignedGeo: React.FC = () => {
                                             </Popup>
                                         )}
                                         {hoveredCountryData && !selectedCountryData && (
-                                            <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32}>
+                                            <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32} className="geo-analytics-popup">
                                                 <div className="min-w-[180px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
                                                     <div className="font-bold text-slate-950">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
                                                     <div className="mt-1 flex items-center justify-between gap-4 text-slate-500"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-mono text-slate-950">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
@@ -1839,7 +1794,7 @@ export const RedesignedGeo: React.FC = () => {
                                             <h2 className="truncate text-lg font-black text-slate-950">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</h2>
                                             {selectedCityData && <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-emerald-700"><MapPin className="h-3 w-3" /> {selectedCityData.city}</div>}
                                         </div>
-                                        <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900" onClick={clearSelection} aria-label="Close country details"><X className="h-4 w-4" /></button>
+                                        <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-700 bg-rose-600 text-white shadow-sm transition hover:bg-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2" onClick={clearSelection} aria-label="Close country details"><X className="h-4 w-4" /></button>
                                     </div>
                                     <div className="min-h-0 flex-1 overflow-y-auto">
                                         <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 lg:grid-cols-2">

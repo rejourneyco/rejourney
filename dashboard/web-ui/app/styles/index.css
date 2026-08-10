@@ -1833,31 +1833,21 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   background: #ffffff !important;
 }
 
-/* Preserve the API Insights KPI language without crowding the map workspace. */
-.geo-summary-kpis .dashboard-analytics-card .dashboard-kpi-header {
-  min-height: 2.75rem;
-  margin-inline: 1rem;
-  padding-block: 0.7rem 0.5rem;
-}
-
-.geo-summary-kpis .dashboard-analytics-card > .dashboard-kpi-value {
-  margin: 0.55rem 1rem 0;
-  font-size: 1.65rem !important;
-}
-
-.geo-summary-kpis .dashboard-analytics-card .dashboard-kpi-comparison {
-  min-height: 1rem;
-  margin: 0.35rem 1rem 0.7rem;
-}
-
-.geo-summary-kpis .dashboard-analytics-card .dashboard-kpi-comparison-label {
-  font-size: 0.68rem;
-}
-
 .rejourney-api-page :where(.dashboard-label) {
   color: #6f7785;
   font-size: 0.76rem;
   font-weight: 600;
+}
+
+.geo-analytics-popup .mapboxgl-popup-content {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.geo-analytics-popup .mapboxgl-popup-tip {
+  display: none;
 }
 
 .rejourney-api-page :where(.dashboard-value-lg, .dashboard-value-md) {
