@@ -1,5 +1,6 @@
 /** Runs Schema V2 independently; the V1 worker remains unchanged and active. */
 import { logger } from '../logger.js';
+import { closeRedis } from '../db/redis.js';
 import { pingWorker, type WorkerMetric } from '../services/monitoring.js';
 import type { ResearchLakeV2CycleSummary } from '../services/researchLake.js';
 
@@ -25,6 +26,7 @@ async function loadRuntime(): Promise<Runtime> {
 
 async function closeRuntime(): Promise<void> {
     if (runtime) await (await runtime).pool.end();
+    await closeRedis();
 }
 
 function metrics(summary: ResearchLakeV2CycleSummary): WorkerMetric[] {
@@ -76,6 +78,9 @@ async function main(): Promise<void> {
     if (runOnce) {
         await runCycle();
         await closeRuntime();
+        // pingWorker opens Redis; closeRuntime releases it before the one-shot
+        // worker exits so CronJob completion is not held open by that socket.
+        process.exit(0);
         return;
     }
     while (running) {
