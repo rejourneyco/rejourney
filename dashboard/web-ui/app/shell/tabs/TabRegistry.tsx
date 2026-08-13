@@ -35,6 +35,7 @@ export interface TabDefinition extends TabInfo {
 type TabPrefetchContext = {
     projectId?: string | null;
     timeRange?: string;
+    platform?: string;
 };
 
 type RouteDefinition = {
@@ -119,9 +120,9 @@ const routes: RouteDefinition[] = [
         getInfo: () => ({ id: 'analytics-heatmaps', title: DASHBOARD_PAGE_META.heatmaps.tabTitle, icon: DASHBOARD_PAGE_META.heatmaps.icon }),
         Component: React.lazy(loadHeatmaps),
         loadComponent: loadHeatmaps,
-        prefetchData: async ({ projectId, timeRange }) => {
+        prefetchData: async ({ projectId, timeRange, platform }) => {
             if (!projectId) return;
-            await getHeatmapsOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+            await getHeatmapsOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE, platform);
         },
     },
     {

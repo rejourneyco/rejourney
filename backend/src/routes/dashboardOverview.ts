@@ -1122,7 +1122,9 @@ function mergeHeatmapScreen(
     const rangeIncidentRatePer100 = Number((rangeRageTapRatePer100 + rangeErrorRatePer100 + rangeExitRate).toFixed(1));
     const rangeEstimatedAffectedSessions = Math.max(rangeRageTaps, rangeErrors, Math.round(rangeVisits * (rangeExitRate / 100)));
     const rangeImpactScore = Number((rangeIncidentRatePer100 * Math.log10(rangeVisits + 9)).toFixed(1));
-    const touchHotspots = includeTouchHotspots ? (alltime?.touchHotspots ?? rangeData?.touchHotspots ?? []) : [];
+    const touchHotspots = includeTouchHotspots
+        ? (alltime?.touchHotspots?.length ? alltime.touchHotspots : rangeData?.touchHotspots ?? [])
+        : [];
 
     return {
         name,
@@ -1191,7 +1193,6 @@ function updateHeatmapIterationScreen(
         errors: number;
         startedAt: Date;
         evidenceSessionId: string | null;
-        screenshotSessionId: string | null;
     },
 ) {
     screen.visits += 1;
@@ -1240,30 +1241,6 @@ async function loadHeatmapIterationSummary(projectId: string, timeRange?: string
         .orderBy(desc(sessions.startedAt))
         .limit(5000);
 
-    const replayReadySessionIds = Array.from(
-        new Set(rows.filter((row) => canOpenReplayFromSessionFields(row)).map((row) => row.sessionId)),
-    );
-    const screenshotSessionIds = new Set<string>();
-
-    if (replayReadySessionIds.length > 0) {
-        const screenshotRows = await db
-            .select({ sessionId: recordingArtifacts.sessionId })
-            .from(recordingArtifacts)
-            .where(
-                and(
-                    inArray(recordingArtifacts.sessionId, replayReadySessionIds),
-                    eq(recordingArtifacts.kind, 'screenshots'),
-                    eq(recordingArtifacts.status, 'ready'),
-                ),
-            )
-            .groupBy(recordingArtifacts.sessionId)
-            .limit(replayReadySessionIds.length);
-
-        for (const row of screenshotRows) {
-            screenshotSessionIds.add(row.sessionId);
-        }
-    }
-
     const overallMap = new Map<string, HeatmapIterationScreen>();
     const versionMap = new Map<
         string,
@@ -1283,7 +1260,6 @@ async function loadHeatmapIterationSummary(projectId: string, timeRange?: string
         const appVersion = row.appVersion?.trim() || 'Unknown';
         const replayReady = canOpenReplayFromSessionFields(row);
         const evidenceSessionId = replayReady ? row.sessionId : null;
-        const screenshotSessionId = replayReady && screenshotSessionIds.has(row.sessionId) ? row.sessionId : null;
         const perScreenTouches = Math.ceil((row.touchCount || 0) / visitedScreens.length);
         const perScreenRageTaps = Math.ceil((row.rageTapCount || 0) / visitedScreens.length);
         const perScreenErrors = Math.ceil((row.errorCount || 0) / visitedScreens.length);
@@ -1316,7 +1292,6 @@ async function loadHeatmapIterationSummary(projectId: string, timeRange?: string
                 errors: perScreenErrors,
                 startedAt: row.startedAt,
                 evidenceSessionId,
-                screenshotSessionId,
             });
 
             let versionScreen = version.screens.get(screenName);
@@ -1330,7 +1305,6 @@ async function loadHeatmapIterationSummary(projectId: string, timeRange?: string
                 errors: perScreenErrors,
                 startedAt: row.startedAt,
                 evidenceSessionId,
-                screenshotSessionId,
             });
         }
     }
@@ -1371,14 +1345,15 @@ function applyHeatmapIterationScreenshots(
         const fallbackEvidenceSessionId = fallbackSource?.sessionIds?.[0] ?? null;
         const fallbackScreenshot = fallbackSource?.screenshotUrl ?? null;
         const hasReplayFallback = Boolean(fallbackSource?.screenFirstSeenMs && fallbackEvidenceSessionId);
-        const fallbackHotspots = fallbackSource?.touchHotspots ?? [];
         const baseTemplate = pickHeatmapBaseTemplate(templatesByScreen, screen.name, { platform, appVersion });
         return {
             ...screen,
             screenshotUrl: baseTemplate?.imageUrl ?? screen.screenshotUrl ?? fallbackScreenshot,
             screenFirstSeenMs: baseTemplate?.sourceTimestampMs ?? screen.screenFirstSeenMs ?? (hasReplayFallback ? fallbackSource?.screenFirstSeenMs ?? null : null),
             evidenceSessionId: baseTemplate?.sourceSessionId ?? screen.evidenceSessionId ?? (hasReplayFallback ? fallbackEvidenceSessionId : null),
-            touchHotspots: screen.touchHotspots?.length ? screen.touchHotspots : fallbackHotspots,
+            // The top-level screen already carries this fallback. Avoid repeating a potentially
+            // large bucket array in every app-version snapshot; the client hydrates it by name.
+            touchHotspots: screen.touchHotspots?.length ? screen.touchHotspots : [],
             pageWidth: baseTemplate?.pageWidth ?? screen.pageWidth ?? fallbackSource?.pageWidth ?? null,
             pageHeight: baseTemplate?.pageHeight ?? screen.pageHeight ?? fallbackSource?.pageHeight ?? null,
             viewportWidth: baseTemplate?.viewportWidth ?? screen.viewportWidth ?? fallbackSource?.viewportWidth ?? null,
@@ -1588,8 +1563,6 @@ async function loadWebAttentionPrior(projectId: string, normalizedScreenName: st
         projectIds: [projectId],
         startDate: startedAfter?.toISOString().split('T')[0],
     });
-
-    const matched = rows.filter((row) => normalizeHeatmapScreenName(row.screenName) === normalizedScreenName);
     const prior: WebAttentionPrior = {
         touchBuckets: {},
         rageTapBuckets: {},
@@ -1597,7 +1570,8 @@ async function loadWebAttentionPrior(projectId: string, normalizedScreenName: st
         totalRageTaps: 0,
     };
 
-    for (const row of matched) {
+    for (const row of rows) {
+        if (normalizeHeatmapScreenName(row.screenName) !== normalizedScreenName) continue;
         mergeBucketMap(prior.touchBuckets!, row.touchBuckets as Record<string, number> | null | undefined);
         mergeBucketMap(prior.rageTapBuckets!, row.rageTapBuckets as Record<string, number> | null | undefined);
         prior.totalTouches = Number(prior.totalTouches ?? 0) + Number(row.totalTouches ?? 0);
@@ -3126,7 +3100,7 @@ router.get(
                 'heatmaps',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v12` : 'v12',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v13` : 'v13',
             ),
             routeName: 'heatmaps',
             res,
@@ -3194,7 +3168,7 @@ router.get(
                 `heatmaps:screen:${screenName}`,
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v9` : 'v9',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v10` : 'v10',
             ),
             routeName: 'heatmaps-screen',
             res,

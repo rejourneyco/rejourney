@@ -31,6 +31,12 @@ import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 import { shouldShowIssueDetectionUi } from '~/shared/config/issueDetectionAccess';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useAuth } from '~/shared/providers/AuthContext';
+import {
+  getAvailablePlatformLenses,
+  getDefaultPlatformLens,
+  platformLensToSessionPlatform,
+  type PlatformLens,
+} from '~/shared/hooks/useSharedPlatformLens';
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'rj-dashboard-sidebar-width';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'rj-dashboard-sidebar-collapsed';
@@ -79,6 +85,23 @@ function readSidebarPrefetchTimeRange(projectId?: string | null): string {
     window.localStorage.getItem(`rejourney.dashboard.timeRange.${keySuffix}`) ??
     window.localStorage.getItem(`rejourney.analytics.timeRange.${keySuffix}`);
   return isTimeRange(stored) ? stored : SIDEBAR_PREFETCH_TIME_RANGE;
+}
+
+function readSidebarPrefetchPlatform(project?: Project | null): string | undefined {
+  const defaultLens = getDefaultPlatformLens(project?.platforms);
+  if (typeof window === 'undefined') return platformLensToSessionPlatform(defaultLens);
+
+  const keySuffix = project?.id || 'global';
+  const stored =
+    window.localStorage.getItem(`rejourney.dashboard.platformLens.${keySuffix}`) ??
+    window.localStorage.getItem(`rejourney.analytics.platformLens.${keySuffix}`);
+  const storedLens = stored === 'all' || stored === 'mobile' || stored === 'web'
+    ? stored as PlatformLens
+    : null;
+  const lens = storedLens && getAvailablePlatformLenses(project?.platforms).includes(storedLens)
+    ? storedLens
+    : defaultLens;
+  return platformLensToSessionPlatform(lens);
 }
 
 interface SidebarProps {
@@ -393,13 +416,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isActive = (path: string) => location.pathname === path;
   const collapsedDesktop = isDesktop && collapsed;
   const prefetchTimeRange = readSidebarPrefetchTimeRange(currentProject?.id);
+  const prefetchPlatform = readSidebarPrefetchPlatform(currentProject);
 
   const prefetchPath = React.useCallback((path: string) => {
     TabRegistry.prefetch(path, {
       projectId: currentProject?.id,
       timeRange: prefetchTimeRange,
+      platform: prefetchPlatform,
     });
-  }, [currentProject?.id, prefetchTimeRange]);
+  }, [currentProject?.id, prefetchPlatform, prefetchTimeRange]);
 
   const canOpenNavPath = React.useCallback((path: string) => (
     !showSetupNavItem || path === setupPath

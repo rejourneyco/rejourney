@@ -22,7 +22,6 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getHeatmapsOverview,
-    getHeatmapScreenOverview,
     getHeatmapBaseFrameCandidates,
     getWebAttentionHeatmap,
     saveHeatmapBaseTemplate,
@@ -48,7 +47,6 @@ import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { getAvailableHeatmapModes, getDefaultHeatmapMode } from './heatmapMode';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
-const HEATMAP_DETAIL_FETCH_CONCURRENCY = 4;
 const BASE_FRAME_PAGE_SIZE = 36;
 const BASE_FRAME_ALL_SESSIONS = 'all';
 
@@ -182,30 +180,6 @@ function buildHeatmapImageUrlCandidates(
     }
 
     return candidates;
-}
-
-async function mapWithConcurrency<T, R>(
-    items: T[],
-    concurrency: number,
-    mapper: (item: T) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-    const results: PromiseSettledResult<R>[] = new Array(items.length);
-    let nextIndex = 0;
-    const workerCount = Math.max(1, Math.min(concurrency, items.length));
-
-    await Promise.all(Array.from({ length: workerCount }, async () => {
-        while (nextIndex < items.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            try {
-                results[index] = { status: 'fulfilled', value: await mapper(items[index]) };
-            } catch (reason) {
-                results[index] = { status: 'rejected', reason };
-            }
-        }
-    }));
-
-    return results;
 }
 
 function drawTouchHeatmap(
@@ -1656,10 +1630,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
         getHeatmapsOverview(selectedProject.id, range, platform)
-            .then(async (overview) => {
+            .then((overview) => {
                 if (cancelled) return;
 
-                setIndexingProgress(42);
+                setIndexingProgress(94);
 
                 heatmapDebug('Touch heatmap overview fetched', {
                     projectId: selectedProject.id,
@@ -1673,51 +1647,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
                 const overviewScreens = (overview.screens || []) as EnrichedHeatmapScreen[];
                 const minVisits = getHeatmapRouteMinimumVisits(overviewScreens);
-                let mergedScreens = overviewScreens.filter((screen) => isMeaningfulHeatmapScreen(screen, minVisits));
-
-                const screensNeedingHotspots = mergedScreens.filter((screen) => (screen.touchHotspots?.length ?? 0) === 0);
-                if (screensNeedingHotspots.length > 0) {
-                    setIndexingProgress(56);
-                    let completedDetails = 0;
-                    const results = await mapWithConcurrency(
-                        screensNeedingHotspots,
-                        HEATMAP_DETAIL_FETCH_CONCURRENCY,
-                        async (screen) => {
-                            try {
-                                return await getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform);
-                            } finally {
-                                completedDetails += 1;
-                                if (!cancelled) {
-                                    setIndexingProgress(56 + Math.round((completedDetails / screensNeedingHotspots.length) * 32));
-                                }
-                            }
-                        },
-                    );
-                    if (cancelled) return;
-
-                    const detailByName = new Map<string, EnrichedHeatmapScreen>();
-                    for (const result of results) {
-                        if (result.status !== 'fulfilled' || !result.value.screen) continue;
-                        detailByName.set(result.value.screen.name, result.value.screen as EnrichedHeatmapScreen);
-                    }
-                    if (detailByName.size > 0) {
-                        mergedScreens = mergedScreens.map((screen) => {
-                            const detail = detailByName.get(screen.name);
-                            if (!detail) return screen;
-                            return {
-                                ...screen,
-                                ...detail,
-                                touchHotspots: detail.touchHotspots?.length ? detail.touchHotspots : screen.touchHotspots,
-                                screenshotUrl: detail.screenshotUrl ?? screen.screenshotUrl,
-                                evidenceSessionId: detail.evidenceSessionId ?? screen.evidenceSessionId,
-                                baseTemplate: detail.baseTemplate ?? screen.baseTemplate ?? null,
-                            };
-                        });
-                    }
-                }
-
-                setIndexingProgress(94);
-                setScreens(mergedScreens);
+                setScreens(overviewScreens.filter((screen) => isMeaningfulHeatmapScreen(screen, minVisits)));
                 setScreenIteration(overview.screenIteration || null);
                 setLastUpdated(overview.lastUpdated || '');
 

@@ -87,6 +87,8 @@ local.properties
 /scripts/research_lake_labeling_pdf_batch_runner.py
 /scripts/research_lake_remote_batch_pack.mjs
 /scripts/research_lake_remote_upload.mjs
+/scripts/research_lake_remote_evidence_pack.mjs
+/scripts/research_lake_remote_upload_batch.mjs
 /scripts/__pycache__/
 /output/pdf/
 /dev_docs/research_lake_integrated_reference_source.txt

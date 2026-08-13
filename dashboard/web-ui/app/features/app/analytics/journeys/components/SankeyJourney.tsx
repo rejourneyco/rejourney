@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Focus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Focus, RotateCcw } from 'lucide-react';
 import type { ObservabilityJourneySummary } from '~/shared/api/client';
 
 export interface SankeyFlow {
@@ -123,6 +123,11 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
     const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
     const [fitScale, setFitScale] = useState<number | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [horizontalScrollState, setHorizontalScrollState] = useState({
+        canScrollLeft: false,
+        canScrollRight: false,
+    });
     const dragState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null);
     const selectedSet = useMemo(() => new Set(selectedTransitionIds), [selectedTransitionIds]);
 
@@ -161,6 +166,46 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
         setFitScale(null);
     }, [stepCount]);
 
+    useEffect(() => {
+        const host = scrollRef.current;
+        if (!host) return;
+
+        const updateScrollState = () => {
+            const nextState = {
+                canScrollLeft: host.scrollLeft > 2,
+                canScrollRight: host.scrollLeft < host.scrollWidth - host.clientWidth - 2,
+            };
+            setHorizontalScrollState((current) => (
+                current.canScrollLeft === nextState.canScrollLeft
+                && current.canScrollRight === nextState.canScrollRight
+                    ? current
+                    : nextState
+            ));
+        };
+
+        const handleWheel = (event: WheelEvent) => {
+            setHoveredNodeId(null);
+            setHoveredLinkId(null);
+            if (!event.shiftKey || event.deltaY === 0) return;
+            event.preventDefault();
+            host.scrollLeft += event.deltaY;
+        };
+
+        updateScrollState();
+        host.addEventListener('scroll', updateScrollState, { passive: true });
+        host.addEventListener('wheel', handleWheel, { passive: false });
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(updateScrollState)
+            : null;
+        resizeObserver?.observe(host);
+
+        return () => {
+            host.removeEventListener('scroll', updateScrollState);
+            host.removeEventListener('wheel', handleWheel);
+            resizeObserver?.disconnect();
+        };
+    }, [canvasWidth, fitScale, nodes.length]);
+
     const happyNodeIds = useMemo(() => new Set(nodes
         .filter((node) => node.kind === 'screen' && happyPath?.[node.step] === node.screen)
         .map((node) => node.id)), [happyPath, nodes]);
@@ -168,6 +213,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
         .filter((link) => happyPath?.[link.step] === link.from && happyPath?.[link.step + 1] === link.to)
         .map((link) => link.id)), [happyPath, links]);
     const activeNodeId = hoveredNodeId || focusedNodeId;
+    const hasPersistentHighlight = Boolean(focusedNodeId || selectedSet.size);
     const hoveredNodeLinkIds = useMemo(() => new Set(links
         .filter((link) => link.sourceId === activeNodeId || link.targetId === activeNodeId)
         .map((link) => link.id)), [activeNodeId, links]);
@@ -185,6 +231,15 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     const resetJourney = () => {
         setFitScale(null);
         scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+    };
+
+    const scrollJourney = (direction: 'left' | 'right') => {
+        const host = scrollRef.current;
+        if (!host) return;
+        host.scrollBy({
+            left: direction === 'left' ? -COLUMN_WIDTH : COLUMN_WIDTH,
+            behavior: 'smooth',
+        });
     };
 
     const maxStepOption = Math.min(MAX_VISIBLE_STEPS, Math.max(3, graph.maxAvailableStep || 3));
@@ -215,6 +270,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                         </select>
                         <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                     </div>
+                    <div className="flex items-center" role="group" aria-label="Move across journey steps">
+                        <button type="button" onClick={() => scrollJourney('left')} disabled={!horizontalScrollState.canScrollLeft} aria-label="Previous journey steps" title="Previous journey steps" className="grid h-11 w-11 place-items-center rounded-l-lg border border-r-0 border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white sm:h-9 sm:w-9"><ChevronLeft className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => scrollJourney('right')} disabled={!horizontalScrollState.canScrollRight} aria-label="Next journey steps" title="Next journey steps" className="grid h-11 w-11 place-items-center rounded-r-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white sm:h-9 sm:w-9"><ChevronRight className="h-4 w-4" /></button>
+                    </div>
                     <button type="button" onClick={fitJourney} className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:h-9"><Focus className="h-3.5 w-3.5" />Fit</button>
                     <button type="button" onClick={resetJourney} aria-label="Reset journey position" className="grid h-11 w-11 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:h-9 sm:w-9"><RotateCcw className="h-3.5 w-3.5" /></button>
                 </div>
@@ -233,19 +292,30 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                 <div
                     ref={scrollRef}
                     className="relative overflow-x-auto overflow-y-hidden bg-slate-50/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
-                    style={{ overscrollBehavior: 'contain', touchAction: 'pan-x pan-y', cursor: dragState.current ? 'grabbing' : 'grab' }}
+                    style={{
+                        overscrollBehaviorX: 'contain',
+                        overscrollBehaviorY: 'auto',
+                        touchAction: 'pan-x pan-y',
+                        cursor: isDragging ? 'grabbing' : 'grab',
+                    }}
                     tabIndex={0}
                     role="region"
                     aria-label="Scrollable step-based journey map"
-                    onWheel={(event) => { if (event.shiftKey && scrollRef.current) { event.preventDefault(); scrollRef.current.scrollLeft += event.deltaY; } }}
                     onPointerDown={(event) => {
+                        if (!event.isPrimary || event.pointerType !== 'mouse' || event.button !== 0) return;
+                        if (event.currentTarget.scrollWidth <= event.currentTarget.clientWidth) return;
                         if ((event.target as Element).closest('button, [role="button"], select')) return;
                         setFocusedNodeId(null);
+                        setHoveredNodeId(null);
+                        setHoveredLinkId(null);
+                        setIsDragging(true);
                         dragState.current = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: event.currentTarget.scrollLeft };
                         event.currentTarget.setPointerCapture(event.pointerId);
                     }}
                     onPointerMove={(event) => { const drag = dragState.current; if (drag?.pointerId === event.pointerId) event.currentTarget.scrollLeft = drag.startScrollLeft - (event.clientX - drag.startX); }}
-                    onPointerUp={(event) => { if (dragState.current?.pointerId === event.pointerId) dragState.current = null; }}
+                    onPointerUp={(event) => { if (dragState.current?.pointerId === event.pointerId) { dragState.current = null; setIsDragging(false); } }}
+                    onPointerCancel={() => { dragState.current = null; setIsDragging(false); }}
+                    onLostPointerCapture={() => { dragState.current = null; setIsDragging(false); }}
                 >
                     <div style={{ width: canvasWidth * (fitScale || 1), height: canvasHeight * (fitScale || 1), minWidth: fitScale ? undefined : canvasWidth }}>
                         <div className="relative origin-top-left" style={{ width: canvasWidth, height: canvasHeight, transform: fitScale ? `scale(${fitScale})` : undefined }}>
@@ -265,7 +335,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                     const d = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
                                     const selected = selectedSet.has(link.id);
                                     const related = hoveredLinkId === link.id || hoveredNodeLinkIds.has(link.id);
-                                    const dimmed = Boolean(activeNodeId || hoveredLinkId || selectedSet.size) && !selected && !related;
+                                    const dimmed = hasPersistentHighlight && !selected && !related;
                                     const happy = happyLinkIds.has(link.id);
                                     return <path key={link.id} d={d} fill="none" stroke={selected ? '#0f172a' : happy ? '#10b981' : link.isAggregate ? '#94a3b8' : '#75a7e8'} strokeWidth={selected ? link.thickness + 4 : related ? link.thickness + 2 : link.thickness} strokeDasharray={link.isAggregate || link.isTerminal ? '7 5' : undefined} strokeLinecap="round" opacity={dimmed ? 0.08 : selected ? 0.88 : related ? 0.78 : 0.34} style={{ transition: 'opacity 150ms ease, stroke-width 150ms ease' }} />;
                                 })}
@@ -285,7 +355,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                             {nodes.map((node) => {
                                 const hovered = activeNodeId === node.id;
                                 const selectedNode = links.some((link) => selectedSet.has(link.id) && (link.sourceId === node.id || link.targetId === node.id));
-                                const dimmed = Boolean(activeNodeId || hoveredLinkId || selectedSet.size) && !hovered && !selectedNode && !links.some((link) => (hoveredLinkId === link.id) && (link.sourceId === node.id || link.targetId === node.id));
+                                const dimmed = hasPersistentHighlight && !hovered && !selectedNode && !links.some((link) => (hoveredLinkId === link.id) && (link.sourceId === node.id || link.targetId === node.id));
                                 const issueLabel = getIssueLabel(node);
                                 const terminal = node.kind === 'exit' || node.kind === 'continue';
                                 return (
@@ -318,6 +388,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
 
             <footer className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-200 bg-white px-4 py-3 text-[11px] font-semibold text-slate-500 sm:px-5">
                 <span><strong className="text-slate-900">{graph.sampledSessions.toLocaleString()}</strong> journey sessions sampled</span>
+                <span>Use the arrows, drag, or Shift + scroll to explore steps</span>
                 <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-6 rounded-full bg-blue-400/70" />Width = traffic volume</span>
                 <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded border border-emerald-500 bg-white" />Happy path</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dashed border-slate-400" />Exit or aggregated traffic</span>

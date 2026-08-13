@@ -36,6 +36,7 @@ const RETENTION_COHORT_WEEKS = 6;
 const RETENTION_COHORT_ROWS = 6;
 const HEATMAP_PREVIEW_SESSION_LIMIT = 8;
 const HEATMAP_PREVIEW_EVENT_ARTIFACT_LIMIT_PER_SESSION = 12;
+const HEATMAP_PREVIEW_SCREEN_CONCURRENCY = 4;
 const HEATMAP_PREVIEW_INTERACTION_PREROLL_MS = 250;
 const HEATMAP_PREVIEW_ROUTE_SETTLE_MS = 2_000;
 
@@ -271,51 +272,61 @@ async function resolveHeatmapPreviewEvidenceByScreen(
         return cached;
     };
 
-    const evidenceByScreen = new Map<string, HeatmapPreviewEvidence>();
-    for (const [normalizedScreenName, candidateSessionIds] of normalizedCandidatesByScreen.entries()) {
-        for (const sessionId of candidateSessionIds) {
-            const session = sessionById.get(sessionId);
-            if (!session) continue;
+    const candidateEntries = Array.from(normalizedCandidatesByScreen.entries());
+    const resolvedEntries: Array<[string, HeatmapPreviewEvidence] | null> = new Array(candidateEntries.length).fill(null);
+    let nextScreenIndex = 0;
+    const workerCount = Math.min(HEATMAP_PREVIEW_SCREEN_CONCURRENCY, candidateEntries.length);
 
-            const visualArtifactKinds = visualArtifactKindsBySession.get(sessionId) ?? new Set<string>();
-            const isWebReplay = session.platform === 'web' || visualArtifactKinds.has('rrweb');
-            if (!hasCompatibleHeatmapVisualArtifact(session.platform, visualArtifactKinds)) continue;
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextScreenIndex < candidateEntries.length) {
+            const screenIndex = nextScreenIndex;
+            nextScreenIndex += 1;
+            const [normalizedScreenName, candidateSessionIds] = candidateEntries[screenIndex];
 
-            const artifacts = eventArtifactsBySession.get(sessionId) ?? [];
-            if (artifacts.length === 0) continue;
+            for (const sessionId of candidateSessionIds) {
+                const session = sessionById.get(sessionId);
+                if (!session) continue;
 
-            const sessionStartMs = session.startedAt.getTime();
-            const sessionEndMs =
-                session.endedAt?.getTime()
-                ?? session.lastIngestActivityAt?.getTime()
-                ?? null;
+                const visualArtifactKinds = visualArtifactKindsBySession.get(sessionId) ?? new Set<string>();
+                const isWebReplay = session.platform === 'web' || visualArtifactKinds.has('rrweb');
+                if (!hasCompatibleHeatmapVisualArtifact(session.platform, visualArtifactKinds)) continue;
 
-            const eventEntries = await loadSessionEventEntries(sessionId, session.projectId, artifacts);
-            const screenFirstSeenMs = findHeatmapPreviewTimestampInEvents({
-                events: eventEntries,
-                normalizedScreenName,
-                sessionStartMs,
-                sessionEndMs,
-                interactionPrerollMs: HEATMAP_PREVIEW_INTERACTION_PREROLL_MS,
-                routeSettleMs: HEATMAP_PREVIEW_ROUTE_SETTLE_MS,
-            });
-            if (!screenFirstSeenMs) continue;
+                const artifacts = eventArtifactsBySession.get(sessionId) ?? [];
+                if (artifacts.length === 0) continue;
 
-            const screenshotUrl = isWebReplay
-                ? null
-                : buildHeatmapScreenshotUrl(sessionId, screenFirstSeenMs, { requireTimestamp: true });
-            if (!isWebReplay && !screenshotUrl) continue;
+                const sessionStartMs = session.startedAt.getTime();
+                const sessionEndMs =
+                    session.endedAt?.getTime()
+                    ?? session.lastIngestActivityAt?.getTime()
+                    ?? null;
 
-            evidenceByScreen.set(normalizedScreenName, {
-                sessionId,
-                screenFirstSeenMs,
-                screenshotUrl,
-            });
-            break;
+                const eventEntries = await loadSessionEventEntries(sessionId, session.projectId, artifacts);
+                const screenFirstSeenMs = findHeatmapPreviewTimestampInEvents({
+                    events: eventEntries,
+                    normalizedScreenName,
+                    sessionStartMs,
+                    sessionEndMs,
+                    interactionPrerollMs: HEATMAP_PREVIEW_INTERACTION_PREROLL_MS,
+                    routeSettleMs: HEATMAP_PREVIEW_ROUTE_SETTLE_MS,
+                });
+                if (!screenFirstSeenMs) continue;
+
+                const screenshotUrl = isWebReplay
+                    ? null
+                    : buildHeatmapScreenshotUrl(sessionId, screenFirstSeenMs, { requireTimestamp: true });
+                if (!isWebReplay && !screenshotUrl) continue;
+
+                resolvedEntries[screenIndex] = [normalizedScreenName, {
+                    sessionId,
+                    screenFirstSeenMs,
+                    screenshotUrl,
+                }];
+                break;
+            }
         }
-    }
+    }));
 
-    return evidenceByScreen;
+    return new Map(resolvedEntries.filter((entry): entry is [string, HeatmapPreviewEvidence] => entry !== null));
 }
 
 function getHeatmapMinVisits(sessionCount: number, isRealtime = false): number {
@@ -425,7 +436,9 @@ router.get(
                 anonymousHash: sessions.anonymousHash,
                 anonymousDisplayId: sessions.anonymousDisplayId,
                 userDisplayId: sessions.userDisplayId,
-                metrics: sessionMetrics
+                screensVisited: sessionMetrics.screensVisited,
+                rageTapCount: sessionMetrics.rageTapCount,
+                errorCount: sessionMetrics.errorCount,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -448,7 +461,7 @@ router.get(
         }> = {};
 
         for (const s of sessionData) {
-            const screensVisited = normalizeHeatmapScreenPath(s.metrics?.screensVisited || []);
+            const screensVisited = normalizeHeatmapScreenPath(s.screensVisited || []);
             const lastScreen = screensVisited[screensVisited.length - 1];
             const visitorKey = s.userDisplayId || s.anonymousHash || s.anonymousDisplayId || s.deviceId || s.id;
 
@@ -468,8 +481,8 @@ router.get(
 
                 // Error/rage are tracked per session. Use proportional distribution as fallback,
                 // but prefer real per-screen rage from touch heatmap rows below.
-                const perScreenRage = Math.ceil((s.metrics?.rageTapCount || 0) / Math.max(screensVisited.length, 1));
-                const perScreenErrors = Math.ceil((s.metrics?.errorCount || 0) / Math.max(screensVisited.length, 1));
+                const perScreenRage = Math.ceil((s.rageTapCount || 0) / Math.max(screensVisited.length, 1));
+                const perScreenErrors = Math.ceil((s.errorCount || 0) / Math.max(screensVisited.length, 1));
 
                 screenStats[screen].approxRageTaps += perScreenRage;
                 screenStats[screen].errors += perScreenErrors;
@@ -549,6 +562,7 @@ router.get(
             ? await queryScreenTouchHeatmapsFromClickHouse({
                 projectIds,
                 startDate: startedAfter?.toISOString().split('T')[0],
+                screenNames: Array.from(candidateScreenNames),
             })
             : [];
 
@@ -897,8 +911,17 @@ router.get(
             }
         }
 
+        // Everything below only enriches the 15 screens returned to the client. Rank first so
+        // projects with many historical routes do not trigger replay/artifact work for screens
+        // that will be discarded at the end of the request.
+        const rankedScreenEntries = Array.from(screenHeatmapMap.entries())
+            .filter(([, data]) => data.totalTouches > 0)
+            .sort((a, b) => b[1].totalTouches - a[1].totalTouches)
+            .slice(0, 15);
+
         // Get unique sample session IDs for screenshot lookup
-        const sampleSessionIds = Array.from(screenHeatmapMap.values())
+        const sampleSessionIds = rankedScreenEntries
+            .map(([, data]) => data)
             .filter(s => s.sampleSessionId)
             .map(s => s.sampleSessionId as string);
         const uniqueSessionIds = [...new Set(sampleSessionIds)].slice(0, 100);
@@ -949,19 +972,19 @@ router.get(
         }, '[alltime-heatmap] Session frame map populated');
 
         // For screens without valid sample sessions, find recent sessions that visited those screens
-        const screenNames = Array.from(screenHeatmapMap.keys());
+        const screenNames = new Set(rankedScreenEntries.map(([screenName]) => screenName));
         const screenSessionMap = new Map<string, string[]>();
 
         // Query recent sessions that have a visual replay artifact and visited these screens.
         // Browser replays use rrweb; native replays use screenshot archives.
-        if (screenNames.length > 0) {
+        if (screenNames.size > 0) {
             // Find recent sessions with ready visual artifacts for these projects.
             // Note: screensVisited is on sessionMetrics, not sessions
             const recentSessionsWithVisualReplay = await db
                 .selectDistinct({
                     sessionId: sessions.id,
                     screensVisited: sessionMetrics.screensVisited,
-                    createdAt: sessions.createdAt,
+                    startedAt: sessions.startedAt,
                     artifactKind: recordingArtifacts.kind,
                 })
                 .from(sessions)
@@ -975,14 +998,14 @@ router.get(
                     inArray(sessions.projectId, projectIds),
                     eq(sessions.recordingDeleted, false)
                 ))
-                .orderBy(desc(sessions.createdAt))
+                .orderBy(desc(sessions.startedAt))
                 .limit(500);
 
             // Map each screen to sessions that visited it (with valid screenshots)
             for (const row of recentSessionsWithVisualReplay) {
                 const visited = normalizeHeatmapScreenPath(row.screensVisited || []);
                 for (const screen of visited) {
-                    if (screenNames.includes(screen)) {
+                    if (screenNames.has(screen)) {
                         if (!screenSessionMap.has(screen)) {
                             screenSessionMap.set(screen, []);
                         }
@@ -1025,7 +1048,7 @@ router.get(
         };
 
         const previewCandidatesByScreen = new Map<string, string[]>();
-        for (const [screenName, data] of screenHeatmapMap.entries()) {
+        for (const [screenName, data] of rankedScreenEntries) {
             const candidates: string[] = [];
             const seen = new Set<string>();
             if (data.sampleSessionId && sessionFrameMap.has(data.sampleSessionId)) {
@@ -1042,8 +1065,7 @@ router.get(
         const previewEvidenceByScreen = await resolveHeatmapPreviewEvidenceByScreen(projectIds, previewCandidatesByScreen);
 
         // Build response
-        const screens = Array.from(screenHeatmapMap.entries())
-            .filter(([, data]) => data.totalTouches > 0)
+        const screens = rankedScreenEntries
             .map(([screenName, data]) => {
                 let screenshotUrl: string | null = null;
                 let screenshotSource = 'none';
@@ -1090,9 +1112,7 @@ router.get(
                     viewportWidth: data.viewportWidth ?? null,
                     viewportHeight: data.viewportHeight ?? null,
                 };
-            })
-            .sort((a, b) => b.visits - a.visits)
-            .slice(0, 15); // Top 15 screens
+            });
 
         logger.info({
             totalScreens: screens.length,

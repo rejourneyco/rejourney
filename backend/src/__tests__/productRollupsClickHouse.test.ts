@@ -300,6 +300,22 @@ describe('ClickHouse product analytics rollups', () => {
             viewportWidth: 390,
             viewportHeight: 844,
         }]);
+        expect(mocks.query.mock.calls[0]?.[0].query).not.toContain('screen_name IN {screenNames:Array(String)}');
+        expect(mocks.query.mock.calls[0]?.[0].query_params).not.toHaveProperty('screenNames');
+    });
+
+    it('pushes an optional screen-name filter into the heatmap rollup query', async () => {
+        mocks.query.mockResolvedValueOnce({ json: async () => [] });
+
+        await queryScreenTouchHeatmapsFromClickHouse({
+            projectIds: ['3f4f7d8a-7660-4a78-b944-442051c62eca'],
+            screenNames: ['/checkout', '/checkout', '  '],
+        });
+
+        expect(mocks.query.mock.calls[0]?.[0].query).toContain('screen_name IN {screenNames:Array(String)}');
+        expect(mocks.query.mock.calls[0]?.[0].query_params).toMatchObject({
+            screenNames: ['/checkout'],
+        });
     });
 
     it('queries ClickHouse even when legacy product read flags are disabled', async () => {

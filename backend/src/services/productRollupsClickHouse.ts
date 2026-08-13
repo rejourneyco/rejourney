@@ -479,8 +479,15 @@ export async function queryScreenTouchHeatmapsFromClickHouse(params: {
     projectIds: string[];
     startDate?: string;
     endDate?: string;
+    screenNames?: string[];
 }): Promise<ProductScreenTouchHeatmapRow[]> {
     if (!canReadProductRollupsFromClickHouse() || params.projectIds.length === 0) return [];
+
+    const screenNames = Array.from(new Set(
+        (params.screenNames ?? [])
+            .map((screenName) => screenName.trim())
+            .filter(Boolean),
+    ));
 
     const result = await getClickHouseClient().query({
         query: `
@@ -499,10 +506,12 @@ export async function queryScreenTouchHeatmapsFromClickHouse(params: {
             FROM screen_touch_heatmap_daily_rollups
             WHERE project_id IN {projectIds:Array(UUID)}
               ${buildDateCondition('date', params.startDate, params.endDate)}
+              ${screenNames.length > 0 ? 'AND screen_name IN {screenNames:Array(String)}' : ''}
             GROUP BY project_id, screen_name, event_kind, bucket_x, bucket_y
         `,
         query_params: {
             projectIds: params.projectIds,
+            ...(screenNames.length > 0 ? { screenNames } : {}),
             ...(params.startDate ? { startDate: params.startDate } : {}),
             ...(params.endDate ? { endDate: params.endDate } : {}),
         },
