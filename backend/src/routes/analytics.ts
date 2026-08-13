@@ -3819,7 +3819,7 @@ router.get(
  * Observability Deep Metrics
  * GET /api/analytics/observability-deep-metrics
  *
- * Derives richer Sentry-style observability signals using existing schema + replay data only.
+ * Derives richer error-observability signals using existing schema and replay data only.
  */
 router.get(
     '/observability-deep-metrics',

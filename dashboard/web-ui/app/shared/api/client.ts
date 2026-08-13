@@ -2797,7 +2797,7 @@ export interface InsightsTrends {
         rageTaps: number;
         dau: number;
         mau: number;
-        // NEW: Additional metrics for overview graphs
+        // Overview aggregates
         avgApiResponseMs: number;
         apiErrorRate: number;
         avgDurationSeconds: number;
@@ -5266,7 +5266,7 @@ export async function getGrowthObservability(
 }
 
 // =============================================================================
-// Observability Deep Metrics (Sentry-style metrics derived from existing schema)
+// Observability deep metrics derived from the existing schema
 // =============================================================================
 
 export interface ObservabilityDeepMetrics {

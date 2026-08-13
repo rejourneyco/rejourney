@@ -1303,7 +1303,7 @@ data:
           "gridPos": {
             "x": 8,
             "y": 28,
-            "w": 4,
+            "w": 6,
             "h": 4
           },
           "targets": [
@@ -1359,127 +1359,15 @@ data:
         {
           "id": 24,
           "type": "stat",
-          "title": "Backup queue depth",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 28,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(sum(rejourney_session_backup_queue_queued)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 25,
-          "type": "stat",
-          "title": "Backup queue oldest age",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 16,
-            "y": 28,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "(max(rejourney_session_backup_queue_oldest_age_seconds)) OR vector(0)",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 26,
-          "type": "stat",
           "title": "Upload p95 (recent)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
           },
           "gridPos": {
-            "x": 20,
+            "x": 14,
             "y": 28,
-            "w": 4,
+            "w": 6,
             "h": 4
           },
           "targets": [
@@ -1525,7 +1413,7 @@ data:
           }
         },
         {
-          "id": 27,
+          "id": 25,
           "type": "row",
           "title": "Artifact Queue Health",
           "collapsed": false,
@@ -1538,7 +1426,7 @@ data:
           "panels": []
         },
         {
-          "id": 28,
+          "id": 26,
           "type": "stat",
           "title": "Queue health",
           "datasource": {
@@ -1620,7 +1508,7 @@ data:
           }
         },
         {
-          "id": 29,
+          "id": 27,
           "type": "stat",
           "title": "Ingest waiting",
           "datasource": {
@@ -1684,7 +1572,7 @@ data:
           }
         },
         {
-          "id": 30,
+          "id": 28,
           "type": "stat",
           "title": "Ingest active",
           "datasource": {
@@ -1740,7 +1628,7 @@ data:
           }
         },
         {
-          "id": 31,
+          "id": 29,
           "type": "stat",
           "title": "Event rollup waiting",
           "datasource": {
@@ -1804,7 +1692,7 @@ data:
           }
         },
         {
-          "id": 32,
+          "id": 30,
           "type": "stat",
           "title": "Event rollup active",
           "datasource": {
@@ -1860,7 +1748,7 @@ data:
           }
         },
         {
-          "id": 33,
+          "id": 31,
           "type": "stat",
           "title": "BullMQ failed",
           "datasource": {

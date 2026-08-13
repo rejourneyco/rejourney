@@ -79,7 +79,7 @@ check_absent 'https://\$\{?GITHUB_TOKEN[^[:space:]]*@github\.com' \
   "do not embed GitHub tokens in git remote URLs; use tokenless public remotes or an askpass helper." \
   .github scripts
 
-check_absent '\bprintenv\b|(^|[;&|[:space:]])env\s*(\||>|$)' \
+check_absent '(^|[;&|[:space:]])printenv\s*(\)|\||>|$)|(^|[;&|[:space:]])env\s*(\||>|$)' \
   "printing the full environment is forbidden in CI/deploy scripts." \
   .github scripts
 

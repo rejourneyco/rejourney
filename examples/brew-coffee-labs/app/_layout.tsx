@@ -72,21 +72,18 @@ export default function RootLayout() {
   }, [url, initialUrlProcessed]);
 
   useEffect(() => {
-    // This effect now focuses only on preparing app logic readiness
     async function prepareAppLogic() {
       if ((fontsLoaded || fontError) && initialUrlProcessed) {
         console.log("App logic dependencies ready. Fonts loaded:", !!fontsLoaded, "Initial URL processed:", initialUrlProcessed);
-        setAppReady(true); // Signal that fonts and URL processing are done
-        // Do NOT hide splash screen or navigate here yet
+        setAppReady(true);
       } else {
         console.log("Waiting for app logic dependencies. Fonts loaded:", !!fontsLoaded, "Initial URL processed:", initialUrlProcessed);
       }
     }
     prepareAppLogic();
-  }, [fontsLoaded, fontError, initialUrlProcessed]); // Dependencies for app logic readiness
+  }, [fontsLoaded, fontError, initialUrlProcessed]);
 
   useEffect(() => {
-    // This effect handles navigation and splash screen hiding AFTER both app logic and layout are ready
     async function handleNavigationAndSplash() {
       if (isAppReady && layoutReady) {
         console.log("App and Layout are ready. Handling navigation and splash screen.");
@@ -112,7 +109,6 @@ export default function RootLayout() {
             console.error("Failed to parse or navigate deep link URL:", e);
           }
         }
-        // Hide splash screen only when everything is ready and navigation attempt (if any) is done
         await SplashScreen.hideAsync();
         console.log("Splash screen hidden.");
       } else {
@@ -120,16 +116,14 @@ export default function RootLayout() {
       }
     }
     handleNavigationAndSplash();
-    // Depend on app logic readiness and layout readiness
   }, [isAppReady, layoutReady, url, router]);
 
   const onLayoutRootView = useCallback(async () => {
-    // This function now only signals that the layout has been rendered
-    if (!layoutReady) { // Prevent setting state multiple times if layout changes
+    if (!layoutReady) {
       console.log("Root view layout complete.");
-      setLayoutReady(true); // Signal layout readiness
+      setLayoutReady(true);
     }
-  }, [layoutReady]); // Depend on layoutReady state
+  }, [layoutReady]);
 
   if (!isAppReady) {
     return null;

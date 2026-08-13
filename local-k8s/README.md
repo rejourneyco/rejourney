@@ -9,6 +9,7 @@ It keeps the same plain-YAML shape as the prod manifests, but targets a local
 
 - `namespace.yaml`: local namespace and labels
 - `postgres.yaml`: PostgreSQL with a NodePort for host access
+- `pgbouncer.yaml`: local connection pooler matching the app-facing database service
 - `redis.yaml`: Redis with a NodePort for host access
 - `clickhouse.yaml`: single-node local ClickHouse for analytics projection parity
 - `clickhouse-backfill-api-rollups.yaml`: manual local Job for rebuilding API endpoint ClickHouse rollups
@@ -74,11 +75,14 @@ app topology:
 
 - `api`
 - `ingest-upload`
+- `pgbouncer`
 - `ingest-worker`
 - `replay-worker`
 - `session-lifecycle-worker`
 - `retention-worker`
+- `research-lake-worker`
 - `alert-worker`
+- `revenue-sync-worker`
 - `db-setup`
 - `clickhouse-setup`
 
@@ -103,7 +107,7 @@ It also exposes:
 - `npm run dev`: hot-reload daily flow with infra in Kubernetes and app services on the host
 - `npm run dev:resume`: wake an existing local cluster/data set after Docker Desktop restarts
 - `npm run dev:logs`: host-process logs for the hybrid workflow
-- `npm run dev:down`: stop host services and remove the local namespace
+- `npm run dev:down`: stop host services while preserving the local cluster and data
 - `npm run ci:local:fast`: rebuild/redeploy/rerun migrations without reinstalling npm dependencies
 - `npm run ci:local:deploy`: rebuild/import/deploy local images without rerunning validation checks
 - `npm run dev:full`: full local stack in Kubernetes when you specifically want in-cluster web/API/workers
@@ -151,7 +155,7 @@ npm run ci:local:fast
 physical column removal. If production is under load and the `sessions` table
 is busy, the migration may be recorded without dropping the old
 `replay_promoted*` columns. That is expected and safe because the application no
-longer depends on those columns. See `dev_docs/legacythingstoclean.md` for the
+longer depends on those columns. See `dev_docs/technical-debt.md` for the
 drop procedure.
 
 **BullMQ / Redis `noeviction`:** Workers use BullMQ queues backed by Redis. The local

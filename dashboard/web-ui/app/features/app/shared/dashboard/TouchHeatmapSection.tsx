@@ -215,7 +215,7 @@ function drawTouchHeatmap(
     const intensityMap: number[][] = Array.from({ length: h }, () => new Array(w).fill(0));
 
     if (mode === 'attention' && options.fullWidthAttention !== false) {
-        // Hotjar-style scroll/attention map: aggregate attention into a vertical profile and
+        // Aggregate attention into a vertical profile and
         // wash the full width of each band so whole sections read as "colored in" rather than
         // isolated circular spots.
         const rowIntensity = new Array<number>(h).fill(0);

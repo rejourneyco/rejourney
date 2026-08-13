@@ -83,8 +83,6 @@ type ContentLocaleCopy = {
     sessionsPerMonthLabel: string;
     monthlySessionsAriaLabel: string;
     rejourneyPlanLabel: (plan: string, isCustom: boolean) => string;
-    posthogEstimate: string;
-    sentryEstimate: string;
     selfHostedEyebrow: string;
     selfHostedHeading: string;
     selfHostedCopy: string;
@@ -211,8 +209,6 @@ const englishContentCopy: ContentLocaleCopy = {
     sessionsPerMonthLabel: "Conversion journeys per month",
     monthlySessionsAriaLabel: "Monthly conversion journeys",
     rejourneyPlanLabel: (plan, isCustom) => `${plan} plan${isCustom ? ", custom volume" : ""}`,
-    posthogEstimate: "Usage-based replay estimate",
-    sentryEstimate: "~$0.006 per replay add-on",
     selfHostedEyebrow: "Self-hosted",
     selfHostedHeading: "Run Rejourney on your own infrastructure.",
     selfHostedCopy: "Deploy with Docker or K3s and keep session data inside your environment.",
@@ -667,8 +663,6 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     sessionsPerMonthLabel: "الجلسات شهريًا",
     monthlySessionsAriaLabel: "الجلسات الشهرية",
     rejourneyPlanLabel: (plan, isCustom) => `خطة ${plan}${isCustom ? "، حجم مخصص" : ""}`,
-    posthogEstimate: "تقدير replay حسب الاستخدام",
-    sentryEstimate: "~$0.006 لكل إضافة replay",
     selfHostedEyebrow: "استضافة ذاتية",
     selfHostedHeading: "شغّل Rejourney على بنيتك التحتية.",
     selfHostedCopy: "انشر باستخدام Docker أو K3s واحتفظ ببيانات الجلسات داخل بيئتك.",
@@ -731,8 +725,6 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     sessionsPerMonthLabel: "Sesiones al mes",
     monthlySessionsAriaLabel: "Sesiones mensuales",
     rejourneyPlanLabel: (plan, isCustom) => `Plan ${plan}${isCustom ? ", volumen personalizado" : ""}`,
-    posthogEstimate: "Estimación de replay basada en uso",
-    sentryEstimate: "~$0.006 por add-on de replay",
     selfHostedEyebrow: "Self-hosted",
     selfHostedHeading: "Ejecuta Rejourney en tu propia infraestructura.",
     selfHostedCopy: "Despliega con Docker o K3s y mantén los datos de sesiones dentro de tu entorno.",
@@ -795,8 +787,6 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     sessionsPerMonthLabel: "Aylık oturum",
     monthlySessionsAriaLabel: "Aylık oturumlar",
     rejourneyPlanLabel: (plan, isCustom) => `${plan} planı${isCustom ? ", özel hacim" : ""}`,
-    posthogEstimate: "Kullanıma dayalı replay tahmini",
-    sentryEstimate: "~Replay add-on başına $0.006",
     selfHostedEyebrow: "Self-hosted",
     selfHostedHeading: "Rejourney'i kendi altyapında çalıştır.",
     selfHostedCopy: "Docker veya K3s ile dağıt ve oturum verilerini kendi ortamında tut.",
@@ -1027,8 +1017,6 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     sessionsPerMonthLabel: "Сессии в месяц",
     monthlySessionsAriaLabel: "Месячные сессии",
     rejourneyPlanLabel: (plan, isCustom) => `План ${plan}${isCustom ? ", индивидуальный объем" : ""}`,
-    posthogEstimate: "Оценка replay по usage-based модели",
-    sentryEstimate: "~$0.006 за replay add-on",
     selfHostedEyebrow: "Self-hosted",
     selfHostedHeading: "Запустите Rejourney на своей инфраструктуре.",
     selfHostedCopy: "Разверните через Docker или K3s и храните данные сессий внутри своей среды.",

@@ -1,6 +1,7 @@
 # Storage Endpoints Visual Guide
 
-Diagram-first reference for multi-bucket, project-scoped endpoints, shadow replication, backup, and retention safety.
+Diagram-first reference for multi-bucket, project-scoped endpoints, shadow
+replication, replay reads, and retention safety.
 
 ---
 
@@ -43,7 +44,6 @@ erDiagram
   sessions }o--|| projects : belongs_to
   sessions ||--o{ recording_artifacts : has
   recording_artifacts }o--|| storage_endpoints : pinned_to
-  sessions ||--o| session_backup_log : backup_status
 
   storage_endpoints {
     uuid id
@@ -65,12 +65,6 @@ erDiagram
     varchar status
   }
 
-  session_backup_log {
-    varchar session_id
-    int artifact_count
-    int planned_artifact_count
-    bigint total_bytes
-  }
 ```
 
 ---
@@ -98,45 +92,13 @@ Critical behavior:
 
 ---
 
-## 5) Backup Worker (Current Safe Model)
+## 5) Retention + Deletion Safety
 
 ```mermaid
 flowchart TD
-  runStart[BackupRunStart] --> loadArtifacts[LoadReadyArtifactsForSession]
-  loadArtifacts --> joinEndpoint[Joinstorage_endpointsByendpoint_id]
-  joinEndpoint --> resolveCreds[ResolvePerArtifactCredentials]
-  resolveCreds --> copyLoop[CopyEachArtifactToR2]
-  copyLoop --> validateCounts{CopiedCountEqualsPlanned?}
-  validateCounts -->|No| failRollback[FailAndRemoveR2Prefix]
-  validateCounts -->|Yes| rebuildManifest[RebuildManifestAfterRepairs]
-  rebuildManifest --> upsertLog[Upsertsession_backup_logWithPlannedCount]
-  upsertLog --> runDone[SessionBackupComplete]
-```
-
-```mermaid
-flowchart TD
-  decryptPath[EndpointHaskey_ref] --> keyCheck{STORAGE_ENCRYPTION_KEYSet?}
-  keyCheck -->|No| failDecrypt[FailBackupSession]
-  keyCheck -->|Yes| aesGcm[AES256GCMDecrypt]
-  aesGcm --> credsReady[UseEndpointAccessKeyAndDecryptedSecret]
-```
-
-Backup completeness contract:
-- Backup row now stores both:
-  - `artifact_count` (copied)
-  - `planned_artifact_count` (expected)
-- Session backup is only considered successful when copied equals planned.
-
----
-
-## 6) Retention + Deletion Safety
-
-```mermaid
-flowchart TD
-  retentionStart[RetentionCycle] --> backedUpFilter[FilterByBackupGate]
-  backedUpFilter --> purgeCall[PurgeSessionArtifacts]
+  retentionStart[RetentionCycle] --> purgeCall[PurgeEligibleSessionArtifacts]
   purgeCall --> deleteStorage[DeleteCanonicalPrefixAcrossResolvedEndpoints]
-  deleteStorage --> dbCleanup[DeleteArtifactRowsAndJobs]
+  deleteStorage --> dbCleanup[DeleteArtifactRowsAndDependentReplayData]
   dbCleanup --> markFlags[SetrecordingDeletedAndReplayExpired]
   markFlags --> done[RetentionSuccess]
 ```
@@ -156,22 +118,7 @@ Deletion hardening now in place:
 
 ---
 
-## 7) Backup Gate Logic
-
-```mermaid
-flowchart TD
-  gateStart[SessionCandidateForExpiry] --> hasRows{ArtifactRowsCount}
-  hasRows -->|0| allow[AllowPurge]
-  hasRows -->|gt0| compare{backup.artifact_count>=artifact_rows?}
-  compare -->|Yes| allow2[AllowPurge]
-  compare -->|No| block[BlockPurgeUntilBackupComplete]
-```
-
-This prevents `artifact_count > 0` partial backups from passing gate checks.
-
----
-
-## 8) Replay Read Path
+## 6) Replay Read Path
 
 ```mermaid
 flowchart TD
@@ -197,7 +144,7 @@ Compatibility behavior:
 
 ---
 
-## 9) Scope Matrix
+## 7) Scope Matrix
 
 ```mermaid
 flowchart LR
@@ -209,7 +156,7 @@ flowchart LR
 
 ---
 
-## 10) Operational Checks (Runbook SQL)
+## 8) Operational Checks (Runbook SQL)
 
 ```sql
 -- Sessions split across endpoint IDs
@@ -234,39 +181,22 @@ ORDER BY ra.session_id, ra.kind
 LIMIT 500;
 ```
 
-```sql
--- Backup coverage by project
-SELECT
-  s.project_id,
-  COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL) AS backed_up_sessions,
-  COUNT(*) AS eligible_sessions,
-  ROUND((COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL)::numeric / NULLIF(COUNT(*), 0)) * 100, 2) AS backup_coverage_percent
-FROM sessions s
-LEFT JOIN session_backup_log bl ON bl.session_id = s.id
-WHERE s.status IN ('ready', 'completed')
-GROUP BY s.project_id
-ORDER BY backup_coverage_percent ASC, eligible_sessions DESC;
-```
-
 ---
 
-## 11) Source Files
+## 9) Source Files
 
 - `backend/src/db/s3.ts`
 - `backend/src/routes/ingestUploadRelay.ts`
 - `backend/src/routes/sessions.ts`
 - `backend/src/services/ingestArtifactLifecycle.ts`
 - `backend/src/services/screenshotFrames.ts`
-- `backend/src/services/sessionBackupGate.ts`
 - `backend/src/services/sessionArtifactPurge.ts`
 - `backend/src/worker/retentionWorker.ts`
 - `dashboard/web-ui/app/features/app/sessions/detail/route.tsx`
 - `dashboard/web-ui/app/shared/lib/rrwebReplayLoader.ts`
-- `scripts/k8s/session-backup.mjs`
-- `k8s/archive.yaml`
 - `docs/selfhosted/backup-recovery.md`
 
-## 12) Extended Storage Endpoint Internals
+## 10) Extended Storage Endpoint Internals
 
 > Multi-endpoint S3 architecture with redundancy, encryption, and runtime management. The database is the source of truth for storage configuration in production deployments.
 
@@ -761,7 +691,7 @@ The `STORAGE_ENCRYPTION_KEY` is:
 
 ## [S8] K3s Management Script
 
-### add-s3-endpoints.mjs
+### manage-s3-endpoints.mjs
 
 Interactive script to add or update storage endpoints in a live K3s cluster **without downtime**:
 

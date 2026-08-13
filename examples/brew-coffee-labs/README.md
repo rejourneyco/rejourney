@@ -126,6 +126,24 @@ Effortlessly navigate categories like Espresso, Latte, and Cold Brew. Our minima
     *   iOS: Press `i` in the terminal or scan QR code with Camera app
     *   Android: Press `a` in the terminal or scan QR code with Expo Go app
 
+### Switch the Rejourney SDK source
+
+This fixture can test either the latest published
+`@rejourneyco/react-native` package or the local package in this checkout:
+
+```bash
+# Install the latest published package.
+npm run sdk:old
+
+# Return to file:../../packages/react-native for local SDK development.
+npm run sdk:new
+```
+
+Both commands perform a clean npm install and, when `ios/` exists, remove and
+reinstall generated CocoaPods/build artifacts. Save unrelated local dependency
+work before running them. The implementation is
+[`scripts/switch-rejourney-sdk.sh`](scripts/switch-rejourney-sdk.sh).
+
 ## ⚙️ Configuration
 
 ### Environment Variables (.env)
@@ -541,19 +559,14 @@ BREW-Coffee-Labs/
 # Run tests
 npm test
 
-# Run tests with coverage
-npm run test:coverage
-
 # Lint code
 npm run lint
-
-# Type check
-npm run type-check
 ```
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+We welcome contributions! Please see the repository
+[Contributing Guidelines](../../CONTRIBUTING.md) for details.
 
 1. Fork the repository
 2. Create a feature branch
@@ -577,7 +590,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For support and questions:
 *   Create an issue in this repository
-*   Check out our [Documentation](docs/)
+*   Check out the repository [Documentation](../../docs/)
 
 ---
 

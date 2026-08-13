@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Globe, Play } from 'lucide-react';
-import { ModernPhoneFrame } from './ModernPhoneFrame';
+import { MobileDeviceFrame } from './MobileDeviceFrame';
 import { formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
@@ -238,10 +238,10 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
                     </div>
                 </div>
             ) : (
-                <ModernPhoneFrame size={size} className="transition-shadow duration-300">
+                <MobileDeviceFrame size={size} className="transition-shadow duration-300">
                     {previewContent}
                     {playOverlay}
-                </ModernPhoneFrame>
+                </MobileDeviceFrame>
             )}
             {showMeta && (
                 <div className="mt-2">

@@ -22,6 +22,10 @@ describe('journey path selection', () => {
         expect(toggleContiguousJourneySelection(['p0:A→B'], links[3], links)).toEqual(['p4:A→B']);
     });
 
+    it('clears the path when its sole selected transition is toggled', () => {
+        expect(toggleContiguousJourneySelection(['p0:A→B'], links[0], links)).toEqual([]);
+    });
+
     it('restores legacy transition ids to the highest-volume occurrence', () => {
         expect(resolveJourneySelectionIds(['A→B', 'missing→path'], links)).toEqual(['p0:A→B']);
     });

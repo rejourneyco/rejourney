@@ -3789,8 +3789,7 @@ router.get(
                 // Include gestureType for timeline color coding
                 gestureType: e?.gestureType || properties?.gestureType || payload?.gestureType || null,
                 // Include targetLabel for tap identification
-                // Cross-compatible with native SDKs that shipped `label` before
-                // the dashboard standardized on `targetLabel`.
+                // Accept the legacy native `label` key alongside `targetLabel`.
                 targetLabel: e?.targetLabel || e?.label || properties?.targetLabel || properties?.label || payload?.targetLabel || payload?.label || null,
                 // Include touches for coordinate data
                 touches: e?.touches || properties?.touches || payload?.touches || null,

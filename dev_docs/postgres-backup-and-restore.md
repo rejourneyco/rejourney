@@ -1,6 +1,6 @@
 # PostgreSQL Backup + Restore (CNPG + OVH S3)
 
-Last updated: 2026-06-08
+Last verified against `k8s/cnpg/postgres-cnpg.yaml`: 2026-08-12
 
 This is the operator runbook for the current production PostgreSQL backup and restore path after the local-storage cutover.
 
@@ -21,7 +21,7 @@ Backups now come from CloudNativePG itself, not a custom `postgres-backup` CronJ
 - continuous WAL archive to OVH Object Storage from `k8s/cnpg/postgres-cnpg.yaml`
 - daily CNPG `ScheduledBackup` named `postgres-daily-backup` from `k8s/cnpg-backups.yaml`
 - current schedule: `0 0 3 * * *` (03:00:00 UTC, six-field CNPG cron format)
-- CNPG retention policy in the cluster spec: `30d`
+- CNPG retention policy in the cluster spec: `7d`
 
 Important detail: the object-store path is `s3://rejourney-db-backups-1/postgres/cnpg`, and CNPG/Barman use that location for both the base-backup catalog and WAL archive. Treat it as the whole physical-backup recovery source.
 
@@ -66,6 +66,15 @@ If the cluster was created recently and the first 03:00 UTC backup window has no
 ## Restore manifest template
 
 Use a new CNPG `Cluster` with `bootstrap.recovery`. This example restores from the current OVH backup catalog while keeping the source backup server name pinned to `postgres-local`.
+
+> [!WARNING]
+> The resource and PostgreSQL settings below are for an isolated validation
+> restore. They are not the production sizing contract. For a production
+> replacement, copy the current settings from
+> `k8s/cnpg/postgres-cnpg.yaml` and replace only the bootstrap/recovery fields
+> needed for the selected recovery point. Reusing this validation template as
+> the production spec can reduce connection, memory, CPU, and replication
+> capacity.
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -181,8 +190,12 @@ Use this when the live `postgres-local` PVC is no longer trustworthy and you nee
    At minimum keep `postgres-secret`, `postgres-exporter-secret`, `postgres-app-secret`, and `db-backup-secret`.
 4. Remove the broken live cluster if you want to keep the stable production cluster name.
    CNPG cannot recover in place on an existing `Cluster`.
-5. Apply the same restore manifest, but set:
-   - `metadata.name: postgres-local`
+5. Build the replacement from the current
+   `k8s/cnpg/postgres-cnpg.yaml`, preserving its current instances,
+   replication, PostgreSQL parameters, resources, storage, affinity, and backup
+   settings. Replace its bootstrap configuration with the validated
+   `bootstrap.recovery` and `externalClusters` configuration, and keep
+   `metadata.name: postgres-local`.
 6. Wait for the restored `postgres-local` primary to become ready.
 7. Bring PgBouncer, API, and workers back up.
 8. Verify:

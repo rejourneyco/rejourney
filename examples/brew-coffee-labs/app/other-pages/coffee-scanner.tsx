@@ -132,11 +132,7 @@ const CoffeeScanner: React.FC = () => {
     }
   }
 
-  /**
-   *  NEW: Load Pantry handler
-   *  1. Fetch current user's pantry from Supabase (`user_pantry` table).
-   *  2. If none, alert. If some, navigate to the Identify screen in "pantry mode."
-   */
+  /** Load the current user's pantry and open the identify screen in pantry mode. */
   const handleLoadPantryPress = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
@@ -544,7 +540,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     zIndex: 999,
   },
-  // New styles for zoom controls
+  // Zoom controls
   zoomControls: {
     position: "absolute",
     bottom: 60,
@@ -590,7 +586,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginLeft: 4,
   },
-  // Updated scan frame container
+  // Scan frame
   scanFrameContainer: {
     flex: 1,
     justifyContent: "center",

@@ -62,8 +62,9 @@ sessionPresentationState.ts + replayAvailability.ts
 
 `reconcileSessionState()` is the coordinator. It should load evidence, evaluate
 capture policy, resolve retention, write denormalized session columns, then run
-side effects such as artifact discard, quota counting, and backup enqueue. It
-should not grow new rule/evidence/visibility logic inline.
+side effects such as research-lake preparation, artifact discard, quota
+counting, and device-usage finalization. It should not grow new
+rule/evidence/visibility logic inline.
 
 ## Web SDK Behavior Matrix
 
@@ -83,7 +84,7 @@ These are the case-by-case rules the web SDK and dashboard replay viewer should 
 | `initRejourney()` with `autoStart=true`, or explicit `start()` | Starts a new session unless a same-tab stored session can be restored. | First successful presign materializes the backend row and counts a captured analytics session once. Replay quota counts when replay is finally retained. | Replay starts if sampled in and replay is enabled. | Session appears live once artifacts/events arrive. |
 | Remote config disabled, hard billing/payment blocked, domain blocked, or bot suppressed | No session starts. | No ingest. | No replay. | Nothing should appear for that page load. |
 | Replay quota exhausted | Session can start with replay disabled by remote config. | Event lane uploads analytics; visual replay presign is skipped if any stale visual chunks arrive. Session row has `replay_quota_billing_exhausted=true` and `observe_only=false` so quota behavior is not confused with customer observe-only configuration. | No visual replay by design. | Missing rrweb/screenshots are expected quota behavior, not upload failure. |
-| Smart Capture pending | Session can start normally when the project is on Scale and Smart Capture is enabled. | Analytics/events/metrics are accepted and count in `project_usage.sessions`; visual artifacts are staged while `replay_available=true`, `replay_retention_state=buffered`, `smart_capture_status=pending`, and `replay_quota_counted_at` remains null. | Not shown in normal replay surfaces while buffered. | Buffered sessions are hidden, not quota-counted, not backed up, capped by `RJ_SMART_CAPTURE_BUFFER_MAX_REPLAYS` defaulting to `200000`, and decided within 7 days. |
+| Smart Capture pending | Session can start normally when the project is on Scale and Smart Capture is enabled. | Analytics/events/metrics are accepted and count in `project_usage.sessions`; visual artifacts are staged while `replay_available=true`, `replay_retention_state=buffered`, `smart_capture_status=pending`, and `replay_quota_counted_at` remains null. | Not shown in normal replay surfaces while buffered. | Buffered sessions are hidden, not quota-counted, capped by `RJ_SMART_CAPTURE_BUFFER_MAX_REPLAYS` defaulting to `200000`, and decided within 7 days. |
 | Smart Capture discarded | Same SDK behavior; no package code change. | Analytics/events/metrics remain, visual replay artifacts are abandoned, `smart_capture_status=discarded`, and replay usage is not incremented. | No visual replay by design. | Non-matching sessions are analytics-only and should not look like failed uploads. |
 | Smart Capture kept | Same SDK behavior; no package code change. | Reconciliation sets `smart_capture_status=kept`, re-checks replay quota, keeps `replay_available=true`, and increments `project_usage.session_replays` exactly once. | Replay remains playable after promotion. | Kept sessions consume replay quota at promotion time, not at session creation. |
 | Sampled out but analytics still allowed | Session may start with `sampledIn=false`; replay is disabled. | Event lane can upload analytics; replay presign is skipped/rejected. | No visual replay. | Developer may see analytics-only data, not a playable replay. |

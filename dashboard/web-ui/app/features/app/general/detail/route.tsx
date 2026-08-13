@@ -170,10 +170,7 @@ export const IssueDetail: React.FC = () => {
                 >
                     <ArrowLeft className="w-4 h-4" /> Back to General
                 </button>
-
-
-
-                {/* Header - Standardized */}
+                {/* Header */}
                 <PageHeader
                     icon={
                         issue.issueType === 'error' ? Bug :

@@ -149,7 +149,9 @@ jobs:
       - name: Validate Storage Cutover Config
         run: |
           bash scripts/k8s/validate-storage-cutover.sh
+          bash scripts/ci/check-repository-hygiene.sh
           bash scripts/ci/check-secret-hygiene.sh
+          node scripts/ci/check-docs-integrity.mjs
 
 
   # ------------------------------------------------------------------

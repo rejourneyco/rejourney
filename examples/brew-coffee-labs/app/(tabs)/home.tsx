@@ -72,7 +72,7 @@ const Home = () => {
   const aiIconTranslateY = useRef(new Animated.Value(0)).current
   const scanIconTranslateX = useRef(new Animated.Value(0)).current
 
-  // New animations
+  // Screen transitions
   const fadeAnim = useRef(new Animated.Value(1)).current
   const slideAnim = useRef(new Animated.Value(0)).current
   const categorySlideAnim = useRef(new Animated.Value(0)).current
@@ -146,7 +146,7 @@ const Home = () => {
     animateCoffeeLabsButton()
   }
 
-  // New Coffee Labs button animations
+  // Coffee Labs button animation sequence
   const animateCoffeeLabsButton = () => {
     // Reset animations
     coffeeLabsOpacity.setValue(0)
@@ -374,7 +374,6 @@ const Home = () => {
     }
   }
 
-  // FIXED: This is the key function that needs to be optimized
   const handleLikePress = async (recipeId: string) => {
     try {
       // Add haptic feedback
@@ -484,13 +483,6 @@ const Home = () => {
         useNativeDriver: true,
       }),
     ]).start()
-
-    // Trigger Coffee Labs scan
-    // For testing ANRs in development
-    if (__DEV__) {
-      // Long press on Coffee Labs could be a secret trigger, but let's add a visible one for now or just use secret gesture?
-      // Let's add a small button below.
-    }
 
     // Rotate coffee icon
     Animated.timing(coffeeIconRotate, {
@@ -1272,4 +1264,3 @@ const styles = StyleSheet.create({
 })
 
 export default Home
-

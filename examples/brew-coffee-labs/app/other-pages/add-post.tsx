@@ -13,33 +13,24 @@ import {
   Modal,
   ActivityIndicator,
   Dimensions,
-  Image, // Keep for Image.getSize
+  Image,
 } from 'react-native';
 
 import { Plus, X, ArrowLeft, Camera } from 'lucide-react-native';
 import { Stack, useRouter } from 'expo-router';
-import { supabase } from '../../supabase.js'; // Your Supabase client
+import { supabase } from '../../supabase.js';
 import * as ImagePicker from 'expo-image-picker';
-import { getCurrentSupabaseToken } from '../../authUtils'; // Still needed for upload
+import { getCurrentSupabaseToken } from '../../authUtils';
 import uuid from 'react-native-uuid';
-// --- Remove direct Gemini imports ---
-// import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import * as FileSystem from 'expo-file-system'; // Keep for image processing
-// import Config from 'react-native-config'; // Remove if GEMINI_API_KEY was the only thing used
+import * as FileSystem from 'expo-file-system';
 
-// --- Keep ExpoImage and ImageManipulator imports ---
 import { Image as ExpoImage } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 
-// --- Constants (Unchanged) ---
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_PREVIEW_HEIGHT = SCREEN_HEIGHT * 0.6;
 const PREVIEW_RESIZE_WIDTH = Math.min(SCREEN_WIDTH * 1.5, 1024);
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://your-worker-name.your-subdomain.workers.dev'; // Upload worker URL
-
-// --- Remove direct Gemini Configuration ---
-// let model: any = null;
-// try { ... } catch { ... }
 
 // --- Define the Request Body Type for Edge Function (Recipe) ---
 // Matches the interface defined in the Edge Function
@@ -67,16 +58,14 @@ const AddPostScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Publishing...');
 
-  // Debug Log state changes (Unchanged)
   useEffect(() => {
     console.log(`AddPostScreen State Update: isLoading: ${isLoading}, previewUri: ${imageUri ? 'Exists' : 'null'}, prevW: ${imageWidth}, prevH: ${imageHeight}, origUri: ${originalImageUri ? 'Exists' : 'null'}, origW: ${originalImageWidth}, origH: ${originalImageHeight}`);
   }, [isLoading, imageUri, imageWidth, imageHeight, originalImageUri, originalImageWidth, originalImageHeight]);
 
 
-  // --- NEW: Validation Function using Supabase Edge Function ---
+  // Validate recipe content through the Supabase Edge Function.
   const validateContentWithEdgeFunction = async (): Promise<{ isValid: boolean; reason: string | null }> => {
     console.log("AddPostScreen: Starting Edge Function validation for recipe.");
-    // setLoadingMessage('Validating content...'); // Message set by handlePublish
 
     // 1. Prepare Text Content
     const recipeText = `Recipe Title: ${title}\nIngredients: ${ingredients.filter(i => i.trim()).join(', ')}\nInstructions: ${instructions.filter(s => s.trim()).map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
@@ -169,13 +158,10 @@ const AddPostScreen = () => {
         // Loading state is managed by handlePublish
     }
   };
-  // --- End NEW Validation Function ---
-
-  // --- handlePublish Function (Calls the NEW validation function) ---
   const handlePublish = async () => {
     console.log("AddPostScreen: handlePublish triggered.");
 
-    // Local validation (Unchanged)
+    // Validate required fields before starting remote work.
     if (!title.trim()) { Alert.alert('Missing Info', 'Please provide a recipe title.'); return; }
     if (ingredients.every(i => !i.trim())) { Alert.alert('Missing Info', 'Please add at least one ingredient.'); return; }
     if (instructions.every(s => !s.trim())) { Alert.alert('Missing Info', 'Please add at least one instruction step.'); return; }
@@ -190,7 +176,7 @@ const AddPostScreen = () => {
     setLoadingMessage('Validating content...'); // Set initial message
 
     try {
-      // *** USE THE NEW EDGE FUNCTION VALIDATOR ***
+      // Validate content before upload.
       const validation = await validateContentWithEdgeFunction();
       if (!validation.isValid) {
         // Throw error to be caught below, using the reason from the Edge Function
@@ -211,7 +197,7 @@ const AddPostScreen = () => {
       const postId = uuid.v4(); // Keep using uuid for post ID if needed elsewhere, otherwise remove if not used
       console.log(`AddPostScreen: Generated Post ID: ${postId}`); // Post ID might not be needed if Supabase generates it
 
-      // Image Upload (Use ORIGINAL image URI and dimensions) - Unchanged
+      // Upload the original image.
       if (originalImageUri && originalImageWidth && originalImageHeight) {
         console.log("AddPostScreen: Starting ORIGINAL image upload process...");
         setLoadingMessage('Uploading image...');
@@ -260,7 +246,7 @@ const AddPostScreen = () => {
           console.log("AddPostScreen: No image to upload.");
       }
 
-      // Insert into Supabase (Use ORIGINAL image dimensions) - Unchanged
+      // Persist the dimensions of the original image.
       console.log("AddPostScreen: Inserting recipe data into Supabase...");
       setLoadingMessage('Saving recipe...');
       const recipeData = {
@@ -316,8 +302,7 @@ const AddPostScreen = () => {
     }
   };
 
-  // --- pickImage Function (Unchanged) ---
-  // This function correctly handles setting originalImageUri, which is then used by the validation and upload functions.
+  // Select and process the original image used for validation and upload.
   const pickImage = useCallback(async () => {
     console.log("AddPostScreen: pickImage triggered.");
     if (isLoading) {
@@ -434,7 +419,7 @@ const AddPostScreen = () => {
     console.log("AddPostScreen: pickImage function finished.");
   }, [isLoading]); // Keep isLoading dependency
 
-  // --- Ingredient/Instruction Handlers (Unchanged) ---
+  // Ingredient and instruction handlers.
   const handleAddIngredient = () => setIngredients([...ingredients, '']);
   const handleRemoveIngredient = (index: number) => setIngredients(ingredients.filter((_, i) => i !== index));
   const handleChangeIngredient = (text: string, index: number) => setIngredients(ingredients.map((item, i) => (i === index ? text : item)));
@@ -446,13 +431,12 @@ const AddPostScreen = () => {
       else console.log("AddPostScreen: Back navigation blocked while loading.");
   };
 
-  // Calculate aspect ratio for PREVIEW (Unchanged)
+  // Preserve the selected image's preview aspect ratio.
   const previewAspectRatio = (imageWidth && imageHeight && imageHeight > 0)
                              ? imageWidth / imageHeight
                              : 3 / 4;
   console.log(`AddPostScreen: Calculated previewAspectRatio: ${previewAspectRatio}`);
 
-  // --- RENDER (Unchanged from your previous version) ---
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -625,7 +609,7 @@ const AddPostScreen = () => {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Loading Modal (Unchanged - already conditional) */}
+      {/* Loading modal */}
       <Modal
           transparent={true}
           animationType="fade"
@@ -641,7 +625,6 @@ const AddPostScreen = () => {
   );
 };
 
-// --- STYLES (Unchanged) ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   header: {

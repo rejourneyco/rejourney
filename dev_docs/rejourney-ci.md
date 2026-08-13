@@ -116,20 +116,19 @@ Primary workflow file:
 │ 3. If DEPLOY_CLICKHOUSE=true, install Altinity operator, patch watch ns,    │
 │    then apply ClickHouse CRs                                               │
 │ 4. Apply the CNPG postgres-local Cluster manifest                           │
-│ 5. Verify archive.yaml matches session-backup.mjs                           │
-│ 6. Print current drizzle migration status                                   │
-│ 7. Apply/wait pgbouncer and PDB data-plane manifests                        │
-│ 8. Delete old db-setup job                                                  │
-│ 9. Apply db-setup by itself and wait for migration/bootstrap success        │
-│ 10. If DEPLOY_CLICKHOUSE=true, run clickhouse-setup by itself               │
-│ 11. If RUN_CLICKHOUSE_ROLLUP_BACKFILL=true, rebuild API rollups             │
-│ 12. Print migration status again                                            │
-│ 13. Server-side apply grafana-dashboards ConfigMap                          │
-│ 14. kubectl apply rendered manifests with prune                             │
-│ 15. Reconcile the Helm-managed redis Service label/restore guard            │
-│ 16. Wait for Deployments, then colocate api-ingest with the CNPG primary    │
-│ 17. Wait for cadvisor/node-exporter                                         │
-│ 18. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
+│ 5. Print current drizzle migration status                                   │
+│ 6. Apply/wait pgbouncer and PDB data-plane manifests                        │
+│ 7. Delete old db-setup job                                                  │
+│ 8. Apply db-setup by itself and wait for migration/bootstrap success        │
+│ 9. If DEPLOY_CLICKHOUSE=true, run clickhouse-setup by itself                │
+│ 10. If RUN_CLICKHOUSE_ROLLUP_BACKFILL=true, rebuild API rollups             │
+│ 11. Print migration status again                                            │
+│ 12. Server-side apply grafana-dashboards ConfigMap                          │
+│ 13. kubectl apply rendered manifests with prune                             │
+│ 14. Reconcile the Helm-managed redis Service label/restore guard            │
+│ 15. Wait for Deployments, then colocate api-ingest with the CNPG primary    │
+│ 16. Wait for cadvisor/node-exporter                                         │
+│ 17. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -270,7 +269,6 @@ Relevant files:
 │ db-setup diagnostics are redacted before they enter GitHub Actions logs     │
 │ CI runs scripts/ci/check-secret-hygiene.sh to block obvious leak patterns   │
 │ VPS git remotes are tokenless public HTTPS URLs; CI tokens are not stored   │
-│ archive.yaml must match session-backup.mjs before deploy                    │
 │ local legacy push-era DBs are blocked by the compatibility guard            │
 │ hot-table replay cleanup migration avoids wedging production traffic         │
 │ ClickHouse deploy is gated by DEPLOY_CLICKHOUSE and app flags default false │

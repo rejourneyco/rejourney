@@ -75,7 +75,6 @@ export interface ExpiredSessionArtifactRepairResult {
     attempted: number;
     repaired: number;
     failed: number;
-    skippedNotBackedUp: number;
     deletedObjectCount: number;
     deletedBytes: number;
     reachedProcessingCap: boolean;
@@ -100,17 +99,8 @@ export function buildDerivedSessionStoragePrefix(sessionId: string): string {
     return `sessions/${sessionId}/`;
 }
 
-export function buildCanonicalSessionBackupPrefix(
-    teamId: string,
-    projectId: string,
-    sessionId: string,
-): string {
-    return `backups/tenant/${teamId}/project/${projectId}/sessions/${sessionId}`;
-}
-
 async function collectExpiredRepairCandidates(limit: number): Promise<{
     sessionsToRepair: ExpiredSessionRepairCandidate[];
-    skippedNotBackedUp: number;
     reachedProcessingCap: boolean;
 }> {
     const currentRetentionPeriodExpired = sql`
@@ -140,7 +130,6 @@ async function collectExpiredRepairCandidates(limit: number): Promise<{
 
     return {
         sessionsToRepair,
-        skippedNotBackedUp: 0,
         reachedProcessingCap: sessionsToRepair.length >= limit,
     };
 }
@@ -471,7 +460,6 @@ export async function repairExpiredSessionArtifactsBatch(
 ): Promise<ExpiredSessionArtifactRepairResult> {
     const {
         sessionsToRepair,
-        skippedNotBackedUp,
         reachedProcessingCap,
     } = await collectExpiredRepairCandidates(limit);
 
@@ -506,13 +494,12 @@ export async function repairExpiredSessionArtifactsBatch(
         },
     );
 
-    if (repaired > 0 || failed > 0 || skippedNotBackedUp > 0) {
+    if (repaired > 0 || failed > 0) {
         logger.info({
             trigger,
             attempted: batchResult.startedCount,
             repaired,
             failed,
-            skippedNotBackedUp,
             deletedObjectCount,
             deletedBytes,
         }, 'Processed expired sessions with leftover artifacts');
@@ -522,7 +509,6 @@ export async function repairExpiredSessionArtifactsBatch(
         attempted: batchResult.startedCount,
         repaired,
         failed,
-        skippedNotBackedUp,
         deletedObjectCount,
         deletedBytes,
         reachedProcessingCap: reachedProcessingCap || batchResult.stoppedEarly,

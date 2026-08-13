@@ -1,19 +1,16 @@
-// authUtils.ts
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from './supabase';
 
 interface AuthTokenData {
   token: string;
-  expiration: number; // Store expiration time in milliseconds
+  expiration: number;
 }
 
-// Key to store token data
 const AUTH_TOKEN_KEY = 'supabaseAuthTokenData';
 
 export async function saveAuthToken(token: string, expiresIn: number): Promise<void> {
   try {
-    // Calculate expiration time in milliseconds
-    const expirationTime = Date.now() + expiresIn * 1000; // Corrected: Multiply by 1000
+    const expirationTime = Date.now() + expiresIn * 1000;
     const tokenData: AuthTokenData = {
       token,
       expiration: expirationTime
@@ -23,8 +20,6 @@ export async function saveAuthToken(token: string, expiresIn: number): Promise<v
     console.log('Auth token data saved successfully');
   } catch (error) {
     console.error('Error saving auth token data:', error);
-    // Decide if you want to re-throw or handle differently
-    // throw error;
   }
 }
 
@@ -39,24 +34,19 @@ export async function getAuthTokenData(): Promise<AuthTokenData | null> {
 
     const tokenData: AuthTokenData = JSON.parse(tokenDataString);
 
-    // Check if token is expired based on stored expiration
     if (Date.now() >= tokenData.expiration) {
       console.log('Stored auth token data indicates expiration, clearing it');
-      await clearAuthToken(); // Clear the expired data
-      return null; // Return null as it's expired
+      await clearAuthToken();
+      return null;
     }
 
     return tokenData;
   } catch (error) {
     console.error('Error retrieving auth token data:', error);
-    // Consider clearing token data on parse error?
-    // await clearAuthToken();
     return null;
   }
 }
 
-// You might still want a way to get just the token string if needed elsewhere,
-// but be aware of its potential staleness if not checked against getSession().
 export async function getStoredAuthTokenString(): Promise<string | null> {
    const data = await getAuthTokenData();
    return data?.token ?? null;
@@ -72,14 +62,10 @@ export async function clearAuthToken(): Promise<void> {
   }
 }
 
-// Helper function remains useful
 export function isTokenExpired(expiration: number): boolean {
   return Date.now() >= expiration;
 }
 
-// --- NEW ---
-// Function to get the CURRENT access token from Supabase session
-// This leverages the SDK's refresh logic.
 export async function getCurrentSupabaseToken(): Promise<string | null> {
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
@@ -94,15 +80,8 @@ export async function getCurrentSupabaseToken(): Promise<string | null> {
       return null;
     }
 
-    // Check if the session's token is expired *according to Supabase*
-    // Note: getSession() often handles refresh internally, so this check
-    // might be redundant but provides an extra layer.
     if (session.expires_at && session.expires_at * 1000 <= Date.now()) {
        console.warn("Supabase session token is expired even after getSession(). Might indicate refresh issue.");
-       // Optionally try forcing a refresh, but often indicates a deeper problem
-       // const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
-       // if (refreshError || !refreshedSession) return null;
-       // return refreshedSession.access_token;
        return null;
     }
 

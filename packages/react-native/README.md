@@ -14,7 +14,7 @@ npm install @rejourneyco/react-native
 import { Rejourney } from '@rejourneyco/react-native';
 
 // Initialize with your public key
-Rejourney.init('pk_live_xxxxxxxxxxxx');
+Rejourney.init('rj_your_public_key');
 
 // Start recording after obtaining user consent
 Rejourney.start();
@@ -46,7 +46,7 @@ If you want to manually specify screen names or use a different library:
 #### For Expo Router users:
 Disable automatic tracking in your initialization:
 ```ts
-Rejourney.init('pk_live_xxxxxxxxxxxx', {
+Rejourney.init('rj_your_public_key', {
   autoTrackExpoRouter: false
 });
 ```

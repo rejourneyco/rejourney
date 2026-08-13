@@ -135,12 +135,9 @@ const IdentifyIngredients: React.FC = () => {
   // Main effect
   useEffect(() => {
     const identify = async () => {
-      // --- Wait for prompt if not in pantry mode and prompt isn't loaded ---
+      // Wait for the prompt outside pantry mode.
       if (params.usePantry !== "true" && !identificationPrompt) {
         console.log("Waiting for identification prompt...");
-        // Keep showing the initial loading state or set a specific one
-        // If loadingState is 'idle', maybe set it to 'waiting_for_prompt' or keep as is.
-        // For simplicity, we just return and let the effect re-run when the prompt arrives.
         return;
       }
 

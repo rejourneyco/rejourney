@@ -4,8 +4,7 @@
  * Deletes S3 objects and recording_artifacts rows for sessions whose
  * retention period has expired.
  *
- * Retention expiry is the source of truth for purge eligibility; archived
- * backup completion is no longer required before deleting canonical recordings.
+ * Retention expiry is the source of truth for purge eligibility.
  *
  * Default mode (local/dev): long-running loop.
  * Production mode: `--once` for cron-style single-cycle execution.
@@ -52,7 +51,6 @@ type RetentionRunSummary = {
     repairedCount: number;
     repairAttempted: number;
     repairFailed: number;
-    skippedNotBackedUpCount: number;
     identityScrubbedCount: number;
     linkedIdentityRowsScrubbed: number;
     deletedProjectCount: number;
@@ -132,7 +130,6 @@ type ExpiredSessionCandidate = {
 
 type ExpiredSessionCollectionResult = {
     sessionsToPurge: ExpiredSessionCandidate[];
-    skippedNotBackedUpCount: number;
     reachedProcessingCap: boolean;
 };
 
@@ -185,7 +182,6 @@ async function collectExpiredSessionsReadyForPurge(
 
     return {
         sessionsToPurge,
-        skippedNotBackedUpCount: 0,
         reachedProcessingCap: sessionsToPurge.length >= limit,
     };
 }
@@ -198,7 +194,6 @@ async function processExpiredSessions(
     processedCount: number;
     attemptedCount: number;
     failedCount: number;
-    skippedNotBackedUpCount: number;
     deletedObjectCount: number;
     deletedBytes: number;
     reachedProcessingCap: boolean;
@@ -206,7 +201,6 @@ async function processExpiredSessions(
     let processedCount = 0;
     let attemptedCount = 0;
     let failedCount = 0;
-    let skippedNotBackedUpCount = 0;
     let deletedObjectCount = 0;
     let deletedBytes = 0;
     let reachedProcessingCap = false;
@@ -230,7 +224,6 @@ async function processExpiredSessions(
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
         const tierResult = await collectExpiredSessionsReadyForPurge(tierConfig, expiryDate, BATCH_SIZE);
-        skippedNotBackedUpCount += tierResult.skippedNotBackedUpCount;
         reachedProcessingCap ||= tierResult.reachedProcessingCap;
         tierBatches.push(tierResult.sessionsToPurge);
     }
@@ -289,12 +282,11 @@ async function processExpiredSessions(
     attemptedCount += batchResult.startedCount;
     reachedProcessingCap ||= batchResult.stoppedEarly;
 
-    if (processedCount > 0 || failedCount > 0 || skippedNotBackedUpCount > 0) {
+    if (processedCount > 0 || failedCount > 0) {
         logger.info({
             trigger,
             processedCount,
             failedCount,
-            skippedNotBackedUpCount,
             deletedObjectCount,
             deletedBytes,
         }, 'Expired session retention batch complete');
@@ -304,7 +296,6 @@ async function processExpiredSessions(
         processedCount,
         attemptedCount,
         failedCount,
-        skippedNotBackedUpCount,
         deletedObjectCount,
         deletedBytes,
         reachedProcessingCap,
@@ -354,7 +345,6 @@ async function runRetentionCycle(options: {
             repairedCount: 0,
             repairAttempted: 0,
             repairFailed: 0,
-            skippedNotBackedUpCount: 0,
             identityScrubbedCount: 0,
             linkedIdentityRowsScrubbed: 0,
             deletedProjectCount: 0,
@@ -395,7 +385,6 @@ async function runRetentionCycle(options: {
         repairedCount: 0,
         repairAttempted: 0,
         repairFailed: 0,
-        skippedNotBackedUpCount: 0,
         identityScrubbedCount: 0,
         linkedIdentityRowsScrubbed: 0,
         deletedProjectCount: 0,
@@ -435,7 +424,6 @@ async function runRetentionCycle(options: {
                     attempted: 0,
                     repaired: 0,
                     failed: 0,
-                    skippedNotBackedUp: 0,
                     deletedObjectCount: 0,
                     deletedBytes: 0,
                     reachedProcessingCap: true,
@@ -456,7 +444,6 @@ async function runRetentionCycle(options: {
             summary.repairedCount += repairResult.repaired;
             summary.repairAttempted += repairResult.attempted;
             summary.repairFailed += repairResult.failed;
-            summary.skippedNotBackedUpCount += expiredResult.skippedNotBackedUpCount + repairResult.skippedNotBackedUp;
             summary.identityScrubbedCount += identityScrubResult.scrubbed;
             summary.linkedIdentityRowsScrubbed += identityScrubResult.linkedRowsScrubbed;
             summary.deletedProjectCount += deletedProjectCount;
@@ -534,7 +521,7 @@ async function runRetentionCycle(options: {
         await pingWorker(
             'retentionWorker',
             'up',
-            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},skipped=${summary.skippedNotBackedUpCount},bytes=${summary.deletedBytes},durationMs=${summary.durationMs},purgedPerMinute=${summary.purgedSessionsPerMinute}`,
+            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},bytes=${summary.deletedBytes},durationMs=${summary.durationMs},purgedPerMinute=${summary.purgedSessionsPerMinute}`,
             undefined,
             extraMetrics,
         );

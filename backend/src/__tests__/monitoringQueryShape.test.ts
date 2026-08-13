@@ -40,9 +40,8 @@ describe('monitoring query shape', () => {
         expect(exporters).toContain('FROM artifact_rollup ar');
         expect(exporters).toContain('rejourney_artifacts_stalled:');
         expect(exporters).toContain('WITH stalled AS (');
-        expect(exporters).toContain('rejourney_session_backup_source_buckets_recent:');
-        expect(exporters).toContain('WITH recent_backups AS (');
-        expect(exporters).toContain('INNER JOIN recent_backups rb ON rb.session_id = ra.session_id');
+        expect(exporters).not.toContain('session_backup_log');
+        expect(exporters).not.toContain('session_backup_queue');
         expect(exporters).toContain('rejourney_artifacts_failed_recent:');
         expect(exporters).toContain('rejourney_artifacts_upload_latency_recent:');
         expect(exporters).toContain('FROM completed');

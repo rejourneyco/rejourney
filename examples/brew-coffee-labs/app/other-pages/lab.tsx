@@ -22,7 +22,7 @@ import * as Haptics from "expo-haptics"
 import { supabase } from "../../supabase" // Import Supabase client
 import { Toast } from "../../components/ui/toast"
 
-// --- Interfaces & Types (Keep as they define the structure for Gemini request/response) ---
+// Gemini request and response shapes.
 interface GeminiPart {
   text?: string
 }
@@ -60,7 +60,7 @@ const DEFAULT_OPTIONS: CompatibleOptions = {
   strength: ["light", "medium", "dark"],
   sweetness: ["none", "slight", "sweet"],
   milk: ["none", "regular", "oat", "almond", "soy"],
-  flavor: ["none", "vanilla", "caramel", "cinnamon", "chocolate", "hazelnut", "cardamom", "lemon"], // Moved from Sec 3
+  flavor: ["none", "vanilla", "caramel", "cinnamon", "chocolate", "hazelnut", "cardamom", "lemon"],
   enhancements: [
     "none",
     "cinnamon-stick",
@@ -84,7 +84,7 @@ type SelectionValue = string | boolean
 type LabSelections = { [K in OptionKey]?: string } & { extraShot: boolean; saltPinch: boolean }
 type OptionsLoadingState = "idle" | "loading" | "done" | "error"
 
-// --- MODIFIED Helper for API Calls (Uses Edge Function Proxy) ---
+// Call the generation service through the Edge Function proxy.
 const callGeminiGenerateViaEdgeProxy = async (requestBody: GeminiRequest): Promise<GeminiResponse> => {
   // No client-side API key check needed
   console.log(
@@ -171,7 +171,7 @@ const CoffeeLab: React.FC = () => {
   const imagePath = params.imagePath
   const identifiedIngredientsJson = params.identifiedIngredients
 
-  // Animation values (Unchanged)
+  // Animation state.
   const fadeAnim = useRef(new Animated.Value(0)).current
   const scaleAnim = useRef(new Animated.Value(0.95)).current
   const spinValue = useRef(new Animated.Value(0)).current
@@ -180,7 +180,7 @@ const CoffeeLab: React.FC = () => {
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState("")
 
-  // Memoized Ingredients (Unchanged)
+  // Normalize the scanned ingredient list once per input change.
   const identifiedIngredients: string[] = useMemo(() => {
     console.log("(NOBRIDGE) LOG CoffeeLab Memo: Parsing ingredients...")
     if (!identifiedIngredientsJson) return []
@@ -194,7 +194,7 @@ const CoffeeLab: React.FC = () => {
     }
   }, [identifiedIngredientsJson])
 
-  // State Variables (Modified to include compatible and all options)
+  // Track compatible options separately from the complete option set.
   const [optionsLoadingState, setOptionsLoadingState] = useState<OptionsLoadingState>("idle")
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [availableOptions, setAvailableOptions] = useState<CompatibleOptions>(DEFAULT_OPTIONS)
@@ -227,7 +227,7 @@ const CoffeeLab: React.FC = () => {
   const sparkleAnim = useRef(new Animated.Value(0)).current
   const flavorButtonScale = useRef(new Animated.Value(1)).current
 
-  // Animation Effects (Unchanged)
+  // Start the entrance animations.
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -244,7 +244,7 @@ const CoffeeLab: React.FC = () => {
   }, [fadeAnim, scaleAnim, spinValue])
   const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] })
 
-  // Reset Selections when Options Change (Unchanged)
+  // Keep valid selections when the compatible option set changes.
   const resetSelections = useCallback((options: CompatibleOptions, keepExistingPrefs: boolean) => {
     console.log("(NOBRIDGE) LOG CoffeeLab: Resetting selections. Keep Existing:", keepExistingPrefs)
     setSelections((prev) => {
@@ -270,9 +270,9 @@ const CoffeeLab: React.FC = () => {
       if (!keepExistingPrefs || newSelections.enhancements === undefined)
         newSelections.enhancements = options.enhancements?.includes("none") ? "none" : options.enhancements?.[0]
       if (!keepExistingPrefs || newSelections.infusions === undefined)
-        newSelections.infusions = options.infusions?.includes("none") ? "none" : options.infusions?.[0] // Corrected key
+        newSelections.infusions = options.infusions?.includes("none") ? "none" : options.infusions?.[0]
       if (!keepExistingPrefs || newSelections.toppings === undefined)
-        newSelections.toppings = options.toppings?.includes("none") ? "none" : options.toppings?.[0] // Corrected key
+        newSelections.toppings = options.toppings?.includes("none") ? "none" : options.toppings?.[0]
       return {
         ...newSelections,
         extraShot: keepExistingPrefs ? prev.extraShot : false,
@@ -288,7 +288,7 @@ const CoffeeLab: React.FC = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
   }, [])
 
-  // --- Debounced API Fetch Function using useRef (Modified to keep all options) ---
+  // Debounce option discovery while ingredients are changing.
   const debouncedFetchOptionsRef = useRef(
     debounce(async (ingredients: string[]) => {
       console.log("(NOBRIDGE) LOG CoffeeLab Debounced fetch executing with ingredients:", ingredients)
@@ -334,9 +334,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
       }
 
       try {
-        // *** USE THE EDGE FUNCTION PROXY ***
         const response = await callGeminiGenerateViaEdgeProxy(request)
-        // The rest of the processing expects the standard GeminiResponse structure
         const jsonText = response.candidates?.[0]?.content?.parts?.[0]?.text
 
         if (!jsonText) throw new Error("Suggestions service did not return options content.")
@@ -345,7 +343,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
         const cleanedJsonText = jsonText.replace(/^```json\s*|```$/g, "").trim()
         const parsedOptions: Partial<CompatibleOptions> = JSON.parse(cleanedJsonText)
 
-        // Merge/Validate with Defaults (Modified to keep all options)
+        // Merge valid generated options with defaults.
         const finalOptions: CompatibleOptions = { ...DEFAULT_OPTIONS }
         let optionsChanged = false
 
@@ -420,22 +418,19 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     }, 750),
   )
 
-  // --- useEffect to Trigger Debounced Fetch (Unchanged) ---
-  // Add a new state to track which ingredients were identified
+  // Refresh options when the identified ingredients change.
   const [identifiedOptionValues, setIdentifiedOptionValues] = useState<Set<string>>(new Set())
 
-  // Modify the useEffect that processes identified ingredients to populate this set
   useEffect(() => {
     console.log("(NOBRIDGE) LOG CoffeeLab useEffect triggered.")
     if (optionsLoadingState === "idle") {
       setAvailableOptions(DEFAULT_OPTIONS)
       setAllOptions(DEFAULT_OPTIONS)
 
-      // Create a set of identified option values from the ingredients
       const identifiedValues = new Set<string>()
 
       // Always consider these options as "identified" since they're basic options
-      const alwaysIdentified = ["none", "manual", "small", "medium", "large", "regular", "hot", "iced", "light", "medium", "dark"] // Added more common defaults
+      const alwaysIdentified = ["none", "manual", "small", "medium", "large", "regular", "hot", "iced", "light", "medium", "dark"]
       alwaysIdentified.forEach((option) => identifiedValues.add(option))
 
       // Process the identified ingredients
@@ -450,23 +445,23 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
           "pod": ["pod"],
           "french press": ["french-press"],
           "aeropress": ["rocket"],
-          "cold brew": ["cold-brew"], // Added mapping
+          "cold brew": ["cold-brew"],
           oat: ["oat"],
           almond: ["almond"],
           soy: ["flower"],
-          milk: ["regular"], // Added general milk mapping
+          milk: ["regular"],
           vanilla: ["vanilla"],
           caramel: ["color-fill"],
           cinnamon: ["egg", "cinnamon-stick", "cinnamon-dust"],
           chocolate: ["apps"],
-          hazelnut: ["apps-outline"], // Keep as outline for distinction
-          cardamom: ["flower-outline", "cardamom-pod"], // Keep as outline for distinction from pod
+          hazelnut: ["apps-outline"],
+          cardamom: ["flower-outline", "cardamom-pod"],
           lemon: ["sunny-outline"],
           orange: ["orange-zest"],
           mint: ["mint-leaf"],
           honey: ["honey"],
           butter: ["square"],
-          "olive oil": ["olive-oil"], // Added mapping
+          "olive oil": ["olive-oil"],
           coconut: ["coconut-oil", "coconut"], // Include coconut itself
           cream: ["whipped-cream", "regular"], // Whipped cream or regular milk
           "ice cream": ["ice-cream"],
@@ -506,10 +501,9 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
       debouncedFetchOptionsRef.current.cancel()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identifiedIngredientsJson, optionsLoadingState, resetSelections]) // Keep dependencies minimal
+  }, [identifiedIngredientsJson, optionsLoadingState, resetSelections])
 
 
-  // --- Event Handlers (Modified for incompatible options and conditional toast) ---
   const handleBackPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     if (router.canGoBack()) router.back()
@@ -548,7 +542,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     })
   }, [selections, availableOptions, imagePath, identifiedIngredientsJson])
 
-  // --- Option Selector Component (Modified for scroll persistence and incompatible options) ---
+  // Map options to compact, recognizable icons.
   const optionIcons: { [key: string]: keyof typeof Ionicons.glyphMap } = {
     hot: "flame",
     iced: "snow",
@@ -563,7 +557,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     "french-press": "filter",
     aeropress: "rocket",
     light: "sunny",
-    //medium: "contrast", // Use default ellipse if no specific icon
     dark: "moon",
     none: "remove-circle",
     slight: "add-circle-outline",
@@ -574,10 +567,10 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     soy: "flower",
     vanilla: "ice-cream",
     caramel: "color-fill",
-    cinnamon: "egg", // Keep as egg for distinction from stick/dust
+    cinnamon: "egg",
     chocolate: "apps",
-    hazelnut: "apps-outline", // Keep as outline for distinction
-    cardamom: "flower-outline", // Keep as outline for distinction from pod
+    hazelnut: "apps-outline",
+    cardamom: "flower-outline",
     lemon: "sunny-outline",
     "cinnamon-stick": "analytics",
     "cardamom-pod": "ellipse",
@@ -587,7 +580,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     "mint-leaf": "leaf-outline",
     "sparkling-water": "water-outline",
     salt: "restaurant-outline",
-    "olive-oil": "water", // Keep simple water icon
+    "olive-oil": "water",
     honey: "color-palette",
     butter: "square",
     "coconut-oil": "ellipse-outline",
@@ -599,7 +592,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     thick: "layers",
   }
 
-  // Modified handleOptionPress for conditional toasts
+  // Warn instead of applying options that conflict with scanned ingredients.
   const handleOptionPress = useCallback(
     (key: OptionKey | "extraShot" | "saltPinch", value: SelectionValue) => {
       // For boolean toggles (extraShot, saltPinch), always allow toggling
@@ -620,7 +613,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
           // Simple feedback, no complex animation needed here
           setSelections((prev) => ({ ...prev, [key]: value }))
 
-          // *** MODIFIED TOAST LOGIC ***
           // Only show toast for section 4 options that were *not* identified
           const section4Keys: OptionKey[] = ["flavor", "enhancements", "infusions", "toppings"]
           const isSection4 = section4Keys.includes(key as OptionKey)
@@ -640,7 +632,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
         }
       }
     },
-    [availableOptions, showToast, identifiedOptionValues], // Added identifiedOptionValues dependency
+    [availableOptions, showToast, identifiedOptionValues],
   )
 
   // --- Scroll Handling ---
@@ -648,16 +640,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     scrollOffsetsRef.current[optionKey] = event.nativeEvent.contentOffset.x
   }, [])
 
-  // Debounced scroll handler if needed (optional, direct update might be fine)
-  // const debouncedHandleScroll = useMemo(
-  //   () => debounce((event: NativeSyntheticEvent<NativeScrollEvent>, optionKey: OptionKey) => {
-  //     scrollOffsetsRef.current[optionKey] = event.nativeEvent.contentOffset.x;
-  //   }, 100), // Adjust debounce time as needed
-  //   []
-  // );
-
-
-  // Modify the OptionSelector component for scroll persistence
   const OptionSelector = React.memo(
     ({ title, optionKey }: { title: string; optionKey: OptionKey }) => {
       // Get all possible options for this category
@@ -684,8 +666,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.optionsScroll}
-            onScroll={(e) => handleScroll(e, optionKey)} // Use direct handler
-            // onScroll={(e) => debouncedHandleScroll(e, optionKey)} // Use debounced handler if preferred
+            onScroll={(e) => handleScroll(e, optionKey)}
             scrollEventThrottle={16} // Adjust frequency of scroll events (iOS only)
             contentOffset={initialScrollOffset} // Set initial offset
           >
@@ -713,7 +694,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
                     styles.optionButton,
                     isSelected && styles.optionButtonSelected,
                     !isCompatible && styles.optionButtonIncompatible,
-                    // { transform: [{ scale: isSelected ? 1.05 : 1 }] }, // Use Animated value
                   ]}
                   onPress={() => handleOptionPress(optionKey, value)}
                 >
@@ -745,7 +725,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
   OptionSelector.displayName = "OptionSelector"
 
 
-  // --- Render Logic (Modified for Section Reorganization and Flavor Mode) ---
   const getOptionTitle = (key: OptionKey): string => {
     const titles: Record<OptionKey, string> = {
       temperature: "Base Temperature",
@@ -755,7 +734,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
       sweetness: "Sweetness Level",
       texture: "Texture",
       milk: "Milk / Alt-Milk",
-      flavor: "Flavor Syrup", // Title remains the same
+      flavor: "Flavor Syrup",
       enhancements: "Enhancements",
       infusions: "Infusions",
       toppings: "Toppings",
@@ -763,7 +742,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     return titles[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())
   }
 
-  // Updated Section 4 Keys
+  // Flavor-related option groups.
   const section4OptionKeys: OptionKey[] = ["flavor", "enhancements", "infusions", "toppings"]
 
   const renderSection = (
@@ -771,7 +750,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     sectionTitle: string,
     optionKeys: OptionKey[],
     hasAdditionalInfo = false,
-    isFlavorSection = false // Add flag for flavor section
+    isFlavorSection = false
   ) => (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
@@ -792,7 +771,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
       {optionKeys.map((key) => (
         <OptionSelector key={key} title={getOptionTitle(key)} optionKey={key} />
       ))}
-      {sectionNumber === "2" && ( // Keep toggles in Section 2
+      {sectionNumber === "2" && (
         <View style={styles.togglesContainer}>
           <TouchableOpacity
             style={[
@@ -819,7 +798,7 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
             onPress={() => handleOptionPress("saltPinch", !selections.saltPinch)}
           >
             <Ionicons
-              name={selections.saltPinch ? "restaurant" : "restaurant-outline"} // Changed icon slightly for selected state
+              name={selections.saltPinch ? "restaurant" : "restaurant-outline"}
               size={22}
               color={selections.saltPinch ? primaryWhite : primaryBlack}
               style={styles.optionIcon}
@@ -831,17 +810,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
     </View>
   )
 
-  // No longer needed
-  // const legend = (
-  //   <View style={styles.legendContainer}>
-  //     <Ionicons name="information-circle-outline" size={16} color={warningAmber} />
-  //     <Text style={styles.legendText}>
-  //       Some options may require additional ingredients - you'll be notified when selecting them
-  //     </Text>
-  //   </View>
-  // )
-
-  // --- Render Logic (Modified for Section Reorganization, Flavor Mode, and Toast) ---
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -1050,7 +1018,6 @@ Ensure arrays are not empty. Be practical but inspiring for a home coffee lab ex
   )
 }
 
-// --- Styles (Modified for scroll persistence, flavor mode, etc.) ---
 const primaryBlack = "#1A1A1A"
 const primaryWhite = "#FFFFFF"
 const coffeeBrown = "#6F4E37"
@@ -1059,8 +1026,6 @@ const lightGray = "#F5F5F5"
 const midGray = "#E0E0E0"
 const grayText = "#666666"
 const disabledGray = "#BDBDBD"
-const warningAmber = "#FFA000" // Slightly darker amber for better contrast
-// const warningLight = "#FFF3E0"; // Not used currently
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: primaryWhite },
@@ -1160,7 +1125,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   optionTitleLine: { flex: 1, height: 1, backgroundColor: midGray },
-  optionsScroll: { paddingVertical: 5, paddingLeft: 2, paddingRight: 20 }, // Added vertical padding
+  optionsScroll: { paddingVertical: 5, paddingLeft: 2, paddingRight: 20 },
   optionButton: {
     // Container for animation and base styles
     borderRadius: 25,
@@ -1168,7 +1133,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: midGray,
     backgroundColor: lightGray,
-    overflow: 'hidden', // Keep animation contained
+    overflow: 'hidden', // Clip scaling animation.
   },
   optionContentContainer: { // Inner container for content alignment and scaling
     flexDirection: "row",
@@ -1222,8 +1187,8 @@ const styles = StyleSheet.create({
   },
   flavorModeContainer: {
     marginHorizontal: 20,
-    marginTop: 25, // Spacing consistent with sections
-    marginBottom: 5, // Less margin before next section if visible
+    marginTop: 25,
+    marginBottom: 5,
   },
   flavorModeButton: {
     flexDirection: "row",

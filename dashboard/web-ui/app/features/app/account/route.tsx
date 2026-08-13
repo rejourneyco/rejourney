@@ -262,7 +262,7 @@ export const AccountSettings: React.FC = () => {
             </div>
           </NeoCard>
 
-          {/* Sign Out - moved here, not in danger zone */}
+          {/* Sign out */}
           <NeoCard className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

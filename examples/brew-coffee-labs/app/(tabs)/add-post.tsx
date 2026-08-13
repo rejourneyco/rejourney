@@ -13,26 +13,23 @@ import {
   Modal,
   ActivityIndicator,
   Dimensions,
-  Image, // Keep for Image.getSize
+  Image,
 } from 'react-native';
 
 import { Plus, X, ArrowLeft, Camera } from 'lucide-react-native';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
-import { supabase } from '../../supabase.js'; // Your Supabase client
-// --- MODIFIED: Import camera functions ---
+import { supabase } from '../../supabase.js';
 import * as ImagePicker from 'expo-image-picker';
-import { getCurrentSupabaseToken } from "../../authUtils"; // Still needed for upload
+import { getCurrentSupabaseToken } from "../../authUtils";
 import uuid from 'react-native-uuid';
-import * as FileSystem from 'expo-file-system'; // Keep for image processing
-import { BlurView } from 'expo-blur'; // Import BlurView for the welcome modal
-import { Ionicons } from "@expo/vector-icons"; // For icons in the welcome modal
+import * as FileSystem from 'expo-file-system';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from "@expo/vector-icons";
 
-// --- Keep ExpoImage and ImageManipulator imports ---
 import { Image as ExpoImage } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { LinearGradient } from 'expo-linear-gradient'; // For gradient buttons
+import { LinearGradient } from 'expo-linear-gradient';
 
-// --- Constants (Unchanged) ---
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_PREVIEW_HEIGHT = SCREEN_HEIGHT * 0.6;
 const PREVIEW_RESIZE_WIDTH = Math.min(SCREEN_WIDTH * 1.5, 1024);
@@ -67,7 +64,6 @@ const AddPostScreen = () => {
   // Always initialize the welcome modal to true to show it every time
   const [showWelcomeModal, setShowWelcomeModal] = useState(true);
 
-  // Debug Log state changes (Unchanged)
   useEffect(() => {
     console.log(`AddPostScreen State Update: isLoading: ${isLoading}, previewUri: ${imageUri ? 'Exists' : 'null'}, prevW: ${imageWidth}, prevH: ${imageHeight}, origUri: ${originalImageUri ? 'Exists' : 'null'}, origW: ${originalImageWidth}, origH: ${originalImageHeight}`);
   }, [isLoading, imageUri, imageWidth, imageHeight, originalImageUri, originalImageWidth, originalImageHeight]);
@@ -109,10 +105,9 @@ const AddPostScreen = () => {
     setShowWelcomeModal(false);
   };
 
-  // --- NEW: Validation Function using Supabase Edge Function ---
+  // Validate recipe content through the Supabase Edge Function.
   const validateContentWithEdgeFunction = async (): Promise<{ isValid: boolean; reason: string | null }> => {
     console.log("AddPostScreen: Starting Edge Function validation for recipe.");
-    // setLoadingMessage('Validating content...'); // Message set by handlePublish
 
     // 1. Prepare Text Content
     const recipeText = `Recipe Title: ${title}\nIngredients: ${ingredients.filter(i => i.trim()).join(', ')}\nInstructions: ${instructions.filter(s => s.trim()).map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
@@ -205,13 +200,10 @@ const AddPostScreen = () => {
         // Loading state is managed by handlePublish
     }
   };
-  // --- End NEW Validation Function ---
-
-  // --- handlePublish Function (Calls the NEW validation function) ---
   const handlePublish = async () => {
     console.log("AddPostScreen: handlePublish triggered.");
 
-    // Local validation (Unchanged)
+    // Validate required fields before starting remote work.
     if (!title.trim()) { Alert.alert('Missing Info', 'Please provide a recipe title.'); return; }
     if (ingredients.every(i => !i.trim())) { Alert.alert('Missing Info', 'Please add at least one ingredient.'); return; }
     if (instructions.every(s => !s.trim())) { Alert.alert('Missing Info', 'Please add at least one instruction step.'); return; }
@@ -226,7 +218,7 @@ const AddPostScreen = () => {
     setLoadingMessage('Validating content...'); // Set initial message
 
     try {
-      // *** USE THE NEW EDGE FUNCTION VALIDATOR ***
+      // Validate content before upload.
       const validation = await validateContentWithEdgeFunction();
       if (!validation.isValid) {
         // Throw error to be caught below, using the reason from the Edge Function
@@ -247,7 +239,7 @@ const AddPostScreen = () => {
       const postId = uuid.v4(); // Keep using uuid for post ID if needed elsewhere, otherwise remove if not used
       console.log(`AddPostScreen: Generated Post ID: ${postId}`); // Post ID might not be needed if Supabase generates it
 
-      // Image Upload (Use ORIGINAL image URI and dimensions) - Unchanged
+      // Upload the original image.
       if (originalImageUri && originalImageWidth && originalImageHeight) {
         console.log("AddPostScreen: Starting ORIGINAL image upload process...");
         setLoadingMessage('Uploading image...');
@@ -296,20 +288,17 @@ const AddPostScreen = () => {
           console.log("AddPostScreen: No image to upload.");
       }
 
-      // Insert into Supabase (Use ORIGINAL image dimensions) - Unchanged
+      // Persist the dimensions of the original image.
       console.log("AddPostScreen: Inserting recipe data into Supabase...");
       setLoadingMessage('Saving recipe...');
       const recipeData = {
-        // id: postId, // Let Supabase generate the ID unless you need client-generated UUIDs
         creator_uuid: user.id,
         title: title.trim(),
         ingredients: ingredients.filter(i => i.trim()),
         instructions: instructions.filter(s => s.trim()),
         image_url: uploadedImageUrl,
-        // --- MODIFIED: Store original dimensions ---
         image_width: originalImageWidth,
         image_height: originalImageHeight,
-        // --- End Modification ---
         is_published: true, // Assuming always published on creation
         like_count: 0,
       };
@@ -355,7 +344,7 @@ const AddPostScreen = () => {
     }
   };
 
-  // --- MODIFIED: Helper function to process image result ---
+  // Normalize camera and photo-library results.
   const processImageResult = async (pickerResult: ImagePicker.ImagePickerResult) => {
     console.log("AddPostScreen: processImageResult called.");
     if (pickerResult.canceled) {
@@ -433,7 +422,7 @@ const AddPostScreen = () => {
     console.log("AddPostScreen: Image.getSize call initiated (async).");
   };
 
-  // --- MODIFIED: pickImage Function to include Camera option ---
+  // Offer camera and photo-library sources.
   const pickImage = useCallback(async () => {
     console.log("AddPostScreen: pickImage triggered.");
     if (isLoading) {
@@ -543,7 +532,7 @@ const AddPostScreen = () => {
     console.log("AddPostScreen: pickImage function finished setup (async operations pending).");
   }, [isLoading]); // Keep isLoading dependency
 
-  // --- Ingredient/Instruction Handlers (Unchanged) ---
+  // Ingredient and instruction handlers.
   const handleAddIngredient = () => setIngredients([...ingredients, '']);
   const handleRemoveIngredient = (index: number) => setIngredients(ingredients.filter((_, i) => i !== index));
   const handleChangeIngredient = (text: string, index: number) => setIngredients(ingredients.map((item, i) => (i === index ? text : item)));
@@ -556,13 +545,12 @@ const AddPostScreen = () => {
       else console.log("AddPostScreen: Back navigation blocked while loading.");
   };
 
-  // Calculate aspect ratio for PREVIEW (Unchanged)
+  // Preserve the selected image's preview aspect ratio.
   const previewAspectRatio = (imageWidth && imageHeight && imageHeight > 0)
                              ? imageWidth / imageHeight
                              : 3 / 4;
   console.log(`AddPostScreen: Calculated previewAspectRatio: ${previewAspectRatio}`);
 
-  // --- RENDER (with new Welcome Modal) ---
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -572,7 +560,7 @@ const AddPostScreen = () => {
       <StatusBar barStyle="dark-content" />
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Welcome Modal - NEW */}
+      {/* Welcome modal */}
       <Modal
         visible={showWelcomeModal}
         transparent={true}
@@ -800,7 +788,7 @@ const AddPostScreen = () => {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Loading Modal (Unchanged - already conditional) */}
+      {/* Loading modal */}
       <Modal
           transparent={true}
           animationType="fade"
@@ -816,7 +804,6 @@ const AddPostScreen = () => {
   );
 };
 
-// --- STYLES (Updated with new welcome modal styles and image picker subtext) ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   header: {
@@ -854,7 +841,6 @@ const styles = StyleSheet.create({
   imagePickerContent: { alignItems: 'center', justifyContent: 'center', padding: 20, },
   cameraIconContainer: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#6F4E37', alignItems: 'center', justifyContent: 'center', marginBottom: 12, },
   imagePickerText: { color: '#333333', fontSize: 16, fontWeight: '600' },
-  // --- NEW: Subtext for image picker placeholder ---
   imagePickerSubText: { color: '#666666', fontSize: 13, fontWeight: '400', marginTop: 4 },
   selectedImage: { flex: 1, width: '100%', },
   imageOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', },
@@ -883,7 +869,7 @@ const styles = StyleSheet.create({
   loadingOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.7)', alignItems: 'center', justifyContent: 'center', },
   loadingText: { marginTop: 15, color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center', paddingHorizontal: 20 },
 
-  // Updated styles for welcome modal
+  // Welcome modal styles.
   welcomeModalContainer: {
     flex: 1,
     justifyContent: 'center',

@@ -363,11 +363,9 @@ def d_overview():
     panels.append(row("Application Pipeline", y)); y += 1
     panels.append(stat("Artifacts created (1h)", zero('sum(rejourney_artifacts_created_recent_created_count)'), 0, y, w=4, h=4))
     panels.append(stat("Artifacts completed (1h)", zero('sum(rejourney_artifacts_completed_recent_completed_count)'), 4, y, w=4, h=4))
-    panels.append(stat("Artifacts stalled", zero('sum(rejourney_artifacts_stalled_stalled_count)'), 8, y, w=4, h=4,
+    panels.append(stat("Artifacts stalled", zero('sum(rejourney_artifacts_stalled_stalled_count)'), 8, y, w=6, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}))
-    panels.append(stat("Backup queue depth", zero('sum(rejourney_session_backup_queue_queued)'), 12, y, w=4, h=4))
-    panels.append(stat("Backup queue oldest age", zero('max(rejourney_session_backup_queue_oldest_age_seconds)'), 16, y, w=4, h=4, unit="s"))
-    panels.append(stat("Upload p95 (recent)", zero('max(rejourney_artifacts_upload_latency_recent_p95_seconds)'), 20, y, w=4, h=4, unit="s"))
+    panels.append(stat("Upload p95 (recent)", zero('max(rejourney_artifacts_upload_latency_recent_p95_seconds)'), 14, y, w=6, h=4, unit="s"))
     y += 4
 
     panels.append(row("Artifact Queue Health", y)); y += 1

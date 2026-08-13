@@ -91,7 +91,7 @@ final class InteractionRecorder: NSObject {
     /// Unlike gesture recognizers, this does NOT participate in the iOS gesture
     /// resolution system, so it never triggers "System gesture gate timed out"
     /// and never delays text input focus or keyboard appearance.
-    /// This is the same approach used by Datadog, Sentry, and FullStory SDKs.
+    /// This is a common passive-touch approach in mobile observability SDKs.
     private func _installSendEventHook() {
         guard !InteractionRecorder._sendEventSwizzled else { return }
         InteractionRecorder._sendEventSwizzled = true

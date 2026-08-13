@@ -1,18 +1,22 @@
 # Security Policy
 
-## Supported Package Versions
+## Supported releases
 
-Security updates are provided for the currently maintained SDK release lines below.
+Security fixes target the latest published release line of each client SDK:
 
-| Package | Version | Supported |
-| ------- | ------- | --------- |
-| React Native SDK (`@rejourneyco/react-native`) | `1.2.x` | :white_check_mark: |
-| Native iOS Swift Package (`Rejourney`) | `0.2.x` | :white_check_mark: |
-| React Native SDK (`@rejourneyco/react-native`) | `1.1.x` and earlier | :x: |
-| Native iOS Swift Package (`Rejourney`) | `0.1.x` and earlier | :x: |
+- Browser SDK (`@rejourneyco/browser`)
+- React Native SDK (`@rejourneyco/react-native`)
+- Native iOS Swift package (`Rejourney`)
+- Flutter package (`rejourney`)
+
+Older release lines are not guaranteed to receive security fixes. Upgrade to
+the latest release before reporting a problem that may already be fixed. The
+package manifests and release tags are the source of truth for current version
+numbers; this policy intentionally does not duplicate them.
 
 ## Reporting a Vulnerability
 
-Please contact us at contact@rejourney.co.
+Please report suspected vulnerabilities privately to contact@rejourney.co. Do
+not open a public issue containing exploit details, secrets, or customer data.
 
 We aim to respond within 3 business days while we test and confirm your report.

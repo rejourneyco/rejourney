@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.3.0
+  rejourney: ^0.3.1
 ```
 
 Then install packages:
@@ -36,7 +36,7 @@ import 'package:rejourney/rejourney.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Rejourney.init('pk_live_your_public_key');
+  await Rejourney.init('rj_your_public_key');
   await Rejourney.start();
   runApp(const App());
 }
@@ -143,7 +143,7 @@ require a host render-mode setting.
 
 ```dart
 await Rejourney.init(
-  'pk_live_your_public_key',
+  'rj_your_public_key',
   config: const RejourneyConfig(
     captureQuality: RejourneyCaptureQuality.medium,
     detectRageTaps: true,

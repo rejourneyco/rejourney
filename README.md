@@ -161,7 +161,7 @@ npm install @rejourneyco/browser
 ```ts
 import { Rejourney } from '@rejourneyco/browser';
 
-await Rejourney.init('pk_live_your_public_key');
+await Rejourney.init('rj_your_public_key');
 await Rejourney.start();
 ```
 
@@ -179,7 +179,7 @@ npm install @rejourneyco/react-native
 ```ts
 import { Rejourney } from '@rejourneyco/react-native';
 
-Rejourney.init('pk_live_your_public_key');
+Rejourney.init('rj_your_public_key');
 Rejourney.start();
 ```
 
@@ -196,7 +196,7 @@ flutter pub add rejourney
 ```dart
 import 'package:rejourney/rejourney.dart';
 
-await Rejourney.init('pk_live_your_public_key');
+await Rejourney.init('rj_your_public_key');
 await Rejourney.start();
 ```
 
@@ -243,11 +243,12 @@ capture controls, sampling, allowed domains, and masking for your product. Do
 not send PII, credentials, payment data, secrets, or sensitive application
 payloads in events or logs.
 
-Rejourney is designed for short recording retention periods—commonly seven
-days. After the retention window, recordings are quantized, fingerprints are
-anonymized, and the retained data is aggregated into general dashboard
-analytics. Make sure your configuration and policies meet the privacy and GDPR
-requirements that apply to your users.
+Rejourney supports short recording-retention periods, commonly seven days.
+When a recording expires, the retention worker removes its replay artifacts and
+marks the session as no longer replayable. Aggregated analytics and separately
+configured research-lake exports have their own lifecycle and privacy controls;
+they are not a copy of the expired recording. Make sure your configuration and
+policies meet the privacy and GDPR requirements that apply to your users.
 
 ## Performance measurements
 
@@ -271,35 +272,13 @@ applying these results to a different application.
 - [Redacted raw results](benchmarks/web-analytics/results/2026-05-19T03-47-21-774Z/benchmark-results.json)
 - [Benchmark runner](benchmarks/web-analytics/run-web-analytics-benchmark.mjs)
 
-The mobile comparison records package footprint against Sentry. It measures
-packages rather than a complete mobile application.
-
-| Package | Version | Minified | Gzipped |
-| --- | ---: | ---: | ---: |
-| `@rejourneyco/react-native` | `1.0.17` | 39.7 kB | 13.2 kB |
-| `@sentry/react-native` | `8.7.0` | 403 kB | 135.3 kB |
-
-Sources: [`@rejourneyco/react-native` on Bundlephobia](https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17) and [`@sentry/react-native` on Bundlephobia](https://bundlephobia.com/package/@sentry/react-native@8.7.0).
-
-The recorded Rejourney capture measurement used an iPhone 15 Pro on iOS 26,
-Expo SDK 54, the React Native New Architecture, and a production app with
-Mapbox Metal and Firebase.
-
-| Capture stage | Average | Maximum | Minimum | Execution context |
-| --- | ---: | ---: | ---: | --- |
-| UIKit + Metal capture | 12.4 ms | 28.2 ms | 8.1 ms | Main thread |
-| Async image processing | 42.5 ms | 88.0 ms | 32.4 ms | Background |
-| Tar + gzip compression | 14.2 ms | 32.5 ms | 9.6 ms | Background |
-| Upload handshake | 0.8 ms | 2.4 ms | 0.3 ms | Background |
-
-Only UIKit + Metal capture runs on the main thread. These measurements describe
-the recorded workload; they are not a general mobile-performance comparison.
-
-The Flutter package also has a reproducible Dart-layer regression benchmark.
-On the checked-in July 21, 2026 run, event, metadata, and network-marker API
-calls averaged 11.97–17.98 µs over 20,000 iterations before entering native code.
-See the [Flutter benchmark method and limitations](benchmarks/flutter/README.md)
-and [latest result](benchmarks/flutter/results/latest.md).
+Mobile package sizes and device capture timings change with SDK releases,
+framework versions, build settings, and hardware, so this README does not keep
+static comparison tables. The Flutter package has a reproducible Dart-layer
+regression benchmark; use the [Flutter benchmark method and
+limitations](benchmarks/flutter/README.md) and its [latest checked-in
+result](benchmarks/flutter/results/latest.md). Benchmark claims should always be
+reported with the checked-in method, environment, and result date.
 
 ## Development and deployment
 
@@ -307,7 +286,9 @@ For a local development environment, start with
 [local Kubernetes development](local-k8s/README.md). For single-node
 self-hosting, use the [self-hosted guide](docs/selfhosted/README.md).
 Architecture and deployment references are in
-[the architecture documentation](docs/architecture/).
+[the architecture documentation](docs/architecture/). Contributors should read
+[CONTRIBUTING.md](CONTRIBUTING.md) for repository layout, package-specific
+checks, and local development commands.
 
 ## License
 

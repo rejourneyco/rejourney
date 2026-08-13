@@ -2036,6 +2036,64 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   background: #ffffff !important;
 }
 
+.rejourney-journeys-page .journey-kpi-strip {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.2rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid {
+  display: grid;
+  min-width: 55rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-accent {
+  height: 3px !important;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-header {
+  min-height: 2.75rem;
+  margin-inline: 1rem;
+  padding: 0.65rem 0 0.5rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-label {
+  font-size: 0.8125rem !important;
+  line-height: 1.2 !important;
+}
+
+.rejourney-journeys-page .journey-kpi-grid > .dashboard-kpi-card > .dashboard-kpi-value {
+  margin: 0.55rem 1rem 0;
+  font-size: 1.55rem !important;
+  line-height: 1.1 !important;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-comparison {
+  min-height: 1.4rem;
+  gap: 0.45rem;
+  margin: 0.45rem 1rem 0.75rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-delta {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid :where(.dashboard-kpi-comparison-label, .dashboard-kpi-detail) {
+  font-size: 0.68rem;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-comparison-label {
+  white-space: nowrap;
+}
+
+.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-detail {
+  margin: -0.25rem 1rem 0.75rem;
+}
+
 .rejourney-journeys-page :where(.dashboard-label) {
   color: #6f7785;
   font-size: 0.76rem;
@@ -2163,26 +2221,48 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   text-transform: none !important;
 }
 
-.rejourney-journeys-page :where(.journey-sankey-card > div:first-child) {
+.rejourney-journeys-page :where(.journey-sankey-accent) {
   background: var(--journey-accent) !important;
 }
 
-.rejourney-journeys-page :where(.journey-sankey-card > div:nth-child(2)) {
+.rejourney-journeys-page :where(.journey-sankey-header) {
   background: #ffffff !important;
-  border-color: #dadce0 !important;
+  border-color: #e8eaed !important;
 }
 
-.rejourney-journeys-page :where(.journey-sankey-card > div:last-child) {
-  background: #f8fafd !important;
-  border-color: #dadce0 !important;
+.rejourney-journeys-page :where(.journey-sankey-selection) {
+  background: var(--journey-accent-soft) !important;
+  border-color: var(--journey-accent-border) !important;
 }
 
-.rejourney-journeys-page :where(.journey-sankey-card > div:nth-child(3)) {
-  background: #ffffff !important;
-}
-
-.rejourney-journeys-page :where(.journey-sankey-card > div:nth-child(3) > div:first-child) {
+.rejourney-journeys-page :where(.journey-sankey-canvas) {
   background: linear-gradient(180deg, #ffffff 0%, #f8fafd 52%, #ffffff 100%) !important;
+  border-color: #e8eaed !important;
+}
+
+.rejourney-journeys-page :where(.journey-sankey-footer) {
+  background: #ffffff !important;
+  border-color: #e8eaed !important;
+  color: #5f6368;
+}
+
+.rejourney-journeys-page :where(.journey-node) {
+  border-color: #dadce0 !important;
+  border-radius: 8px;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1) !important;
+  color: #202124;
+}
+
+.rejourney-journeys-page :where(.journey-node:hover) {
+  border-color: #a8c7fa !important;
+  box-shadow: 0 2px 5px rgba(60, 64, 67, 0.14) !important;
+}
+
+.rejourney-journeys-page :where(.journey-node-selected) {
+  border-color: var(--journey-accent) !important;
+  background: var(--journey-accent-soft) !important;
+  box-shadow: 0 0 0 1px var(--journey-accent-border), 0 2px 5px rgba(60, 64, 67, 0.12) !important;
 }
 
 .rejourney-journeys-page :where(table thead, table thead tr, table thead th) {

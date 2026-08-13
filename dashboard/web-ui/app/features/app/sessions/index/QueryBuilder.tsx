@@ -263,8 +263,6 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
   );
 }
 
-// AI Builder Suggestions were here - removed as requested.
-
 
 // ── Main QueryBuilder ─────────────────────────────────────────────────────────
 
@@ -442,7 +440,6 @@ export function QueryBuilder({
         </div>
       )}
 
-      {/* AI Suggestions removed from bottom as requested */}
     </div>
   );
 }

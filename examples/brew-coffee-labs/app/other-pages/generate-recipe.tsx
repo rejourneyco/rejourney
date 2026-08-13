@@ -1,4 +1,3 @@
-// /other-pages/generate-recipe.tsx
 "use client"
 
 import React, { useState, useEffect, useCallback, useRef } from "react"
@@ -18,27 +17,26 @@ import {
   KeyboardAvoidingView,
   Animated,
   Easing,
-  ScrollView, // Ensure ScrollView is imported if used (it is)
+  ScrollView,
 } from "react-native"
 import { Stack, useLocalSearchParams, router, useFocusEffect } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import * as Haptics from "expo-haptics"
 import * as ImagePicker from "expo-image-picker"
 import * as FileSystem from "expo-file-system"
-import { supabase } from "../../supabase" // Adjust path to your supabase client init
-import { getCurrentSupabaseToken } from "../../authUtils" // Adjust path to your auth utils
+import { supabase } from "../../supabase"
+import { getCurrentSupabaseToken } from "../../authUtils"
 import uuid from "react-native-uuid"
-// Import GoogleGenerativeAI only if needed for local mode
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai"
-import Config from "react-native-config" // Keep for local .env access
+import Config from "react-native-config"
 
 // --- Central Configuration Import ---
 import {
   USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI,
   GEMINI_RECIPE_FUNCTION_NAME,
   GEMINI_VALIDATION_FUNCTION_NAME,
-  API_URL, // Use the config variable for Cloudflare Worker
-} from "../../config" // Adjust path to your config file
+  API_URL,
+} from "../../config"
 
 // --- Gemini API Configuration (Conditional) ---
 let GEMINI_RECIPE_API_KEY: string | undefined | null = null
@@ -46,7 +44,7 @@ let GEMINI_VALIDATION_API_KEY: string | undefined | null = null
 let GEMINI_RECIPE_URL: string | null = null
 
 let genAIValidation: GoogleGenerativeAI | null = null
-let validationModel: any = null // Keep type 'any' or define a proper GenerativeModel type
+let validationModel: any = null
 
 if (!USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI) {
   // --- LOCAL DEVELOPMENT (.env) MODE ---
@@ -67,13 +65,13 @@ if (!USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI) {
     // Initialize VALIDATION client only if using local keys AND key is valid
     if (
       GEMINI_VALIDATION_API_KEY &&
-      GEMINI_VALIDATION_API_KEY !== "YOUR_GEMINI_API_KEY_FOR_VALIDATION_PLACEHOLDER" && // Use a distinct placeholder if needed
-      GEMINI_VALIDATION_API_KEY !== "YOUR_GEMINI_API_KEY" // Also check the main placeholder
+      GEMINI_VALIDATION_API_KEY !== "YOUR_GEMINI_API_KEY_FOR_VALIDATION_PLACEHOLDER" &&
+      GEMINI_VALIDATION_API_KEY !== "YOUR_GEMINI_API_KEY"
     ) {
       try {
         genAIValidation = new GoogleGenerativeAI(GEMINI_VALIDATION_API_KEY)
         validationModel = genAIValidation.getGenerativeModel({
-          model: "gemini-2.0-flash-lite", // Or your preferred validation model
+          model: "gemini-2.0-flash-lite",
           safetySettings: [
             { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
             { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
@@ -91,17 +89,16 @@ if (!USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI) {
         console.log("(NOBRIDGE) LOG GenerateRecipe: LOCAL Gemini Validation Model Initialized.")
       } catch (error) {
         console.error("(NOBRIDGE) ERROR GenerateRecipe: Failed to initialize LOCAL Gemini Validation Model:", error)
-        validationModel = null // Prevent validation if init fails
+        validationModel = null
       }
     } else {
       console.warn(
         "(NOBRIDGE) WARN GenerateRecipe: Local Gemini Validation API Key missing/placeholder in .env. LOCAL Validation will be skipped or fail.",
       )
-      validationModel = null // Ensure it's null if key is missing/invalid
+      validationModel = null
     }
   } catch (error) {
     console.error("(NOBRIDGE) ERROR GenerateRecipe: Failed to access local config (react-native-config). Ensure it's set up correctly.", error)
-    // Set keys/models to null to prevent errors later
     GEMINI_RECIPE_API_KEY = null
     GEMINI_VALIDATION_API_KEY = null
     GEMINI_RECIPE_URL = null
@@ -110,7 +107,6 @@ if (!USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI) {
 } else {
   // --- EDGE FUNCTION MODE ---
   console.log("(NOBRIDGE) LOG GenerateRecipe: Using Supabase Edge Functions for Gemini Keys.")
-  // No need to initialize client-side Gemini SDKs or store keys here.
 }
 
 // --- Interfaces ---
@@ -126,7 +122,6 @@ interface Recipe {
 
 interface GeminiPart {
   text?: string
-  // Include inlineData structure if needed, though handled by SDK/fetch
   inlineData?: {
     data: string
     mimeType: string
@@ -167,7 +162,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window")
 
 // --- Component ---
 const GenerateRecipe = () => {
-  // Params (keep as is)
+  // Params
   const params = useLocalSearchParams<{
     imagePath?: string
     identifiedIngredients?: string
@@ -191,7 +186,7 @@ const GenerateRecipe = () => {
   const extraShot = params.extraShot === "true"
   const saltPinch = params.saltPinch === "true"
 
-  // State Variables (keep as is)
+  // State
   const [loadingState, setLoadingState] = useState<LoadingState>("idle")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [recipe, setRecipe] = useState<Recipe | null>(null)
@@ -199,12 +194,12 @@ const GenerateRecipe = () => {
   const [isPosting, setIsPosting] = useState(false)
   const [postingMessage, setPostingMessage] = useState("Starting...");
 
-  // Animation values (keep as is)
+  // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current
   const scaleAnim = useRef(new Animated.Value(0.95)).current
   const spinValue = useRef(new Animated.Value(0)).current
 
-  // Animation Effects (keep as is)
+  // Animation effects
   useEffect(() => {
     if (loadingState === "done") {
       Animated.parallel([
@@ -230,22 +225,22 @@ const GenerateRecipe = () => {
         useNativeDriver: true,
       }),
     ).start()
-  }, [loadingState, fadeAnim, scaleAnim, spinValue]) // Added missing deps
+  }, [loadingState, fadeAnim, scaleAnim, spinValue])
 
-  // Interpolate spin value (keep as is)
+  // Interpolate the loading spinner rotation.
   const spin = spinValue.interpolate({
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   })
 
-  // Focus Effect (keep as is)
+  // Focus effect
   useFocusEffect(
     useCallback(() => {
       StatusBar.setBarStyle("dark-content")
     }, []),
   )
 
-  // --- REVISED API Call Function (Recipe Generation) ---
+  // Recipe generation API
   const callGeminiRecipeApi = useCallback(async (requestBody: GeminiRequest): Promise<GeminiResponse> => {
     console.log(
       "(NOBRIDGE) LOG GenerateRecipe: Preparing Recipe Generation Request. Mode:",
@@ -330,7 +325,6 @@ const GenerateRecipe = () => {
           const finishReason = data.candidates?.[0]?.finishReason
           if (finishReason && finishReason !== "STOP") {
             console.error(`(NOBRIDGE) ERROR GenerateRecipe (Edge): Gemini API finished unexpectedly: ${finishReason}`, data)
-            // Keep existing finish reason handling
             if (finishReason === "SAFETY") throw new Error("Generation stopped due to safety concerns with the input.")
             if (finishReason === "RECITATION") throw new Error("Generation stopped to prevent recitation issues.")
             if (finishReason === "MAX_TOKENS") throw new Error("The generated recipe became too long.")
@@ -340,17 +334,14 @@ const GenerateRecipe = () => {
           throw new Error("Invalid response structure from the recipe generator (via Edge).")
         }
 
-        // Success: Return the Gemini response data passed through the Edge Function
         return data
 
       } catch (error: any) {
-        // Catch errors from invoke OR from processing the response
         console.error("(NOBRIDGE) ERROR GenerateRecipe: Error invoking/processing Edge Function:", error)
-        // Rethrow the specific error message caught
         throw new Error(error.message || "Failed to contact the recipe generation service.")
       }
     } else {
-      // --- LOCAL .ENV FETCH LOGIC (Original Code slightly adapted) ---
+      // Local .env fetch
       if (!GEMINI_RECIPE_API_KEY || !GEMINI_RECIPE_URL) {
         console.error("(NOBRIDGE) ERROR GenerateRecipe: Local API Key/URL not configured.")
         throw new Error("Local Recipe Generation API Key/URL is not configured in .env.")
@@ -367,7 +358,7 @@ const GenerateRecipe = () => {
         const data: GeminiResponse = await response.json()
         console.log("(NOBRIDGE) LOG GenerateRecipe: Received LOCAL Recipe Generation response:", JSON.stringify(data))
 
-        // --- Process the response (Original Local Logic) ---
+        // Process the local response.
         if (data.promptFeedback?.blockReason) {
           const reason = data.promptFeedback.blockReason
           console.error(`(NOBRIDGE) ERROR GenerateRecipe (Local): Gemini API Prompt Blocked: ${reason}`)
@@ -398,12 +389,10 @@ const GenerateRecipe = () => {
           throw new Error("Invalid response from the local recipe generator.")
         }
 
-        // Success: Return the Gemini response data from local fetch
         return data
 
       } catch (error: any) {
         console.error("(NOBRIDGE) ERROR GenerateRecipe: Error calling LOCAL Gemini Recipe API:", error)
-        // Use existing logic to make errors user-friendly
         const userFriendlyError = error.message?.includes("API key not valid")
           ? "Configuration error with the recipe service (Local Key Invalid)."
           : error.message?.includes("blocked") || error.message?.includes("safety") || error.message?.includes("filter")
@@ -448,21 +437,19 @@ const GenerateRecipe = () => {
     }
   }, []);
 
-  // --- Main Logic Effect (Recipe Generation) ---
+  // Recipe generation
   useEffect(() => {
-    const initializeAndGenerate = async () => { // Rename the async function
-      if (loadingState !== "idle") return // Prevent re-triggering if already running/done/error
+    const initializeAndGenerate = async () => {
+      if (loadingState !== "idle") return
 
-      setLoadingState("generating"); // Set loading state early
+      setLoadingState("generating");
       setErrorMessage(null);
       setRecipe(null);
       console.log("(NOBRIDGE) LOG GenerateRecipe: Starting recipe generation process...");
 
-      // --- Step 1: Fetch the prompt ---
-      const fetchedPrompt = await fetchGenerationPrompt(); // Await the fetch result
+      const fetchedPrompt = await fetchGenerationPrompt();
 
-      // --- Step 2: Proceed with generation ---
-      // Initial check only needed for local mode (keep as is)
+      // Local validation runs before generation.
       if (
         !USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI &&
         (!GEMINI_RECIPE_API_KEY || GEMINI_RECIPE_API_KEY === "YOUR_GEMINI_API_KEY" || !GEMINI_RECIPE_URL)
@@ -476,7 +463,7 @@ const GenerateRecipe = () => {
       console.log("(NOBRIDGE) LOG GenerateRecipe: Using generation parameters:", params)
 
       try {
-        // Build User Preferences String (keep as is)
+        // Build the user preferences prompt.
         const userPreferences = `
           Temperature: ${params.temperature || "Any"}
           Strength: ${params.strength || "Medium"}
@@ -492,7 +479,7 @@ const GenerateRecipe = () => {
           Extra Shot: ${extraShot ? "Yes" : "No"}
           Salt Pinch: ${saltPinch ? "Yes" : "No"}
         `
-        // Default prompt (keep your actual default prompt here)
+        // Fall back to the bundled prompt when no remote prompt is available.
         const defaultPrompt = `You are BaristaAI, a highly creative and award-winning coffee innovator running a fun, experimental Coffee Lab.
 Your task is to invent a UNIQUE, EXCITING, and MEMORABLE coffee recipe based primarily on these specific ingredients the user has, make sure it also tastes good:
 \${identifiedIngredients.length > 0 ? identifiedIngredients.map((i) => \`- \${i}\`).join("\\n") : "- No specific items identified (base recipe purely on preferences below)."}
@@ -527,8 +514,7 @@ Recipe Requirements (Critical):
 "strengthLevel": number (Integer 1-5, perceived strength)
 }`;
 
-        // Use the fetched prompt if available, otherwise use default
-        // Note: fetchedPrompt might be undefined if fetch failed or returned empty
+        // Use the fetched prompt when available.
         const generationPrompt = fetchedPrompt
           ? fetchedPrompt // Use the directly returned prompt from the awaited fetch
             .replace("${identifiedIngredients.length > 0 ? identifiedIngredients.map((i) => `- ${i}`).join(\"\\n\") : \"- No specific items identified (base recipe purely on preferences below).\"}",
@@ -537,7 +523,6 @@ Recipe Requirements (Critical):
             .replace("${identifiedIngredients[0] || \"the main ingredient\"}", identifiedIngredients[0] || "the main ingredient")
           : defaultPrompt; // Fallback to default if fetch returned nothing useful
 
-        // Log which prompt is actually being used
         console.log(`(NOBRIDGE) LOG GenerateRecipe: Using ${fetchedPrompt ? 'Supabase' : 'Default'} prompt for generation.`);
 
         const generationRequest: GeminiRequest = {
@@ -571,7 +556,7 @@ Recipe Requirements (Critical):
             const extractedJsonText = recipeJsonText.substring(startIndex, endIndex + 1);
             console.log("(NOBRIDGE) LOG GenerateRecipe: Attempting to parse extracted JSON:", extractedJsonText);
 
-            // Now, try parsing the extracted block
+            // Parse the extracted JSON block.
             const parsedJson: any = JSON.parse(extractedJsonText);
             console.log("(NOBRIDGE) LOG GenerateRecipe: JSON Parsed Successfully.");
 
@@ -631,11 +616,11 @@ Recipe Requirements (Critical):
       }
     }
       
-    initializeAndGenerate(); // Call the async function
+    initializeAndGenerate();
 
   }, [params]);
 
-  // --- Navigation and Retry --- (keep as is)
+  // Navigation and retry
   const handleBack = useCallback(() => {
     if (isPosting) return // Prevent back navigation during post
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
@@ -648,17 +633,13 @@ Recipe Requirements (Critical):
 
   const handleRetryGeneration = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    setLoadingState("idle") // Reset to trigger useEffect again
-    // Reset other relevant states if needed
+    setLoadingState("idle")
     setRecipe(null)
     setErrorMessage(null)
   }, [])
 
-  // --- Posting Feature Functions ---
-
-  // --- REVISED Image Selection Function ---
+  // Posting
   const selectImage = useCallback(async (): Promise<string | null> => {
-    // Request both permissions upfront for simplicity, or request individually later
     const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
     const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -738,25 +719,23 @@ Recipe Requirements (Critical):
             onPress: () => resolve(null),
           },
         ],
-        { cancelable: true, onDismiss: () => resolve(null) } // Resolve null if dismissed
+        { cancelable: true, onDismiss: () => resolve(null) }
       );
     });
-  }, []); // Keep dependencies empty
+  }, []);
 
-  // --- REVISED Gemini Validation Function ---
+  // Content validation
    const validateContentWithGemini = async (
     recipeToValidate: Recipe,
     imageUri: string,
   ): Promise<{ isValid: boolean; reason: string | null }> => {
-    // Initial checks (keep as is)
     if (!imageUri) {
       return { isValid: false, reason: "A result photo is required to post." }
     }
 
     setPostingMessage("Validating post...")
 
-    // --- Prepare data needed for BOTH modes ---
-    // Recipe text content is needed for both modes
+    // Prepare the recipe and image for either validation mode.
     const textContent = `
        Recipe Title: ${recipeToValidate.title}
        Description: ${recipeToValidate.description}
@@ -765,7 +744,6 @@ Recipe Requirements (Critical):
        Instructions Summary: ${recipeToValidate.instructions.filter((s) => s.trim()).slice(0, 3).join(" ")}...
      `
 
-    // --- Image Data Preparation (needed for BOTH modes, but used differently) ---
     let imageBase64: string | null = null
     let imageMimeType: string | null = null
     let imagePartsForLocalSdk: { inlineData: { data: string; mimeType: string } }[] = [] // Only for local SDK
@@ -774,10 +752,8 @@ Recipe Requirements (Critical):
       const fileInfo = await FileSystem.getInfoAsync(imageUri)
       if (!fileInfo.exists) throw new Error("Selected image file not found.")
 
-      // Get Base64 for both Edge Function and Local SDK
       imageBase64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 })
 
-      // Determine MIME Type for both Edge Function and Local SDK
       const fileExtension = imageUri.split(".").pop()?.toLowerCase()
       let determinedMimeType = "image/jpeg" // Default
       if (fileExtension === "png") determinedMimeType = "image/png"
@@ -785,7 +761,6 @@ Recipe Requirements (Critical):
       else if (["heic", "heif"].includes(fileExtension || "")) determinedMimeType = "image/" + fileExtension // Basic HEIC/HEIF support
       imageMimeType = determinedMimeType
 
-      // *Only* prepare the imageParts structure if NOT using edge functions
       if (!USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI && imageBase64 && imageMimeType) {
         imagePartsForLocalSdk = [{ inlineData: { data: imageBase64, mimeType: imageMimeType } }]
       }
@@ -794,7 +769,6 @@ Recipe Requirements (Critical):
       console.error("(NOBRIDGE) ERROR GenerateRecipe: Error processing image for validation:", error)
       return { isValid: false, reason: `Could not process the image: ${error.message}` }
     }
-    // --- End of Image Data Preparation ---
 
 
     if (USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI) {
@@ -829,7 +803,6 @@ Recipe Requirements (Critical):
           { body: edgeFunctionPayload }, // Send the CORRECT payload structure
         )
 
-        // Handle Function Invocation Errors (keep existing logic)
         if (error) {
           console.error(
             `(NOBRIDGE) ERROR GenerateRecipe: Supabase function invoke error (${GEMINI_VALIDATION_FUNCTION_NAME}):`,
@@ -854,7 +827,6 @@ Recipe Requirements (Critical):
           throw new Error(`Validation service failed: ${message}`)
         }
 
-        // Handle case where function executed but returned invalid data structure (keep existing logic)
         if (!data || typeof data.isValid !== "boolean") {
           console.error("(NOBRIDGE) ERROR GenerateRecipe: Invalid response structure from validation Edge Function:", data)
           throw new Error("Received an invalid response structure from the validation service.")
@@ -866,7 +838,6 @@ Recipe Requirements (Critical):
         return data // e.g., { isValid: true, reason: null } or { isValid: false, reason: "..." }
 
       } catch (error: any) {
-        // Catch errors from invoke OR from processing the response (keep existing logic)
         console.error("(NOBRIDGE) ERROR GenerateRecipe: Error invoking/processing validation Edge Function:", error)
         // Return a consistent failure format
         return { isValid: false, reason: `Validation service error: ${error.message || "Please try again."}` }
@@ -875,7 +846,6 @@ Recipe Requirements (Critical):
       // --- LOCAL .ENV VALIDATION ---
       console.log("(NOBRIDGE) LOG GenerateRecipe: Performing validation using LOCAL Gemini SDK...")
 
-      // Check if the local validation model was initialized successfully earlier (keep existing logic)
       if (!validationModel) {
         console.warn(
           "(NOBRIDGE) WARN GenerateRecipe: Skipping LOCAL Gemini validation: Model not initialized (check API key in .env).",
@@ -883,7 +853,7 @@ Recipe Requirements (Critical):
         return { isValid: false, reason: "Local validation setup error (check .env API key)." }
       }
 
-       // Validation Prompt (only needed for LOCAL mode now)
+       // Validation prompt for local mode
       const validationPrompt = `
        Analyze the user's coffee post (recipe text + photo of their drink).
        Check 3 things:
@@ -909,8 +879,7 @@ Recipe Requirements (Critical):
         const result = await validationModel.generateContent([validationPrompt, ...imagePartsForLocalSdk]) // Pass prompt and CORRECT image parts structure
         const response = await result.response
 
-        // --- Process the response (Original Local Logic - remains the same) ---
-        // ... (keep the existing local response processing, parsing, and evaluation logic here) ...
+        // Process the local response.
          if (response.promptFeedback?.blockReason) {
           const reason = response.promptFeedback.blockReason
           console.error(`(NOBRIDGE) ERROR GenerateRecipe (Local): Validation blocked by Gemini safety settings: ${reason}`)
@@ -924,7 +893,6 @@ Recipe Requirements (Critical):
         let cleanedJsonText = ""
 
         try {
-          // Keep your original robust cleaning logic
           cleanedJsonText = responseText.trim()
           if (cleanedJsonText.startsWith("```json")) cleanedJsonText = cleanedJsonText.substring(7)
           if (cleanedJsonText.startsWith("```")) cleanedJsonText = cleanedJsonText.substring(3)
@@ -964,7 +932,7 @@ Recipe Requirements (Critical):
           return { isValid: false, reason: `Validation failed: Could not understand response (${parseError.message})` }
         }
 
-        // Evaluate the PARSED validation result (Original Logic)
+        // Evaluate the parsed validation result.
         if (!validationResult.is_safe) {
           return { isValid: false, reason: validationResult.reason || "Content was deemed potentially unsafe." }
         }
@@ -981,7 +949,6 @@ Recipe Requirements (Critical):
 
 
       } catch (error: any) {
-        // ... (keep existing local error handling logic) ...
          console.error("(NOBRIDGE) ERROR GenerateRecipe: LOCAL Gemini Validation API call error:", error)
         // Check structured feedback again if available on error object
         if (error.response?.promptFeedback) {
@@ -995,7 +962,7 @@ Recipe Requirements (Critical):
   }
 
 
-  // Post Result Function (Logic using validation result remains the same)
+  // Publish the validated result.
   const handlePostResult = async (resultImageUri: string) => {
     if (!recipe) {
       Alert.alert("Error", "No recipe available to post.")
@@ -1010,20 +977,13 @@ Recipe Requirements (Critical):
     setPostingMessage("Checking post...") // Initial message
 
     try {
-      // --- CONTENT VALIDATION (Calls the revised function) ---
+      // Validate content before publishing.
       const validation = await validateContentWithGemini(recipe, resultImageUri)
       if (!validation.isValid) {
-        // Use the reason provided by the validation function
         Alert.alert("Post Rejected", validation.reason || "Content does not meet posting guidelines.")
         setIsPosting(false)
         return
       }
-      // --- END VALIDATION ---
-
-      // --- REST OF POSTING LOGIC (Authentication, Image Upload, Supabase Insert) ---
-      // This part remains unchanged as it depends on the *result* of validation,
-      // not how validation was performed.
-
       setPostingMessage("Authenticating...")
       const {
         data: { user },
@@ -1088,10 +1048,6 @@ Recipe Requirements (Critical):
           image_url: imageUrl, // URL of the uploaded RESULT photo
           is_published: true,
           like_count: 0,
-          // Add optional fields if columns exist in your 'recipes' table
-          // brewing_time: recipe.brewingTime,
-          // strength_level: recipe.strengthLevel,
-          // uniqueness_factor: recipe.uniqueness_factor,
         },
       ])
 
@@ -1117,7 +1073,7 @@ Recipe Requirements (Critical):
     }
   }
 
-  // Orchestrator function (MODIFIED TO USE selectImage)
+  // Select an image and publish the recipe.
   const startPostingProcess = async () => {
     if (!recipe) {
       Alert.alert("Wait!", "The recipe needs to finish generating first.")
@@ -1126,7 +1082,6 @@ Recipe Requirements (Critical):
     if (isPosting) return
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    // Use the new function that presents the choice
     const selectedImageUri = await selectImage()
 
     if (selectedImageUri) {
@@ -1134,11 +1089,10 @@ Recipe Requirements (Critical):
       await handlePostResult(selectedImageUri) // Start the posting logic with the URI
     } else {
       console.log("(NOBRIDGE) LOG GenerateRecipe: Image selection cancelled or failed by user.")
-      // Optionally reset isPosting if it was set prematurely, though it shouldn't be here
     }
   }
 
-  // --- RENDER STATES --- (No changes needed to JSX structure or styles)
+  // Render states
 
   // Generating State
   if (loadingState === "generating") {
@@ -1469,7 +1423,7 @@ Recipe Requirements (Critical):
   )
 }
 
-// --- Styles --- (Keep original styles unchanged)
+// Styles
 const primaryBlack = "#1A1A1A"
 const primaryWhite = "#FFFFFF"
 const coffeeBrown = "#6F4E37"
@@ -1495,7 +1449,6 @@ const styles = StyleSheet.create({
   headerBackButton: {
     padding: 10,
     marginLeft: Platform.OS === 'ios' ? 10 : 0, // iOS needs slight margin
-    // Removed background color for cleaner look
   },
 
   // Loading / Error States
@@ -1540,7 +1493,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
     letterSpacing: 1,
-    marginTop: 10, // Added margin top for initial loading text
+    marginTop: 10,
   },
   errorContainer: {
     flex: 1,
@@ -1617,7 +1570,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    marginBottom: 0, // Remove potential bottom margin if added before
+    marginBottom: 0,
   },
   heroImage: {
     width: "100%",
@@ -1633,9 +1586,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     padding: 15,
   },
-  recipeMetaContainer: {
-    // Can hold metadata if needed later
-  },
+  recipeMetaContainer: {},
   noImagePlaceholder: {
     width: "100%",
     height: 180,
@@ -1660,8 +1611,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 25,
     paddingVertical: 25,
     backgroundColor: primaryWhite, // Ensure background matches
-    // borderTopWidth: 1, // Optional separator if needed
-    // borderTopColor: lightGray,
   },
   recipeTitleHype: {
     fontSize: 26,
@@ -1807,10 +1756,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(0,0,0,0.06)",
-    // Remove last border bottom via pseudo-selector if needed (complex in RN)
   },
   ingredientBullet: {
-    width: 28, // Fixed width for alignment
+    width: 28,
     alignItems: "center", // Center icon in bullet area
     marginRight: 10, // Increased spacing
   },
@@ -1823,7 +1771,6 @@ const styles = StyleSheet.create({
 
   // Instructions Section Styles
   instructionsContainer: {
-    // Removed background and shadow - steps look cleaner directly on page
     borderRadius: 16,
     marginTop: 5, // Add some space from header
   },
@@ -1833,7 +1780,6 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: lightGray, // Lighter separator for steps
-    // Remove last border bottom via pseudo-selector if needed
   },
   instructionNumberContainer: {
     width: 32,

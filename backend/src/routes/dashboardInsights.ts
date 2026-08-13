@@ -1483,7 +1483,7 @@ router.get(
             count: number;
             uniqueUserIds: Set<string>;
             dau: number;
-            // NEW: Additional metrics for overview graphs
+            // Overview aggregates
             avgApiResponseMs: number;
             apiErrorRate: number;
             avgDurationSeconds: number;
@@ -1491,7 +1491,7 @@ router.get(
             appVersionBreakdown: Record<string, number>;
             appVersionDauBreakdown: Record<string, number>;
             countryDauBreakdown: Record<string, number>;
-            totalApiCalls: number; // NEW: Total API calls for the day
+            totalApiCalls: number;
         }> = {};
 
         // First pass: Aggregate stats per day
@@ -1507,7 +1507,7 @@ router.get(
                     count: 0,
                     uniqueUserIds: new Set<string>(),
                     dau: 0,
-                    // NEW: Additional metrics for overview graphs
+                    // Overview aggregates
                     avgApiResponseMs: 0,
                     apiErrorRate: 0,
                     avgDurationSeconds: 0,
@@ -1524,7 +1524,7 @@ router.get(
             dailyMap[date].deadTaps += s.totalDeadTaps || 0;
             dailyMap[date].avgUxScore += s.avgUxScore || 0;
             dailyMap[date].count++;
-            // NEW: Aggregate additional metrics (weighted sum, divide later)
+            // Accumulate weighted values; normalize them after all rows are merged.
             dailyMap[date].avgApiResponseMs += (s.avgApiResponseMs || 0) * s.totalSessions;
             dailyMap[date].apiErrorRate += (s.avgApiErrorRate || 0) * s.totalSessions;
             dailyMap[date].avgDurationSeconds += (s.avgDurationSeconds || 0) * s.totalSessions;
@@ -1628,7 +1628,6 @@ router.get(
                     avgUxScore: avgUxScore,
                     dau: data.dau,
                     mau: aggregateMau,
-                    // NEW fields
                     avgApiResponseMs,
                     apiErrorRate,
                     avgDurationSeconds,
@@ -1636,7 +1635,7 @@ router.get(
                     appVersionBreakdown: data.appVersionBreakdown,
                     appVersionDauBreakdown: data.appVersionDauBreakdown,
                     countryDauBreakdown: data.countryDauBreakdown,
-                    totalApiCalls: data.totalApiCalls, // Pass through
+                    totalApiCalls: data.totalApiCalls,
                 };
             });
 

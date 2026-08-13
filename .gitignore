@@ -1,34 +1,42 @@
 # Environment files
 .env
+.env.local
+.env.k8s.local
+.env.selfhosted
 docs/local/.env
 docker/.env
 
-# Dependencies
+# Dependencies and package-manager state
 **/node_modules/
+/.yarn/
+/.pnp.cjs
+/.pnp.loader.mjs
+packages/react-native/*.tgz
 
-# Build outputs
+# Build and test outputs
 .build/
 .swiftpm/
 **/.next/
 **/.nuxt/
 **/.output/
 **/.svelte-kit/
+**/coverage/
 packages/**/lib/
 !packages/rejourney/lib/
 !packages/rejourney/lib/**
 !packages/rejourney/example/lib/
 !packages/rejourney/example/lib/**
 packages/**/dist/
-packages/react-native/*.tgz
 *.tsbuildinfo
 
 # iOS
-*.xcworkspace
-!*.xcworkspace/contents.xcworkspacedata
+*.xcworkspace/
 !packages/rejourney/example/ios/Runner.xcworkspace/
 !packages/rejourney/example/ios/Runner.xcworkspace/contents.xcworkspacedata
 !examples/flutter/ios/Runner.xcworkspace/
 !examples/flutter/ios/Runner.xcworkspace/contents.xcworkspacedata
+!examples/brew-coffee-labs/ios/BREW.xcworkspace/
+!examples/brew-coffee-labs/ios/BREW.xcworkspace/contents.xcworkspacedata
 **/ios/Pods/
 **/ios/build/
 **/ios/*.xcworkspace/xcuserdata/
@@ -49,35 +57,53 @@ xcuserdata/
 local.properties
 *.keystore
 
-# Metro
+# Runtime, tool, and editor state
 .metro-health-check*
-
-# macOS
 .DS_Store
-**/.DS_Store
 *.pem
+/.idea/
+/.vscode/
+**/.claude/
+**/.expo/
+**/.settings/
+**/.agent/
+*.app
+*.swp
+*.swo
+/.local-k8s/
+**/.playwright-cli/
+**/.config.kiro/
+**/.kiro/
+backend/src/utils/rejourney.code-workspace
 
-# Temporary files
+# Python and temporary files
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 *.log
 *.tmp
+api_logs.txt
+temp_env.txt
+/tmp/
 
-# Local SEO exports
+# Generated local reports and browser artifacts
+/output/
+/outputs/
+/dashboard/web-ui/output/
+/dashboard/web-ui/tmp-*
+/maunatl run proof/
 /seo_reports/
-
-# Local Google Ads Editor upload artifacts
 /ads_import/
 /google-ads-bulk/
-/tmp/google_ads_measurement_workbook/
-/tmp/prod-alert-rule-exports/
+/marketing/
 
-# Local research lake report drafts
+# Local research-lake tooling and report drafts
 /research_lake_report.pdf
 /scripts/repair_research_lake_report_pdf.py
 /scripts/generate_research_lake_report.py
 /scripts/generate_research_lake_integrated_report.py
-/scripts/__pycache__/generate_research_lake_integrated_report*.pyc
-/tmp/pdfs/
-/tmp/labeled_data/
 /scripts/research_lake_labeling_operator.py
 /scripts/research_lake_remote_pack.py
 /scripts/research_lake_remote_upload.py
@@ -89,30 +115,8 @@ local.properties
 /scripts/research_lake_remote_upload.mjs
 /scripts/research_lake_remote_evidence_pack.mjs
 /scripts/research_lake_remote_upload_batch.mjs
-/scripts/__pycache__/
-/output/pdf/
 /dev_docs/research_lake_integrated_reference_source.txt
 
-# Editor
-.idea/
-.vscode/
-.claude/
-*.swp
-*.swo
-.env.local
-.env.k8s.local
-.local-k8s/
-api_logs.txt
-temp_env.txt
-examples/react-native-boilerplate/.env.dev.example
-.
-backend/src/utils/rejourney.code-workspace
-.env.selfhosted
-.config.kiro
-.kiro/
-dev_docs/scaling-plan.md
-dashboard/.DS_Store
-marketing
-outputs
-.playwright-cli
-dev_docs/google-ads-conversion-tracking.md
+# Local-only working documents
+/dev_docs/scaling-plan.md
+/dev_docs/google-ads-conversion-tracking.md

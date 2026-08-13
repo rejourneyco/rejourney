@@ -20,13 +20,12 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
-import { saveAuthToken } from '../../authUtils'; // Ensure this path is correct
+import { saveAuthToken } from '../../authUtils';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { FontAwesome } from '@expo/vector-icons';
 
-// Constants (keep as before)
+// Constants
 const words = [
-    // ... (keep words array)
     { text: 'Hot', color: '#FF824C' },
     { text: 'Cold', color: '#4EE4FF' },
     { text: 'Sweet', color: '#FFF716' },
@@ -65,11 +64,11 @@ const LoginPage = () => {
   const [isChecked, setIsChecked] = useState(false);
   const [showError, setShowError] = useState(false);
   const [loading, setLoading] = useState(false); // For sign-in process
-  const [checkingAuth, setCheckingAuth] = useState(true); // <-- New state for initial auth check
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [signInError, setSignInError] = useState('');
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
 
-  // Refs (keep as before)
+  // Refs
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
@@ -109,7 +108,7 @@ useEffect(() => {
 
   checkSession();
 }, [router]); // Dependency array
-  // Effect for rotating words animation (keep as before)
+  // Rotate the feature words.
   useEffect(() => {
     // Only start animation if not checking auth (optional optimization)
     if (!checkingAuth) {
@@ -133,14 +132,14 @@ useEffect(() => {
     }
   }, [slideAnim, checkingAuth]); // Add checkingAuth dependency
 
-  // Effect to check Apple Sign In availability (keep as before)
+  // Check Apple Sign In availability.
   useEffect(() => {
     if (Platform.OS === 'ios') {
       AppleAuthentication.isAvailableAsync().then(setAppleSignInAvailable);
     }
   }, []);
 
-  // Handlers (keep handleCheck, triggerShake, handleSuccessfulSignIn, handleSignInWithGoogle, handleSignInWithApple as before)
+  // Handlers
    // Handler for checkbox toggle
   const handleCheck = () => setIsChecked(!isChecked);
 
@@ -159,7 +158,6 @@ useEffect(() => {
 
   // --- Shared Logic for Post-Authentication ---
   const handleSuccessfulSignIn = async (authData: { provider: any; user: any; session: any; }) => {
-    // ... (keep implementation as before)
     console.log('Authentication successful:', authData.provider);
     if (!authData || !authData.session || !authData.user) {
       throw new Error('Invalid authentication data received.');
@@ -198,7 +196,6 @@ useEffect(() => {
 
   // --- Sign in with Google ---
   const handleSignInWithGoogle = async () => {
-    // ... (keep implementation as before)
         setSignInError('');
     if (!isChecked) {
       triggerShake();
@@ -206,7 +203,6 @@ useEffect(() => {
     }
     setLoading(true);
     try {
-      // await GoogleSignin.hasPlayServices(); // Uncomment if supporting Android
       await GoogleSignin.signIn();
       const { idToken } = await GoogleSignin.getTokens();
       if (!idToken) throw new Error('Failed to get ID token from Google.');
@@ -218,13 +214,13 @@ useEffect(() => {
       if (authError) throw authError;
       await handleSuccessfulSignIn({ ...authData, provider: 'google' });
 
-    } catch (error: any) { // Added : any to handle potential error structure variations
+    } catch (error: any) {
       console.error('Google Sign-In Error:', error);
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         console.log('Google Sign in cancelled by user.');
       } else if (error.code === statusCodes.IN_PROGRESS) {
         Alert.alert('Sign In In Progress', 'A sign-in operation is already in progress.');
-      } else if (error.message?.includes('Network Error')) { // Added optional chaining
+      } else if (error.message?.includes('Network Error')) {
          setSignInError('Network Error. Please check your connection.');
          Alert.alert('Network Error', 'Could not connect to Google services.');
       } else {
@@ -239,7 +235,6 @@ useEffect(() => {
 
   // --- Sign in with Apple ---
   const handleSignInWithApple = async () => {
-    // ... (keep implementation as before)
     setSignInError('');
     if (!isChecked) {
       triggerShake();
@@ -267,7 +262,7 @@ useEffect(() => {
       if (authError) throw authError;
       await handleSuccessfulSignIn({ ...authData, provider: 'apple' });
 
-    } catch (error: any) { // Added : any
+    } catch (error: any) {
       console.error('Apple Sign-In Error:', error);
        // Check for Expo's specific cancellation code
       if (error.code === 'ERR_REQUEST_CANCELED') {
@@ -404,9 +399,8 @@ useEffect(() => {
   );
 };
 
-// Styles (Add loadingContainer style)
+// Styles
 const styles = StyleSheet.create({
-  // ... (keep all existing styles)
   container: {
     flex: 1,
     backgroundColor: '#F0F0F0',
@@ -570,7 +564,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
-  // --- New Style for Loading Container ---
+  // Loading overlay
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

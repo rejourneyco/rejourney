@@ -871,6 +871,14 @@ export const Journeys: React.FC = () => {
         setSelectedTransitionIds((current) => toggleContiguousJourneySelection(current, flow, positionedGraph.links));
     };
 
+    const clearSelectedTransitions = () => {
+        setSelectedTransitionIds([]);
+    };
+
+    const undoSelectedTransition = () => {
+        setSelectedTransitionIds((current) => current.slice(0, -1));
+    };
+
     const applyJourneyQuery = (path: string[]) => {
         if (!selectedProject?.id || path.length < 2) return;
 
@@ -1035,8 +1043,9 @@ export const Journeys: React.FC = () => {
                             cards={kpiCards}
                             timeRange={timeRange}
                             storageKey="analytics-journeys"
+                            className="journey-kpi-strip"
                             showControls={false}
-                            gridClassName="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4"
+                            gridClassName="journey-kpi-grid"
                         />
 
                         <SankeyJourney
@@ -1044,6 +1053,8 @@ export const Journeys: React.FC = () => {
                             happyPath={canonicalHappyPath}
                             selectedTransitionIds={selectedTransitionIds}
                             onFlowToggle={toggleSelectedTransition}
+                            onClearSelection={clearSelectedTransitions}
+                            onUndoSelection={undoSelectedTransition}
                             appVersions={appVersionOptions}
                             selectedAppVersion={selectedAppVersion}
                             onAppVersionChange={setSelectedAppVersion}
@@ -1068,7 +1079,7 @@ export const Journeys: React.FC = () => {
                                         {selectedTransitionIds.length > 0 && (
                                             <button
                                                 type="button"
-                                                onClick={() => setSelectedTransitionIds([])}
+                                                onClick={clearSelectedTransitions}
                                                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] shadow-sm transition-colors hover:border-[#fbcfe8] hover:bg-[#fdf2f8] hover:text-[#be185d]"
                                             >
                                                 <X className="h-3.5 w-3.5" />

@@ -50,7 +50,7 @@ layers above.
 | Column | Owner | Meaning | Controls |
 | --- | --- | --- | --- |
 | `sessions.replay_available` | evidence/replay retention | Retained replay artifacts exist. Buffered Smart Capture rows may have this true while hidden. | Low-level artifact/player availability, not public visibility by itself. |
-| `sessions.replay_retention_state` | reconciliation/Smart Capture/retention | Product state for replay visibility and replay billing. | Dashboard visibility, replay backup eligibility, replay quota eligibility. |
+| `sessions.replay_retention_state` | reconciliation/Smart Capture/retention | Product state for replay visibility and replay billing. | Dashboard visibility and replay quota eligibility. |
 | `sessions.replay_quota_counted_at` | quota counting | Idempotency marker for replay quota usage. | Prevents double-counting a saved replay. |
 | `sessions.replay_quota_billing_exhausted` | ingest/quota gate | Replay quota was exhausted before or at promotion. | Blocks replay quota counting and hides replay as expected billing behavior. |
 | `sessions.smart_capture_status` | Smart Capture | Decision lifecycle: not applicable, pending, kept, discarded. | Worker/audit state; not the primary visibility guard. |

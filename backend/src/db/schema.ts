@@ -558,8 +558,9 @@ export const sessions = pgTable(
     (table) => [
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
+        // Keep the historical physical index name for migration compatibility; it now
+        // supports ordered retention and lifecycle scans.
         index('sessions_backup_ready_started_idx').on(table.status, table.startedAt, table.id),
-        /** Speeds the session-backup-seed scan: orders 1M+ sessions by started_at without a full seq scan */
         index('sessions_seed_started_at_idx').on(table.startedAt, table.id),
         index('sessions_replay_available_idx').on(table.replayAvailable, table.startedAt),
         index('sessions_replay_retention_state_started_idx').on(table.replayRetentionState, table.startedAt),

@@ -42,7 +42,7 @@ type ClientRequestBody = RecipeValidationClientRequest | ProfileValidationClient
 
 // Structure expected from Gemini for RECIPE validation
 interface RecipeValidationResult {
-  is_coffee_image: boolean // Changed from boolean | null for stricter checking
+  is_coffee_image: boolean
   is_coffee_recipe: boolean
   is_safe: boolean
   reason: string | null
@@ -77,7 +77,6 @@ function prepareImageParts(imageBase64?: string, mimeType?: string): { inlineDat
 function generatePrompt(requestData: ClientRequestBody): string {
     if (requestData.type === 'recipe') {
         // --- PROMPT FOR RECIPE VALIDATION ---
-        // Use the existing prompt structure you had previously defined for recipes
         return `
             Analyze the following coffee recipe submission (text and optional image).
             Respond ONLY with a JSON object matching this structure:

@@ -69,7 +69,7 @@ export default function CreateProfilePage() {
   const [bounceAnim] = useState(new Animated.Value(1));
   const [currentStep, setCurrentStep] = useState(1);
 
-  // Fetch user data effect (Unchanged)
+  // Load the current user details.
   useEffect(() => {
     const fetchUserData = async () => {
       try {
@@ -91,14 +91,12 @@ export default function CreateProfilePage() {
     fetchUserData();
   }, [router]);
 
-  // --- NEW: Validation Function using Supabase Edge Function ---
+  // Validate profile content through the Supabase Edge Function.
   const validateProfileContentWithEdgeFunction = async (
     userName: string,
     imageUri: string | null
   ): Promise<{ isValid: boolean; reason: string | null }> => {
     console.log('Starting profile content validation via Edge Function...');
-    // setLoadingMessage('Validating content...'); // Message set by handleSaveProfile
-
     // 1. Basic Client-side Name Check
     if (!userName || userName.trim().length === 0) {
         return { isValid: false, reason: 'Display name cannot be empty.' };
@@ -182,10 +180,7 @@ export default function CreateProfilePage() {
         // Loading state managed by handleSaveProfile
     }
   };
-  // --- End NEW Validation Function ---
-
-
-  // Animation when selecting an icon (Unchanged)
+  // Animate icon selection.
   const animateSelection = () => {
     Animated.sequence([
       Animated.timing(bounceAnim, { toValue: 1.2, duration: 100, useNativeDriver: true }),
@@ -193,7 +188,7 @@ export default function CreateProfilePage() {
     ]).start();
   };
 
-  // Let user pick an image from device (Unchanged)
+  // Let the user select a profile image.
   const pickImage = async () => {
     if (isLoading) return;
     try {
@@ -218,7 +213,7 @@ export default function CreateProfilePage() {
     }
   };
 
-  // Upload profile picture (Unchanged - uses Cloudflare Worker)
+  // Upload the profile picture through the configured worker.
   const uploadProfilePicture = async (uri: string) => {
       console.log("Attempting to upload image:", uri);
       setLoadingMessage('Uploading image...');
@@ -260,20 +255,20 @@ export default function CreateProfilePage() {
     }
   };
 
-  // Save user profile to your database (Updated to use Edge Function validation)
+  // Validate and save the user profile.
   const handleSaveProfile = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     const trimmedName = name.trim();
 
-    // Basic client-side checks first (Unchanged)
+    // Validate required fields before starting remote work.
     if (!trimmedName) { Alert.alert('Hello there!', 'What should we call you?'); setCurrentStep(1); return; }
     if (!selectedIcon && !profileImageUri) { Alert.alert('One more thing!', 'Choose an icon or upload your profile photo.'); return; }
 
     setIsLoading(true); // Start loading
 
     try {
-      // *** START EDGE FUNCTION VALIDATION ***
+      // Validate the content before uploading it.
       setLoadingMessage('Validating profile...');
       const validation = await validateProfileContentWithEdgeFunction(trimmedName, profileImageUri);
 
@@ -285,13 +280,9 @@ export default function CreateProfilePage() {
         }
         return; // Stop the process
       }
-      // *** END EDGE FUNCTION VALIDATION ***
-
-      // --- Proceed with Upload and Save if Valid ---
       let iconOrUrl = selectedIcon;
 
       if (profileImageUri) {
-          // Message updated inside uploadProfilePicture
           iconOrUrl = await uploadProfilePicture(profileImageUri);
       }
 
@@ -309,15 +300,6 @@ export default function CreateProfilePage() {
       if (error) {
         if (error.code === '23505') {
             console.error("Insert failed, user likely already exists:", error);
-            // Optional: Try updating instead if that's desired behavior for this screen
-            // const { data: updateData, error: updateError } = await supabase
-            //    .from('users')
-            //    .update({ name: trimmedName, profile_icon: iconOrUrl })
-            //    .eq('uuid', userId)
-            //    .select()
-            //    .single();
-            // if(updateError) throw new Error("Failed to create or update profile.");
-            // data = updateData; // Use updateData if update logic is added
             throw new Error("Failed to create profile. An account might already exist.");
         }
         console.error("Supabase insert error:", error);
@@ -332,7 +314,6 @@ export default function CreateProfilePage() {
 
       console.log('Profile saved successfully:', data);
       
-      // CHANGED: Navigate to rate-us page instead of home
       router.replace('/other-pages/rate-us');
 
     } catch (err: any) {
@@ -341,11 +322,8 @@ export default function CreateProfilePage() {
       setIsLoading(false); // Stop loading on error
       setLoadingMessage('Loading...'); // Reset message
     }
-    // No finally needed for setIsLoading(false) here
   };
 
-
-  // Other handlers (Unchanged)
     const handleBackPress = () => {
         if (isLoading) return;
         if (currentStep === 2) setCurrentStep(1);
@@ -380,7 +358,6 @@ export default function CreateProfilePage() {
     );
 
 
-  // --- RENDER (Unchanged from your previous version) ---
   return (
     <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -480,7 +457,6 @@ export default function CreateProfilePage() {
   );
 }
 
-// --- STYLES (Unchanged) ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF', },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Platform.OS === 'ios' ? 60 : StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 40, paddingBottom: 15, paddingHorizontal: 20, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F0F0F0', },
