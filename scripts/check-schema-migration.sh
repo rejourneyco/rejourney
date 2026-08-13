@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEMA_PATH="backend/src/db/schema.ts"
 MIGRATION_DIR="backend/drizzle"
+SCHEMA_CHANGE_CLASSIFIER="scripts/ci/classify-schema-change.mjs"
 MODE="working-tree"
 RANGE=""
 
@@ -39,6 +40,25 @@ if ! has_schema_change; then
   echo "[schema-migration-check] No schema changes detected."
   exit 0
 fi
+
+if [ "${MODE}" = "range" ]; then
+  SCHEMA_CHANGE_KIND="$(node "${SCHEMA_CHANGE_CLASSIFIER}" --range "${RANGE}" "${SCHEMA_PATH}")"
+else
+  SCHEMA_CHANGE_KIND="$(node "${SCHEMA_CHANGE_CLASSIFIER}" --working-tree "${SCHEMA_PATH}")"
+fi
+
+case "${SCHEMA_CHANGE_KIND}" in
+  definition)
+    ;;
+  comments-only|unchanged)
+    echo "[schema-migration-check] Schema source changed, but PostgreSQL definitions are unchanged."
+    exit 0
+    ;;
+  *)
+    echo "[schema-migration-check] ERROR: unexpected schema change classification: ${SCHEMA_CHANGE_KIND}" >&2
+    exit 1
+    ;;
+esac
 
 if has_migration_change; then
   echo "[schema-migration-check] Schema and migration changes detected."

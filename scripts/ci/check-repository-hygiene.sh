@@ -12,6 +12,10 @@ fail() {
   exit 1
 }
 
+if ! command -v rg >/dev/null 2>&1; then
+  fail "ripgrep (rg) is required; install it before running this check."
+fi
+
 cd "${ROOT_DIR}"
 
 ignored_tracked="$(

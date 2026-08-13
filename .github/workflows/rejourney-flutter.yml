@@ -86,6 +86,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.47.0"
           channel: stable
           cache: true
       - name: Verify release versions and changelog agree
@@ -124,6 +125,7 @@ jobs:
           java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.47.0"
           channel: stable
           cache: true
       - run: flutter pub get
@@ -155,6 +157,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.47.0"
           channel: stable
           cache: true
       - run: flutter pub get
@@ -181,6 +184,7 @@ jobs:
           java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.47.0"
           channel: stable
           cache: true
       - run: flutter pub get
