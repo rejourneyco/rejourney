@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,7 +93,10 @@ function collectDocuments() {
 
 function addExistingFile(absolutePath, found) {
   try {
-    if (fs.statSync(absolutePath).isFile()) {
+    if (
+      fs.statSync(absolutePath).isFile() &&
+      !isIgnoredUntrackedPath(path.relative(REPOSITORY_ROOT, absolutePath))
+    ) {
       found.add(absolutePath);
     }
   } catch (error) {
@@ -619,7 +623,38 @@ function inspectExactPath(repositoryRelativePath) {
     }
     throw error;
   }
+
+  if (isIgnoredUntrackedPath(repositoryRelativePath)) {
+    return `local target is ignored and will be missing from a clean checkout (resolved to ${toRepositoryPath(
+      currentPath,
+    )})`;
+  }
   return null;
+}
+
+function isIgnoredUntrackedPath(repositoryRelativePath) {
+  if (repositoryRelativePath === "") {
+    return false;
+  }
+
+  const result = spawnSync(
+    "git",
+    ["check-ignore", "--quiet", "--", repositoryRelativePath],
+    {
+      cwd: REPOSITORY_ROOT,
+      stdio: "ignore",
+    },
+  );
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(
+      `git check-ignore failed for ${JSON.stringify(repositoryRelativePath)} with status ${result.status}`,
+    );
+  }
+  return result.status === 0;
 }
 
 function parseLineEnd(source, start) {

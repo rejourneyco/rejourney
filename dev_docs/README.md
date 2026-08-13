@@ -47,7 +47,6 @@ request. Do not add a second document for the same workflow.
 - [Private admin access](admin-tools-private-access.md)
 - [PostgreSQL backup and restore](postgres-backup-and-restore.md)
 - [Research-lake catch-up](research-lake-catchup-runbook.md)
-- [Google Ads conversion tracking](google-ads-conversion-tracking.md)
 - [CI and deployment path](rejourney-ci.md)
 
 Runbooks are not authorization to operate on production. Confirm the target
