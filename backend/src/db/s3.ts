@@ -19,6 +19,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { eq, and, isNull, isNotNull, desc, or } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { PassThrough, type Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
@@ -239,6 +240,9 @@ const ENDPOINT_BY_ID_CACHE_MAX_ENTRIES = 2_000;
 const SESSION_ENDPOINT_CACHE_MAX_ENTRIES = 50_000;
 const S3_CLIENT_POOL_MAX_ENTRIES = 2_000;
 const S3_HEALTH_CACHE_TTL_MS = 30_000;
+export const S3_PUT_OPERATION_ABORTED_MAX_ATTEMPTS = 4;
+const S3_PUT_OPERATION_ABORTED_BASE_DELAY_MS = 250;
+const S3_PUT_OPERATION_ABORTED_MAX_DELAY_MS = 2_000;
 
 // Cache S3 clients by endpoint ID
 const s3ClientPool = new Map<string, S3ClientEntry>();
@@ -683,6 +687,37 @@ async function streamBodyToBuffer(body: AsyncIterable<Uint8Array>): Promise<Buff
     return Buffer.concat(chunks);
 }
 
+export function isRetryableS3PutOperationAborted(err: unknown): boolean {
+    const anyErr = err as any;
+    const isOperationAborted = [anyErr?.name, anyErr?.Code, anyErr?.code]
+        .some((value) => String(value ?? '').toLowerCase() === 'operationaborted');
+    const httpStatus = Number(
+        anyErr?.$metadata?.httpStatusCode
+        ?? anyErr?.httpStatusCode
+        ?? anyErr?.statusCode
+        ?? anyErr?.status
+        ?? anyErr?.$response?.statusCode,
+    );
+
+    return isOperationAborted && httpStatus === 409;
+}
+
+function getS3PutOperationAbortedRetryDelayMs(attempt: number): number {
+    const delayCapMs = Math.min(
+        S3_PUT_OPERATION_ABORTED_MAX_DELAY_MS,
+        S3_PUT_OPERATION_ABORTED_BASE_DELAY_MS * (2 ** Math.max(0, attempt - 1)),
+    );
+    return Math.floor(Math.random() * delayCapMs);
+}
+
+function waitForS3PutRetry(delayMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function getStorageObjectLogRef(bucket: string, key: string): string {
+    return createHash('sha256').update(bucket).update('\0').update(key).digest('hex').slice(0, 16);
+}
+
 async function putObjectToEndpoint(
     endpoint: StorageEndpoint,
     key: string,
@@ -691,16 +726,40 @@ async function putObjectToEndpoint(
     metadata?: Record<string, string>
 ): Promise<void> {
     const { client, bucket } = getS3ClientForEndpoint(endpoint);
-    await client.send(
-        new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: body,
-            ContentType: contentType,
-            Metadata: metadata,
-            ...(endpoint.storageClass ? { StorageClass: endpoint.storageClass as any } : {}),
-        })
-    );
+    const input = {
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        Metadata: metadata,
+        ...(endpoint.storageClass ? { StorageClass: endpoint.storageClass as any } : {}),
+    };
+
+    for (let attempt = 1; attempt <= S3_PUT_OPERATION_ABORTED_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            await client.send(new PutObjectCommand(input));
+            return;
+        } catch (err) {
+            if (
+                !isRetryableS3PutOperationAborted(err)
+                || attempt === S3_PUT_OPERATION_ABORTED_MAX_ATTEMPTS
+            ) {
+                throw err;
+            }
+
+            const delayMs = getS3PutOperationAbortedRetryDelayMs(attempt);
+            logger.warn({
+                event: 's3.put_operation_aborted_retry',
+                err,
+                objectRef: getStorageObjectLogRef(bucket, key),
+                attempt,
+                nextAttempt: attempt + 1,
+                maxAttempts: S3_PUT_OPERATION_ABORTED_MAX_ATTEMPTS,
+                delayMs,
+            }, 'Retrying transient S3 PutObject conflict');
+            await waitForS3PutRetry(delayMs);
+        }
+    }
 }
 
 async function putObjectStreamToEndpoint(

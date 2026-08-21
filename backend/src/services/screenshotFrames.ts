@@ -886,6 +886,8 @@ export async function getSessionScreenshotFrames(
         index: number;
         sizeBytes: number;
     }> = [];
+    type MaterializedFrameUpload = Awaited<ReturnType<typeof uploadToS3ForArtifact>>;
+    const materializedFrameUploads = new Map<string, Promise<MaterializedFrameUpload>>();
     
     let globalIndex = 0;
     
@@ -917,18 +919,35 @@ export async function getSessionScreenshotFrames(
                 FRAME_UPLOAD_CONCURRENCY,
                 async (frame) => {
                     const s3Key = buildMaterializedFrameKey(sessionId, frame.timestamp);
-                    const upload = await uploadToS3ForArtifact(
-                        session.projectId,
-                        s3Key,
-                        frame.data,
-                        'image/jpeg',
-                        {
-                            session_id: sessionId,
-                            kind: 'screenshot_frame',
-                            timestamp: String(frame.timestamp),
-                        },
-                        segment.endpointId,
-                    );
+                    const uploadMemoKey = `${segment.endpointId ?? 'project-default'}\0${s3Key}`;
+                    let uploadPromise = materializedFrameUploads.get(uploadMemoKey);
+                    if (!uploadPromise) {
+                        uploadPromise = uploadToS3ForArtifact(
+                            session.projectId,
+                            s3Key,
+                            frame.data,
+                            'image/jpeg',
+                            {
+                                session_id: sessionId,
+                                kind: 'screenshot_frame',
+                                timestamp: String(frame.timestamp),
+                            },
+                            segment.endpointId,
+                        );
+                        materializedFrameUploads.set(uploadMemoKey, uploadPromise);
+                    }
+                    let upload: MaterializedFrameUpload;
+                    try {
+                        upload = await uploadPromise;
+                    } catch (err) {
+                        if (materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
+                            materializedFrameUploads.delete(uploadMemoKey);
+                        }
+                        throw err;
+                    }
+                    if (!upload.success && materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
+                        materializedFrameUploads.delete(uploadMemoKey);
+                    }
 
                     if (!upload.success) {
                         logger.warn(
