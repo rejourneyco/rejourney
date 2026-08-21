@@ -84,18 +84,6 @@ Kullanıcı tutma ve sadakat segmentlerini takip edin. Sürümlerin power user'l
 
 Tam entegrasyon rehberleri ve API referansı: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Tek düğümlü Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
-- Kurumsal K3s hosting (mimari dokümanları): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operasyonlar (K8s / Tailscale / admin host adları)
-
-- [Cloud mimarisi + Tailscale diyagramları](../dev_docs/allthingscloud.md) — deployment özeti, public yol ve tailnet admin yolu.
-- [ClickHouse API endpoint stats migrasyonu](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analitik ölçekleme planı ve backfill/cutover runbook.
-- [Ağ erişimi ve Tailscale](../dev_docs/network-exposure-and-tailscale.md) — hangi `rejourney.co` host'ları public kalır; kube API tailnet üzerinde.
-- [Public URL olmadan admin araçları](../dev_docs/admin-tools-private-access.md) — `kubectl port-forward` ile pgweb, Redis Commander, Netdata, Traefik ve Uptime Kuma.
-
 ## Katkıda bulunma
 
 Rejourney'e katkıda bulunmak ister misiniz? Katkı rehberimize bakın: https://rejourney.co/docs/community/contributing

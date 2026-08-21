@@ -84,18 +84,6 @@ Lacak retensi pengguna dan segmen loyalitas. Pahami bagaimana rilis memengaruhi 
 
 Panduan integrasi lengkap dan referensi API: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Self-hosting Docker Compose single-node: https://rejourney.co/docs/selfhosted
-- Hosting K3s tingkat enterprise (dokumen arsitektur): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operasi (K8s / Tailscale / hostname admin)
-
-- [Arsitektur cloud + diagram Tailscale](../dev_docs/allthingscloud.md) — ringkasan deployment, jalur publik vs jalur admin tailnet.
-- [Migrasi statistik endpoint API ClickHouse](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — rencana scale-out analytics dan runbook backfill/cutover.
-- [Eksposur jaringan dan Tailscale](../dev_docs/network-exposure-and-tailscale.md) — host `rejourney.co` mana yang tetap publik; kube API di tailnet.
-- [Tool admin tanpa URL publik](../dev_docs/admin-tools-private-access.md) — pgweb, Redis Commander, Netdata, Traefik, dan Uptime Kuma lewat `kubectl port-forward`.
-
 ## Berkontribusi
 
 Ingin berkontribusi ke Rejourney? Lihat panduan kontribusi kami: https://rejourney.co/docs/community/contributing

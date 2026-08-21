@@ -84,18 +84,6 @@ User retention और loyalty segments track करें। समझें क
 
 Full integration guides और API reference: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Single-node Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
-- Enterprise-grade K3s hosting (architecture docs): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operations (K8s / Tailscale / admin hostnames)
-
-- [Cloud architecture + Tailscale diagrams](../dev_docs/allthingscloud.md) — deployment overview, public vs tailnet admin path.
-- [ClickHouse API endpoint stats migration](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analytics scale-out plan और backfill/cutover runbook.
-- [Network exposure and Tailscale](../dev_docs/network-exposure-and-tailscale.md) — कौन से `rejourney.co` hosts public रहते हैं; kube API tailnet पर।
-- [Admin tools without public URLs](../dev_docs/admin-tools-private-access.md) — `kubectl port-forward` के जरिए pgweb, Redis Commander, Netdata, Traefik और Uptime Kuma।
-
 ## Contributing
 
 Rejourney में योगदान देना चाहते हैं? हमारा Contributing Guide देखें: https://rejourney.co/docs/community/contributing

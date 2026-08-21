@@ -84,18 +84,6 @@ Verfolge Nutzerbindung und Loyalitätssegmente. Verstehe, wie Releases Power Use
 
 Vollständige Integrationsleitfäden und API-Referenz: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Single-Node-Docker-Compose-Self-Hosting: https://rejourney.co/docs/selfhosted
-- Enterprise-K3s-Hosting (Architekturdokumentation): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Betrieb (K8s / Tailscale / Admin-Hostnamen)
-
-- [Cloud-Architektur + Tailscale-Diagramme](../dev_docs/allthingscloud.md) — Deployment-Überblick, öffentliche Route vs. Tailnet-Admin-Pfad.
-- [ClickHouse-Migration für API-Endpunkt-Statistiken](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — Analytics-Scale-out-Plan und Backfill/Cutover-Runbook.
-- [Netzwerkexposition und Tailscale](../dev_docs/network-exposure-and-tailscale.md) — welche `rejourney.co`-Hosts öffentlich bleiben; kube API im Tailnet.
-- [Admin-Tools ohne öffentliche URLs](../dev_docs/admin-tools-private-access.md) — pgweb, Redis Commander, Netdata, Traefik und Uptime Kuma über `kubectl port-forward`.
-
 ## Mitwirken
 
 Du möchtest zu Rejourney beitragen? Sieh dir unseren Contribution Guide an: https://rejourney.co/docs/community/contributing

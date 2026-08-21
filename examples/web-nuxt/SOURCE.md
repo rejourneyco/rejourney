@@ -1,6 +1,6 @@
 # Source
 
-This local fixture targets the Nuxt example named in `dev_docs/web-support.md`.
+This local fixture targets the Nuxt example named in the maintainer `web-support.md` runbook (private infra repo).
 
 - Upstream reference: https://github.com/nuxt-ui-templates/dashboard
 - Reference HEAD checked: `531485fbe93de8e7f4f9c5773d47013c40724a09`

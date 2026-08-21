@@ -1,6 +1,6 @@
 # Source
 
-This local fixture targets the Next.js example named in `dev_docs/web-support.md`.
+This local fixture targets the Next.js example named in the maintainer `web-support.md` runbook (private infra repo).
 
 - Upstream reference: https://github.com/ixartz/Next-js-Boilerplate
 - Reference HEAD checked: `1174af3a6d2bc191ebe4a241c72a45d39421b897`

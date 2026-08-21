@@ -84,18 +84,6 @@ Application Not Responding 이벤트를 자동 감지하고 전체 thread dump�
 
 전체 통합 가이드와 API 레퍼런스: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Single-node Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
-- Enterprise-grade K3s hosting (architecture docs): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operations (K8s / Tailscale / admin hostnames)
-
-- [Cloud architecture + Tailscale diagrams](../dev_docs/allthingscloud.md) — deployment overview, public vs tailnet admin path.
-- [ClickHouse API endpoint stats migration](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analytics scale-out plan 및 backfill/cutover runbook.
-- [Network exposure and Tailscale](../dev_docs/network-exposure-and-tailscale.md) — 어떤 `rejourney.co` host가 public으로 유지되는지, kube API on tailnet.
-- [Admin tools without public URLs](../dev_docs/admin-tools-private-access.md) — `kubectl port-forward`를 통한 pgweb, Redis Commander, Netdata, Traefik, Uptime Kuma.
-
 ## 기여
 
 Rejourney에 기여하고 싶으신가요? Contributing Guide를 확인하세요: https://rejourney.co/docs/community/contributing

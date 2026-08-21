@@ -84,18 +84,6 @@
 
 完整集成指南和 API 参考: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- 单节点 Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
-- 企业级 K3s hosting（架构文档）: https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### 运维（K8s / Tailscale / 管理主机名）
-
-- [Cloud architecture + Tailscale diagrams](../dev_docs/allthingscloud.md) — 部署概览、public path 与 tailnet admin path。
-- [ClickHouse API endpoint stats migration](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analytics scale-out 计划与 backfill/cutover runbook。
-- [Network exposure and Tailscale](../dev_docs/network-exposure-and-tailscale.md) — 哪些 `rejourney.co` hosts 保持 public；kube API 运行在 tailnet 上。
-- [Admin tools without public URLs](../dev_docs/admin-tools-private-access.md) — 通过 `kubectl port-forward` 使用 pgweb、Redis Commander、Netdata、Traefik 和 Uptime Kuma。
-
 ## 贡献
 
 想为 Rejourney 做贡献？请查看我们的贡献指南: https://rejourney.co/docs/community/contributing

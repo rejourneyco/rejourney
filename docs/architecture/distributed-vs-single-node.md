@@ -71,7 +71,7 @@ Choose K3s when:
 - you want to scale API, upload, and worker services independently
 - you want rolling deploys and stronger infra isolation
 
-The K3s path lives under `k8s/` and `scripts/k8s/`.
+The K3s path lives in the private infra repo under `k8s/` and `scripts/k8s/`.
 
 ---
 

@@ -84,18 +84,6 @@ Rastrea la retención de usuarios y los segmentos de lealtad. Entiende cómo los
 
 Guías completas de integración y referencia de API: https://rejourney.co/docs/reactnative/overview
 
-### Self-hosting
-
-- Self-hosting de un solo nodo con Docker Compose: https://rejourney.co/docs/selfhosted
-- Hosting K3s de nivel empresarial (documentación de arquitectura): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operaciones (K8s / Tailscale / nombres de host de administración)
-
-- [Arquitectura cloud + diagramas de Tailscale](../dev_docs/allthingscloud.md) — resumen del despliegue, ruta pública frente a ruta administrativa por tailnet.
-- [Migración de estadísticas de endpoints de API en ClickHouse](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — plan de escalado analítico y runbook de backfill/cutover.
-- [Exposición de red y Tailscale](../dev_docs/network-exposure-and-tailscale.md) — qué hosts de `rejourney.co` permanecen públicos; API de kube en tailnet.
-- [Herramientas de administración sin URLs públicas](../dev_docs/admin-tools-private-access.md) — pgweb, Redis Commander, Netdata, Traefik y Uptime Kuma mediante `kubectl port-forward`.
-
 ## Contribuir
 
 ¿Quieres contribuir a Rejourney? Consulta nuestra guía de contribución: https://rejourney.co/docs/community/contributing
