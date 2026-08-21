@@ -55,8 +55,9 @@ kubectl -n rejourney rollout restart deployment api-ingest api-dashboard ingest-
 
 ## Apply manifests
 
+No monitoring Secret manifest is checked in. To enable the protected API debug-health endpoint, set `MONITORING_DEBUG_TOKEN` in the private production env file (generate it with `openssl rand -hex 32`) and run `bash scripts/k8s/k8s-sync-secrets.sh prod .env`. If it is not configured, `/health/debug` returns `403` for every caller.
+
 ```bash
-kubectl apply -f k8s/monitoring.yaml
 kubectl apply -f k8s/victoria-metrics.yaml
 kubectl apply -f k8s/exporters.yaml
 kubectl apply -f k8s/pushgateway.yaml

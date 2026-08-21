@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { gunzipSync } from 'zlib';
-import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
+import { db, recordingArtifacts, sessions } from '../db/client.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { ensureHierarchyArtifactCompressed } from './hierarchyArtifactCompression.js';
@@ -37,10 +37,23 @@ type ArtifactProcessorContext = {
     artifact: typeof recordingArtifacts.$inferSelect;
     job: ArtifactJobContext;
     log: any;
-    metrics: typeof sessionMetrics.$inferSelect | null;
     projectId: string;
     s3Key: string;
-    session: typeof sessions.$inferSelect;
+    session: Pick<
+        typeof sessions.$inferSelect,
+        | 'anonymousHash'
+        | 'appVersion'
+        | 'deviceId'
+        | 'deviceModel'
+        | 'id'
+        | 'metadata'
+        | 'osVersion'
+        | 'platform'
+        | 'projectId'
+        | 'sdkVersion'
+        | 'startedAt'
+        | 'userDisplayId'
+    >;
 };
 
 type ArtifactProcessorResult = {
@@ -65,8 +78,14 @@ function parseMaybeGzippedJson(data: Buffer, s3ObjectKey?: string | null): any {
     }
 }
 
-function validateRrwebArtifactPayload(data: Buffer, s3ObjectKey?: string | null): number {
-    const parsed = parseMaybeGzippedJson(data, s3ObjectKey);
+function validateRrwebArtifactPayload(
+    data: Buffer,
+    s3ObjectKey?: string | null,
+    parsedPayload?: unknown,
+): number {
+    const parsed = parsedPayload === undefined
+        ? parseMaybeGzippedJson(data, s3ObjectKey)
+        : parsedPayload;
     const events = Array.isArray(parsed) ? parsed : parsed?.events;
 
     if (!Array.isArray(events) || events.length === 0) {
@@ -103,7 +122,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             s3Key: context.s3Key,
             session: context.session,
         });
-        const summary = summarizeEventsArtifact(normalized.data);
+        const summary = summarizeEventsArtifact(normalized.data, normalized.parsed ?? undefined);
         return {
             ...summary,
             sizeBytes: normalized.uploadedSizeBytes ?? normalized.data.length,
@@ -122,7 +141,15 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             s3Key: context.s3Key,
             session: context.session,
         });
-        await processCrashesArtifact(context.job, context.session, context.projectId, context.s3Key, normalized.data, context.log);
+        await processCrashesArtifact(
+            context.job,
+            context.session,
+            context.projectId,
+            context.s3Key,
+            normalized.data,
+            context.log,
+            normalized.parsed ?? undefined,
+        );
         return { sizeBytes: normalized.uploadedSizeBytes ?? normalized.data.length };
     },
     anrs: async (context) => {
@@ -139,7 +166,15 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             session: context.session,
         });
         context.log.info('Processing ANRs artifact');
-        await processAnrsArtifact(context.job, context.session, context.projectId, context.s3Key, normalized.data, context.log);
+        await processAnrsArtifact(
+            context.job,
+            context.session,
+            context.projectId,
+            context.s3Key,
+            normalized.data,
+            context.log,
+            normalized.parsed ?? undefined,
+        );
         return { sizeBytes: normalized.uploadedSizeBytes ?? normalized.data.length };
     },
     screenshots: async (context) => {
@@ -172,7 +207,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             artifactId: context.job.artifactId,
             sessionId: context.job.sessionId,
         });
-        const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
+        const data = repairResult.data;
         if (!data) throw new Error('Artifact payload missing from S3 for hierarchy');
         const normalized = await normalizeArtifactPayloadClockFieldsInStorage({
             artifactId: context.job.artifactId,
@@ -190,6 +225,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             expectedFrameCount: context.artifact.frameCount,
             job: context.job,
             log: context.log,
+            parsedPayload: normalized.parsed ?? undefined,
             sessionStartTime: context.session.startedAt.getTime(),
         });
         const sizeBytes = normalized.uploadedSizeBytes ?? repairResult.sizeBytes ?? data.length;
@@ -208,7 +244,11 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             s3Key: context.s3Key,
             session: context.session,
         });
-        const eventCount = validateRrwebArtifactPayload(normalized.data, context.s3Key);
+        const eventCount = validateRrwebArtifactPayload(
+            normalized.data,
+            context.s3Key,
+            normalized.parsed ?? undefined,
+        );
         context.log.info({ eventCount }, 'RRWeb artifact verified');
         return { sizeBytes: normalized.uploadedSizeBytes ?? normalized.data.length };
     },
@@ -295,13 +335,22 @@ export async function processArtifactJobFromBullMQ(
 
     const [sessionResult] = await db
         .select({
-            session: sessions,
-            project: projects,
-            metrics: sessionMetrics,
+            session: {
+                anonymousHash: sessions.anonymousHash,
+                appVersion: sessions.appVersion,
+                deviceId: sessions.deviceId,
+                deviceModel: sessions.deviceModel,
+                id: sessions.id,
+                metadata: sessions.metadata,
+                osVersion: sessions.osVersion,
+                platform: sessions.platform,
+                projectId: sessions.projectId,
+                sdkVersion: sessions.sdkVersion,
+                startedAt: sessions.startedAt,
+                userDisplayId: sessions.userDisplayId,
+            },
         })
         .from(sessions)
-        .leftJoin(projects, eq(sessions.projectId, projects.id))
-        .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
         .where(eq(sessions.id, sessionId))
         .limit(1);
 
@@ -311,8 +360,8 @@ export async function processArtifactJobFromBullMQ(
         return;
     }
 
-    const { session, project, metrics } = sessionResult;
-    const projectId = project?.id || session.projectId;
+    const { session } = sessionResult;
+    const projectId = session.projectId;
 
     const [artifact] = await db
         .select()
@@ -340,7 +389,6 @@ export async function processArtifactJobFromBullMQ(
                 artifact,
                 job: jobCtx,
                 log: artifactLog,
-                metrics,
                 projectId,
                 s3Key: s3ObjectKey,
                 session,
@@ -400,7 +448,6 @@ export async function processArtifactJobFromBullMQ(
         artifact,
         job: jobCtx,
         log: artifactLog,
-        metrics,
         projectId,
         s3Key: s3ObjectKey,
         session,

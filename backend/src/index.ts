@@ -29,6 +29,7 @@ import { startStatsAggregationJob, stopStatsAggregationJob } from './jobs/statsA
 import stripeWebhooksRoutes from './routes/stripeWebhooks.js';
 import { isOriginAllowedByList, splitOriginList } from './utils/domain.js';
 import { CORS_ALLOWED_HEADERS } from './config/cors.js';
+import { configuredSecretMatches } from './utils/secureCompare.js';
 
 // Use createRequire for CJS modules
 const require = createRequire(import.meta.url);
@@ -157,9 +158,7 @@ app.get('/health/live', (_req, res) => {
  */
 app.get('/health/ingest', async (_req, res) => {
     try {
-        const client = await pool.connect();
-        await client.query('SELECT 1');
-        client.release();
+        await pool.query('SELECT 1');
 
         const redisClient = getRedis();
         await redisClient.ping();
@@ -318,15 +317,11 @@ app.get('/health/ready', async (_req, res) => {
  * Use in k8s: restrict via NetworkPolicy or internal-only service
  */
 app.get('/health/debug', async (req, res) => {
-    // Only allow from internal IPs or with debug header
     const debugToken = req.headers['x-debug-token'];
-    const isInternal = req.ip?.startsWith('10.') ||
-        req.ip?.startsWith('172.') ||
-        req.ip?.startsWith('192.168.') ||
-        req.ip === '127.0.0.1' ||
-        req.ip === '::1';
-
-    if (!isInternal && debugToken !== process.env.DEBUG_HEALTH_TOKEN) {
+    // Require a strong configured token for every caller. Source-IP trust is not
+    // sufficient here because proxy headers and compromised in-cluster workloads
+    // must not turn missing configuration into public debug access.
+    if (!configuredSecretMatches(debugToken, process.env.DEBUG_HEALTH_TOKEN)) {
         res.status(403).json({ error: 'Forbidden' });
         return;
     }
@@ -416,9 +411,7 @@ app.get('/health/debug', async (req, res) => {
 // Legacy /ready endpoint for backwards compatibility
 app.get('/ready', async (_req, res) => {
     try {
-        const client = await pool.connect();
-        await client.query('SELECT 1');
-        client.release();
+        await pool.query('SELECT 1');
         const redisClient = getRedis();
         await redisClient.ping();
 
@@ -518,8 +511,11 @@ const initialApiHeartbeatTimeout = setTimeout(sendApiHeartbeat, 10_000);
 
 server = app.listen(PORT, () => {
     logger.info({ port: PORT, env: config.NODE_ENV }, '🚀 Rejourney API server started');
-    // Start the stats aggregation cron job
-    startStatsAggregationJob();
+    // Ingest-role pods handle the highest request volume and never serve the
+    // dashboard job. Dashboard replicas still coordinate through the Redis lease.
+    if (config.RJ_API_ROLE !== 'ingest') {
+        startStatsAggregationJob();
+    }
 });
 
 export default app;

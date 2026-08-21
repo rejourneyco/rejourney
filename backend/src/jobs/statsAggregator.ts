@@ -14,6 +14,13 @@ import {
     queryProductDailyUniqueUserCountFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 import { protectUniqueUserCountAfterIdentityScrub } from '../services/rollupIdentityProtection.js';
+import {
+    acquireRedisLease,
+    releaseRedisLease,
+    startRedisLeaseRenewal,
+    type RedisLease,
+    type RedisLeaseRenewal,
+} from '../services/redisLease.js';
 
 // Track last run time
 let lastRunTime: Date | null = null;
@@ -21,6 +28,76 @@ let lastDailyRollupTime: Date | null = null;
 let isRunning = false;
 
 const redis = getRedis();
+const STATS_AGGREGATION_LEASE_KEY = 'lock:stats-aggregation';
+const WRITE_STATS_WATERMARK_SCRIPT = `
+if redis.call('get', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+redis.call('set', KEYS[2], ARGV[2])
+redis.call('set', KEYS[3], ARGV[3])
+return 1
+`;
+
+export type StatsAggregationLeaseResult = 'completed' | 'busy' | 'lease_lost';
+export type StatsBackfillStartResult = 'started' | 'busy' | 'lease_lost';
+
+type StatsAggregationLeaseGuard = {
+    lease: RedisLease;
+    renewal: RedisLeaseRenewal;
+};
+
+export function resolveStatsAggregationLeaseTtlMs(
+    raw = process.env.RJ_STATS_AGGREGATION_LEASE_TTL_MS,
+): number {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 15 * 60_000;
+    return Math.max(60_000, Math.min(6 * 60 * 60_000, Math.floor(parsed)));
+}
+
+async function acquireStatsAggregationLeaseGuard(): Promise<StatsAggregationLeaseGuard | null> {
+    const lease = await acquireRedisLease(
+        redis,
+        STATS_AGGREGATION_LEASE_KEY,
+        resolveStatsAggregationLeaseTtlMs(),
+    );
+    if (!lease) return null;
+
+    const renewal = startRedisLeaseRenewal(redis, lease, {
+        onError: (err) => {
+            logger.error({ err }, 'Failed to renew stats aggregation lease');
+        },
+        onLeaseLost: () => {
+            logger.error('Stats aggregation lease was lost while the job was running');
+        },
+    });
+
+    return { lease, renewal };
+}
+
+async function releaseStatsAggregationLeaseGuard(guard: StatsAggregationLeaseGuard): Promise<void> {
+    guard.renewal.stop();
+    await releaseRedisLease(redis, guard.lease).catch((err) => {
+        logger.warn({ err }, 'Failed to release stats aggregation lease');
+    });
+}
+
+async function writeStatsSchedulerWatermark(
+    lease: RedisLease,
+    completedAt: Date,
+    rolledUpDate: string,
+): Promise<boolean> {
+    const result = await redis.eval(
+        WRITE_STATS_WATERMARK_SCRIPT,
+        3,
+        lease.key,
+        'stats:daily_rollup:last_run',
+        'stats:daily_rollup:last_rolled_up_date',
+        lease.token,
+        completedAt.toISOString(),
+        rolledUpDate,
+    );
+    return Number(result) === 1;
+}
 
 async function resolveUniqueUserCountForRollup(params: {
     projectId: string;
@@ -340,12 +417,19 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
 /**
  * Run daily rollup for all projects for a specific date
  */
-export async function runDailyRollup(date?: Date): Promise<void> {
+async function runDailyRollupWhileLeaseHeld(
+    date: Date | undefined,
+    leaseSignal: AbortSignal,
+    writeSchedulerWatermark: boolean,
+    lease?: RedisLease,
+): Promise<boolean> {
     const targetDate = date || new Date(Date.now() - 24 * 60 * 60 * 1000); // Yesterday by default
 
     logger.info({ date: targetDate.toISOString() }, 'Starting daily rollup');
 
     try {
+        if (leaseSignal.aborted) return false;
+
         // Get all projects with sessions on that date
         const startOfDay = new Date(targetDate);
         startOfDay.setUTCHours(0, 0, 0, 0);
@@ -366,41 +450,124 @@ export async function runDailyRollup(date?: Date): Promise<void> {
         const projectIds = projectsWithSessions.map(p => p.projectId);
         logger.info({ projectCount: projectIds.length, date: targetDate.toISOString() }, 'Projects for daily rollup');
 
+        if (leaseSignal.aborted) return false;
+
         // Process in batches
         const batchSize = 10;
         for (let i = 0; i < projectIds.length; i += batchSize) {
+            if (leaseSignal.aborted) return false;
             const batch = projectIds.slice(i, i + batchSize);
-            await Promise.all(batch.map(pid => computeDailyRollup(pid, targetDate)));
+            const results = await Promise.allSettled(batch.map(pid => computeDailyRollup(pid, targetDate)));
+            const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+            if (failures.length > 0) {
+                throw new AggregateError(
+                    failures.map((failure) => failure.reason),
+                    `Daily rollup failed for ${failures.length} project(s) in batch`,
+                );
+            }
+            if (leaseSignal.aborted) return false;
         }
 
-        lastDailyRollupTime = new Date();
-        const rolledUpDateStr = targetDate.toISOString().split('T')[0];
+        if (leaseSignal.aborted) return false;
 
-        // Cache the last rollup execution timestamp and the actual rolled-up date
-        await Promise.all([
-            redis.set('stats:daily_rollup:last_run', lastDailyRollupTime.toISOString()),
-            redis.set('stats:daily_rollup:last_rolled_up_date', rolledUpDateStr),
-        ]);
+        // Historic one-off and backfill runs must not move the scheduler's
+        // watermark backwards (or to an arbitrary requested date).
+        if (writeSchedulerWatermark) {
+            if (!lease) {
+                throw new Error('Stats scheduler watermark requires an active lease');
+            }
+            const completedAt = new Date();
+            const rolledUpDateStr = targetDate.toISOString().split('T')[0];
+
+            // Check ownership and write both markers in one Redis turn. A late
+            // reconnect from an expired owner therefore cannot overwrite the
+            // current scheduler's watermark.
+            const wroteWatermark = await writeStatsSchedulerWatermark(
+                lease,
+                completedAt,
+                rolledUpDateStr,
+            );
+            if (!wroteWatermark) return false;
+            if (leaseSignal.aborted) return false;
+            lastDailyRollupTime = completedAt;
+        }
 
         logger.info({ projectCount: projectIds.length }, 'Daily rollup completed');
+        return true;
     } catch (err) {
         logger.error({ err }, 'Daily rollup failed');
+        throw err;
+    }
+}
+
+/**
+ * Run one rollup while contending with scheduled and backfill work on the
+ * shared distributed lease. An explicit date is historical and does not move
+ * the scheduler watermark; the default-yesterday run does.
+ */
+export async function runDailyRollup(date?: Date): Promise<StatsAggregationLeaseResult> {
+    const guard = await acquireStatsAggregationLeaseGuard();
+    if (!guard) return 'busy';
+
+    try {
+        if (guard.renewal.signal.aborted) return 'lease_lost';
+        const completed = await runDailyRollupWhileLeaseHeld(
+            date,
+            guard.renewal.signal,
+            date === undefined,
+            guard.lease,
+        );
+        return completed && !guard.renewal.signal.aborted ? 'completed' : 'lease_lost';
+    } finally {
+        await releaseStatsAggregationLeaseGuard(guard);
     }
 }
 
 /**
  * Backfill daily stats for the last N days
  */
-export async function backfillDailyStats(days: number = 30): Promise<void> {
+export async function backfillDailyStats(days: number, leaseSignal: AbortSignal): Promise<boolean> {
     logger.info({ days }, 'Starting daily stats backfill');
 
+    const baseDate = new Date();
     for (let i = 1; i <= days; i++) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        await runDailyRollup(date);
+        if (leaseSignal.aborted) return false;
+        const date = new Date(baseDate);
+        date.setUTCDate(date.getUTCDate() - i);
+        const completed = await runDailyRollupWhileLeaseHeld(date, leaseSignal, false);
+        if (!completed || leaseSignal.aborted) return false;
     }
 
     logger.info({ days }, 'Daily stats backfill completed');
+    return true;
+}
+
+/**
+ * Acquire the shared lease before acknowledging an asynchronous backfill.
+ * The background task owns and releases that guard in all outcomes.
+ */
+export async function startBackfillDailyStats(days: number): Promise<StatsBackfillStartResult> {
+    const guard = await acquireStatsAggregationLeaseGuard();
+    if (!guard) return 'busy';
+    if (guard.renewal.signal.aborted) {
+        await releaseStatsAggregationLeaseGuard(guard);
+        return 'lease_lost';
+    }
+
+    void (async () => {
+        try {
+            const completed = await backfillDailyStats(days, guard.renewal.signal);
+            if (!completed) {
+                logger.warn('Stopped daily stats backfill after losing its distributed lease');
+            }
+        } catch (err) {
+            logger.error({ err }, 'Backfill failed');
+        } finally {
+            await releaseStatsAggregationLeaseGuard(guard);
+        }
+    })();
+
+    return 'started';
 }
 
 
@@ -446,12 +613,33 @@ export async function runStatsAggregation(): Promise<void> {
 
     isRunning = true;
     const startTime = Date.now();
+    let leaseGuard: StatsAggregationLeaseGuard | null = null;
 
     try {
+        leaseGuard = await acquireStatsAggregationLeaseGuard();
+        if (!leaseGuard) {
+            logger.debug('Stats aggregation lease is held by another replica, skipping');
+            return;
+        }
+
+        if (leaseGuard.renewal.signal.aborted) return;
+
         // Check if daily rollup should run
         if (await shouldRunDailyRollup()) {
+            if (leaseGuard.renewal.signal.aborted) return;
             logger.info('Triggering daily rollup');
-            await runDailyRollup();
+            const completed = await runDailyRollupWhileLeaseHeld(
+                undefined,
+                leaseGuard.renewal.signal,
+                true,
+                leaseGuard.lease,
+            );
+            if (!completed) return;
+        }
+
+        if (leaseGuard.renewal.signal.aborted) {
+            logger.warn('Stopped stats aggregation after losing its distributed lease');
+            return;
         }
 
         const duration = Date.now() - startTime;
@@ -464,6 +652,9 @@ export async function runStatsAggregation(): Promise<void> {
         logger.error({ err }, 'Stats aggregation failed');
         await pingWorker('statsAggregator', 'down', String(err)).catch(() => { });
     } finally {
+        if (leaseGuard) {
+            await releaseStatsAggregationLeaseGuard(leaseGuard);
+        }
         isRunning = false;
     }
 }
@@ -473,9 +664,10 @@ export async function runStatsAggregation(): Promise<void> {
  * Start the cron job (runs every 5 minutes)
  */
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let initialTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
 export function startStatsAggregationJob(): void {
-    if (intervalHandle) {
+    if (intervalHandle || initialTimeoutHandle) {
         logger.warn('Stats aggregation job already started');
         return;
     }
@@ -483,7 +675,8 @@ export function startStatsAggregationJob(): void {
     const INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
     // Run immediately on startup
-    setTimeout(() => {
+    initialTimeoutHandle = setTimeout(() => {
+        initialTimeoutHandle = null;
         runStatsAggregation().catch((err) => {
             logger.error({ err }, 'Initial stats aggregation failed');
         });
@@ -500,11 +693,15 @@ export function startStatsAggregationJob(): void {
 }
 
 export function stopStatsAggregationJob(): void {
+    if (initialTimeoutHandle) {
+        clearTimeout(initialTimeoutHandle);
+        initialTimeoutHandle = null;
+    }
     if (intervalHandle) {
         clearInterval(intervalHandle);
         intervalHandle = null;
-        logger.info('Stats aggregation job stopped');
     }
+    logger.info('Stats aggregation job stopped');
 }
 
 export function getStatsJobStatus(): { lastRunTime: Date | null; lastDailyRollupTime: Date | null; isRunning: boolean } {

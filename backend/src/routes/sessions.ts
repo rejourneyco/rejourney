@@ -11,7 +11,6 @@ import { Router } from 'express';
 import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns, type SQL } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors, replayShareLinks } from '../db/client.js';
-import { gunzipSync } from 'zlib';
 
 import {
     getSignedDownloadUrl,
@@ -100,6 +99,7 @@ import {
     recordProjectOwnerMilestone,
 } from '../services/googleAdsConversions.js';
 import { normalizeReplayEventPayload } from '../services/replayEventPayload.js';
+import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
 
 type ScreenshotFramePayload = {
     timestamp: number;
@@ -1254,17 +1254,9 @@ const emptyRrwebReplayPayload = (): RrwebReplayPayload => ({
     loadMode: 'inline',
 });
 
-function parseArtifactJson(data: Buffer, s3ObjectKey?: string | null) {
-    const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
-        Boolean(s3ObjectKey?.endsWith('.gz'));
-
-    if (!isGzipped) return JSON.parse(data.toString());
-
-    try {
-        return JSON.parse(gunzipSync(data).toString());
-    } catch {
-        return JSON.parse(data.toString());
-    }
+function parseArtifactJson(data: Buffer, s3ObjectKey?: string | null): Promise<any> {
+    // Preserve this route's historical `data.length > 2` magic-byte check.
+    return parseMaybeGzippedJson(data, s3ObjectKey, 3);
 }
 
 async function loadRrwebReplayPayload(
@@ -1386,7 +1378,7 @@ async function loadRrwebReplayPayload(
                 ]);
                 if (!data) return null;
 
-                const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
+                const parsed = await parseArtifactJson(data, artifact.s3ObjectKey);
                 const segmentEvents = Array.isArray(parsed)
                     ? parsed
                     : (Array.isArray(parsed?.events) ? parsed.events : []);
@@ -2181,7 +2173,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return { events: [] as any[], deviceInfo: null as any };
-                const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
+                const parsed = await parseArtifactJson(data, artifact.s3ObjectKey);
                 if (Array.isArray(parsed)) return { events: parsed, deviceInfo: null as any };
                 if (Array.isArray(parsed?.events)) {
                     return { events: parsed.events, deviceInfo: parsed.deviceInfo ?? null };
@@ -2331,18 +2323,7 @@ async function loadHierarchyPayload(session: any, artifactsList: any[]) {
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return null;
-                const parsed = (() => {
-                    const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
-                        artifact.s3ObjectKey.endsWith('.gz');
-                    if (isGzipped) {
-                        try {
-                            return JSON.parse(gunzipSync(data).toString());
-                        } catch {
-                            return JSON.parse(data.toString());
-                        }
-                    }
-                    return JSON.parse(data.toString());
-                })();
+                const parsed = await parseArtifactJson(data, artifact.s3ObjectKey);
                 const rootElement = parsed.rootElement || parsed.root || parsed;
                 return {
                     timestamp: artifact.timestamp || parsed.timestamp || 0,
@@ -3606,7 +3587,7 @@ router.get(
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
-                    const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
+                    const parsed = await parseArtifactJson(data, artifact.s3ObjectKey);
                     if (parsed.events) {
                         allEvents.push(...parsed.events);
                         if (!artifactDeviceInfo && parsed.deviceInfo?.screenWidth && parsed.deviceInfo?.screenHeight) {
@@ -3700,22 +3681,7 @@ router.get(
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
-                    const parsed = (() => {
-                        // Check for GZip compression (magic bytes: 0x1f 0x8b) or file extension
-                        const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
-                            artifact.s3ObjectKey.endsWith('.gz');
-
-                        if (isGzipped) {
-                            try {
-                                const decompressed = gunzipSync(data);
-                                return JSON.parse(decompressed.toString());
-                            } catch {
-                                // Fallback to raw parsing if decompression fails (might be mislabeled)
-                                return JSON.parse(data.toString());
-                            }
-                        }
-                        return JSON.parse(data.toString());
-                    })();
+                    const parsed = await parseArtifactJson(data, artifact.s3ObjectKey);
 
                     // Support both 'rootElement' (expected) and 'root' (Android SDK legacy)
                     const rootElement = parsed.rootElement || parsed.root || parsed;

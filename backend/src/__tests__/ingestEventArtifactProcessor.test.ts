@@ -6,6 +6,7 @@ import {
     isKeyboardAreaEventForIngest,
     mergeEventArtifactFrustrationCounts,
     registerTapForIngestRageInference,
+    summarizeEventsArtifact,
 } from '../services/ingestEventArtifactProcessor.js';
 import { buildClickHouseApiEndpointEventRow } from '../services/clickhouseApiStatsSink.js';
 import { normalizeIngestAppVersion } from '../services/ingestSessionLifecycle.js';
@@ -14,6 +15,24 @@ import {
     shouldTrustClientFrustrationCountsForPlatform,
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
+
+describe('event artifact summary', () => {
+    it('reuses an already-parsed payload without reparsing the buffer', () => {
+        const payload = {
+            events: [
+                { timestamp: 1_770_000_000_000 },
+                { timestamp: 1_770_000_000_250 },
+            ],
+        };
+
+        expect(summarizeEventsArtifact(Buffer.from('not-json'), payload)).toEqual({
+            endTime: 1_770_000_000_250,
+            eventCount: 2,
+            sizeBytes: 8,
+            startTime: 1_770_000_000_000,
+        });
+    });
+});
 
 describe('ingest event artifact processor attribution metadata', () => {
     it('maps web attribution and UTM query values into session metadata', () => {

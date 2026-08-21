@@ -22,8 +22,7 @@ import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { sessionAuth } from '../middleware/auth.js';
-import { writeApiRateLimiter } from '../middleware/rateLimit.js';
-import { runDailyRollup, backfillDailyStats } from '../jobs/statsAggregator.js';
+import analyticsRollupRoutes from './analyticsRollup.js';
 import { shouldExcludeFromEndpointProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { ANALYTICS_LONG_WINDOW_DAYS, boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 import {
@@ -439,35 +438,9 @@ router.get(
     }),
 );
 
-/**
- * Trigger manual daily rollup (admin only)
- * POST /api/analytics/rollup
- */
-router.post(
-    '/rollup',
-    sessionAuth,
-    writeApiRateLimiter,
-    asyncHandler(async (req, res) => {
-        const { date, backfillDays } = req.body;
-
-        // Check if user is admin (simplified - could check roles)
-        logger.info({ userId: req.user!.id, date, backfillDays }, 'Manual rollup triggered');
-
-        if (backfillDays && typeof backfillDays === 'number') {
-            // Run backfill asynchronously
-            backfillDailyStats(backfillDays).catch((err) => {
-                logger.error({ err }, 'Backfill failed');
-            });
-            res.json({ message: `Backfill started for ${backfillDays} days` });
-        } else if (date) {
-            await runDailyRollup(new Date(date));
-            res.json({ message: `Rollup completed for ${date}` });
-        } else {
-            await runDailyRollup();
-            res.json({ message: 'Rollup completed for yesterday' });
-        }
-    }),
-);
+// Privileged all-project maintenance. This subrouter requires a signed
+// `analytics-rollup` internal-service request and owns strict input validation.
+router.use('/rollup', analyticsRollupRoutes);
 
 /**
  * Get dashboard stats (summary cards)

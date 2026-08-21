@@ -449,22 +449,6 @@ spec:
             limits:
               cpu: 1500m
               memory: 768Mi
-          livenessProbe:
-            httpGet:
-              path: /health/live
-              port: 3000
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 3
 
 ---
 apiVersion: v1
@@ -624,14 +608,14 @@ spec:
               memory: 768Mi
           startupProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 3001
             failureThreshold: 60
             periodSeconds: 2
             timeoutSeconds: 2
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 3001
             initialDelaySeconds: 60
             periodSeconds: 10
@@ -639,7 +623,7 @@ spec:
             failureThreshold: 6
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 3001
             initialDelaySeconds: 10
             periodSeconds: 5

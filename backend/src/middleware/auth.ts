@@ -9,10 +9,14 @@ import { createHash, createHmac } from 'crypto';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, userSessions, users, apiKeys, projects, teams, teamMembers } from '../db/client.js';
 import { logger } from '../logger.js';
+import { setBoundedMapEntry } from '../utils/boundedMap.js';
+import { constantTimeEqualSha256Hex, constantTimeEqualStrings } from '../utils/secureCompare.js';
 import { isWebOriginAllowed } from '../utils/webAllowedDomains.js';
 
 const AUTH_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const AUTH_CONTEXT_CACHE_MAX_ENTRIES = 25_000;
 const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+const API_KEY_LAST_USED_MAX_ENTRIES = 50_000;
 
 type RequestProjectContext = NonNullable<Express.Request['project']>;
 type RequestApiKeyContext = NonNullable<Express.Request['apiKey']>;
@@ -56,10 +60,15 @@ function setCachedAuthContext(cacheKey: string, context: {
     project: RequestProjectContext;
     apiKey: RequestApiKeyContext;
 }): void {
-    authContextCache.set(cacheKey, {
-        ...context,
-        expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
-    });
+    setBoundedMapEntry(
+        authContextCache,
+        cacheKey,
+        {
+            ...context,
+            expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+        },
+        AUTH_CONTEXT_CACHE_MAX_ENTRIES,
+    );
 }
 
 function applyCachedAuthContext(req: Request, context: CachedAuthContext): void {
@@ -150,7 +159,7 @@ function shouldWriteApiKeyLastUsed(apiKeyId: string): boolean {
         return false;
     }
 
-    apiKeyLastUsedAt.set(apiKeyId, now);
+    setBoundedMapEntry(apiKeyLastUsedAt, apiKeyId, now, API_KEY_LAST_USED_MAX_ENTRIES);
     return true;
 }
 
@@ -355,9 +364,7 @@ export async function apiKeyAuth(
                             const expectedSig = createHmac('sha256', config.INGEST_HMAC_SECRET)
                                 .update(payloadB64)
                                 .digest('hex');
-                            const hmacValid = signature.length === expectedSig.length &&
-                                createHash('sha256').update(signature).digest('hex') ===
-                                createHash('sha256').update(expectedSig).digest('hex');
+                            const hmacValid = constantTimeEqualSha256Hex(signature, expectedSig);
 
                             // Also check Redis for revocation (non-blocking; HMAC is authoritative)
                             let redisValid = false;
@@ -370,7 +377,7 @@ export async function apiKeyAuth(
                                         setTimeout(() => reject(new Error('Redis timeout')), 200)
                                     ),
                                 ]) as string | null;
-                                redisValid = storedToken === uploadToken;
+                                redisValid = constantTimeEqualStrings(storedToken, uploadToken);
                             } catch {
                                 // Redis unavailable — HMAC alone is sufficient
                             }

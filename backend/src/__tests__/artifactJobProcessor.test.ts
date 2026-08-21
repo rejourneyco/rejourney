@@ -44,7 +44,10 @@ const {
     uploadToS3ForArtifactMock,
 } = vi.hoisted(() => ({
     downloadFromS3ForArtifactMock: vi.fn(async () => Buffer.from('{"ok":true}')),
-    ensureHierarchyArtifactCompressedMock: vi.fn(async () => ({ sizeBytes: 256 })),
+    ensureHierarchyArtifactCompressedMock: vi.fn(async () => ({
+        data: Buffer.from('{"root":{"type":"View"}}'),
+        sizeBytes: 256,
+    })),
     getObjectSizeBytesForArtifactMock: vi.fn(async () => 128),
     processAnrsArtifactMock: vi.fn<ProcessFaultArtifactMock>(async () => undefined),
     processCrashesArtifactMock: vi.fn<ProcessFaultArtifactMock>(async () => undefined),
@@ -148,7 +151,10 @@ describe('artifactJobProcessor routing', () => {
         vi.clearAllMocks();
         getObjectSizeBytesForArtifactMock.mockResolvedValue(128);
         downloadFromS3ForArtifactMock.mockResolvedValue(Buffer.from('{"ok":true}'));
-        ensureHierarchyArtifactCompressedMock.mockResolvedValue({ sizeBytes: 256 });
+        ensureHierarchyArtifactCompressedMock.mockResolvedValue({
+            data: Buffer.from('{"root":{"type":"View"}}'),
+            sizeBytes: 256,
+        });
         normalizeScreenshotArchiveClockFieldsInStorageMock.mockImplementation(async ({ data }: { data: Buffer }) => ({
             data,
             normalized: false,
@@ -172,6 +178,7 @@ describe('artifactJobProcessor routing', () => {
         await runArtifactProcessorByKind('crashes', { ...baseContext, job: { ...baseContext.job, kind: 'crashes' } } as any);
 
         expect(processCrashesArtifactMock).toHaveBeenCalledTimes(1);
+        expect((processCrashesArtifactMock.mock.calls as unknown as any[][])[0]?.[6]).toEqual({ ok: true });
         expect(processEventsArtifactMock).not.toHaveBeenCalled();
         expect(processAnrsArtifactMock).not.toHaveBeenCalled();
         expect(processRecoveredReplayArtifactMock).not.toHaveBeenCalled();
@@ -201,7 +208,10 @@ describe('artifactJobProcessor routing', () => {
         await runArtifactProcessorByKind('hierarchy', { ...baseContext, job: { ...baseContext.job, kind: 'hierarchy' } } as any);
 
         expect(ensureHierarchyArtifactCompressedMock).toHaveBeenCalledTimes(1);
-        expect(processRecoveredReplayArtifactMock).toHaveBeenCalledTimes(1);
+        expect(downloadFromS3ForArtifactMock).not.toHaveBeenCalled();
+        expect(processRecoveredReplayArtifactMock).toHaveBeenCalledWith(expect.objectContaining({
+            parsedPayload: { root: { type: 'View' } },
+        }));
         expect(processEventsArtifactMock).not.toHaveBeenCalled();
         expect(processCrashesArtifactMock).not.toHaveBeenCalled();
         expect(processAnrsArtifactMock).not.toHaveBeenCalled();

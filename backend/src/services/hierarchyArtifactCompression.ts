@@ -1,10 +1,12 @@
-import { gzipSync } from 'zlib';
+import { promisify } from 'node:util';
+import { gzipSync, gunzip } from 'node:zlib';
 import {
     downloadRawFromS3ForArtifact,
-    getObjectSizeBytesForArtifact,
     uploadToS3ForArtifact,
 } from '../db/s3.js';
 import { logger } from '../logger.js';
+
+const gunzipAsync = promisify(gunzip);
 
 export interface HierarchyArtifactNormalizationResult {
     repaired: boolean;
@@ -14,6 +16,7 @@ export interface HierarchyArtifactNormalizationResult {
 }
 
 export interface EnsureHierarchyArtifactCompressedResult {
+    data: Buffer | null;
     repaired: boolean;
     sizeBytes: number | null;
     reason: HierarchyArtifactNormalizationResult['reason'];
@@ -64,6 +67,23 @@ export function normalizeHierarchyArtifactBuffer(
     };
 }
 
+/**
+ * Match downloadFromS3ForArtifact's logical payload while reusing the raw bytes
+ * already fetched for compression repair. This avoids a second full S3 GET for
+ * every hierarchy artifact.
+ */
+export async function decodeHierarchyArtifactBuffer(s3Key: string, buffer: Buffer): Promise<Buffer> {
+    if (!s3Key.endsWith('.gz') || !isGzipBuffer(buffer)) return buffer;
+
+    try {
+        return await gunzipAsync(buffer);
+    } catch {
+        // Preserve the existing download helper's compatibility behavior for
+        // mislabeled/corrupt gzip objects; validation will reject invalid JSON.
+        return buffer;
+    }
+}
+
 export async function ensureHierarchyArtifactCompressed(params: {
     projectId: string;
     s3Key: string;
@@ -76,6 +96,7 @@ export async function ensureHierarchyArtifactCompressed(params: {
     const rawBuffer = await downloadRawFromS3ForArtifact(projectId, s3Key, endpointId);
     if (!rawBuffer) {
         return {
+            data: null,
             repaired: false,
             sizeBytes: null,
             reason: 'not_target',
@@ -93,8 +114,9 @@ export async function ensureHierarchyArtifactCompressed(params: {
         }
 
         return {
+            data: await decodeHierarchyArtifactBuffer(s3Key, rawBuffer),
             repaired: false,
-            sizeBytes: await getObjectSizeBytesForArtifact(projectId, s3Key, endpointId),
+            sizeBytes: rawBuffer.length,
             reason: normalized.reason,
         };
     }
@@ -112,19 +134,20 @@ export async function ensureHierarchyArtifactCompressed(params: {
         throw new Error(uploadResult.error || `Failed to normalize hierarchy artifact ${s3Key}`);
     }
 
-    const sizeBytes = await getObjectSizeBytesForArtifact(projectId, s3Key, uploadResult.endpointId);
+    const sizeBytes = normalized.normalizedBuffer.length;
 
     logger.info({
         artifactId,
         sessionId,
         s3Key,
         endpointId: uploadResult.endpointId,
-        sizeBytes: sizeBytes ?? normalized.normalizedBuffer.length,
+        sizeBytes,
     }, 'Normalized raw hierarchy JSON artifact to gzip in S3');
 
     return {
+        data: rawBuffer,
         repaired: true,
-        sizeBytes: sizeBytes ?? normalized.normalizedBuffer.length,
+        sizeBytes,
         reason: normalized.reason,
     };
 }

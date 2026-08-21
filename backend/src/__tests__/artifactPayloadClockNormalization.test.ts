@@ -164,6 +164,7 @@ describe('artifactPayloadClockNormalization', () => {
 
         expect(normalized.normalized).toBe(false);
         expect(JSON.parse(normalized.data.toString('utf8'))).toEqual(payload);
+        expect(normalized.parsed).toEqual(payload);
     });
 
     it('uses one payload-wide correction for future payloads without stored session metadata', () => {

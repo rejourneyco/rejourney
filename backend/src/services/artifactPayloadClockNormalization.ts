@@ -84,6 +84,7 @@ export type ArtifactPayloadClockNormalizationResult = {
     data: Buffer;
     normalized: boolean;
     normalizedFieldCount: number;
+    parsed: unknown | null;
     uploadedSizeBytes: number | null;
 };
 
@@ -108,24 +109,31 @@ function parseJsonBuffer(data: Buffer): unknown {
     return JSON.parse(raw.toString('utf8'));
 }
 
-function collectEpochMsFields(value: unknown, key: string | null, output: number[]): void {
+function findEarliestFutureEpochMs(
+    value: unknown,
+    key: string | null,
+    futureThresholdMs: number,
+    earliest: number | null,
+): number | null {
     if (typeof value === 'number' && value >= MIN_EPOCH_MS && isEpochMsField(key)) {
-        output.push(value);
-        return;
+        if (value <= futureThresholdMs) return earliest;
+        return earliest === null ? value : Math.min(earliest, value);
     }
 
     if (Array.isArray(value)) {
         for (const item of value) {
-            collectEpochMsFields(item, key, output);
+            earliest = findEarliestFutureEpochMs(item, key, futureThresholdMs, earliest);
         }
-        return;
+        return earliest;
     }
 
     if (value && typeof value === 'object') {
         for (const [childKey, childValue] of Object.entries(value)) {
-            collectEpochMsFields(childValue, childKey, output);
+            earliest = findEarliestFutureEpochMs(childValue, childKey, futureThresholdMs, earliest);
         }
     }
+
+    return earliest;
 }
 
 function cloneWithNormalizedTimes(params: {
@@ -204,21 +212,45 @@ export function normalizeArtifactPayloadClockFields(params: {
             data: params.data,
             normalized: false,
             normalizedFieldCount: 0,
+            parsed: null,
             uploadedSizeBytes: null,
         };
     }
 
     const serverNow = params.serverNow ?? new Date();
-    const epochMsFields: number[] = [];
-    collectEpochMsFields(parsed, null, epochMsFields);
     const hasStoredSessionClock = Boolean(extractSessionClockMetadata(params.session)?.clamped);
     const serverNowMs = serverNow.getTime();
-    const futureEpochMsFields = Number.isFinite(serverNowMs) && !hasStoredSessionClock
-        ? epochMsFields.filter((value) => value > serverNowMs + MAX_FUTURE_CLIENT_CLOCK_SKEW_MS)
-        : [];
-    const dynamicCorrectionMs = futureEpochMsFields.length > 0
-        ? Math.max(0, Math.min(...futureEpochMsFields) - serverNowMs)
-        : 0;
+    const sessionStartedAtMs = params.session.startedAt
+        ? new Date(params.session.startedAt).getTime()
+        : Number.NaN;
+    const hasFutureSessionStart = Number.isFinite(serverNowMs)
+        && Number.isFinite(sessionStartedAtMs)
+        && sessionStartedAtMs > serverNowMs + MAX_FUTURE_CLIENT_CLOCK_SKEW_MS;
+    const earliestFutureEpochMs = Number.isFinite(serverNowMs) && !hasStoredSessionClock
+        ? findEarliestFutureEpochMs(
+            parsed,
+            null,
+            serverNowMs + MAX_FUTURE_CLIENT_CLOCK_SKEW_MS,
+            null,
+        )
+        : null;
+
+    // The normal path has neither a stored/session correction nor a future
+    // timestamp. Return after one read-only traversal instead of cloning the
+    // complete artifact object graph.
+    if (!hasStoredSessionClock && !hasFutureSessionStart && earliestFutureEpochMs === null) {
+        return {
+            data: params.data,
+            normalized: false,
+            normalizedFieldCount: 0,
+            parsed,
+            uploadedSizeBytes: null,
+        };
+    }
+
+    const dynamicCorrectionMs = earliestFutureEpochMs === null
+        ? 0
+        : Math.max(0, earliestFutureEpochMs - serverNowMs);
 
     const normalized = cloneWithNormalizedTimes({
         dynamicCorrectionMs,
@@ -233,6 +265,7 @@ export function normalizeArtifactPayloadClockFields(params: {
             data: params.data,
             normalized: false,
             normalizedFieldCount: 0,
+            parsed,
             uploadedSizeBytes: null,
         };
     }
@@ -242,6 +275,7 @@ export function normalizeArtifactPayloadClockFields(params: {
         data,
         normalized: true,
         normalizedFieldCount: normalized.normalizedFieldCount,
+        parsed: normalized.value,
         uploadedSizeBytes: null,
     };
 }

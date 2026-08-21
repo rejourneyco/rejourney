@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     buildInternalSignaturePayload,
     canonicalizeBody,
@@ -42,6 +42,10 @@ describe('internal service auth helpers', () => {
     beforeEach(() => {
         mocks.redisSet.mockReset();
         mocks.redisSet.mockResolvedValue('OK');
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('canonicalizes empty bodies to an empty string', () => {
@@ -91,6 +95,8 @@ describe('internal service auth helpers', () => {
     });
 
     it('accepts a valid signed request and reserves the nonce', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
         const timestamp = new Date().toISOString();
         const nonce = 'nonce-valid';
         const headers = lowerCaseHeaders(signInternalServiceRequest({
@@ -117,7 +123,126 @@ describe('internal service auth helpers', () => {
             'internal-service-auth:issue-detection:nonce-valid',
             '1',
             'EX',
-            300,
+            301,
+            'NX',
+        );
+    });
+
+    it('retains a future-boundary nonce through its full remaining acceptance window', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
+        const timestamp = new Date(Date.now() + 5 * 60_000).toISOString();
+        const headers = lowerCaseHeaders(signInternalServiceRequest({
+            method: 'GET',
+            nonce: 'nonce-future-boundary',
+            pathWithQuery: '/api/internal/issue-detection/projects',
+            secret: 'secret',
+            service: 'issue-detection',
+            timestamp,
+        }));
+
+        await expect(verifyInternalServiceRequest({
+            allowedServices: { 'issue-detection': 'secret' },
+            req: toRequest({ headers }),
+        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+
+        expect(mocks.redisSet).toHaveBeenCalledWith(
+            'internal-service-auth:issue-detection:nonce-future-boundary',
+            '1',
+            'EX',
+            601,
+            'NX',
+        );
+    });
+
+    it('keeps a current-timestamp nonce reserved across the skew equality boundary', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
+        const timestamp = new Date().toISOString();
+        const headers = lowerCaseHeaders(signInternalServiceRequest({
+            method: 'GET',
+            nonce: 'nonce-current-boundary',
+            pathWithQuery: '/api/internal/issue-detection/projects',
+            secret: 'secret',
+            service: 'issue-detection',
+            timestamp,
+        }));
+
+        await expect(verifyInternalServiceRequest({
+            allowedServices: { 'issue-detection': 'secret' },
+            req: toRequest({ headers }),
+        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+        expect(mocks.redisSet).toHaveBeenLastCalledWith(
+            'internal-service-auth:issue-detection:nonce-current-boundary',
+            '1',
+            'EX',
+            301,
+            'NX',
+        );
+
+        // The verifier deliberately accepts exact skew equality. The original
+        // 301-second reservation is therefore still alive when this replay is
+        // checked at +300 seconds.
+        mocks.redisSet.mockResolvedValueOnce(null);
+        vi.setSystemTime(new Date('2026-06-13T12:05:00.000Z'));
+        await expect(verifyInternalServiceRequest({
+            allowedServices: { 'issue-detection': 'secret' },
+            req: toRequest({ headers }),
+        })).resolves.toEqual({ ok: false, reason: 'replayed_internal_nonce' });
+    });
+
+    it('does not let an explicit short nonce TTL weaken replay protection', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
+        const timestamp = new Date(Date.now() + 5 * 60_000).toISOString();
+        const headers = lowerCaseHeaders(signInternalServiceRequest({
+            method: 'GET',
+            nonce: 'nonce-short-explicit-ttl',
+            pathWithQuery: '/api/internal/issue-detection/projects',
+            secret: 'secret',
+            service: 'issue-detection',
+            timestamp,
+        }));
+
+        await expect(verifyInternalServiceRequest({
+            allowedServices: { 'issue-detection': 'secret' },
+            nonceTtlSeconds: 1,
+            req: toRequest({ headers }),
+        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+
+        expect(mocks.redisSet).toHaveBeenCalledWith(
+            'internal-service-auth:issue-detection:nonce-short-explicit-ttl',
+            '1',
+            'EX',
+            601,
+            'NX',
+        );
+    });
+
+    it('honors an explicit nonce TTL only when it is longer than the safety floor', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
+        const timestamp = new Date().toISOString();
+        const headers = lowerCaseHeaders(signInternalServiceRequest({
+            method: 'GET',
+            nonce: 'nonce-long-explicit-ttl',
+            pathWithQuery: '/api/internal/issue-detection/projects',
+            secret: 'secret',
+            service: 'issue-detection',
+            timestamp,
+        }));
+
+        await expect(verifyInternalServiceRequest({
+            allowedServices: { 'issue-detection': 'secret' },
+            nonceTtlSeconds: 900,
+            req: toRequest({ headers }),
+        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+
+        expect(mocks.redisSet).toHaveBeenCalledWith(
+            'internal-service-auth:issue-detection:nonce-long-explicit-ttl',
+            '1',
+            'EX',
+            900,
             'NX',
         );
     });
@@ -155,6 +280,7 @@ describe('internal service auth helpers', () => {
         });
 
         expect(result).toEqual({ ok: false, reason: 'bad_internal_signature' });
+        expect(mocks.redisSet).not.toHaveBeenCalled();
     });
 
     it('rejects stale timestamps', async () => {

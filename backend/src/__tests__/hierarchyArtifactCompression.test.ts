@@ -1,6 +1,7 @@
 import { gunzipSync, gzipSync } from 'zlib';
 import { describe, expect, it } from 'vitest';
 import {
+    decodeHierarchyArtifactBuffer,
     isGzipBuffer,
     normalizeHierarchyArtifactBuffer,
 } from '../services/hierarchyArtifactCompression.js';
@@ -10,6 +11,25 @@ describe('hierarchyArtifactCompression', () => {
         const gzipped = gzipSync(Buffer.from('{"ok":true}', 'utf8'));
         expect(isGzipBuffer(gzipped)).toBe(true);
         expect(isGzipBuffer(Buffer.from('{"ok":true}', 'utf8'))).toBe(false);
+    });
+
+    it('reuses a fetched gzip payload as decoded hierarchy JSON', async () => {
+        const raw = Buffer.from('{"root":{"type":"View"}}', 'utf8');
+        const gzipped = gzipSync(raw);
+
+        await expect(decodeHierarchyArtifactBuffer('hierarchy/123.json.gz', gzipped)).resolves.toEqual(raw);
+    });
+
+    it('preserves bytes for non-gzip keys', async () => {
+        const gzipped = gzipSync(Buffer.from('{"ok":true}', 'utf8'));
+
+        await expect(decodeHierarchyArtifactBuffer('hierarchy/123.json', gzipped)).resolves.toBe(gzipped);
+    });
+
+    it('preserves corrupt gzip bytes for downstream JSON validation', async () => {
+        const corrupt = Buffer.from([0x1f, 0x8b, 0x00, 0x01]);
+
+        await expect(decodeHierarchyArtifactBuffer('hierarchy/123.json.gz', corrupt)).resolves.toBe(corrupt);
     });
 
     it('recompresses raw hierarchy JSON stored under a .json.gz key', () => {

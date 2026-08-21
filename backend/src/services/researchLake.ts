@@ -55,6 +55,8 @@ const RRWEB_INCREMENTAL_VIEWPORT_RESIZE = 4;
 const RESEARCH_LAKE_TYPES = ['interaction', 'behavioral_outcomes'] as const;
 const RESEARCH_LAKE_V2_TYPES = ['interaction', 'behavioral_outcomes', 'forward_outcomes'] as const;
 const STALE_PROCESSING_BUFFER_MS = 10 * 60 * 1000;
+const RESEARCH_EMPTY_SEED_RETRY_MS = 5 * 60 * 1000;
+const RESEARCH_V2_EMPTY_SEED_RETRY_MS = 15 * 60 * 1000;
 
 const require = createRequire(import.meta.url);
 const jpeg = require('jpeg-js') as {
@@ -67,6 +69,18 @@ const jpeg = require('jpeg-js') as {
 
 export type ResearchLakeType = typeof RESEARCH_LAKE_TYPES[number];
 export type ResearchLakeV2Type = typeof RESEARCH_LAKE_V2_TYPES[number];
+
+function nextResearchSeedRetryAtMs(
+    seededCount: number,
+    nowMs: number,
+    retryIntervalMs = RESEARCH_EMPTY_SEED_RETRY_MS,
+): number {
+    return seededCount === 0 ? nowMs + retryIntervalMs : 0;
+}
+
+function shouldRetryResearchSeed(nextRetryAtMs: number, nowMs: number): boolean {
+    return nextRetryAtMs === 0 || nowMs >= nextRetryAtMs;
+}
 
 type ScreenOrientation = 'portrait' | 'landscape';
 type ScreenFormFactor = 'phone' | 'tablet';
@@ -5445,8 +5459,14 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     const seedMultiplier = Math.max(1, Math.trunc(config.RESEARCH_LAKE_SEED_MULTIPLIER));
     const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_MAX_RUNTIME_MS));
     summary.recoveredStaleProcessing = await recoverStaleProcessingJobs();
+    const nextEmptySeedRetryAtMs: Record<ResearchLakeType, number> = {
+        interaction: 0,
+        behavioral_outcomes: 0,
+    };
     for (const lakeType of RESEARCH_LAKE_TYPES) {
-        summary.byLake[lakeType].seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
+        const seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
+        summary.byLake[lakeType].seeded = seeded;
+        nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded, Date.now());
     }
     addLaneSummaryTotals(summary);
     const startedAt = Date.now();
@@ -5461,14 +5481,24 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
             const jobs = await claimResearchJobs(lakeType, batchSize);
             claimedThisRound += jobs.length;
             if (jobs.length === 0) {
+                // Avoid repeating an expensive empty global scan on every drain
+                // round, but retry periodically because each statement gets a
+                // fresh READ COMMITTED snapshot and work can become eligible
+                // while another lane keeps this cycle alive.
+                if (!shouldRetryResearchSeed(nextEmptySeedRetryAtMs[lakeType], Date.now())) continue;
                 const seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
+                nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded, Date.now());
                 summary.byLake[lakeType].seeded += seeded;
                 if (seeded === 0) continue;
                 const seededJobs = await claimResearchJobs(lakeType, batchSize);
                 claimedThisRound += seededJobs.length;
-                if (seededJobs.length === 0) continue;
+                if (seededJobs.length === 0) {
+                    nextEmptySeedRetryAtMs[lakeType] = Date.now() + RESEARCH_EMPTY_SEED_RETRY_MS;
+                    continue;
+                }
                 jobs.push(...seededJobs);
             }
+            nextEmptySeedRetryAtMs[lakeType] = 0;
 
             const batchResult = await runBoundedConcurrentBatch(
                 jobs,
@@ -5804,13 +5834,20 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     const configuredDrainBufferMs = Math.max(0, Math.trunc(config.RESEARCH_LAKE_V2_DRAIN_BUFFER_MS));
     const drainBufferMs = Math.min(Math.max(0, maxRuntimeMs - 30_000), configuredDrainBufferMs);
     const workDeadlineAtMs = deadlineAtMs - drainBufferMs;
+    let nextEmptyBackfillSeedRetryAtMs = 0;
 
     while (Date.now() < workDeadlineAtMs) {
         const pauseBackfill = summary.failed > 0 || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
         let seededThisRound = 0;
-        if (!pauseBackfill && seedLimit > 0) {
+        if (!pauseBackfill && seedLimit > 0
+            && shouldRetryResearchSeed(nextEmptyBackfillSeedRetryAtMs, Date.now())) {
             const seeded = await seedV2BackfillSessionState(seedLimit);
             seededThisRound = seeded.sessions;
+            nextEmptyBackfillSeedRetryAtMs = nextResearchSeedRetryAtMs(
+                seeded.sessions,
+                Date.now(),
+                RESEARCH_V2_EMPTY_SEED_RETRY_MS,
+            );
             summary.byLake.interaction.seeded += seeded.interaction;
             summary.byLake.behavioral_outcomes.seeded += seeded.sessions;
             summary.byLake.forward_outcomes.seeded += seeded.sessions;
@@ -5905,4 +5942,8 @@ export const __researchLakeTestInternals = {
     buildClaimV2JobsSql,
     v2RetryWindowExhausted,
     shouldRefreshV2ReleaseAdoption,
+    nextResearchSeedRetryAtMs,
+    shouldRetryResearchSeed,
+    researchEmptySeedRetryMs: RESEARCH_EMPTY_SEED_RETRY_MS,
+    researchV2EmptySeedRetryMs: RESEARCH_V2_EMPTY_SEED_RETRY_MS,
 };

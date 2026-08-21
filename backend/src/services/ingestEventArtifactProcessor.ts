@@ -115,8 +115,8 @@ export type EventArtifactSummary = {
     startTime: number | null;
 };
 
-export function summarizeEventsArtifact(data: Buffer): EventArtifactSummary {
-    const payload = parseMaybeGzippedJson(data);
+export function summarizeEventsArtifact(data: Buffer, parsedPayload?: unknown): EventArtifactSummary {
+    const payload = parsedPayload === undefined ? parseMaybeGzippedJson(data) : parsedPayload;
     const eventsData = extractTelemetryEvents(payload);
     let earliestClientEventAt: Date | null = null;
     let latestClientEventAt: Date | null = null;

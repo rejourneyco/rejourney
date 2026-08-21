@@ -80,8 +80,19 @@ describe('retention backlog drain', () => {
         expect(block).toContain('.orderBy(sessions.startedAt, sessions.id)');
         expect(block).toContain('eq(sessions.recordingDeleted, true)');
         expect(block).toContain('eq(sessions.isReplayExpired, true)');
+        expect(block).toContain('exists(');
+        expect(block).not.toContain('.selectDistinct(');
+        expect(block).not.toContain('.innerJoin(recordingArtifacts');
         expect(block).toContain("INTERVAL '1 day'");
         expect(block).toContain('reachedProcessingCap: sessionsToRepair.length >= limit');
         expect(block).not.toContain('partitionBackedUpSessions');
+    });
+
+    it('runs the legacy expired-artifact repair scan only once per retention cycle', () => {
+        const worker = readWorkspaceFile('../worker/retentionWorker.ts');
+        const block = extractFunctionBlock(worker, 'runRetentionCycle');
+
+        expect(block).toContain("options.trigger === 'manual_backfill' || summary.rounds === 0");
+        expect(block).toContain('const repairResult = shouldRunRepairPass');
     });
 });

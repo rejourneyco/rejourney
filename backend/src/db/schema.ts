@@ -838,6 +838,10 @@ export const retentionDeletionLog = pgTable(
         index('retention_deletion_log_run_id_idx').on(table.runId),
         index('retention_deletion_log_scope_idx').on(table.scope, table.startedAt),
         index('retention_deletion_log_session_id_idx').on(table.sessionId),
+        /** Lets the exporter fetch the latest successful purge without scanning the audit history. */
+        index('retention_deletion_log_completed_finished_idx')
+            .on(table.finishedAt)
+            .where(sql`${table.status} = 'completed' AND ${table.finishedAt} IS NOT NULL`),
     ]
 );
 

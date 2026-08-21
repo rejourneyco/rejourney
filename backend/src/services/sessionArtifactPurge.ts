@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, exists, or, sql } from 'drizzle-orm';
 import {
     db,
     projects,
@@ -108,14 +108,13 @@ async function collectExpiredRepairCandidates(limit: number): Promise<{
     `;
 
     const sessionsToRepair = await db
-        .selectDistinct({
+        .select({
             sessionId: sessions.id,
             retentionTier: sessions.retentionTier,
             retentionDays: sessions.retentionDays,
             startedAt: sessions.startedAt,
         })
         .from(sessions)
-        .innerJoin(recordingArtifacts, eq(recordingArtifacts.sessionId, sessions.id))
         .where(
             and(
                 or(
@@ -123,6 +122,12 @@ async function collectExpiredRepairCandidates(limit: number): Promise<{
                     eq(sessions.isReplayExpired, true),
                 ),
                 currentRetentionPeriodExpired,
+                exists(
+                    db
+                        .select({ artifactId: recordingArtifacts.id })
+                        .from(recordingArtifacts)
+                        .where(eq(recordingArtifacts.sessionId, sessions.id)),
+                ),
             ),
         )
         .orderBy(sessions.startedAt, sessions.id)

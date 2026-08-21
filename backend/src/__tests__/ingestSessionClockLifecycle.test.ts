@@ -66,7 +66,11 @@ vi.mock('../services/recording.js', () => ({
     lookupGeoIp: vi.fn(async () => undefined),
 }));
 
-import { isSessionIdFresh, maybeBackfillSessionStartedAt } from '../services/ingestSessionLifecycle.js';
+import {
+    ingestSessionSelection,
+    isSessionIdFresh,
+    maybeBackfillSessionStartedAt,
+} from '../services/ingestSessionLifecycle.js';
 import {
     MAX_FUTURE_CLIENT_CLOCK_SKEW_MS,
     SESSION_CLOCK_METADATA_KEY,
@@ -79,6 +83,12 @@ describe('ingest session lifecycle clock guard', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.clearAllMocks();
+    });
+
+    it('keeps large event payloads out of the ingest hot-path projection', () => {
+        expect(ingestSessionSelection).not.toHaveProperty('events');
+        expect(ingestSessionSelection).toHaveProperty('metadata');
+        expect(ingestSessionSelection).toHaveProperty('status');
     });
 
     it('treats a far-future timestamp session id as fresh after server-time normalization', () => {

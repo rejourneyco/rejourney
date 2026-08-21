@@ -958,39 +958,42 @@ data:
     # repair cases, or failing outright.
     rejourney_retention_recent_summary:
       query: >
+        WITH recent AS MATERIALIZED (
+          SELECT status, storage_missing, deleted_object_count, deleted_bytes
+          FROM retention_deletion_log
+          WHERE started_at > NOW() - INTERVAL '24 hours'
+        ), recent_summary AS (
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'failed')             AS failed_purge_entries_24h,
+            COUNT(*) FILTER (WHERE storage_missing)               AS storage_missing_entries_24h,
+            COALESCE(
+              SUM(deleted_object_count) FILTER (WHERE status = 'completed'),
+              0
+            )::bigint                                             AS deleted_objects_24h,
+            COALESCE(
+              SUM(deleted_bytes) FILTER (WHERE status = 'completed'),
+              0
+            )::bigint                                             AS deleted_bytes_24h
+          FROM recent
+        ), last_completed AS (
+          SELECT finished_at
+          FROM retention_deletion_log
+          WHERE status = 'completed'
+            AND finished_at IS NOT NULL
+          ORDER BY finished_at DESC
+          LIMIT 1
+        )
         SELECT
-          COUNT(*) FILTER (
-            WHERE started_at > NOW() - INTERVAL '24 hours'
-              AND status = 'failed'
-          )                                                       AS failed_purge_entries_24h,
-          COUNT(*) FILTER (
-            WHERE started_at > NOW() - INTERVAL '24 hours'
-              AND storage_missing
-          )                                                       AS storage_missing_entries_24h,
-          COALESCE(
-            SUM(deleted_object_count) FILTER (
-              WHERE started_at > NOW() - INTERVAL '24 hours'
-                AND status = 'completed'
-            ),
-            0
-          )::bigint                                               AS deleted_objects_24h,
-          COALESCE(
-            SUM(deleted_bytes) FILTER (
-              WHERE started_at > NOW() - INTERVAL '24 hours'
-                AND status = 'completed'
-            ),
-            0
-          )::bigint                                               AS deleted_bytes_24h,
+          recent_summary.*,
           COALESCE(
             CASE
-              WHEN MAX(finished_at) FILTER (WHERE status = 'completed') IS NULL THEN 2147483647
-              ELSE EXTRACT(EPOCH FROM (
-                NOW() - MAX(finished_at) FILTER (WHERE status = 'completed')
-              ))::bigint
+              WHEN last_completed.finished_at IS NULL THEN 2147483647
+              ELSE EXTRACT(EPOCH FROM (NOW() - last_completed.finished_at))::bigint
             END,
             2147483647
           )                                                       AS seconds_since_last_completed_purge
-        FROM retention_deletion_log
+        FROM recent_summary
+        LEFT JOIN last_completed ON TRUE
       metrics:
         - failed_purge_entries_24h:
             usage: "GAUGE"
@@ -1383,6 +1386,8 @@ spec:
     metadata:
       labels:
         app: postgres-exporter
+      annotations:
+        rejourney.co/queries-version: "2026-08-20-retention-v2"
     spec:
       securityContext:
         runAsNonRoot: true

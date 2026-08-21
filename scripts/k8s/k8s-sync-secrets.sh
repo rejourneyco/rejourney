@@ -364,7 +364,16 @@ else
     info "MONITORING_AUTH_USERS not provided, skipping monitoring-auth-secret"
 fi
 
-# 13. Monitoring Tokens (Worker heartbeat tokens)
+# 13. Monitoring Tokens (worker heartbeat and protected debug endpoint)
+MONITORING_TOKENS="${MONITORING_TOKENS:-}"
+MONITORING_DEBUG_TOKEN="${MONITORING_DEBUG_TOKEN:-}"
+if [ -n "$MONITORING_DEBUG_TOKEN" ]; then
+    if [ "$MONITORING_DEBUG_TOKEN" = "REPLACE_WITH_SECURE_DEBUG_TOKEN" ] \
+        || [ "$MONITORING_DEBUG_TOKEN" = "generate_with_openssl_rand_hex_32" ] \
+        || [ "${#MONITORING_DEBUG_TOKEN}" -lt 32 ]; then
+        error "MONITORING_DEBUG_TOKEN is a placeholder or too short. Generate with: openssl rand -hex 32"
+    fi
+fi
 if [ -n "$MONITORING_TOKENS" ] || [ -n "$MONITORING_DEBUG_TOKEN" ]; then
     log "Creating monitoring-tokens..."
     ARGS=()

@@ -4,6 +4,7 @@ import { setIngestSessionCache, setSessionExistsCache } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/index.js';
 import { getRequestIp } from '../utils/requestIp.js';
+import { setBoundedMapEntry } from '../utils/boundedMap.js';
 import { lookupGeoIp } from './recording.js';
 import {
     FREE_VIDEO_RETENTION_TIER,
@@ -86,6 +87,39 @@ type MissingSessionCandidateRow = {
 };
 
 const MATERIALIZE_MISSING_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Ingest hot paths must not fetch or cache sessions.events (potentially a large
+ * JSONB document). Keep the shared projection broad enough for lifecycle,
+ * clock, immutability, fault, and upload decisions while excluding cold fields.
+ */
+export const ingestSessionSelection = {
+    anonymousDisplayId: sessions.anonymousDisplayId,
+    anonymousHash: sessions.anonymousHash,
+    appVersion: sessions.appVersion,
+    backgroundTimeSeconds: sessions.backgroundTimeSeconds,
+    deviceId: sessions.deviceId,
+    deviceModel: sessions.deviceModel,
+    durationSeconds: sessions.durationSeconds,
+    endedAt: sessions.endedAt,
+    id: sessions.id,
+    isReplayExpired: sessions.isReplayExpired,
+    isSampledIn: sessions.isSampledIn,
+    lastIngestActivityAt: sessions.lastIngestActivityAt,
+    metadata: sessions.metadata,
+    observeOnly: sessions.observeOnly,
+    osVersion: sessions.osVersion,
+    platform: sessions.platform,
+    projectId: sessions.projectId,
+    recordingDeleted: sessions.recordingDeleted,
+    replayAvailable: sessions.replayAvailable,
+    replayQuotaBillingExhausted: sessions.replayQuotaBillingExhausted,
+    replayRetentionState: sessions.replayRetentionState,
+    sdkVersion: sessions.sdkVersion,
+    startedAt: sessions.startedAt,
+    status: sessions.status,
+    userDisplayId: sessions.userDisplayId,
+};
 
 function toDateOrNull(value: unknown): Date | null {
     if (!value) return null;
@@ -172,6 +206,7 @@ function buildSessionJsonMetadata(metadata?: IngestSessionMetadata): Record<stri
 type RetentionCacheEntry = { result: Awaited<ReturnType<typeof getVideoRetentionDetailsForTier>>; expiresAt: number };
 const _retentionByProject = new Map<string, RetentionCacheEntry>();
 const PROJECT_RETENTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PROJECT_RETENTION_CACHE_MAX_ENTRIES = 10_000;
 
 async function resolveVideoRetention(projectId: string) {
     const now = Date.now();
@@ -191,7 +226,12 @@ async function resolveVideoRetention(projectId: string) {
     }
 
     const result = await getVideoRetentionDetailsForTier(teamRetentionTier);
-    _retentionByProject.set(projectId, { result, expiresAt: now + PROJECT_RETENTION_CACHE_TTL_MS });
+    setBoundedMapEntry(
+        _retentionByProject,
+        projectId,
+        { result, expiresAt: now + PROJECT_RETENTION_CACHE_TTL_MS },
+        PROJECT_RETENTION_CACHE_MAX_ENTRIES,
+    );
     return result;
 }
 
@@ -321,7 +361,11 @@ export async function maybeBackfillSessionStartedAt(
     // Use the pre-fetched session when available to skip a SELECT round-trip.
     let session = prefetchedSession ?? null;
     if (!session) {
-        let [fetched] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        const [fetched] = await db
+            .select(ingestSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
         session = fetched ?? null;
     }
     if (!session) {
@@ -351,7 +395,11 @@ export async function maybeBackfillSessionStartedAt(
         })
         .where(eq(sessions.id, sessionId));
 
-    const [updated] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const [updated] = await db
+        .select(ingestSessionSelection)
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
     if (updated) {
         setIngestSessionCache(updated.projectId, updated as unknown as Record<string, unknown>).catch(() => {});
     }
@@ -376,7 +424,7 @@ export async function resolveLifecycleSession(
 ): Promise<LifecycleSessionResolution> {
     let [sessionResult] = await db
         .select({
-            session: sessions,
+            session: ingestSessionSelection,
             metrics: sessionMetrics,
         })
         .from(sessions)
@@ -389,7 +437,7 @@ export async function resolveLifecycleSession(
 
         [sessionResult] = await db
             .select({
-                session: sessions,
+                session: ingestSessionSelection,
                 metrics: sessionMetrics,
             })
             .from(sessions)
@@ -439,7 +487,11 @@ export async function ensureIngestSession(
     let loadedSessionFromDb = false;
 
     if (!session) {
-        let [fetched] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        const [fetched] = await db
+            .select(ingestSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
         session = fetched ?? null;
         loadedSessionFromDb = Boolean(session);
     }
@@ -476,7 +528,11 @@ export async function ensureIngestSession(
         }).onConflictDoNothing().returning({ id: sessions.id });
 
         created = inserted.length > 0;
-        [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        [session] = await db
+            .select(ingestSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
         loadedSessionFromDb = Boolean(session);
 
         if (!session) {
@@ -501,7 +557,11 @@ export async function ensureIngestSession(
                 updatedAt: serverNow,
             })
             .where(eq(sessions.id, sessionId));
-        [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        [session] = await db
+            .select(ingestSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
         loadedSessionFromDb = Boolean(session);
     }
 
@@ -511,7 +571,11 @@ export async function ensureIngestSession(
         await db.update(sessions)
             .set(updates)
             .where(eq(sessions.id, sessionId));
-        [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        [session] = await db
+            .select(ingestSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
         updatedSessionMetadata = Boolean(session);
     }
 

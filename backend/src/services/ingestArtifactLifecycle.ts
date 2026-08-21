@@ -16,6 +16,16 @@ import {
     type ArtifactJobData,
 } from './artifactBullQueue.js';
 
+const artifactLifecycleSessionSelection = {
+    endedAt: sessions.endedAt,
+    id: sessions.id,
+    isReplayExpired: sessions.isReplayExpired,
+    platform: sessions.platform,
+    projectId: sessions.projectId,
+    recordingDeleted: sessions.recordingDeleted,
+    status: sessions.status,
+};
+
 type PendingArtifactParams = {
     projectId?: string;
     sessionId: string;
@@ -150,7 +160,7 @@ async function ensureArtifactProcessingJob(artifact: any, projectId: string): Pr
 async function getArtifactWithSessionByUploadId(projectId: string, clientUploadId: string) {
     const [artifactResult] = await db.select({
         artifact: recordingArtifacts,
-        session: sessions,
+        session: artifactLifecycleSessionSelection,
     })
         .from(recordingArtifacts)
         .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
@@ -166,7 +176,7 @@ async function getArtifactWithSessionByUploadId(projectId: string, clientUploadI
 async function getArtifactWithSessionById(artifactId: string) {
     const [artifactResult] = await db.select({
         artifact: recordingArtifacts,
-        session: sessions,
+        session: artifactLifecycleSessionSelection,
     })
         .from(recordingArtifacts)
         .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
@@ -312,7 +322,11 @@ export async function registerPendingArtifact(params: PendingArtifactParams) {
         : null;
 
     if (!guardSession) {
-        [guardSession] = await db.select().from(sessions).where(eq(sessions.id, params.sessionId)).limit(1);
+        [guardSession] = await db
+            .select(artifactLifecycleSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, params.sessionId))
+            .limit(1);
     }
 
     if (!guardSession) {

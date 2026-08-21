@@ -54,7 +54,9 @@ replica:
     # BullMQ stores durable queue/job state in Redis. Never evict queue keys.
     maxmemory 2gb
     maxmemory-policy noeviction
-    save 900 1
+    # commonConfiguration intentionally keeps RDB disabled. Do not override it
+    # per role: background snapshots duplicate AOF durability and can cause
+    # avoidable fork/I/O spikes on multi-gigabyte queue datasets.
   # In Sentinel mode the redis-node StatefulSet reads resources from the
   # replica block, even when the single pod is acting as the master.
   resourcesPreset: "none"
@@ -79,7 +81,7 @@ master:
     # BullMQ stores durable queue/job state in Redis. Never evict queue keys.
     maxmemory 2gb
     maxmemory-policy noeviction
-    save 900 1
+    # Keep the shared AOF-only persistence policy from commonConfiguration.
   # See sentinel.resourcesPreset note above — same override applies here.
   # Node now has 12 CPU / 24 GiB. Redis is still far from its ceiling in prod,
   # but we give it a bit more burst room so it doesn't become the next avoidable

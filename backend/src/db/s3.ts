@@ -23,6 +23,7 @@ import { PassThrough, type Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { setBoundedMapEntry } from '../utils/boundedMap.js';
 import { safeDecrypt } from '../services/crypto.js';
 import { resolvePublicStorageEndpointForSignedUrls } from '../utils/storageEndpoint.js';
 import { isAbortLikeError } from '../utils/abortLikeError.js';
@@ -233,8 +234,39 @@ const endpointCache = new Map<string | null, CachedEndpoint>();
 const endpointByIdCache = new Map<string, CachedEndpoint>();
 const sessionEndpointCache = new Map<string, CachedEndpoint>();
 
+const ENDPOINT_CACHE_MAX_ENTRIES = 10_000;
+const ENDPOINT_BY_ID_CACHE_MAX_ENTRIES = 2_000;
+const SESSION_ENDPOINT_CACHE_MAX_ENTRIES = 50_000;
+const S3_CLIENT_POOL_MAX_ENTRIES = 2_000;
+const S3_HEALTH_CACHE_TTL_MS = 30_000;
+
 // Cache S3 clients by endpoint ID
 const s3ClientPool = new Map<string, S3ClientEntry>();
+
+interface S3HealthCacheEntry {
+    healthy: boolean;
+    expiresAt: number;
+}
+
+let s3HealthCache: S3HealthCacheEntry | null = null;
+let s3HealthCheckInFlight: Promise<boolean> | null = null;
+let s3HealthCacheGeneration = 0;
+
+function destroyS3ClientEntry(entry: S3ClientEntry): void {
+    entry.client.destroy();
+    entry.publicClient?.destroy();
+}
+
+function rememberS3ClientEntry(endpointId: string, entry: S3ClientEntry): void {
+    if (!s3ClientPool.has(endpointId) && s3ClientPool.size >= S3_CLIENT_POOL_MAX_ENTRIES) {
+        const oldest = s3ClientPool.entries().next();
+        if (!oldest.done) {
+            s3ClientPool.delete(oldest.value[0]);
+            destroyS3ClientEntry(oldest.value[1]);
+        }
+    }
+    s3ClientPool.set(endpointId, entry);
+}
 
 
 // =============================================================================
@@ -253,9 +285,9 @@ function getFreshCachedEndpoint(cache: Map<string, CachedEndpoint>, key: string)
 
 function rememberEndpoint(endpoint: StorageEndpoint, projectId?: string | null): void {
     const entry = { endpoint, expiresAt: Date.now() + ENDPOINT_MEMORY_CACHE_TTL_MS };
-    endpointByIdCache.set(endpoint.id, entry);
+    setBoundedMapEntry(endpointByIdCache, endpoint.id, entry, ENDPOINT_BY_ID_CACHE_MAX_ENTRIES);
     if (projectId !== undefined) {
-        endpointCache.set(projectId, entry);
+        setBoundedMapEntry(endpointCache, projectId, entry, ENDPOINT_CACHE_MAX_ENTRIES);
     }
 }
 
@@ -265,8 +297,13 @@ function sessionEndpointMemoryKey(projectId: string, sessionId: string): string 
 
 function rememberSessionEndpoint(projectId: string, sessionId: string, endpoint: StorageEndpoint): void {
     const entry = { endpoint, expiresAt: Date.now() + ENDPOINT_MEMORY_CACHE_TTL_MS };
-    sessionEndpointCache.set(sessionEndpointMemoryKey(projectId, sessionId), entry);
-    endpointByIdCache.set(endpoint.id, entry);
+    setBoundedMapEntry(
+        sessionEndpointCache,
+        sessionEndpointMemoryKey(projectId, sessionId),
+        entry,
+        SESSION_ENDPOINT_CACHE_MAX_ENTRIES,
+    );
+    setBoundedMapEntry(endpointByIdCache, endpoint.id, entry, ENDPOINT_BY_ID_CACHE_MAX_ENTRIES);
 }
 
 /**
@@ -429,7 +466,7 @@ export async function getEndpointById(endpointId: string): Promise<StorageEndpoi
     // Check all caches first
     for (const [, cached] of endpointCache) {
         if (cached.endpoint.id === endpointId && cached.expiresAt > Date.now()) {
-            endpointByIdCache.set(endpointId, cached);
+            setBoundedMapEntry(endpointByIdCache, endpointId, cached, ENDPOINT_BY_ID_CACHE_MAX_ENTRIES);
             return cached.endpoint;
         }
     }
@@ -623,7 +660,7 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
         bucket: endpoint.bucket,
     };
 
-    s3ClientPool.set(endpoint.id, entry);
+    rememberS3ClientEntry(endpoint.id, entry);
     return entry;
 }
 
@@ -1622,15 +1659,22 @@ export async function getObjectMetadata(
  */
 export function clearEndpointCaches(): void {
     endpointCache.clear();
+    endpointByIdCache.clear();
+    sessionEndpointCache.clear();
+    s3HealthCache = null;
+    s3HealthCheckInFlight = null;
+    s3HealthCacheGeneration += 1;
+    for (const entry of s3ClientPool.values()) {
+        destroyS3ClientEntry(entry);
+    }
     s3ClientPool.clear();
-
 }
 
 /**
  * Check S3 connection health
  * Attempts to list objects (or head bucket) on the default endpoint
  */
-export async function checkS3Connection(): Promise<boolean> {
+async function performS3ConnectionCheck(): Promise<boolean> {
     try {
         // Query a global endpoint directly — avoids passing a fake UUID to getEndpointForProject
         const { db } = await import('./client.js');
@@ -1661,4 +1705,35 @@ export async function checkS3Connection(): Promise<boolean> {
         logger.warn({ error }, 'S3 health check failed');
         return false;
     }
+}
+
+export function checkS3Connection(): Promise<boolean> {
+    const cached = s3HealthCache;
+    if (cached && cached.expiresAt > Date.now()) {
+        return Promise.resolve(cached.healthy);
+    }
+
+    if (s3HealthCheckInFlight) {
+        return s3HealthCheckInFlight;
+    }
+
+    const generation = s3HealthCacheGeneration;
+    const healthCheck = performS3ConnectionCheck()
+        .then((healthy) => {
+            if (generation === s3HealthCacheGeneration) {
+                s3HealthCache = {
+                    healthy,
+                    expiresAt: Date.now() + S3_HEALTH_CACHE_TTL_MS,
+                };
+            }
+            return healthy;
+        })
+        .finally(() => {
+            if (s3HealthCheckInFlight === healthCheck) {
+                s3HealthCheckInFlight = null;
+            }
+        });
+
+    s3HealthCheckInFlight = healthCheck;
+    return healthCheck;
 }

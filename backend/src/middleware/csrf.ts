@@ -28,6 +28,19 @@ const SKIP_CSRF_PATHS = [
     '/health',
 ];
 
+// Privileged server-to-server endpoints may bypass browser CSRF/origin checks
+// only when their route enforces its own request-bound HMAC. Keep these exact so
+// sibling analytics routes never inherit the bypass.
+const EXACT_INTERNAL_AUTH_PATHS = new Set([
+    '/api/analytics/rollup',
+    '/api/analytics/rollup/',
+]);
+
+function shouldSkipBrowserRequestGuards(path: string): boolean {
+    return EXACT_INTERNAL_AUTH_PATHS.has(path)
+        || SKIP_CSRF_PATHS.some((prefix) => path.startsWith(prefix));
+}
+
 /**
  * Generate CSRF token
  */
@@ -46,7 +59,7 @@ export function csrfProtection(
     next: NextFunction
 ): void {
     // Skip CSRF for certain paths
-    if (SKIP_CSRF_PATHS.some((path) => req.path.startsWith(path))) {
+    if (shouldSkipBrowserRequestGuards(req.path)) {
         next();
         return;
     }
@@ -108,7 +121,7 @@ export function originValidation(
     }
 
     // Skip for allowed paths
-    if (SKIP_CSRF_PATHS.some((path) => req.path.startsWith(path))) {
+    if (shouldSkipBrowserRequestGuards(req.path)) {
         next();
         return;
     }

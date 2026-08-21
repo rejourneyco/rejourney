@@ -1,10 +1,10 @@
-import { Buffer } from 'node:buffer';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
 
 import { config, isProduction } from '../config.js';
 import { db, replayShareLinks } from '../db/client.js';
+import { constantTimeEqualStrings } from '../utils/secureCompare.js';
 
 export type ReplayShareVisibility = 'replay_only' | 'full_workbench';
 export type ReplayShareExpirationPreset = '24h' | '7d' | '30d' | '90d' | 'never';
@@ -27,12 +27,6 @@ function signShareTokenBody(tokenBody: string): string {
         .digest('base64url');
 }
 
-function constantTimeStringEqual(left: string, right: string): boolean {
-    const leftBuffer = Buffer.from(left, 'utf8');
-    const rightBuffer = Buffer.from(right, 'utf8');
-    return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
 export function generateReplaySharePublicId(): string {
     return randomBytes(PUBLIC_ID_BYTES).toString('base64url');
 }
@@ -50,7 +44,7 @@ export function verifyReplayShareToken(token: string | undefined | null): { publ
     const publicId = match[1];
     const providedMac = match[2];
     const expectedMac = signShareTokenBody(`${SHARE_TOKEN_PREFIX}${publicId}`);
-    if (!constantTimeStringEqual(providedMac, expectedMac)) return null;
+    if (!constantTimeEqualStrings(providedMac, expectedMac)) return null;
     return { publicId };
 }
 

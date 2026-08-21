@@ -23,7 +23,11 @@ import {
     ingestSegmentDeviceRateLimiter,
 } from '../middleware/rateLimit.js';
 import { updateDeviceUsage } from '../services/recording.js';
-import { ensureIngestSession, maybeBackfillSessionStartedAt } from '../services/ingestSessionLifecycle.js';
+import {
+    ensureIngestSession,
+    ingestSessionSelection,
+    maybeBackfillSessionStartedAt,
+} from '../services/ingestSessionLifecycle.js';
 import { checkBillingStatus, getTeamSessionUsage, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
 import {
@@ -139,11 +143,11 @@ async function findExistingProjectSession(
     }
 
     // Retain the legacy existence check for observability/backward compatibility,
-    // but hydrate the row once after deploy so repeat presigns use the full cache.
+    // but hydrate the ingest projection once so repeat presigns use the cache.
     const cachedExists = await getSessionExistsCache(projectId, sessionId);
 
     const [session] = await db
-        .select()
+        .select(ingestSessionSelection)
         .from(sessions)
         .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
         .limit(1);

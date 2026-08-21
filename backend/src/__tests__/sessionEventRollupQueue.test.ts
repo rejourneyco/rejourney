@@ -12,6 +12,7 @@ const {
     getJobMock,
     insertValuesMock,
     processEventsArtifactMock,
+    selectProjectionArgs,
     selectResults,
     setMock,
     updateSetMock,
@@ -27,6 +28,7 @@ const {
     getJobMock: vi.fn(async (): Promise<any> => null),
     insertValuesMock: vi.fn(() => ({ onConflictDoNothing: vi.fn(async () => undefined) })),
     processEventsArtifactMock: vi.fn(async () => undefined),
+    selectProjectionArgs: [] as any[],
     selectResults: [] as any[][],
     setMock: vi.fn(async () => 'OK'),
     updateSetMock: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
@@ -53,7 +55,10 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../db/client.js', () => ({
     db: {
         insert: vi.fn(() => ({ values: insertValuesMock })),
-        select: vi.fn(() => selectBuilder(selectResults.shift() ?? [])),
+        select: vi.fn((projection) => {
+            selectProjectionArgs.push(projection);
+            return selectBuilder(selectResults.shift() ?? []);
+        }),
         update: vi.fn(() => ({ set: updateSetMock })),
     },
     recordingArtifacts: {
@@ -71,8 +76,18 @@ vi.mock('../db/client.js', () => ({
         sessionId: 'session_metrics.session_id',
     },
     sessions: {
+        anonymousHash: 'sessions.anonymous_hash',
+        appVersion: 'sessions.app_version',
+        deviceId: 'sessions.device_id',
+        deviceModel: 'sessions.device_model',
+        events: 'sessions.events',
         id: 'sessions.id',
+        osVersion: 'sessions.os_version',
+        platform: 'sessions.platform',
         projectId: 'sessions.project_id',
+        sdkVersion: 'sessions.sdk_version',
+        startedAt: 'sessions.started_at',
+        userDisplayId: 'sessions.user_display_id',
     },
 }));
 
@@ -138,6 +153,7 @@ describe('sessionEventRollupQueue', () => {
         delete process.env.RJ_SESSION_EVENT_ROLLUP_DELAY_MS;
         delete process.env.RJ_SESSION_EVENT_ROLLUP_SWEEP_ENABLED;
         selectResults.length = 0;
+        selectProjectionArgs.length = 0;
         getJobMock.mockResolvedValue(null);
         existsMock.mockResolvedValue(0);
         setMock.mockResolvedValue('OK');
@@ -231,6 +247,37 @@ describe('sessionEventRollupQueue', () => {
         expect(updateSetMock).toHaveBeenCalledWith({
             eventRollupProcessedAt: expect.any(Date),
         });
+    });
+
+    it('creates session metrics once while refreshing mutable context for every artifact', async () => {
+        selectResults.push([
+            { endpointId: 'endpoint-1', id: 'artifact-1', s3ObjectKey: 'artifact-1.json.gz' },
+            { endpointId: 'endpoint-1', id: 'artifact-2', s3ObjectKey: 'artifact-2.json.gz' },
+        ]);
+        selectResults.push([{
+            metrics: { sessionId: 'session-1', eventsSizeBytes: 0 },
+            session: { id: 'session-1', projectId: 'project-1', userDisplayId: null },
+        }]);
+        selectResults.push([{
+            metrics: { sessionId: 'session-1', eventsSizeBytes: 10 },
+            session: { id: 'session-1', projectId: 'project-1', userDisplayId: 'user-1' },
+        }]);
+
+        const result = await processSessionEventRollupBatch('session-1', 2);
+
+        expect(result).toEqual({ hasMore: false, processed: 2 });
+        expect(insertValuesMock).toHaveBeenCalledTimes(1);
+        expect(processEventsArtifactMock).toHaveBeenCalledTimes(2);
+        const processCalls = processEventsArtifactMock.mock.calls as unknown as any[][];
+        expect(processCalls[1]?.[1]).toEqual(
+            expect.objectContaining({ userDisplayId: 'user-1' }),
+        );
+        expect(selectProjectionArgs[1]?.session).not.toHaveProperty('events');
+        expect(selectProjectionArgs[1]?.session).toEqual(expect.objectContaining({
+            id: 'sessions.id',
+            projectId: 'sessions.project_id',
+            startedAt: 'sessions.started_at',
+        }));
     });
 
     it('leaves the broad pending rollup sweep disabled unless explicitly enabled', async () => {

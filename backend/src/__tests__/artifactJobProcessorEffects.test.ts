@@ -107,7 +107,10 @@ vi.mock('../services/artifactCompletionEffects.js', () => ({
 }));
 
 vi.mock('../services/hierarchyArtifactCompression.js', () => ({
-    ensureHierarchyArtifactCompressed: vi.fn(async () => ({ sizeBytes: 128 })),
+    ensureHierarchyArtifactCompressed: vi.fn(async () => ({
+        data: Buffer.from('{"root":{"type":"View"}}'),
+        sizeBytes: 128,
+    })),
 }));
 
 vi.mock('../services/ingestEventArtifactProcessor.js', () => ({

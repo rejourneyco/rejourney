@@ -410,7 +410,15 @@ async function runRetentionCycle(options: {
             const repairTrigger = buildTriggerName(options.trigger, 'retention_repair');
 
             const expiredResult = await processExpiredSessions(options.runId, expiryTrigger, deadlineAtMs);
-            const repairResult = Date.now() < deadlineAtMs
+            // The repair query is a legacy consistency backstop, not the normal
+            // retention path. Run it once per cycle; repeating the same mostly-empty
+            // scan on every backlog-drain round multiplies database work without
+            // improving the regular expiry drain. The explicit manual backfill still
+            // loops until all repair candidates are exhausted.
+            const shouldRunRepairPass = (
+                options.trigger === 'manual_backfill' || summary.rounds === 0
+            ) && Date.now() < deadlineAtMs;
+            const repairResult = shouldRunRepairPass
                 ? await repairExpiredSessionArtifactsBatch(
                     options.runId,
                     REPAIR_BATCH_SIZE,
@@ -426,7 +434,7 @@ async function runRetentionCycle(options: {
                     failed: 0,
                     deletedObjectCount: 0,
                     deletedBytes: 0,
-                    reachedProcessingCap: true,
+                    reachedProcessingCap: false,
                 };
             const identityScrubResult = Date.now() < deadlineAtMs
                 ? await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE)

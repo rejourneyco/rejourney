@@ -10,12 +10,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never interrupt a production release halfway through. Superseded PR checks
+  # can be cancelled, while pushes to main are serialized in commit order.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   API_IMAGE: ghcr.io/${{ github.repository }}/api
   WEB_IMAGE: ghcr.io/${{ github.repository }}/web
   MIGRATION_IMAGE: ghcr.io/${{ github.repository }}/migration
   RESEARCH_LAKE_COMPACTOR_IMAGE: ghcr.io/${{ github.repository }}/research-lake-compactor
+  # Public ED25519 host key for the production VPS. Update deliberately when the
+  # server host key is rotated; never replace this with runtime ssh-keyscan.
+  VPS_SSH_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBXUAJEpy6J0613oSrn8Xc/sIwBbZ18HHoQJEPLJk1B2
 
 jobs:
   # ------------------------------------------------------------------
@@ -37,6 +46,8 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          printf '%s %s\n' "${{ secrets.VPS_HOST }}" "${{ env.VPS_SSH_HOST_KEY }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Compare with VPS Version
         id: version-check
@@ -46,14 +57,45 @@ jobs:
            echo "Fetching version from VPS..."
            REMOTE_VERSION="0.0.0"
 
-           # Check if remote file exists before trying to cat it
-           if ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa root@${{ secrets.VPS_HOST }} "test -f /opt/rejourney/package.json"; then
-             ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa root@${{ secrets.VPS_HOST }} "cat /opt/rejourney/package.json" > remote_package.json
-             if [ -s remote_package.json ]; then
-               REMOTE_VERSION=$(jq -r .version remote_package.json)
+           # The success marker is written only after deploy-release completes.
+           # Fall back to package.json once for servers deployed before the marker
+           # was introduced.
+           SSH_OPTIONS=(
+             -o BatchMode=yes
+             -o ConnectTimeout=15
+             -o IdentitiesOnly=yes
+             -o StrictHostKeyChecking=yes
+             -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+             -i "$HOME/.ssh/id_rsa"
+           )
+
+           REMOTE_MARKER_STATUS=0
+           ssh "${SSH_OPTIONS[@]}" root@"${{ secrets.VPS_HOST }}" "test -f /var/lib/rejourney/deployed-version" || REMOTE_MARKER_STATUS=$?
+           if [ "$REMOTE_MARKER_STATUS" -eq 0 ]; then
+             REMOTE_VERSION=$(ssh "${SSH_OPTIONS[@]}" root@"${{ secrets.VPS_HOST }}" "cat /var/lib/rejourney/deployed-version")
+           elif [ "$REMOTE_MARKER_STATUS" -eq 1 ]; then
+             REMOTE_FILE_STATUS=0
+             ssh "${SSH_OPTIONS[@]}" root@"${{ secrets.VPS_HOST }}" "test -f /opt/rejourney/package.json" || REMOTE_FILE_STATUS=$?
+             if [ "$REMOTE_FILE_STATUS" -eq 0 ]; then
+               ssh "${SSH_OPTIONS[@]}" root@"${{ secrets.VPS_HOST }}" "cat /opt/rejourney/package.json" > remote_package.json
+               if [ -s remote_package.json ]; then
+                 REMOTE_VERSION=$(jq -r .version remote_package.json)
+               fi
+               echo "No deployment marker found; using package.json for this compatibility rollout."
+             elif [ "$REMOTE_FILE_STATUS" -eq 1 ]; then
+               echo "⚠️ No deployment marker or package.json found on VPS. Assuming first deployment."
+             else
+               echo "Failed to verify the VPS package version over authenticated SSH (exit ${REMOTE_FILE_STATUS})."
+               exit "$REMOTE_FILE_STATUS"
              fi
            else
-             echo "⚠️ File /opt/rejourney/package.json not found on VPS. Assuming first deployment."
+             echo "Failed to verify the VPS deployment marker over authenticated SSH (exit ${REMOTE_MARKER_STATUS})."
+             exit "$REMOTE_MARKER_STATUS"
+           fi
+
+           if [ -z "$REMOTE_VERSION" ] || [ "$REMOTE_VERSION" = "null" ]; then
+             echo "The remote deployment version is empty or invalid."
+             exit 1
            fi
 
            echo "Local Version: $LOCAL_VERSION"
@@ -81,8 +123,10 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        working-directory: ./backend
-        run: npm ci --ignore-scripts
+        run: npm ci --workspace rejourney-backend --include-workspace-root=false --ignore-scripts
+
+      - name: Dependency Audit
+        run: npm audit --audit-level=high
 
       - name: Schema / Migration Guard
         run: |
@@ -99,6 +143,10 @@ jobs:
       - name: Lint
         working-directory: ./backend
         run: npm run lint --if-present
+
+      - name: Build
+        working-directory: ./backend
+        run: npm run build
 
       - name: Unit Tests
         working-directory: ./backend
@@ -124,7 +172,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci --workspace @rejourneyco/browser --workspace rejourney-dashboard --include-workspace-root=false --ignore-scripts
 
       - name: Build Web SDK
         working-directory: ./packages/browser
@@ -163,27 +211,20 @@ jobs:
   # DOCKER BUILD
   # ------------------------------------------------------------------
   build-images:
-    needs: [backend, web, k8s-config]
-    if: github.ref == 'refs/heads/main'
+    needs: [backend, web, k8s-config, check-version]
+    if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install dependencies
-        run: |
-          npm ci
 
       - name: Build API
         uses: docker/build-push-action@v5
@@ -255,11 +296,36 @@ jobs:
            host: ${{ secrets.VPS_HOST }}
            username: root
            key: ${{ secrets.VPS_SSH_KEY }}
+           fingerprint: SHA256:QJi7hXe1v0Xl7R0PkaNynBohpe4URpn9ge2+/eaMjjQ
            timeout: 60m
            command_timeout: 60m
            envs: IMAGE_TAG
            script: |
              set -euo pipefail
+
+             DEPLOYED_VERSION_DIR=/var/lib/rejourney
+             DEPLOYED_VERSION_FILE="${DEPLOYED_VERSION_DIR}/deployed-version"
+
+             write_deployed_version() {
+               local version="$1"
+               local marker_tmp
+               marker_tmp=$(mktemp "${DEPLOYED_VERSION_DIR}/deployed-version.XXXXXX")
+               printf '%s\n' "${version}" > "${marker_tmp}"
+               chmod 644 "${marker_tmp}"
+               mv -f "${marker_tmp}" "${DEPLOYED_VERSION_FILE}"
+             }
+
+             # Bootstrap the out-of-worktree success marker from the currently
+             # deployed checkout before changing it. A failed first rollout then
+             # retains the previous version and remains retryable.
+             if [ ! -f "${DEPLOYED_VERSION_FILE}" ]; then
+               PREVIOUS_DEPLOYED_VERSION=0.0.0
+               if [ -f /opt/rejourney/package.json ]; then
+                 PREVIOUS_DEPLOYED_VERSION=$(python3 -c 'import json; print(json.load(open("/opt/rejourney/package.json"))["version"])')
+               fi
+               install -m 755 -d "${DEPLOYED_VERSION_DIR}"
+               write_deployed_version "${PREVIOUS_DEPLOYED_VERSION}"
+             fi
 
              # Update Repo
              # Ensure the directory exists
@@ -285,12 +351,24 @@ jobs:
                    echo "CRITICAL ERROR: Wrong directory $(pwd). Aborting wipe."
                    exit 1
                fi
-             else
-               git fetch origin main
-               git reset --hard origin/main
+             fi
+
+             # Deploy the exact commit whose images passed CI. origin/main may
+             # already point at a newer push by the time this queued job runs.
+             git fetch --no-tags origin "${IMAGE_TAG}"
+             git reset --hard "${IMAGE_TAG}"
+             git clean -ffd
+             if [ "$(git rev-parse HEAD)" != "${IMAGE_TAG}" ]; then
+               echo "CRITICAL ERROR: checkout does not match image tag ${IMAGE_TAG}"
+               exit 1
              fi
 
              bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${{ github.repository }}"
+
+             # Commit the deployed version only after migrations and every
+             # workload rollout have succeeded. Rename is atomic on this volume.
+             DEPLOYED_VERSION=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+             write_deployed_version "${DEPLOYED_VERSION}"
 
              # Clean up old images
              echo "🧹 Cleaning up old images..."

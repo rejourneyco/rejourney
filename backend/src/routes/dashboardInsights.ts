@@ -6,7 +6,6 @@
  */
 
 import { Router } from 'express';
-import { gunzipSync } from 'zlib';
 import { eq, gte, and, desc, asc, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, teamMembers, recordingArtifacts } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
@@ -28,6 +27,7 @@ import {
     queryScreenTouchHeatmapsFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 import { normalizeHeatmapScreenName, normalizeHeatmapScreenPath } from '../utils/heatmapScreens.js';
+import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
 
 const router = Router();
 const redis = getRedis();
@@ -107,17 +107,6 @@ type HeatmapPreviewEvidence = {
     screenFirstSeenMs: number;
     screenshotUrl: string | null;
 };
-
-function parseMaybeGzippedArtifactJson(data: Buffer, s3ObjectKey?: string | null): any {
-    const isGzipped = (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) || Boolean(s3ObjectKey?.endsWith('.gz'));
-    if (!isGzipped) return JSON.parse(data.toString('utf8'));
-
-    try {
-        return JSON.parse(gunzipSync(data).toString('utf8'));
-    } catch {
-        return JSON.parse(data.toString('utf8'));
-    }
-}
 
 function extractArtifactEvents(parsedArtifact: any): any[] {
     if (Array.isArray(parsedArtifact)) return parsedArtifact;
@@ -228,9 +217,10 @@ async function resolveHeatmapPreviewEvidenceByScreen(
         let cached = eventsByArtifactId.get(artifact.id);
         if (!cached) {
             const next = downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId)
-                .then((data: Buffer | null) => {
+                .then(async (data: Buffer | null) => {
                     if (!data) return [];
-                    return extractArtifactEvents(parseMaybeGzippedArtifactJson(data, artifact.s3ObjectKey));
+                    const parsed = await parseMaybeGzippedJson(data, artifact.s3ObjectKey);
+                    return extractArtifactEvents(parsed);
                 })
                 .catch((err: unknown) => {
                     logger.warn(

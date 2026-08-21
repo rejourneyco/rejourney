@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Stage 1: Build
 FROM node:24-bookworm AS build
 
@@ -21,8 +22,9 @@ COPY packages/react-native/package.json packages/react-native/
 COPY packages/browser/package.json packages/browser/
 # Install all dependencies (from root). Retry the whole install because npm can
 # still exit on transient registry ECONNRESETs after its internal fetch retries.
-RUN for attempt in 1 2 3; do \
-      npm ci --ignore-scripts && break; \
+RUN --mount=type=cache,target=/root/.npm \
+    for attempt in 1 2 3; do \
+      npm ci --workspace backend --include-workspace-root=false --ignore-scripts && break; \
       status=$?; \
       if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
       echo "npm ci failed (attempt ${attempt}/3); retrying..."; \
@@ -56,7 +58,9 @@ ENV NPM_CONFIG_FETCH_RETRIES=5 \
 ENV NODE_ENV=production
 
 # Install CA certificates + mmdblookup (for GeoLite2-City MMDB lookups)
-RUN apt-get update -y && apt-get install -y ca-certificates mmdb-bin && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends ca-certificates mmdb-bin \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy root package files
 COPY package.json package-lock.json ./
@@ -68,32 +72,20 @@ COPY packages/react-native/package.json packages/react-native/
 COPY packages/browser/package.json packages/browser/
 
 # Install production dependencies only (from root).
-RUN for attempt in 1 2 3; do \
-      npm ci --omit=dev --ignore-scripts && break; \
+RUN --mount=type=cache,target=/root/.npm \
+    for attempt in 1 2 3; do \
+      npm ci --workspace backend --include-workspace-root=false --omit=dev --ignore-scripts && break; \
       status=$?; \
       if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
       echo "npm ci --omit=dev failed (attempt ${attempt}/3); retrying..."; \
       sleep $((attempt * 15)); \
     done
 
-# Install drizzle-kit and tsx globally to ensure they are available for migrations
-RUN for attempt in 1 2 3; do \
-      npm install -g drizzle-kit@beta drizzle-orm@beta tsx && break; \
-      status=$?; \
-      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
-      echo "global npm install failed (attempt ${attempt}/3); retrying..."; \
-      sleep $((attempt * 15)); \
-    done
-
-# Copy Drizzle config from backend source (it's in the root of the backend folder)
-COPY backend/drizzle.config.ts backend/
-COPY backend/src/db/schema.ts backend/src/db/
-
 # Copy built code from build stage
-COPY --from=build /app/backend/dist backend/dist
+COPY --chown=node:node --from=build /app/backend/dist backend/dist
 
 # Copy required package.json for runtime
-COPY backend/package.json backend/
+COPY --chown=node:node backend/package.json backend/
 
 # Expose port
 EXPOSE 3000

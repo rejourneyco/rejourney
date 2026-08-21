@@ -4,15 +4,40 @@ import { trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { persistAnrOccurrence, persistCrashOccurrence } from './stabilityIngest.js';
 
-export async function processCrashesArtifact(job: any, session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
-    const payload = JSON.parse(data.toString());
+const faultSessionSelection = {
+    anonymousHash: sessions.anonymousHash,
+    appVersion: sessions.appVersion,
+    deviceId: sessions.deviceId,
+    deviceModel: sessions.deviceModel,
+    id: sessions.id,
+    osVersion: sessions.osVersion,
+    platform: sessions.platform,
+    projectId: sessions.projectId,
+    sdkVersion: sessions.sdkVersion,
+    userDisplayId: sessions.userDisplayId,
+};
+
+export async function processCrashesArtifact(
+    job: any,
+    session: any,
+    projectId: string,
+    _s3ObjectKey: string,
+    data: Buffer,
+    log: any,
+    parsedPayload?: any,
+) {
+    const payload = parsedPayload ?? JSON.parse(data.toString());
     const crashList = payload.crashes || (Array.isArray(payload) ? payload : [payload]);
 
     let crashSessionId = job.sessionId;
     let crashSession = session;
     if (payload.sessionId && payload.sessionId.length > 0) {
         crashSessionId = payload.sessionId;
-        const [existingCrashSession] = await db.select().from(sessions).where(eq(sessions.id, crashSessionId)).limit(1);
+        const [existingCrashSession] = await db
+            .select(faultSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, crashSessionId))
+            .limit(1);
         crashSession = existingCrashSession;
         if (!existingCrashSession) {
             await db.insert(sessions).values({
@@ -102,15 +127,27 @@ export async function processCrashesArtifact(job: any, session: any, projectId: 
 /**
  * Process ANRs artifact - insert ANR records
  */
-export async function processAnrsArtifact(job: any, session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
-    const payload = JSON.parse(data.toString());
+export async function processAnrsArtifact(
+    job: any,
+    session: any,
+    projectId: string,
+    _s3ObjectKey: string,
+    data: Buffer,
+    log: any,
+    parsedPayload?: any,
+) {
+    const payload = parsedPayload ?? JSON.parse(data.toString());
     const anrList = payload.anrs || (Array.isArray(payload) ? payload : [payload]);
 
     let anrSessionId = job.sessionId;
     let anrSession = session;
     if (payload.sessionId && payload.sessionId.length > 0) {
         anrSessionId = payload.sessionId;
-        const [existingAnrSession] = await db.select().from(sessions).where(eq(sessions.id, anrSessionId)).limit(1);
+        const [existingAnrSession] = await db
+            .select(faultSessionSelection)
+            .from(sessions)
+            .where(eq(sessions.id, anrSessionId))
+            .limit(1);
         anrSession = existingAnrSession;
         if (!existingAnrSession) {
             const inferredPlatform =

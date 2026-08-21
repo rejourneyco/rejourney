@@ -14,6 +14,7 @@
 
 import crypto from 'node:crypto';
 import { hmacSha256Hex } from './internalServiceAuth.js';
+import { constantTimeEqualSha256Hex } from '../utils/secureCompare.js';
 
 export interface SetupStatePayload {
     projectId: string;
@@ -65,7 +66,7 @@ export function verifySetupState(
     const providedSig = token.slice(dot + 1);
 
     const expectedSig = hmacSha256Hex(secret, encoded);
-    if (!timingSafeEqualHex(providedSig, expectedSig)) return { ok: false, reason: 'bad_signature' };
+    if (!constantTimeEqualSha256Hex(providedSig, expectedSig)) return { ok: false, reason: 'bad_signature' };
 
     let payload: SetupStatePayload;
     try {
@@ -85,11 +86,4 @@ export function verifySetupState(
     if (Math.abs(now - payload.iat) > opts.maxAgeMs) return { ok: false, reason: 'expired' };
 
     return { ok: true, payload };
-}
-
-function timingSafeEqualHex(a: string, b: string): boolean {
-    if (!/^[0-9a-f]{64}$/i.test(a) || !/^[0-9a-f]{64}$/i.test(b)) return false;
-    const ab = Buffer.from(a, 'hex');
-    const bb = Buffer.from(b, 'hex');
-    return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }

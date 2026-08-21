@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Request } from 'express';
 import { getRedis } from '../db/redis.js';
+import { constantTimeEqualSha256Hex } from '../utils/secureCompare.js';
 
 const DEFAULT_MAX_SKEW_MS = 5 * 60 * 1000;
 const DEFAULT_NONCE_TTL_SECONDS = 5 * 60;
@@ -83,17 +84,37 @@ function getSingleHeader(req: Request, headerName: string): string {
     return typeof value === 'string' ? value : '';
 }
 
-function timingSafeEqualHex(left: string, right: string): boolean {
-    if (!/^[0-9a-f]{64}$/i.test(left) || !/^[0-9a-f]{64}$/i.test(right)) return false;
-    const leftBuffer = Buffer.from(left, 'hex');
-    const rightBuffer = Buffer.from(right, 'hex');
-    return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
-
 async function reserveNonce(service: string, nonce: string, ttlSeconds: number): Promise<boolean> {
     const key = `internal-service-auth:${service}:${nonce}`;
     const result = await getRedis().set(key, '1', 'EX', ttlSeconds, 'NX');
     return result === 'OK';
+}
+
+function resolveNonceTtlSeconds(input: {
+    explicitTtlSeconds?: number;
+    maxSkewMs: number;
+    nowMs: number;
+    timestampMs: number;
+}): number {
+    // Keep the nonce through the signed timestamp's entire remaining acceptance
+    // window. The extra second covers Redis' integer-second expiry granularity
+    // and the equality boundary accepted by the skew check below.
+    const remainingAcceptanceMs = Math.max(
+        0,
+        input.timestampMs + input.maxSkewMs - input.nowMs,
+    );
+    const acceptanceWindowTtlSeconds = Math.ceil(remainingAcceptanceMs / 1000) + 1;
+    const explicitTtlFloor = Number.isFinite(input.explicitTtlSeconds)
+        ? Math.max(0, Math.ceil(input.explicitTtlSeconds!))
+        : 0;
+
+    // Callers may retain nonces longer, but may never shorten either the
+    // established default or the timestamp-derived replay-safety window.
+    return Math.max(
+        DEFAULT_NONCE_TTL_SECONDS,
+        acceptanceWindowTtlSeconds,
+        explicitTtlFloor,
+    );
 }
 
 export async function verifyInternalServiceRequest(input: {
@@ -123,13 +144,9 @@ export async function verifyInternalServiceRequest(input: {
     }
 
     const maxSkewMs = input.maxSkewMs ?? DEFAULT_MAX_SKEW_MS;
-    if (Math.abs(Date.now() - timestampMs) > maxSkewMs) {
+    const nowMs = Date.now();
+    if (Math.abs(nowMs - timestampMs) > maxSkewMs) {
         return { ok: false, reason: 'stale_internal_timestamp' };
-    }
-
-    const reserved = await reserveNonce(service, nonce, input.nonceTtlSeconds ?? DEFAULT_NONCE_TTL_SECONDS);
-    if (!reserved) {
-        return { ok: false, reason: 'replayed_internal_nonce' };
     }
 
     const expectedPayload = buildInternalSignaturePayload({
@@ -141,8 +158,21 @@ export async function verifyInternalServiceRequest(input: {
     });
     const expectedSignature = hmacSha256Hex(secret, expectedPayload);
 
-    if (!timingSafeEqualHex(signature, expectedSignature)) {
+    if (!constantTimeEqualSha256Hex(signature, expectedSignature)) {
         return { ok: false, reason: 'bad_internal_signature' };
+    }
+
+    // Reserve only authenticated nonces. Reserving before signature validation lets
+    // an unauthenticated request consume a legitimate caller's nonce.
+    const nonceTtlSeconds = resolveNonceTtlSeconds({
+        explicitTtlSeconds: input.nonceTtlSeconds,
+        maxSkewMs,
+        nowMs,
+        timestampMs,
+    });
+    const reserved = await reserveNonce(service, nonce, nonceTtlSeconds);
+    if (!reserved) {
+        return { ok: false, reason: 'replayed_internal_nonce' };
     }
 
     return { ok: true, service };

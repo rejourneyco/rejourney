@@ -6,7 +6,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
-import { checkRateLimit, isRedisConnected, getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
+import { checkRateLimitStrict, isRedisConnected, getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../logger.js';
 import {
@@ -14,6 +14,7 @@ import {
     buildIngestProjectRateLimitKey,
 } from '../utils/ingestRateLimitKey.js';
 import { getRequestIp } from '../utils/requestIp.js';
+import { setBoundedMapEntry } from '../utils/boundedMap.js';
 
 /**
  * ioredis uses "reconnecting" (and "connect") after idle drops or network blips.
@@ -41,6 +42,7 @@ interface InMemoryRateLimitBucket {
 }
 
 const inMemoryFallbackBuckets = new Map<string, InMemoryRateLimitBucket>();
+const IN_MEMORY_FALLBACK_MAX_BUCKETS = 50_000;
 
 declare global {
     namespace Express {
@@ -56,12 +58,13 @@ export function checkInMemoryRateLimit(
     max: number,
     now: number = Date.now(),
     store: Map<string, InMemoryRateLimitBucket> = inMemoryFallbackBuckets,
+    maxEntries: number = IN_MEMORY_FALLBACK_MAX_BUCKETS,
 ): { allowed: boolean; remaining: number; resetAt: number } {
     const existing = store.get(key);
 
     if (!existing || existing.resetAt <= now) {
         const resetAt = now + windowMs;
-        store.set(key, { count: 1, resetAt });
+        setBoundedMapEntry(store, key, { count: 1, resetAt }, maxEntries);
         return {
             allowed: true,
             remaining: Math.max(max - 1, 0),
@@ -70,6 +73,9 @@ export function checkInMemoryRateLimit(
     }
 
     existing.count += 1;
+    // Keep actively used buckets at the back of the bounded map so a burst of
+    // unique email keys cannot evict the IP-wide OTP protection bucket.
+    setBoundedMapEntry(store, key, existing, maxEntries);
 
     return {
         allowed: existing.count <= max,
@@ -176,7 +182,7 @@ export function rateLimit(options: RateLimitOptions) {
         }
 
         try {
-            const result = await checkRateLimit(key, windowMs, max);
+            const result = await checkRateLimitStrict(key, windowMs, max);
 
             // Set rate limit headers
             res.set('X-RateLimit-Limit', String(max));

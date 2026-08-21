@@ -7,10 +7,11 @@ import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
 import { getSafeRequestLogPath, serializeRequestForLogs } from './utils/httpLogging.js';
 import { pool } from './db/client.js';
-import { getRedis, getRedisDiagnosticsForLog, initRedis, closeRedis } from './db/redis.js';
+import { getRedisDiagnosticsForLog, initRedis, closeRedis } from './db/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
 import ingestUploadRelayRouter from './routes/ingestUploadRelay.js';
 import { isAbortLikeError } from './utils/abortLikeError.js';
+import { checkUploadDependencies } from './services/uploadHealth.js';
 
 const require = createRequire(import.meta.url);
 const pinoHttp = require('pino-http');
@@ -50,11 +51,24 @@ app.use(pinoHttp({
     customSuccessMessage: (req: Request, res: Response) => `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`,
     customErrorMessage: (req: Request, res: Response) => `${req.method} ${getSafeRequestLogPath(req)} ${res.statusCode}`,
     autoLogging: {
-        ignore: (req: Request) => getSafeRequestLogPath(req) === '/health',
+        ignore: (req: Request) => ['/health', '/health/live', '/health/ready'].includes(getSafeRequestLogPath(req)),
     },
 }));
 
-app.get('/health', async (_req, res) => {
+app.get('/health/live', (_req, res) => {
+    if (isShuttingDown) {
+        res.status(503).json({
+            status: 'draining',
+            service: 'ingest-upload',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    res.json({ status: 'ok', service: 'ingest-upload', timestamp: new Date().toISOString() });
+});
+
+const uploadReadinessHandler = async (_req: Request, res: Response) => {
     if (isShuttingDown) {
         res.status(503).json({
             status: 'draining',
@@ -65,12 +79,7 @@ app.get('/health', async (_req, res) => {
     }
 
     try {
-        const client = await pool.connect();
-        await client.query('SELECT 1');
-        client.release();
-
-        const redisClient = getRedis();
-        await redisClient.ping();
+        await checkUploadDependencies();
 
         res.json({ status: 'ok', service: 'ingest-upload', timestamp: new Date().toISOString() });
     } catch (error) {
@@ -89,7 +98,12 @@ app.get('/health', async (_req, res) => {
             timestamp: new Date().toISOString(),
         });
     }
-});
+};
+
+// Keep /health as a backwards-compatible readiness alias for self-hosted
+// deployments and external monitors.
+app.get('/health', uploadReadinessHandler);
+app.get('/health/ready', uploadReadinessHandler);
 
 app.use('/upload', ingestUploadRelayRouter);
 app.use(notFoundHandler);

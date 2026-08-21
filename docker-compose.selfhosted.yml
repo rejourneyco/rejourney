@@ -259,7 +259,7 @@ services:
       - traefik.http.routers.rejourney-ingest.middlewares=rejourney-security,rejourney-compress
       - traefik.http.services.rejourney-ingest.loadbalancer.server.port=3001
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health/live', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 5

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Production-ready Migration Image
 FROM node:24-bookworm-slim
 
@@ -12,38 +13,38 @@ ENV NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FUND=false
 
 # Install required system dependencies (if any)
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install global tools
-RUN for attempt in 1 2 3; do \
-      npm install -g drizzle-kit@beta tsx && break; \
+# Use the committed monorepo lockfile and install only the backend workspace.
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+COPY dashboard/web-ui/package.json dashboard/web-ui/
+COPY packages/react-native/package.json packages/react-native/
+COPY packages/browser/package.json packages/browser/
+
+RUN --mount=type=cache,target=/root/.npm \
+    for attempt in 1 2 3; do \
+      npm ci --workspace backend --include-workspace-root=false --omit=dev --ignore-scripts && break; \
       status=$?; \
       if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
-      echo "global npm install failed (attempt ${attempt}/3); retrying..."; \
+      echo "npm ci --omit=dev failed (attempt ${attempt}/3); retrying..."; \
       sleep $((attempt * 15)); \
     done
 
-# Copy source, config, and bootstrap scripts
-COPY backend/drizzle.config.ts .
-COPY backend/package.json .
-COPY backend/clickhouse ./clickhouse
-COPY backend/drizzle ./drizzle
-COPY backend/src ./src
-COPY backend/scripts ./scripts
-
-# Install ALL production dependencies locally (zod, drizzle-orm, pg, etc.)
-# This ensures seed scripts have everything they need
-RUN for attempt in 1 2 3; do \
-      npm install --omit=dev --legacy-peer-deps && break; \
-      status=$?; \
-      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
-      echo "npm install --omit=dev failed (attempt ${attempt}/3); retrying..."; \
-      sleep $((attempt * 15)); \
-    done
+# Copy source, config, and bootstrap scripts after dependencies for cache reuse.
+WORKDIR /app/backend
+COPY --chown=node:node backend/drizzle.config.ts ./
+COPY --chown=node:node backend/clickhouse ./clickhouse
+COPY --chown=node:node backend/drizzle ./drizzle
+COPY --chown=node:node backend/src ./src
+COPY --chown=node:node backend/scripts ./scripts
 
 # Set environment
 ENV NODE_ENV=production
 
+USER node
 
 # Default for ad-hoc runs; K8s/Compose override with full bootstrap command
 CMD ["node", "--import", "tsx", "scripts/applyDatabaseSchema.ts"]

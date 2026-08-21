@@ -169,15 +169,29 @@ function pendingEventRollupPredicate(sessionId?: string) {
     return and(...predicates);
 }
 
-async function loadSessionRollupContext(sessionId: string) {
+async function ensureSessionRollupMetrics(sessionId: string): Promise<void> {
     await db.insert(sessionMetrics)
         .values({ sessionId })
         .onConflictDoNothing();
+}
 
+async function loadSessionRollupContext(sessionId: string) {
     const [row] = await db
         .select({
             metrics: sessionMetrics,
-            session: sessions,
+            session: {
+                anonymousHash: sessions.anonymousHash,
+                appVersion: sessions.appVersion,
+                deviceId: sessions.deviceId,
+                deviceModel: sessions.deviceModel,
+                id: sessions.id,
+                osVersion: sessions.osVersion,
+                platform: sessions.platform,
+                projectId: sessions.projectId,
+                sdkVersion: sessions.sdkVersion,
+                startedAt: sessions.startedAt,
+                userDisplayId: sessions.userDisplayId,
+            },
         })
         .from(sessions)
         .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -204,6 +218,14 @@ export async function processSessionEventRollupBatch(
 
     const batch = artifacts.slice(0, batchSize);
     let processed = 0;
+
+    if (batch.length > 0) {
+        // The row is invariant for this session and the per-session lease prevents
+        // concurrent rollups. Creating it once avoids one redundant INSERT for
+        // every artifact while the context SELECT below still refreshes mutable
+        // session and metrics fields between artifacts.
+        await ensureSessionRollupMetrics(sessionId);
+    }
 
     for (const artifact of batch) {
         const context = await loadSessionRollupContext(sessionId);

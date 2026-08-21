@@ -121,12 +121,70 @@ export async function getArtifactBuffer(artifactId: string): Promise<Buffer | nu
 }
 
 export async function deleteArtifactBuffer(artifactId: string): Promise<void> {
-    await getRedis().del(`artifact:buf:${artifactId}`);
+    await deleteRedisKeyWithoutBlocking(getRedis(), `artifact:buf:${artifactId}`);
+}
+
+export async function deleteRedisKeyWithoutBlocking(
+    redisClient: Pick<RedisClient, 'del' | 'unlink'>,
+    key: string,
+): Promise<number> {
+    try {
+        // Large artifact buffers can be up to 25 MB. UNLINK removes the key
+        // immediately while reclaiming its memory off Redis' main thread.
+        return await redisClient.unlink(key);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/unknown command[^\n]*unlink/i.test(message)) {
+            return redisClient.del(key);
+        }
+        throw err;
+    }
 }
 
 /**
  * Rate limit helpers
  */
+const CHECK_RATE_LIMIT_SCRIPT = `
+redis.call('zremrangebyscore', KEYS[1], 0, ARGV[1])
+redis.call('zadd', KEYS[1], ARGV[2], ARGV[3])
+local count = redis.call('zcard', KEYS[1])
+redis.call('pexpire', KEYS[1], ARGV[4])
+return count
+`;
+
+type RedisRateLimitClient = Pick<RedisClient, 'eval'>;
+
+export async function checkRateLimitWithClient(
+    redisClient: RedisRateLimitClient,
+    key: string,
+    windowMs: number,
+    maxRequests: number,
+    now: number = Date.now(),
+    member: string = `${now}-${Math.random()}`,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+    const windowStart = now - windowMs;
+    const resetAt = now + windowMs;
+    const rawCount = await redisClient.eval(
+        CHECK_RATE_LIMIT_SCRIPT,
+        1,
+        key,
+        String(windowStart),
+        String(now),
+        member,
+        String(windowMs),
+    );
+    const count = Number(rawCount);
+    if (!Number.isFinite(count)) {
+        throw new Error('Redis rate-limit script returned a non-numeric count');
+    }
+
+    return {
+        allowed: count <= maxRequests,
+        remaining: Math.max(0, maxRequests - count),
+        resetAt,
+    };
+}
+
 export async function checkRateLimit(
     key: string,
     windowMs: number,
@@ -134,28 +192,30 @@ export async function checkRateLimit(
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
     const redisClient = getRedis();
     const now = Date.now();
-    const windowStart = now - windowMs;
-    const resetAt = now + windowMs;
 
     try {
-        const pipeline = redisClient.pipeline();
-        pipeline.zremrangebyscore(key, 0, windowStart);
-        pipeline.zadd(key, now.toString(), `${now}-${Math.random()}`);
-        pipeline.zcard(key);
-        pipeline.pexpire(key, windowMs);
-
-        const results = await pipeline.exec();
-        const count = (results?.[2]?.[1] as number) || 0;
-        const remaining = Math.max(0, maxRequests - count);
-
-        return {
-            allowed: count <= maxRequests,
-            remaining,
-            resetAt,
-        };
+        return await checkRateLimitWithClient(redisClient, key, windowMs, maxRequests, now);
     } catch (err) {
         logRedisOperationFailed('check_rate_limit', err, { rateLimitKeyPrefix: key.split(':').slice(0, 3).join(':') });
-        return { allowed: true, remaining: maxRequests, resetAt };
+        // Direct abuse-detection callers historically fail open when Redis is
+        // unavailable. Keep that contract separate from middleware policy.
+        return { allowed: true, remaining: maxRequests, resetAt: now + windowMs };
+    }
+}
+
+export async function checkRateLimitStrict(
+    key: string,
+    windowMs: number,
+    maxRequests: number
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+    const redisClient = getRedis();
+    const now = Date.now();
+
+    try {
+        return await checkRateLimitWithClient(redisClient, key, windowMs, maxRequests, now);
+    } catch (err) {
+        logRedisOperationFailed('check_rate_limit_strict', err, { rateLimitKeyPrefix: key.split(':').slice(0, 3).join(':') });
+        throw err;
     }
 }
 

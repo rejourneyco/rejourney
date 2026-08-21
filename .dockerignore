@@ -1,0 +1,38 @@
+# Never send local credentials, VCS metadata, or installed dependencies to BuildKit.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+**/node_modules
+**/.npm
+
+# Generated output is rebuilt inside the image.
+**/dist
+**/build
+**/.cache
+**/.vite
+coverage
+.pytest_cache
+.playwright-cli
+.build
+.swiftpm
+
+# These trees are not inputs to any production image.
+examples
+benchmarks
+dev_docs
+local-k8s
+k8s
+ads_import
+google-ads-bulk
+i18n
+marketing
+output
+outputs
+tmp
+
+# Host/editor artifacts.
+.DS_Store
+**/.DS_Store
+*.log

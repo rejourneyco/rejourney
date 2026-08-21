@@ -6,11 +6,17 @@ type ReplayArtifactVerificationParams = {
     expectedFrameCount?: number | null;
     job: any;
     log: any;
+    parsedPayload?: unknown;
     sessionStartTime: number;
 };
 
-function assertValidHierarchyPayload(data: Buffer): { nodeCount: number; rootType: string } {
-    const parsed = JSON.parse(data.toString('utf8'));
+function assertValidHierarchyPayload(
+    data: Buffer,
+    parsedPayload?: unknown,
+): { nodeCount: number; rootType: string } {
+    const parsed = parsedPayload === undefined
+        ? JSON.parse(data.toString('utf8'))
+        : parsedPayload as any;
     const rootElement = parsed?.rootElement ?? parsed?.root ?? parsed;
 
     if (!rootElement || typeof rootElement !== 'object' || Array.isArray(rootElement)) {
@@ -19,8 +25,8 @@ function assertValidHierarchyPayload(data: Buffer): { nodeCount: number; rootTyp
 
     const queue: any[] = [rootElement];
     let nodeCount = 0;
-    while (queue.length > 0) {
-        const node = queue.shift();
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+        const node = queue[cursor];
         if (!node || typeof node !== 'object') continue;
         nodeCount += 1;
         if (Array.isArray(node.children)) {
@@ -39,7 +45,7 @@ function assertValidHierarchyPayload(data: Buffer): { nodeCount: number; rootTyp
 }
 
 export async function processRecoveredReplayArtifact(params: ReplayArtifactVerificationParams) {
-    const { artifactId, data, expectedFrameCount, job, log, sessionStartTime } = params;
+    const { artifactId, data, expectedFrameCount, job, log, parsedPayload, sessionStartTime } = params;
 
     if (job.kind === 'screenshots') {
         const frames = await extractFramesFromArchive(data, sessionStartTime);
@@ -67,7 +73,7 @@ export async function processRecoveredReplayArtifact(params: ReplayArtifactVerif
     }
 
     if (job.kind === 'hierarchy') {
-        const { nodeCount, rootType } = assertValidHierarchyPayload(data);
+        const { nodeCount, rootType } = assertValidHierarchyPayload(data, parsedPayload);
         log.info({
             artifactId,
             nodeCount,

@@ -1,5 +1,6 @@
-import { createHash, createHmac } from 'crypto';
+import { createHmac } from 'crypto';
 import { config } from '../config.js';
+import { constantTimeEqualSha256Hex } from '../utils/secureCompare.js';
 
 export const ARTIFACT_UPLOAD_URL_TTL_SECONDS = 3600;
 export const ABANDONED_ARTIFACT_TTL_MS = 10 * 60 * 1000;
@@ -37,15 +38,6 @@ function signPayload(payloadB64: string): string {
     return createHmac('sha256', config.INGEST_HMAC_SECRET)
         .update(payloadB64)
         .digest('hex');
-}
-
-function signaturesMatch(actual: string, expected: string): boolean {
-    if (!actual || !expected || actual.length !== expected.length) {
-        return false;
-    }
-
-    return createHash('sha256').update(actual).digest('hex') ===
-        createHash('sha256').update(expected).digest('hex');
 }
 
 function trimTrailingSlash(value: string): string {
@@ -135,7 +127,7 @@ export function verifyArtifactUploadRelayTokenResult(
     const payloadB64 = token.slice(0, dotIdx);
     const signature = token.slice(dotIdx + 1);
     const expected = signPayload(payloadB64);
-    if (!signaturesMatch(signature, expected)) {
+    if (!constantTimeEqualSha256Hex(signature, expected)) {
         return { ok: false, reason: 'bad_signature' };
     }
 

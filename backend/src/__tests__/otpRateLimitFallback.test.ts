@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../db/redis.js', () => ({
-    checkRateLimit: vi.fn(),
+    checkRateLimitStrict: vi.fn(),
     isRedisConnected: vi.fn(() => false),
     getRedis: vi.fn(() => ({ status: 'end' })),
     getRedisDiagnosticsForLog: vi.fn(() => ({ redisStatus: 'end' })),
@@ -15,7 +15,7 @@ vi.mock('../logger.js', () => ({
     },
 }));
 
-import { checkRateLimit, getRedis, isRedisConnected } from '../db/redis.js';
+import { checkRateLimitStrict, getRedis, isRedisConnected } from '../db/redis.js';
 import {
     checkInMemoryRateLimit,
     otpSendIpRateLimiter,
@@ -128,10 +128,69 @@ describe('OTP rate-limit Redis fallback', () => {
         });
     });
 
+    it('bounds fallback buckets when Redis is unavailable under high-cardinality traffic', () => {
+        const store = new Map();
+        checkInMemoryRateLimit('rate:a', 1000, 2, 100, store, 2);
+        checkInMemoryRateLimit('rate:b', 1000, 2, 100, store, 2);
+        checkInMemoryRateLimit('rate:a', 1000, 2, 200, store, 2);
+        checkInMemoryRateLimit('rate:c', 1000, 2, 100, store, 2);
+
+        expect([...store.keys()]).toEqual(['rate:a', 'rate:c']);
+    });
+
+    it('uses the OTP memory fallback when Redis is ready but the command fails', async () => {
+        vi.mocked(isRedisConnected).mockReturnValue(true);
+        vi.mocked(getRedis).mockReturnValue({ status: 'ready' } as never);
+        vi.mocked(checkRateLimitStrict).mockRejectedValue(new Error('READONLY replica'));
+        const middleware = rateLimit({
+            windowMs: 60_000,
+            max: 2,
+            keyGenerator: () => 'rate:otp:send:test@example.com',
+            redisUnavailableFallback: true,
+        });
+        const req = {
+            ip: '127.0.0.1',
+            path: '/api/auth/otp/send',
+            body: { email: 'test@example.com' },
+        } as Request;
+        const res = createResponse();
+        const next = vi.fn() as unknown as NextFunction;
+
+        await middleware(req, res, next);
+
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(req.rateLimitFallbackUsed).toBe(true);
+        expect(res.set).toHaveBeenCalledWith('X-RateLimit-Fallback', 'memory');
+    });
+
+    it('fails closed with the existing response shape when a connected Redis command fails', async () => {
+        vi.mocked(isRedisConnected).mockReturnValue(true);
+        vi.mocked(getRedis).mockReturnValue({ status: 'ready' } as never);
+        vi.mocked(checkRateLimitStrict).mockRejectedValue(new Error('Redis command timed out'));
+        const middleware = rateLimit({
+            windowMs: 60_000,
+            max: 2,
+            keyGenerator: () => 'rate:ingest:test',
+            failOpen: false,
+        });
+        const req = {
+            ip: '127.0.0.1',
+            path: '/api/ingest/presign',
+        } as Request;
+        const res = createResponse();
+        const next = vi.fn() as unknown as NextFunction;
+
+        await middleware(req, res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(500);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+
     it('keys OTP IP limits by the forwarded client IP instead of the internal proxy hop', async () => {
         vi.mocked(isRedisConnected).mockReturnValue(true);
         vi.mocked(getRedis).mockReturnValue({ status: 'ready' } as never);
-        vi.mocked(checkRateLimit).mockResolvedValue({
+        vi.mocked(checkRateLimitStrict).mockResolvedValue({
             allowed: true,
             remaining: 39,
             resetAt: Date.now() + 15 * 60_000,
@@ -153,7 +212,7 @@ describe('OTP rate-limit Redis fallback', () => {
 
         await otpSendIpRateLimiter(req, res, next);
 
-        expect(checkRateLimit).toHaveBeenCalledWith(
+        expect(checkRateLimitStrict).toHaveBeenCalledWith(
             'rate:otp:send:ip:91.126.76.114',
             15 * 60_000,
             40,

@@ -164,6 +164,7 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralSql).toContain('COALESCE(s.replay_quota_billing_exhausted, false) = true');
         expect(behavioralSql).toContain("s.replay_retention_state = 'analytics_only'");
         expect(behavioralSql).toContain('jsonb_array_length(s.events) > 0');
+        expect(behavioralSql).toContain('LEFT JOIN session_metrics sm');
 
         expect(__researchLakeTestInternals.researchLakeTypes).toEqual(['interaction', 'behavioral_outcomes']);
         expect(__researchLakeTestInternals.researchLakeV2Types).toEqual(['interaction', 'behavioral_outcomes', 'forward_outcomes']);
@@ -179,6 +180,30 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralClaimSql).toContain('ORDER BY due_at, created_at, id');
         expect(behavioralClaimSql).not.toContain('PARTITION BY project_id');
         expect(interactionClaimSql).toContain('schema_version = 1');
+    });
+
+    it('throttles empty seed scans but retries when eligibility can have changed', () => {
+        const now = 1_000_000;
+        const nextV1Retry = __researchLakeTestInternals.nextResearchSeedRetryAtMs(0, now);
+        const nextV2Retry = __researchLakeTestInternals.nextResearchSeedRetryAtMs(
+            0,
+            now,
+            __researchLakeTestInternals.researchV2EmptySeedRetryMs,
+        );
+
+        expect(nextV1Retry).toBe(now + __researchLakeTestInternals.researchEmptySeedRetryMs);
+        expect(nextV2Retry).toBe(now + __researchLakeTestInternals.researchV2EmptySeedRetryMs);
+        expect(__researchLakeTestInternals.shouldRetryResearchSeed(nextV1Retry, nextV1Retry - 1)).toBe(false);
+        expect(__researchLakeTestInternals.shouldRetryResearchSeed(nextV1Retry, nextV1Retry)).toBe(true);
+
+        // A later scan that discovers newly eligible work removes the throttle,
+        // so the next bounded chunk can be seeded immediately after the queue drains.
+        const afterEligibilityAppears = __researchLakeTestInternals.nextResearchSeedRetryAtMs(
+            1,
+            nextV1Retry,
+        );
+        expect(afterEligibilityAppears).toBe(0);
+        expect(__researchLakeTestInternals.shouldRetryResearchSeed(afterEligibilityAppears, nextV1Retry)).toBe(true);
     });
 
     it('releases jobs claimed but not started at the runtime deadline', () => {

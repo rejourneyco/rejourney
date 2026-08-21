@@ -39,7 +39,8 @@ COPY packages/browser/package.json packages/browser/
 # still exit on transient registry ECONNRESETs after its internal fetch retries.
 RUN --mount=type=cache,target=/root/.npm \
     for attempt in 1 2 3; do \
-      npm ci --legacy-peer-deps --ignore-scripts && break; \
+      npm ci --workspace @rejourneyco/browser --workspace rejourney-dashboard \
+        --include-workspace-root=false --legacy-peer-deps --ignore-scripts && break; \
       status=$?; \
       if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
       echo "npm ci failed (attempt ${attempt}/3); retrying..."; \
@@ -86,7 +87,8 @@ COPY packages/browser/package.json packages/browser/
 # Install production dependencies only (from root).
 RUN --mount=type=cache,target=/root/.npm \
     for attempt in 1 2 3; do \
-      npm ci --legacy-peer-deps --omit=dev --ignore-scripts && break; \
+      npm ci --workspace rejourney-dashboard --include-workspace-root=false \
+        --legacy-peer-deps --omit=dev --ignore-scripts && break; \
       status=$?; \
       if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
       echo "npm ci --omit=dev failed (attempt ${attempt}/3); retrying..."; \

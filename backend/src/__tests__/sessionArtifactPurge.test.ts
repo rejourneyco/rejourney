@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     eq: vi.fn((left, right) => ({ left, right })),
+    exists: vi.fn((query) => ({ exists: query })),
     sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => strings.reduce(
         (acc, chunk, index) => acc + chunk + (index < values.length ? String(values[index]) : ''),
         '',
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('drizzle-orm', () => ({
     eq: mocks.eq,
+    exists: mocks.exists,
     sql: mocks.sql,
 }));
 
