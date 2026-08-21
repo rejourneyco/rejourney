@@ -34,6 +34,7 @@ import {
     uploadToS3ForArtifact,
 } from '../db/s3.js';
 import { getRedis } from '../db/redis.js';
+import { acquireLock, type HeldLock } from './distributedLock.js';
 import { logger } from '../logger.js';
 
 // ============================================================================
@@ -631,6 +632,39 @@ const FRAME_UPLOAD_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_FRAME_UPLOAD_C
 const MATERIALIZE_FRAME_OBJECTS = process.env.RJ_SCREENSHOT_FRAME_OBJECTS_ENABLED !== 'false';
 const frameBuildInFlight = new Set<string>();
 
+// Cross-pod single-flight for frame builds. Frame object keys are deterministic, so
+// two pods building the same session write byte-identical objects to identical keys —
+// which S3 rejects with a transient 409 OperationAborted. The lease keeps one builder
+// per session cluster-wide; `frameBuildInFlight` above only ever covered one process.
+const FRAME_BUILD_LOCK_PREFIX = 'screenshot_frames:build:v1:';
+const FRAME_BUILD_LOCK_TTL_MS = Number(process.env.RJ_SCREENSHOT_FRAME_BUILD_LOCK_TTL_MS ?? 60_000);
+/** How long a caller waits for another pod's in-progress build before returning its partial state. */
+const FRAME_BUILD_WAIT_TIMEOUT_MS = Number(process.env.RJ_SCREENSHOT_FRAME_BUILD_WAIT_MS ?? 2_500);
+const FRAME_BUILD_WAIT_POLL_MS = 250;
+
+function buildFrameBuildLockKey(sessionId: string): string {
+    return `${FRAME_BUILD_LOCK_PREFIX}${sessionId}`;
+}
+
+/**
+ * Poll for another pod's build to reach 'ready'.
+ * Returns null if the deadline passes while it is still building.
+ */
+async function waitForConcurrentFrameBuild(
+    sessionId: string,
+    timeoutMs: number
+): Promise<CachedFrameIndex | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, FRAME_BUILD_WAIT_POLL_MS));
+        const cached = await getCachedFrameIndex(sessionId);
+        if (cached?.status === 'ready') {
+            return cached;
+        }
+    }
+    return null;
+}
+
 interface CachedFrameIndex {
     sessionId: string;
     totalFrames: number;
@@ -816,41 +850,47 @@ export async function getSessionScreenshotFrames(
     const sessionStartTime = session.startedAt.getTime();
     const sessionEndTime = session.endedAt?.getTime() ?? null;
     
+    const respondFromCachedIndex = async (
+        cached: CachedFrameIndex
+    ): Promise<SessionScreenshotFrames> => {
+        // Apply session-window filter to cached frames too (cache may predate this fix)
+        const cachedUpper = sessionEndTime ? sessionEndTime + 5000 : Infinity;
+        let framesToReturn = cached.frames.filter(
+            f => f.timestamp >= sessionStartTime && f.timestamp <= cachedUpper
+        );
+        // Reassign indices after filtering
+        framesToReturn.forEach((f, idx) => { f.index = idx; });
+
+        if (offset > 0) {
+            framesToReturn = framesToReturn.slice(offset);
+        }
+        if (limit) {
+            framesToReturn = framesToReturn.slice(0, limit);
+        }
+
+        const framesWithUrls = await buildFrameResponses(
+            session.projectId,
+            sessionId,
+            framesToReturn,
+            urlMode
+        );
+
+        return {
+            totalFrames: cached.totalFrames,
+            sessionStartTime: cached.sessionStartTime,
+            frames: framesWithUrls,
+            cached: true,
+            status: cached.status,
+            processedSegments: cached.processedSegments,
+            totalSegments: cached.totalSegments,
+        };
+    };
+
     // Check cache first
     if (!skipCache) {
         const cached = await getCachedFrameIndex(sessionId);
         if (cached) {
-            // Apply session-window filter to cached frames too (cache may predate this fix)
-            const cachedUpper = sessionEndTime ? sessionEndTime + 5000 : Infinity;
-            let framesToReturn = cached.frames.filter(
-                f => f.timestamp >= sessionStartTime && f.timestamp <= cachedUpper
-            );
-            // Reassign indices after filtering
-            framesToReturn.forEach((f, idx) => { f.index = idx; });
-
-            if (offset > 0) {
-                framesToReturn = framesToReturn.slice(offset);
-            }
-            if (limit) {
-                framesToReturn = framesToReturn.slice(0, limit);
-            }
-
-            const framesWithUrls = await buildFrameResponses(
-                session.projectId,
-                sessionId,
-                framesToReturn,
-                urlMode
-            );
-
-            return {
-                totalFrames: cached.totalFrames,
-                sessionStartTime: cached.sessionStartTime,
-                frames: framesWithUrls,
-                cached: true,
-                status: cached.status,
-                processedSegments: cached.processedSegments,
-                totalSegments: cached.totalSegments,
-            };
+            return respondFromCachedIndex(cached);
         }
     }
 
@@ -858,46 +898,174 @@ export async function getSessionScreenshotFrames(
         return null;
     }
     
-    // Get screenshot archive artifacts
-    const segments = await getScreenshotSegments(sessionId);
-    
-    if (segments.length === 0) {
-        logger.info({ sessionId }, '[screenshotFrames] No screenshot segments found');
-        return null;
+    // Frame object keys are deterministic, so a second pod building the same session
+    // rewrites byte-identical objects to identical keys and S3 rejects the overlap with
+    // a transient 409 OperationAborted. One lease per session makes that build single-flight
+    // across the cluster instead of only within this process.
+    const acquisition = await acquireLock(buildFrameBuildLockKey(sessionId), FRAME_BUILD_LOCK_TTL_MS);
+
+    if (acquisition.outcome === 'held_by_other') {
+        const ready = await waitForConcurrentFrameBuild(sessionId, FRAME_BUILD_WAIT_TIMEOUT_MS);
+        if (ready) {
+            return respondFromCachedIndex(ready);
+        }
+        // Still building elsewhere: report its progress rather than starting a rival build.
+        const inProgress = await getCachedFrameIndex(sessionId);
+        return inProgress ? respondFromCachedIndex(inProgress) : null;
     }
 
-    await cacheFrameIndex(sessionId, {
-        sessionId,
-        totalFrames: 0,
-        sessionStartTime,
-        status: 'building',
-        processedSegments: 0,
-        totalSegments: segments.length,
-        frames: [],
-        extractedAt: Date.now(),
-    });
+    // `unavailable` means Redis could not answer, so we build unfenced exactly as before.
+    const buildLock: HeldLock | null = acquisition.outcome === 'acquired' ? acquisition.lock : null;
+
+    if (buildLock) {
+        // The previous lease holder may have finished while we were blocked on acquisition.
+        const justFinished = await getCachedFrameIndex(sessionId);
+        if (justFinished?.status === 'ready') {
+            await buildLock.release();
+            return respondFromCachedIndex(justFinished);
+        }
+    }
+
+    /**
+     * A cache write must never outlive the lease that authorized it: if the lease expired
+     * and another pod took over, publishing here would overwrite fresher state with ours.
+     */
+    const publishIndex = async (index: CachedFrameIndex): Promise<void> => {
+        if (buildLock && !(await buildLock.isStillOwned())) {
+            logger.warn(
+                { event: 'screenshot_frames.build_lease_lost', sessionId },
+                '[screenshotFrames] Build lease lost; skipping frame index publish'
+            );
+            return;
+        }
+        await cacheFrameIndex(sessionId, index);
+    };
+
+    try {
+        // Get screenshot archive artifacts
+        const segments = await getScreenshotSegments(sessionId);
     
-    // Extract frames from all archives
-    const allFrames: Array<{
-        timestamp: number;
-        s3Key: string | null;
-        endpointId?: string | null;
-        directReady?: boolean;
-        index: number;
-        sizeBytes: number;
-    }> = [];
-    type MaterializedFrameUpload = Awaited<ReturnType<typeof uploadToS3ForArtifact>>;
-    const materializedFrameUploads = new Map<string, Promise<MaterializedFrameUpload>>();
+        if (segments.length === 0) {
+            logger.info({ sessionId }, '[screenshotFrames] No screenshot segments found');
+            return null;
+        }
+
+        await publishIndex({
+            sessionId,
+            totalFrames: 0,
+            sessionStartTime,
+            status: 'building',
+            processedSegments: 0,
+            totalSegments: segments.length,
+            frames: [],
+            extractedAt: Date.now(),
+        });
     
-    let globalIndex = 0;
+        // Extract frames from all archives
+        const allFrames: Array<{
+            timestamp: number;
+            s3Key: string | null;
+            endpointId?: string | null;
+            directReady?: boolean;
+            index: number;
+            sizeBytes: number;
+        }> = [];
+        type MaterializedFrameUpload = Awaited<ReturnType<typeof uploadToS3ForArtifact>>;
+        const materializedFrameUploads = new Map<string, Promise<MaterializedFrameUpload>>();
     
-    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
-        const segment = segments[segmentIndex];
-        // Download archive
-        const archiveData = await downloadFromS3ForArtifact(session.projectId, segment.archiveS3Key, segment.endpointId);
-        if (!archiveData) {
-            logger.warn({ sessionId, s3Key: segment.archiveS3Key }, '[screenshotFrames] Failed to download archive');
-            await cacheFrameIndex(sessionId, {
+        let globalIndex = 0;
+    
+        for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+            const segment = segments[segmentIndex];
+            // Download archive
+            const archiveData = await downloadFromS3ForArtifact(session.projectId, segment.archiveS3Key, segment.endpointId);
+            if (!archiveData) {
+                logger.warn({ sessionId, s3Key: segment.archiveS3Key }, '[screenshotFrames] Failed to download archive');
+                await publishIndex({
+                    sessionId,
+                    totalFrames: allFrames.length,
+                    sessionStartTime,
+                    status: 'building',
+                    processedSegments: segmentIndex + 1,
+                    totalSegments: segments.length,
+                    frames: allFrames,
+                    extractedAt: Date.now(),
+                });
+                continue;
+            }
+        
+            // Extract frames (pass sessionStartTime for Android binary format)
+            const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
+        
+            const materializedFrames = MATERIALIZE_FRAME_OBJECTS
+                ? await mapWithConcurrency(
+                    frames,
+                    FRAME_UPLOAD_CONCURRENCY,
+                    async (frame) => {
+                        const s3Key = buildMaterializedFrameKey(sessionId, frame.timestamp);
+                        const uploadMemoKey = `${segment.endpointId ?? 'project-default'}\0${s3Key}`;
+                        let uploadPromise = materializedFrameUploads.get(uploadMemoKey);
+                        if (!uploadPromise) {
+                            uploadPromise = uploadToS3ForArtifact(
+                                session.projectId,
+                                s3Key,
+                                frame.data,
+                                'image/jpeg',
+                                {
+                                    session_id: sessionId,
+                                    kind: 'screenshot_frame',
+                                    timestamp: String(frame.timestamp),
+                                },
+                                segment.endpointId,
+                            );
+                            materializedFrameUploads.set(uploadMemoKey, uploadPromise);
+                        }
+                        let upload: MaterializedFrameUpload;
+                        try {
+                            upload = await uploadPromise;
+                        } catch (err) {
+                            if (materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
+                                materializedFrameUploads.delete(uploadMemoKey);
+                            }
+                            throw err;
+                        }
+                        if (!upload.success && materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
+                            materializedFrameUploads.delete(uploadMemoKey);
+                        }
+
+                        if (!upload.success) {
+                            logger.warn(
+                                { sessionId, s3Key, error: upload.error },
+                                '[screenshotFrames] Failed to materialize screenshot frame object; proxy fallback will be used'
+                            );
+                        }
+
+                        return {
+                            timestamp: frame.timestamp,
+                            s3Key: upload.success ? s3Key : null,
+                            endpointId: upload.success ? upload.endpointId : null,
+                            directReady: upload.success,
+                            index: 0,
+                            sizeBytes: frame.data.length,
+                        };
+                    }
+                )
+                : frames.map((frame) => ({
+                    timestamp: frame.timestamp,
+                    s3Key: null,
+                    endpointId: null,
+                    directReady: false,
+                    index: 0,
+                    sizeBytes: frame.data.length,
+                }));
+
+            for (const uploaded of materializedFrames) {
+                uploaded.index = globalIndex;
+                allFrames.push(uploaded);
+                globalIndex++;
+            }
+
+            await publishIndex({
                 sessionId,
                 totalFrames: allFrames.length,
                 sessionStartTime,
@@ -907,173 +1075,92 @@ export async function getSessionScreenshotFrames(
                 frames: allFrames,
                 extractedAt: Date.now(),
             });
-            continue;
         }
-        
-        // Extract frames (pass sessionStartTime for Android binary format)
-        const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
-        
-        const materializedFrames = MATERIALIZE_FRAME_OBJECTS
-            ? await mapWithConcurrency(
-                frames,
-                FRAME_UPLOAD_CONCURRENCY,
-                async (frame) => {
-                    const s3Key = buildMaterializedFrameKey(sessionId, frame.timestamp);
-                    const uploadMemoKey = `${segment.endpointId ?? 'project-default'}\0${s3Key}`;
-                    let uploadPromise = materializedFrameUploads.get(uploadMemoKey);
-                    if (!uploadPromise) {
-                        uploadPromise = uploadToS3ForArtifact(
-                            session.projectId,
-                            s3Key,
-                            frame.data,
-                            'image/jpeg',
-                            {
-                                session_id: sessionId,
-                                kind: 'screenshot_frame',
-                                timestamp: String(frame.timestamp),
-                            },
-                            segment.endpointId,
-                        );
-                        materializedFrameUploads.set(uploadMemoKey, uploadPromise);
-                    }
-                    let upload: MaterializedFrameUpload;
-                    try {
-                        upload = await uploadPromise;
-                    } catch (err) {
-                        if (materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
-                            materializedFrameUploads.delete(uploadMemoKey);
-                        }
-                        throw err;
-                    }
-                    if (!upload.success && materializedFrameUploads.get(uploadMemoKey) === uploadPromise) {
-                        materializedFrameUploads.delete(uploadMemoKey);
-                    }
+    
+        if (allFrames.length === 0) {
+            logger.warn({ sessionId }, '[screenshotFrames] No frames extracted from archives');
+            return null;
+        }
+    
+        // Sort all frames by timestamp
+        allFrames.sort((a, b) => a.timestamp - b.timestamp);
 
-                    if (!upload.success) {
-                        logger.warn(
-                            { sessionId, s3Key, error: upload.error },
-                            '[screenshotFrames] Failed to materialize screenshot frame object; proxy fallback will be used'
-                        );
-                    }
+        // Filter out frames that fall outside the session time window.
+        // Cross-session frame leakage can occur when the SDK doesn't fully flush
+        // its screenshot buffer before a new session starts, causing frames from
+        // the previous session to be uploaded under the new session ID.
+        const preFilterCount = allFrames.length;
+        const lowerBound = sessionStartTime;
+        const upperBound = sessionEndTime ? sessionEndTime + 5000 : Infinity; // 5s grace for upload lag
+        const filteredFrames = allFrames.filter(f => f.timestamp >= lowerBound && f.timestamp <= upperBound);
 
-                    return {
-                        timestamp: frame.timestamp,
-                        s3Key: upload.success ? s3Key : null,
-                        endpointId: upload.success ? upload.endpointId : null,
-                        directReady: upload.success,
-                        index: 0,
-                        sizeBytes: frame.data.length,
-                    };
-                }
-            )
-            : frames.map((frame) => ({
-                timestamp: frame.timestamp,
-                s3Key: null,
-                endpointId: null,
-                directReady: false,
-                index: 0,
-                sizeBytes: frame.data.length,
-            }));
-
-        for (const uploaded of materializedFrames) {
-            uploaded.index = globalIndex;
-            allFrames.push(uploaded);
-            globalIndex++;
+        if (filteredFrames.length < preFilterCount) {
+            logger.warn({
+                sessionId,
+                removed: preFilterCount - filteredFrames.length,
+                total: preFilterCount,
+                sessionStartTime,
+                sessionEndTime,
+            }, '[screenshotFrames] Filtered out-of-window frames (cross-session leakage)');
         }
 
-        await cacheFrameIndex(sessionId, {
+        // Reassign indices after filtering
+        filteredFrames.forEach((f, idx) => {
+            f.index = idx;
+        });
+
+        // Replace allFrames with filtered set
+        allFrames.length = 0;
+        allFrames.push(...filteredFrames);
+    
+        // Cache the frame index
+        const cacheEntry: CachedFrameIndex = {
             sessionId,
             totalFrames: allFrames.length,
             sessionStartTime,
-            status: 'building',
-            processedSegments: segmentIndex + 1,
+            status: 'ready',
+            processedSegments: segments.length,
             totalSegments: segments.length,
             frames: allFrames,
             extractedAt: Date.now(),
-        });
-    }
+        };
+        await publishIndex(cacheEntry);
     
-    if (allFrames.length === 0) {
-        logger.warn({ sessionId }, '[screenshotFrames] No frames extracted from archives');
-        return null;
-    }
+        // Apply pagination
+        let framesToReturn = allFrames;
+        if (offset > 0) {
+            framesToReturn = framesToReturn.slice(offset);
+        }
+        if (limit) {
+            framesToReturn = framesToReturn.slice(0, limit);
+        }
     
-    // Sort all frames by timestamp
-    allFrames.sort((a, b) => a.timestamp - b.timestamp);
-
-    // Filter out frames that fall outside the session time window.
-    // Cross-session frame leakage can occur when the SDK doesn't fully flush
-    // its screenshot buffer before a new session starts, causing frames from
-    // the previous session to be uploaded under the new session ID.
-    const preFilterCount = allFrames.length;
-    const lowerBound = sessionStartTime;
-    const upperBound = sessionEndTime ? sessionEndTime + 5000 : Infinity; // 5s grace for upload lag
-    const filteredFrames = allFrames.filter(f => f.timestamp >= lowerBound && f.timestamp <= upperBound);
-
-    if (filteredFrames.length < preFilterCount) {
-        logger.warn({
+        const framesWithUrls = await buildFrameResponses(
+            session.projectId,
             sessionId,
-            removed: preFilterCount - filteredFrames.length,
-            total: preFilterCount,
+            framesToReturn,
+            urlMode
+        );
+    
+        logger.info({
+            sessionId,
+            totalFrames: allFrames.length,
+            returnedFrames: framesWithUrls.length,
+            urlMode,
+        }, '[screenshotFrames] Extracted and cached session frames');
+    
+        return {
+            totalFrames: allFrames.length,
             sessionStartTime,
-            sessionEndTime,
-        }, '[screenshotFrames] Filtered out-of-window frames (cross-session leakage)');
+            frames: framesWithUrls,
+            cached: false,
+            status: 'ready',
+            processedSegments: segments.length,
+            totalSegments: segments.length,
+        };
+    } finally {
+        await buildLock?.release();
     }
-
-    // Reassign indices after filtering
-    filteredFrames.forEach((f, idx) => {
-        f.index = idx;
-    });
-
-    // Replace allFrames with filtered set
-    allFrames.length = 0;
-    allFrames.push(...filteredFrames);
-    
-    // Cache the frame index
-    const cacheEntry: CachedFrameIndex = {
-        sessionId,
-        totalFrames: allFrames.length,
-        sessionStartTime,
-        status: 'ready',
-        processedSegments: segments.length,
-        totalSegments: segments.length,
-        frames: allFrames,
-        extractedAt: Date.now(),
-    };
-    await cacheFrameIndex(sessionId, cacheEntry);
-    
-    // Apply pagination
-    let framesToReturn = allFrames;
-    if (offset > 0) {
-        framesToReturn = framesToReturn.slice(offset);
-    }
-    if (limit) {
-        framesToReturn = framesToReturn.slice(0, limit);
-    }
-    
-    const framesWithUrls = await buildFrameResponses(
-        session.projectId,
-        sessionId,
-        framesToReturn,
-        urlMode
-    );
-    
-    logger.info({
-        sessionId,
-        totalFrames: allFrames.length,
-        returnedFrames: framesWithUrls.length,
-        urlMode,
-    }, '[screenshotFrames] Extracted and cached session frames');
-    
-    return {
-        totalFrames: allFrames.length,
-        sessionStartTime,
-        frames: framesWithUrls,
-        cached: false,
-        status: 'ready',
-        processedSegments: segments.length,
-        totalSegments: segments.length,
-    };
 }
 
 /**
