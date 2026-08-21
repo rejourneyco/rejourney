@@ -211,7 +211,7 @@ jobs:
   # DOCKER BUILD
   # ------------------------------------------------------------------
   build-images:
-    needs: [backend, web, k8s-config, check-version]
+    needs: [backend, web, repo-checks, check-version]
     if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
