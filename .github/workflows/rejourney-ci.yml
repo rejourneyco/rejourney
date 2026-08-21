@@ -288,20 +288,77 @@ jobs:
     if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-       - name: Deploy to VPS
-         uses: appleboy/ssh-action@v1.0.3
-         env:
-           IMAGE_TAG: ${{ github.sha }}
-         with:
-           host: ${{ secrets.VPS_HOST }}
-           username: root
-           key: ${{ secrets.VPS_SSH_KEY }}
-           fingerprint: SHA256:QJi7hXe1v0Xl7R0PkaNynBohpe4URpn9ge2+/eaMjjQ
-           timeout: 60m
-           command_timeout: 60m
-           envs: IMAGE_TAG
-           script: |
+      - name: Install pinned VPS SSH credentials
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST}"
+          test -n "${VPS_SSH_KEY}"
+
+          install -m 700 -d "${HOME}/.ssh"
+          printf '%s\n' "${VPS_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/deploy_key"
+          chmod 600 "${HOME}/.ssh/deploy_key"
+          printf '%s %s\n' "${VPS_HOST}" "${VPS_SSH_HOST_KEY}" > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+          # Fail before the rollout if the secret is not a usable private key.
+          ssh-keygen -y -f "${HOME}/.ssh/deploy_key" >/dev/null
+          ssh-keygen -lf "${HOME}/.ssh/known_hosts" -E sha256
+
+      - name: Deploy exact release to VPS
+        timeout-minutes: 65
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid release SHA: ${IMAGE_TAG}"
+            exit 1
+          fi
+          if [[ ! "${REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "Invalid GitHub repository name: ${REPOSITORY}"
+            exit 1
+          fi
+
+          SSH_OPTIONS=(
+            -T
+            -o BatchMode=yes
+            -o ConnectTimeout=20
+            -o ConnectionAttempts=3
+            -o IdentitiesOnly=yes
+            -o PreferredAuthentications=publickey
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts"
+            -o GlobalKnownHostsFile=/dev/null
+            -o HostKeyAlgorithms=ssh-ed25519
+            -o UpdateHostKeys=no
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=20
+            -i "${HOME}/.ssh/deploy_key"
+          )
+
+          # Values are validated above and shell-escaped before becoming remote
+          # environment assignments. The quoted heredoc prevents local expansion
+          # of any command in the deployment program.
+          printf -v REMOTE_COMMAND 'IMAGE_TAG=%q REPOSITORY=%q bash -s' "${IMAGE_TAG}" "${REPOSITORY}"
+          ssh "${SSH_OPTIONS[@]}" root@"${VPS_HOST}" "${REMOTE_COMMAND}" <<'REMOTE_SCRIPT'
              set -euo pipefail
+
+             if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+               echo "Invalid remote release SHA: ${IMAGE_TAG}"
+               exit 1
+             fi
+             if [[ ! "${REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+               echo "Invalid remote repository name: ${REPOSITORY}"
+               exit 1
+             fi
 
              DEPLOYED_VERSION_DIR=/var/lib/rejourney
              DEPLOYED_VERSION_FILE="${DEPLOYED_VERSION_DIR}/deployed-version"
@@ -331,14 +388,14 @@ jobs:
              # Ensure the directory exists
              if [ ! -d "/opt/rejourney" ]; then
                echo "Directory /opt/rejourney not found, cloning..."
-               git clone https://github.com/${{ github.repository }}.git /opt/rejourney
+               git clone "https://github.com/${REPOSITORY}.git" /opt/rejourney
              fi
 
              # SAFE CD: Exit if cd fails
              cd /opt/rejourney || exit 1
 
              # Public, tokenless origin. Never persist CI tokens in the VPS git config.
-             git remote set-url origin https://github.com/${{ github.repository }}.git
+             git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
              # If it's not a git repo, initialize it (fallback)
              if [ ! -d ".git" ]; then
@@ -346,7 +403,7 @@ jobs:
                # CAREFUL: Only delete if we are CONFIRMED in /opt/rejourney
                if [ "$(pwd)" == "/opt/rejourney" ]; then
                    rm -rf * .[^.]*
-                   git clone https://github.com/${{ github.repository }}.git .
+                   git clone "https://github.com/${REPOSITORY}.git" .
                else
                    echo "CRITICAL ERROR: Wrong directory $(pwd). Aborting wipe."
                    exit 1
@@ -363,7 +420,7 @@ jobs:
                exit 1
              fi
 
-             bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${{ github.repository }}"
+             bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${REPOSITORY}"
 
              # Commit the deployed version only after migrations and every
              # workload rollout have succeeded. Rename is atomic on this volume.
@@ -423,3 +480,4 @@ jobs:
              fi
 
              echo "✅ Cleanup complete!"
+          REMOTE_SCRIPT
