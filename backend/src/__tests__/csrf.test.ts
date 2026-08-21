@@ -22,12 +22,14 @@ function createRequest(input: {
     cookies?: Record<string, string>;
     headers?: Record<string, string>;
     method?: string;
+    originalUrl?: string;
     path: string;
 }): Request {
     return {
         cookies: input.cookies ?? {},
         headers: input.headers ?? {},
         method: input.method ?? 'POST',
+        originalUrl: input.originalUrl ?? input.path,
         path: input.path,
     } as Request;
 }
@@ -80,15 +82,36 @@ describe('CSRF middleware', () => {
         }
     });
 
-    it('does not extend the analytics rollup CSRF bypass to sibling paths', () => {
-        const req = createRequest({ path: '/api/analytics/rollup/unprotected-sibling' });
+    it('uses the canonical original URL when Express path is mount-relative', () => {
+        const req = createRequest({
+            originalUrl: '/api/analytics/rollup?source=internal',
+            path: '/rollup',
+        });
         const res = createResponse();
         const next = vi.fn() as unknown as NextFunction;
 
         csrfProtection(req, res, next);
 
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status).toHaveBeenCalledWith(403);
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('does not extend the analytics rollup CSRF bypass to sibling paths', () => {
+        for (const req of [
+            createRequest({ path: '/api/analytics/rollup/unprotected-sibling' }),
+            createRequest({
+                originalUrl: '/api/analytics/rollup/unprotected-sibling',
+                path: '/rollup/unprotected-sibling',
+            }),
+        ]) {
+            const res = createResponse();
+            const next = vi.fn() as unknown as NextFunction;
+
+            csrfProtection(req, res, next);
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(403);
+        }
     });
 
     it('keeps CSRF protection for normal state-changing API routes', () => {
@@ -136,18 +159,41 @@ describe('CSRF middleware', () => {
         expect(res.json).not.toHaveBeenCalled();
     });
 
-    it('does not extend the analytics rollup origin bypass to sibling paths', () => {
+    it('uses the canonical original URL for the origin bypass as well', () => {
         const req = createRequest({
-            headers: { origin: 'https://evil.invalid' },
-            path: '/api/analytics/rollup/unprotected-sibling',
+            headers: { origin: 'https://not-dashboard.example.com' },
+            originalUrl: '/api/analytics/rollup?source=internal',
+            path: '/rollup',
         });
         const res = createResponse();
         const next = vi.fn() as unknown as NextFunction;
 
         originValidation(req, res, next);
 
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status).toHaveBeenCalledWith(403);
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('does not extend the analytics rollup origin bypass to sibling paths', () => {
+        for (const req of [
+            createRequest({
+                headers: { origin: 'https://evil.invalid' },
+                path: '/api/analytics/rollup/unprotected-sibling',
+            }),
+            createRequest({
+                headers: { origin: 'https://evil.invalid' },
+                originalUrl: '/api/analytics/rollup/unprotected-sibling',
+                path: '/rollup/unprotected-sibling',
+            }),
+        ]) {
+            const res = createResponse();
+            const next = vi.fn() as unknown as NextFunction;
+
+            originValidation(req, res, next);
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(403);
+        }
     });
 
     it('keeps origin validation for normal state-changing API routes', () => {

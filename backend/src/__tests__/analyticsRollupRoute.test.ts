@@ -56,7 +56,7 @@ function toRequest(body: unknown, headers: Record<string, string> = {}): Request
         headers,
         method: 'POST',
         originalUrl: '/api/analytics/rollup',
-        path: '/api/analytics/rollup',
+        path: '/rollup',
     } as Request;
 }
 

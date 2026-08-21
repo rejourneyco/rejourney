@@ -1084,6 +1084,51 @@ release_hpa_replica_ownership() {
   done
 }
 
+remove_legacy_api_dashboard_csrf_hotfix() {
+  section "Removing Legacy API Dashboard CSRF Override"
+
+  local mount_path mount_sub_path configmap_name patch_payload
+  mount_path="$(kubectl get deployment api-dashboard -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].volumeMounts[?(@.name=="csrf-hotfix")].mountPath}')"
+  mount_sub_path="$(kubectl get deployment api-dashboard -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].volumeMounts[?(@.name=="csrf-hotfix")].subPath}')"
+  configmap_name="$(kubectl get deployment api-dashboard -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.volumes[?(@.name=="csrf-hotfix")].configMap.name}')"
+
+  if [ -z "${mount_path}${mount_sub_path}${configmap_name}" ]; then
+    log "No legacy csrf-hotfix volume is attached."
+  else
+    if [ "${mount_path}" != "/app/backend/dist/middleware/csrf.js" ] || \
+      [ "${mount_sub_path}" != "csrf.js" ] || \
+      [ "${configmap_name}" != "api-dashboard-csrf-hotfix" ]; then
+      echo "[deploy-release] ERROR: refusing to remove an unexpected csrf-hotfix mount" >&2
+      exit 1
+    fi
+
+    # This out-of-band emergency override predates the source-controlled HMAC
+    # guard. Client-side apply cannot remove fields owned by kubectl-patch, so
+    # delete both exact list entries explicitly and atomically from the pod
+    # template. The ensuing rollout uses the audited file from the exact image.
+    patch_payload='{"spec":{"template":{"spec":{"containers":[{"name":"api","volumeMounts":[{"$patch":"delete","mountPath":"/app/backend/dist/middleware/csrf.js"}]}],"volumes":[{"$patch":"delete","name":"csrf-hotfix"}]}}}}'
+    kubectl patch deployment api-dashboard -n "${NAMESPACE}" --type=strategic \
+      --dry-run=server --patch "${patch_payload}" >/dev/null
+    kubectl patch deployment api-dashboard -n "${NAMESPACE}" --type=strategic \
+      --patch "${patch_payload}"
+  fi
+
+  mount_path="$(kubectl get deployment api-dashboard -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].volumeMounts[?(@.name=="csrf-hotfix")].mountPath}')"
+  configmap_name="$(kubectl get deployment api-dashboard -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.template.spec.volumes[?(@.name=="csrf-hotfix")].configMap.name}')"
+  if [ -n "${mount_path}${configmap_name}" ]; then
+    echo "[deploy-release] ERROR: legacy csrf-hotfix mount is still attached" >&2
+    exit 1
+  fi
+
+  kubectl delete configmap api-dashboard-csrf-hotfix -n "${NAMESPACE}" --ignore-not-found
+  log "Legacy CSRF override removed; api-dashboard now uses the release image."
+}
+
 
 main() {
   require_bin kubectl
@@ -1212,6 +1257,11 @@ main() {
     --prune-allowlist=policy/v1/PodDisruptionBudget \
     --prune-allowlist=rbac.authorization.k8s.io/v1/Role \
     --prune-allowlist=rbac.authorization.k8s.io/v1/RoleBinding
+
+  # Remove a historical production-only file override that shadows the CSRF
+  # middleware built into the exact release image. Do this after apply so the
+  # manifest update and cleanup converge in the same guarded rollout window.
+  remove_legacy_api_dashboard_csrf_hotfix
 
   # ── Helm-managed resources guard ─────────────────────────────────────────
   # The kubectl apply --prune above can delete resources that were previously

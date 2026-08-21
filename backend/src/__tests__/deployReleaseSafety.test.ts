@@ -90,4 +90,25 @@ describe('production release safety', () => {
             deployScript.lastIndexOf('kubectl apply -f "${RENDER_DIR}/"'),
         );
     });
+
+    it('removes the exact legacy CSRF file override before rollout success', () => {
+        expect(apiManifest).not.toContain('csrf-hotfix');
+        expect(deployScript).toContain('remove_legacy_api_dashboard_csrf_hotfix()');
+        expect(deployScript).toContain('/app/backend/dist/middleware/csrf.js');
+        expect(deployScript).toContain('api-dashboard-csrf-hotfix');
+        expect(deployScript).toContain('"$patch":"delete","mountPath":"/app/backend/dist/middleware/csrf.js"');
+        expect(deployScript).toContain('"$patch":"delete","name":"csrf-hotfix"');
+        expect(deployScript).toContain('--dry-run=server --patch "${patch_payload}"');
+        expect(deployScript).toContain('refusing to remove an unexpected csrf-hotfix mount');
+
+        const cleanupFunctionStart = deployScript.indexOf('remove_legacy_api_dashboard_csrf_hotfix()');
+        const mainFunctionStart = deployScript.indexOf('\nmain() {', cleanupFunctionStart);
+        expect(deployScript.slice(cleanupFunctionStart, mainFunctionStart)).not.toContain('|| true');
+
+        const applyPosition = deployScript.indexOf('kubectl apply -f "${RENDER_DIR}/"');
+        const cleanupPosition = deployScript.lastIndexOf('\n  remove_legacy_api_dashboard_csrf_hotfix\n');
+        const rolloutPosition = deployScript.lastIndexOf('\n  wait_for_deployment api-dashboard');
+        expect(applyPosition).toBeLessThan(cleanupPosition);
+        expect(cleanupPosition).toBeLessThan(rolloutPosition);
+    });
 });

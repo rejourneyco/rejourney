@@ -41,6 +41,15 @@ function shouldSkipBrowserRequestGuards(path: string): boolean {
         || SKIP_CSRF_PATHS.some((prefix) => path.startsWith(prefix));
 }
 
+function getCanonicalRequestPath(req: Request): string {
+    // `req.path` is relative to the current Express mount point. Use
+    // `originalUrl` so exact server-to-server exemptions keep working when a
+    // router or deployment wrapper changes the active mount path.
+    const url = req.originalUrl || req.url || req.path;
+    const queryIndex = url.indexOf('?');
+    return queryIndex === -1 ? url : url.slice(0, queryIndex);
+}
+
 /**
  * Generate CSRF token
  */
@@ -59,7 +68,7 @@ export function csrfProtection(
     next: NextFunction
 ): void {
     // Skip CSRF for certain paths
-    if (shouldSkipBrowserRequestGuards(req.path)) {
+    if (shouldSkipBrowserRequestGuards(getCanonicalRequestPath(req))) {
         next();
         return;
     }
@@ -121,7 +130,7 @@ export function originValidation(
     }
 
     // Skip for allowed paths
-    if (shouldSkipBrowserRequestGuards(req.path)) {
+    if (shouldSkipBrowserRequestGuards(getCanonicalRequestPath(req))) {
         next();
         return;
     }
