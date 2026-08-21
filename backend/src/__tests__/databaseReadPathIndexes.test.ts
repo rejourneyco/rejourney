@@ -13,7 +13,6 @@ const concurrentSql = readFileSync(
     'utf8',
 );
 const schemaSource = readFileSync(resolve(TEST_DIR, '../db/schema.ts'), 'utf8');
-const exporterManifest = readFileSync(resolve(TEST_DIR, '../../../k8s/exporters.yaml'), 'utf8');
 
 describe('database read-path indexes', () => {
     it('tracks the additive exporter index in the Drizzle schema and migration journal', () => {
@@ -44,16 +43,7 @@ describe('database read-path indexes', () => {
         expect(concurrentSql).toContain('RESET statement_timeout;');
     });
 
-    it('keeps the retention metric name and shape while isolating its historical lookup', () => {
-        expect(exporterManifest).toContain('rejourney_retention_recent_summary:');
-        expect(exporterManifest).toContain('WITH recent AS MATERIALIZED');
-        expect(exporterManifest).toContain('last_completed AS');
-        expect(exporterManifest).toContain('ORDER BY finished_at DESC');
-        expect(exporterManifest).toContain('seconds_since_last_completed_purge');
-        expect(exporterManifest).not.toContain("MAX(finished_at) FILTER (WHERE status = 'completed')");
-        expect(exporterManifest).toContain('rejourney.co/queries-version: "2026-08-20-retention-v2"');
-    });
-
+    // Moved to the infra repo (__tests__/infraContract.test.ts) with the k8s manifests.
     it('tunes autovacuum thresholds without changing table columns or stored shapes', () => {
         expect(migrationSql).toContain('ALTER TABLE "retention_deletion_log" SET');
         expect(migrationSql).toContain('ALTER TABLE "research_extraction_jobs" SET');

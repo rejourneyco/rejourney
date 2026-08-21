@@ -104,7 +104,7 @@ Session decisions are stored on `sessions`:
 - `smart_capture_decided_at`
 
 For the canonical visibility, quota, migration, and backfill matrix, see
-[`dev_docs/replay-state-columns.md`](../../dev_docs/replay-state-columns.md).
+the maintainer runbook `replay-state-columns.md` in the private infra repo.
 
 Public replay openability is derived, not stored. Use the backend
 `canOpenReplayFromSessionFields()` helper and the dashboard

@@ -18,7 +18,7 @@ out any migration or operator impact in the pull request.
 | `examples/` | Standalone SDK integration fixtures |
 | `local-k8s/` | Local k3d manifests |
 | `k8s/` | Production Kubernetes manifests |
-| `dev_docs/` | Maintainer architecture notes and operator runbooks |
+| `local-k8s/` | Local Kubernetes dev environment manifests |
 
 The npm workspaces cover `packages/*`, `backend`, and `dashboard/web-ui`.
 Examples remain standalone so they can pin different framework versions.

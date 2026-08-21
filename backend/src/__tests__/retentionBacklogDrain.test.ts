@@ -55,14 +55,7 @@ describe('retention backlog drain', () => {
         expect(block).toContain('deadlineAtMs');
     });
 
-    it('enables backlog draining for the production CronJob', () => {
-        const manifest = readWorkspaceFile('../../../k8s/workers.yaml');
-
-        expect(manifest).toContain('- --trigger=scheduled');
-        expect(manifest).toContain('- --drain-backlog');
-        expect(manifest).toContain('- name: RETENTION_SESSION_CONCURRENCY');
-    });
-
+    // Moved to the infra repo (__tests__/infraContract.test.ts) with the k8s manifests.
     it('uses a high-count cursor scan for the once-per-run heatmap invalidation', () => {
         const worker = readWorkspaceFile('../worker/retentionWorker.ts');
         const block = extractFunctionBlock(worker, 'invalidateHeatmapCaches');
