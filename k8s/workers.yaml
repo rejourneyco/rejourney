@@ -10,8 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  # Match the HPA floor; autoscaling raises this only when real CPU load needs it.
-  replicas: 4
+  # replicas is intentionally omitted; the HPA owns it and declares the floor.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -253,7 +252,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 2
+  # replicas is intentionally omitted because replay-worker is HPA-managed.
   strategy:
     type: RollingUpdate
     rollingUpdate:

@@ -69,10 +69,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  # Replica count here is the HPA floor (minReplicas in hpa.yaml).
-  # HPA will scale above this under load; setting it here keeps the manifest
-  # declarative and avoids drift if HPA is temporarily absent.
-  replicas: 3
+  # replicas is intentionally omitted: the HPA owns the live replica count and
+  # its minReplicas is the declarative floor.
   # Pod must pass readiness AND stay Ready for 10s before old pods are terminated.
   # This ensures the load balancer has fully picked up the new pod before traffic
   # shifts — the key ingredient of zero-downtime blue-green deploys.
@@ -479,7 +477,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 2
+  # replicas is intentionally omitted because api-dashboard is HPA-managed.
   minReadySeconds: 10
   strategy:
     type: RollingUpdate
@@ -973,7 +971,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 2
+  # replicas is intentionally omitted because ingest-upload is HPA-managed.
   minReadySeconds: 10
   strategy:
     type: RollingUpdate

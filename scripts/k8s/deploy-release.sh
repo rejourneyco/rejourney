@@ -14,6 +14,11 @@ CLICKHOUSE_OPERATOR_VERSION="${CLICKHOUSE_OPERATOR_VERSION:-0.26.3}"
 CLICKHOUSE_SETUP_TIMEOUT_SECONDS="${CLICKHOUSE_SETUP_TIMEOUT_SECONDS:-900}"
 RUN_CLICKHOUSE_ROLLUP_BACKFILL="${RUN_CLICKHOUSE_ROLLUP_BACKFILL:-false}"
 CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS="${CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS:-1800}"
+REDIS_CHART_VERSION="25.3.11"
+REDIS_IMAGE="registry-1.docker.io/bitnami/redis@sha256:08863c2c3f4e051fb6139b38fa223e9c13be5033326a59bead182860d899bf98"
+REDIS_SENTINEL_IMAGE="registry-1.docker.io/bitnami/redis-sentinel@sha256:ae75dd69c192a632bdeb21baa6721080be5b12347e52add922036398b47631da"
+REDIS_EXPORTER_IMAGE="registry-1.docker.io/bitnami/redis-exporter@sha256:d768e44e2e0aff5bcb2bce39609e4877b7ac2cf000670dbaea794da2e35e0e7a"
+HELM_KUBECONFIG="${HELM_KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
 RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rejourney-release.XXXXXX")"
@@ -151,6 +156,176 @@ ensure_cert_manager() {
   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
   log "Waiting for cert-manager to be ready..."
   kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
+}
+
+verify_redis_persistence_config() {
+  section "Verifying Redis Persistence Configuration"
+
+  local state desired ready current updated pods pod pod_count master_count replica_count persistence_config image required role healthy deadline
+  state="$(kubectl get statefulset redis-node -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.replicas} {.status.readyReplicas} {.status.currentReplicas} {.status.updatedReplicas}')"
+  read -r desired ready current updated <<<"${state}"
+  if [ -z "${desired}" ] || [ "${ready}" != "${desired}" ] || \
+     [ "${current}" != "${desired}" ] || [ "${updated}" != "${desired}" ]; then
+    echo "[deploy-release] ERROR: Redis StatefulSet is not fully ready/current/updated (${state})" >&2
+    exit 1
+  fi
+
+  pods="$(kubectl get pods -n "${NAMESPACE}" \
+    -l app.kubernetes.io/instance=redis,app.kubernetes.io/name=redis \
+    -o name)"
+
+  if [ -z "${pods}" ]; then
+    echo "[deploy-release] ERROR: Redis Helm release has no pods to verify" >&2
+    exit 1
+  fi
+
+  pod_count=0
+  master_count=0
+  replica_count=0
+  deadline=$(( $(date +%s) + 180 ))
+  for pod in ${pods}; do
+    pod_count=$((pod_count + 1))
+    for image in \
+      "redis:${REDIS_IMAGE}" \
+      "sentinel:${REDIS_SENTINEL_IMAGE}" \
+      "metrics:${REDIS_EXPORTER_IMAGE}"; do
+      local container_name="${image%%:*}"
+      local expected_image="${image#*:}"
+      local actual_image
+      actual_image="$(kubectl get "${pod}" -n "${NAMESPACE}" \
+        -o "jsonpath={.spec.containers[?(@.name==\"${container_name}\")].image}")"
+      if [ "${actual_image}" != "${expected_image}" ]; then
+        echo "[deploy-release] ERROR: ${pod}/${container_name} uses ${actual_image:-no image}, expected pinned ${expected_image}" >&2
+        exit 1
+      fi
+    done
+
+    while true; do
+      persistence_config="$(kubectl exec -n "${NAMESPACE}" "${pod}" -c redis -- /bin/bash -ec '
+        password="$(<"${REDIS_PASSWORD_FILE}")"
+        appendonly="$(REDISCLI_AUTH="${password}" redis-cli --raw CONFIG GET appendonly | tail -n 1)"
+        save="$(REDISCLI_AUTH="${password}" redis-cli --raw CONFIG GET save | tail -n 1)"
+        persistence="$(REDISCLI_AUTH="${password}" redis-cli --raw INFO persistence | tr -d "\r")"
+        replication="$(REDISCLI_AUTH="${password}" redis-cli --raw INFO replication | tr -d "\r")"
+        field() { printf "%s\n" "$1" | sed -n "s/^$2://p" | head -n 1; }
+        printf "appendonly=%s\nsave=%s\nloading=%s\naof_enabled=%s\naof_last_write_status=%s\naof_last_bgrewrite_status=%s\nrole=%s\nmaster_link_status=%s\nconnected_slaves=%s" \
+          "${appendonly}" "${save}" \
+          "$(field "${persistence}" loading)" \
+          "$(field "${persistence}" aof_enabled)" \
+          "$(field "${persistence}" aof_last_write_status)" \
+          "$(field "${persistence}" aof_last_bgrewrite_status)" \
+          "$(field "${replication}" role)" \
+          "$(field "${replication}" master_link_status)" \
+          "$(field "${replication}" connected_slaves)"
+      ')"
+
+      healthy=true
+      for required in \
+        'appendonly=yes' \
+        'save=' \
+        'loading=0' \
+        'aof_enabled=1' \
+        'aof_last_write_status=ok' \
+        'aof_last_bgrewrite_status=ok'; do
+        if ! grep -Fqx "${required}" <<<"${persistence_config}"; then
+          healthy=false
+          break
+        fi
+      done
+
+      role="$(sed -n 's/^role=//p' <<<"${persistence_config}")"
+      if [ "${healthy}" = "true" ] && [ "${role}" = "master" ]; then
+        required="connected_slaves=$((desired - 1))"
+      elif [ "${healthy}" = "true" ] && { [ "${role}" = "slave" ] || [ "${role}" = "replica" ]; }; then
+        required='master_link_status=up'
+      else
+        healthy=false
+        required='role=master-or-replica'
+      fi
+
+      if [ "${healthy}" = "true" ] && grep -Fqx "${required}" <<<"${persistence_config}"; then
+        break
+      fi
+      if [ "$(date +%s)" -ge "${deadline}" ]; then
+        echo "[deploy-release] ERROR: ${pod} Redis health did not converge within 180s (last check: ${required})" >&2
+        printf '%s\n' "${persistence_config}" >&2
+        exit 1
+      fi
+      sleep 5
+    done
+
+    if [ "${role}" = "master" ]; then
+      master_count=$((master_count + 1))
+    else
+      replica_count=$((replica_count + 1))
+    fi
+    log "${pod}: role=${role}, AOF healthy, save is empty"
+  done
+
+  if [ "${pod_count}" != "${desired}" ]; then
+    echo "[deploy-release] ERROR: Redis has ${pod_count} pod(s), expected ${desired}" >&2
+    exit 1
+  fi
+  if [ "${master_count}" != "1" ] || [ "${replica_count}" != "$((desired - 1))" ]; then
+    echo "[deploy-release] ERROR: Redis topology has ${master_count} master(s) and ${replica_count} replica(s), expected 1/$((desired - 1))" >&2
+    exit 1
+  fi
+}
+
+apply_redis_helm_values() {
+  section "Applying Redis Helm Values"
+
+  local values_file="${K8S_DIR}/helm/redis-values.yaml"
+  local release_metadata installed_chart installed_status dry_run_output expected_image
+
+  if [ ! -f "${values_file}" ]; then
+    echo "[deploy-release] ERROR: Redis Helm values not found: ${values_file}" >&2
+    exit 1
+  fi
+
+  release_metadata="$(
+    KUBECONFIG="${HELM_KUBECONFIG}" helm list -n "${NAMESPACE}" --filter '^redis$' -o json |
+      python3 -c 'import json, sys; rows = json.load(sys.stdin); print((rows[0]["chart"] + "\t" + rows[0]["status"]) if len(rows) == 1 else "\t")'
+  )"
+  IFS=$'\t' read -r installed_chart installed_status <<<"${release_metadata}"
+
+  if [ "${installed_chart}" != "redis-${REDIS_CHART_VERSION}" ] || [ "${installed_status}" != "deployed" ]; then
+    echo "[deploy-release] ERROR: expected deployed Redis chart redis-${REDIS_CHART_VERSION}, found ${installed_chart:-none} (${installed_status:-no status})" >&2
+    echo "[deploy-release] Review and pin any chart-version change before deploying." >&2
+    exit 1
+  fi
+
+  log "Server-side dry-running pinned Redis chart ${installed_chart}..."
+  dry_run_output="$(
+    KUBECONFIG="${HELM_KUBECONFIG}" helm upgrade redis bitnami/redis \
+      --namespace "${NAMESPACE}" \
+      --version "${REDIS_CHART_VERSION}" \
+      --reset-values \
+      --values "${values_file}" \
+      --dry-run=server \
+      --hide-secret
+  )"
+  for expected_image in "${REDIS_IMAGE}" "${REDIS_SENTINEL_IMAGE}" "${REDIS_EXPORTER_IMAGE}"; do
+    if ! grep -Fq "${expected_image}" <<<"${dry_run_output}"; then
+      echo "[deploy-release] ERROR: Redis Helm dry-run did not render pinned image ${expected_image}" >&2
+      exit 1
+    fi
+  done
+
+  log "Reconciling Redis with pinned chart ${installed_chart}..."
+  KUBECONFIG="${HELM_KUBECONFIG}" helm upgrade redis bitnami/redis \
+    --namespace "${NAMESPACE}" \
+    --version "${REDIS_CHART_VERSION}" \
+    --reset-values \
+    --values "${values_file}" \
+    --atomic \
+    --wait \
+    --wait-for-jobs \
+    --cleanup-on-fail \
+    --timeout 15m
+
+  verify_redis_persistence_config
 }
 
 clickhouse_deploy_enabled() {
@@ -407,7 +582,11 @@ protect_helm_managed_resources() {
   # The Redis Service is Helm-owned. If an older live object still carries the
   # rejourney prune label, strip it before the prune pass so Redis never
   # disappears and gets restored after the fact.
-  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" 2>/dev/null || true
+  if ! kubectl get svc redis -n "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "[deploy-release] ERROR: Redis Service is missing before the prune pass" >&2
+    exit 1
+  fi
+  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" >/dev/null 2>&1
 }
 
 apply_unlabeled_support_manifests() {
@@ -873,9 +1052,42 @@ cleanup_finished_pods() {
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Failed --ignore-not-found >/dev/null 2>&1 || true
 }
 
+# HPAs, rather than kubectl apply, must own spec.replicas. Older manifests
+# included replica floors, so their client-side last-applied annotations would
+# interpret the newly omitted field as a deletion and briefly reset a scaled
+# workload to one replica. Remove only that field from the previous intent
+# before applying the new manifest; the live replica count is untouched.
+release_hpa_replica_ownership() {
+  section "Preserving HPA Replica Ownership"
+
+  local deployment last_applied updated_last_applied
+  for deployment in api-ingest api-dashboard ingest-upload ingest-worker replay-worker; do
+    if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+      log "${deployment}: new Deployment; HPA will establish its replica floor"
+      continue
+    fi
+
+    last_applied="$(kubectl get deployment "${deployment}" -n "${NAMESPACE}" \
+      -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' 2>/dev/null || true)"
+    if [ -z "${last_applied}" ]; then
+      log "${deployment}: no client-side last-applied replica ownership to release"
+      continue
+    fi
+
+    updated_last_applied="$(
+      printf '%s' "${last_applied}" |
+        python3 -c 'import json, sys; obj = json.load(sys.stdin); obj.setdefault("spec", {}).pop("replicas", None); print(json.dumps(obj, separators=(",", ":")))'
+    )"
+    kubectl annotate deployment "${deployment}" -n "${NAMESPACE}" --overwrite \
+      "kubectl.kubernetes.io/last-applied-configuration=${updated_last_applied}" >/dev/null
+    log "${deployment}: released client-side ownership of spec.replicas"
+  done
+}
+
 
 main() {
   require_bin kubectl
+  require_bin helm
   require_bin perl
   require_bin python3
 
@@ -912,6 +1124,11 @@ main() {
   # all deployment rolling restarts fired simultaneously — CPU spike → Redis
   # Sentinel tilt → 504s. The barrier here ensures only one disruption at a time.
   wait_for_postgres
+
+  # Redis is Helm-owned and intentionally excluded from the kubectl prune pass.
+  # Reconcile it as a serialized prerequisite so checked-in value changes are
+  # applied automatically without overlapping Postgres or application rollouts.
+  apply_redis_helm_values
 
   # Pre-pull the new images onto every node BEFORE triggering the rolling update.
   # This prevents ContainerCreating stalls on nodes that don't have the image
@@ -976,6 +1193,7 @@ main() {
   fi
 
   section "Applying Rendered Manifests"
+  release_hpa_replica_ownership
   protect_helm_managed_resources
   log "Applying rendered manifests..."
   kubectl apply -f "${RENDER_DIR}/" \
@@ -1002,15 +1220,14 @@ main() {
   # so future prune passes never touch them again.
   section "Ensuring Helm-managed Redis Service"
   if ! kubectl get svc redis -n "${NAMESPACE}" >/dev/null 2>&1; then
-    log "redis Service was pruned — restoring via helm upgrade (--reuse-values)..."
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade redis bitnami/redis \
-      -n "${NAMESPACE}" --reuse-values --wait --timeout=120s
+    log "redis Service was pruned unexpectedly — restoring with pinned Helm values..."
+    apply_redis_helm_values
     log "redis Service restored."
   else
     log "redis Service present — no restore needed."
   fi
   # Strip the rejourney part-of label so --prune never targets this Helm-managed Service
-  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" 2>/dev/null || true
+  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" >/dev/null 2>&1
   log "Removed app.kubernetes.io/part-of label from redis Service (if present)."
 
   # Traefik dashboard Ingress lived in kube-system without part-of=rejourney, so --prune never removed it.
@@ -1045,6 +1262,7 @@ main() {
   wait_for_deployment retention-worker
   wait_for_deployment alert-worker
   wait_for_deployment revenue-sync-worker
+  wait_for_deployment google-ads-conversion-worker
   # Monitoring stack — not user-facing, standard timeout.
   wait_for_deployment postgres-exporter
   wait_for_deployment kube-state-metrics
@@ -1052,6 +1270,7 @@ main() {
   wait_for_deployment grafana
   wait_for_deployment gatus
   wait_for_deployment pushgateway
+  wait_for_deployment pgweb
   wait_for_daemonset cadvisor
   wait_for_daemonset node-exporter
 

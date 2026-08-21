@@ -1,9 +1,8 @@
 # Bitnami Redis Helm values for the current production Redis layout.
 #
-# IMPORTANT: This file is NOT applied by deploy-release.sh (it only reads k8s/ root, not subdirectories).
-# Install/upgrade manually:
-#   helm install redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
-#   helm upgrade redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
+# deploy-release.sh applies this complete file with --reset-values, --atomic, and the
+# exact chart version already installed in production. Chart-version changes
+# must be reviewed and pinned in that script before this file is reconciled.
 #
 # Bitnami Sentinel topology: `replica.replicaCount` is the redis-node StatefulSet
 # size. 3 nodes (fsn1, quorum-1, worker-1) with quorum=2 gives true HA — any
@@ -11,6 +10,11 @@
 # new master. Preferred anti-affinity spreads pods across all three nodes.
 
 architecture: replication
+
+# Pin every enabled chart image by digest. Chart 25.3.11 otherwise defaults to
+# mutable `latest` tags, which can produce mixed Redis versions across nodes.
+image:
+  digest: sha256:08863c2c3f4e051fb6139b38fa223e9c13be5033326a59bead182860d899bf98
 
 commonConfiguration: |-
   # Enable ReJSON and RediSearch modules used by the dashboard feature set.
@@ -22,6 +26,8 @@ commonConfiguration: |-
 
 sentinel:
   enabled: true
+  image:
+    digest: sha256:ae75dd69c192a632bdeb21baa6721080be5b12347e52add922036398b47631da
   # 3-node Sentinel cluster: quorum=2 means 2 of 3 sentinels must agree master
   # is down before failover fires. With 3 nodes, any single node can die and
   # the remaining 2 still meet both quorum (detection) and election majority
@@ -101,6 +107,8 @@ auth:
 
 metrics:
   enabled: true           # deploys redis-exporter sidecar; scraped by VictoriaMetrics on port 9121
+  image:
+    digest: sha256:d768e44e2e0aff5bcb2bce39609e4877b7ac2cf000670dbaea794da2e35e0e7a
   serviceMonitor:
     enabled: false        # we use VictoriaMetrics static scrape, not prometheus-operator
   resourcesPreset: "none"
