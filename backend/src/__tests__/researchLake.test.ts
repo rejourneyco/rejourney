@@ -222,26 +222,7 @@ describe('research lake anonymized payload shape', () => {
         expect(serviceSource).toContain('releaseUnstartedResearchJobs(unstartedJobs)');
     });
 
-    it('keeps the V1 prefix while enabling bounded upload concurrency', () => {
-        const manifest = readFileSync(
-            `${process.cwd()}/../k8s/workers.yaml`,
-            'utf8',
-        );
-        const v2WorkerStart = manifest.indexOf('name: research-lake-v2-worker');
-        const v2WorkerEnd = manifest.indexOf('# Research Lake Compactor CronJob', v2WorkerStart);
-        const v2WorkerManifest = manifest.slice(v2WorkerStart, v2WorkerEnd);
-
-        expect(manifest).toContain('- name: RESEARCH_LAKE_PREFIX\n                  value: "v1"');
-        expect(manifest).toContain('- name: RESEARCH_LAKE_UPLOAD_CONCURRENCY\n                  value: "3"');
-        expect(manifest.match(/- name: RESEARCH_LAKE_V2_ENABLED/g)).toHaveLength(4);
-        expect(manifest).toContain('name: research-lake-v2-worker');
-        expect(manifest).toContain('name: research-lake-v2-compactor');
-        expect(v2WorkerManifest).toContain('- --once');
-        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_BATCH_SIZE\n                  value: "180"');
-        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_CONCURRENCY\n                  value: "6"');
-        expect(v2WorkerManifest).toContain('- name: RESEARCH_LAKE_V2_DRAIN_BUFFER_MS\n                  value: "2700000"');
-    });
-
+    // Moved to the infra repo (__tests__/infraContract.test.ts) with the k8s manifests.
     it('reserves V2 worker time for in-flight screenshot archive exports', () => {
         const serviceSource = readFileSync(
             `${process.cwd()}/src/services/researchLake.ts`,

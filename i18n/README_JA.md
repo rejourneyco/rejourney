@@ -84,18 +84,6 @@ Application Not Responding イベントを自動検出し、完全な thread dum
 
 完全な統合ガイドと API リファレンス: https://rejourney.co/docs/reactnative/overview
 
-### Self-Hosting
-
-- Single-node Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
-- Enterprise-grade K3s hosting (architecture docs): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### Operations (K8s / Tailscale / admin hostnames)
-
-- [Cloud architecture + Tailscale diagrams](../dev_docs/allthingscloud.md) — デプロイ概要、public path と tailnet admin path。
-- [ClickHouse API endpoint stats migration](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analytics scale-out plan と backfill/cutover runbook。
-- [Network exposure and Tailscale](../dev_docs/network-exposure-and-tailscale.md) — どの `rejourney.co` host を public に残すか、kube API on tailnet。
-- [Admin tools without public URLs](../dev_docs/admin-tools-private-access.md) — `kubectl port-forward` 経由の pgweb、Redis Commander、Netdata、Traefik、Uptime Kuma。
-
 ## コントリビューション
 
 Rejourney に貢献したい場合は、Contributing Guide をご覧ください: https://rejourney.co/docs/community/contributing

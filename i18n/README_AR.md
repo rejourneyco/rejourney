@@ -84,18 +84,6 @@
 
 أدلة التكامل الكاملة ومرجع API: https://rejourney.co/docs/reactnative/overview
 
-### الاستضافة الذاتية
-
-- استضافة ذاتية بعقدة واحدة عبر Docker Compose: https://rejourney.co/docs/selfhosted
-- استضافة K3s بمستوى المؤسسات (وثائق البنية): https://rejourney.co/docs/architecture/distributed-vs-single-node
-
-### العمليات (K8s / Tailscale / أسماء مضيفي الإدارة)
-
-- [بنية السحابة + مخططات Tailscale](../dev_docs/allthingscloud.md) — نظرة عامة على النشر، المسار العام مقابل مسار الإدارة عبر tailnet.
-- [ترحيل إحصاءات نقاط نهاية API في ClickHouse](../dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — خطة توسع التحليلات ودليل backfill/cutover.
-- [تعريض الشبكة وTailscale](../dev_docs/network-exposure-and-tailscale.md) — أي مضيفات `rejourney.co` تبقى عامة؛ kube API على tailnet.
-- [أدوات الإدارة دون روابط عامة](../dev_docs/admin-tools-private-access.md) — pgweb وRedis Commander وNetdata وTraefik وUptime Kuma عبر `kubectl port-forward`.
-
 ## المساهمة
 
 هل تريد المساهمة في Rejourney؟ راجع دليل المساهمة: https://rejourney.co/docs/community/contributing

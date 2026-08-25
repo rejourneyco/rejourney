@@ -43,7 +43,7 @@ The backend guard runs:
 
 The Kubernetes/config guard runs:
 
-- `scripts/k8s/validate-storage-cutover.sh`
+- `scripts/k8s/validate-storage-cutover.sh` (private infra repo)
 - `scripts/ci/check-secret-hygiene.sh`
 
 ### Image Build
@@ -76,7 +76,7 @@ The deploy job runs only when:
 The deploy job SSHes into the VPS as `root`, ensures `/opt/rejourney` exists, resets it to `origin/main`, then runs:
 
 ```bash
-bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${GITHUB_REPOSITORY}"
+bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "rejourneyco/rejourney"   # private infra repo
 ```
 
 The deploy script is the source of truth for production Kubernetes rollout behavior. It:
@@ -84,7 +84,7 @@ The deploy script is the source of truth for production Kubernetes rollout behav
 - renders manifests with the target image tag
 - applies namespace, Traefik config, exporters, ingress, and storage-class support
 - applies the CloudNativePG Postgres manifest
-- verifies `k8s/archive.yaml` is in sync with `scripts/k8s/session-backup.mjs`
+- verifies `k8s/archive.yaml` is in sync with `scripts/k8s/session-backup.mjs` (both in the private infra repo)
 - prints migration status before and after setup
 - resets and waits for the `db-setup` job
 - applies PgBouncer and PodDisruptionBudget manifests
@@ -253,6 +253,6 @@ The local parity runner uses the production-style migration path, not a schema p
 - `.github/workflows/rejourney-flutter.yml`
 - `.github/workflows/rejourney-ios.yml`
 - `.github/workflows/rejourney-web-sdk.yml`
-- `scripts/k8s/deploy-release.sh`
+- `scripts/k8s/deploy-release.sh` (private infra repo)
 - `scripts/local-k8s/rejourney-ci.sh`
 - `scripts/local-k8s/deploy.sh`

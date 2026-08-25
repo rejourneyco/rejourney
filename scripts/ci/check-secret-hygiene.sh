@@ -77,7 +77,7 @@ check_repo_absent 'rj_live_[A-Za-z0-9._=-]{16,}' \
 
 check_absent 'set\s+-[^\\n]*x' \
   "xtrace is forbidden in CI/deploy scripts because it can print expanded secrets." \
-  .github scripts/k8s/deploy-release.sh scripts/ci
+  .github scripts/ci
 
 check_absent 'https://\$\{?GITHUB_TOKEN[^[:space:]]*@github\.com' \
   "do not embed GitHub tokens in git remote URLs; use tokenless public remotes or an askpass helper." \
@@ -91,9 +91,8 @@ check_absent 'kubectl\s+(get|describe)\s+secrets?\b' \
   "kubectl get/describe secret is forbidden directly in workflows." \
   .github
 
-check_absent 'kubectl\s+describe\s+secrets?\b|kubectl\s+get\s+secrets?\b[^|;\n]*-o\s+(yaml|json)\b' \
-  "secret dumping is forbidden in deploy diagnostics; use narrow jsonpath reads only when needed and never print values." \
-  scripts/k8s/deploy-release.sh
+# NOTE: the deploy-script secret-dumping rule moved to the infra repo together with
+# scripts/k8s/deploy-release.sh. See scripts/ci/check-secret-hygiene.sh there.
 
 check_absent 'kubectl\s+logs\b' \
   "kubectl logs is forbidden directly in workflows; use deploy-release.sh diagnostics with redaction." \

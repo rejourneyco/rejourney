@@ -11,7 +11,7 @@
 // `storage_endpoints` is now treated as operator-managed state. CI never
 // mutates it. To change credentials or switch buckets, use:
 //
-//   scripts/k8s/manage-s3-endpoints.mjs   (interactive)
+//   scripts/k8s/manage-s3-endpoints.mjs   (interactive; private infra repo)
 //
 // or run SQL by hand against the cluster.
 //

@@ -71,7 +71,7 @@ Choose K3s when:
 - you want to scale API, upload, and worker services independently
 - you want rolling deploys and stronger infra isolation
 
-The K3s path lives under `k8s/` and `scripts/k8s/`.
+The K3s path lives in the private infra repo under `k8s/` and `scripts/k8s/`.
 
 ---
 
@@ -101,9 +101,9 @@ Move to K3s when you need:
 
 For the latest internal engineering visuals and deeper operator detail:
 
-- `dev_docs/ingest-session-recording-lifecycle.md` (session lifecycle diagram)
-- `dev_docs/storage-and-endpoints.md` (multi-bucket topology diagram)
-- `dev_docs/allthingscloud.md` (k3s cloud setup diagram)
+- `ingest-session-recording-lifecycle.md` (session lifecycle diagram, private infra repo)
+- `storage-and-endpoints.md` (multi-bucket topology diagram, private infra repo)
+- `allthingscloud.md` (k3s cloud setup diagram, private infra repo)
 
 For a graphics-only architecture page, open [`/docs/architecture/diagrams`](/docs/architecture/diagrams).
 

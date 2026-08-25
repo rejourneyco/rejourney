@@ -1,6 +1,6 @@
 # Source
 
-This local fixture targets the SvelteKit example named in `dev_docs/web-support.md`.
+This local fixture targets the SvelteKit example named in the maintainer `web-support.md` runbook (private infra repo).
 
 - Upstream reference: https://github.com/sveltejs/realworld
 - Reference HEAD checked: `ec8552fee0d0b7e8ad3c6a6818f3fe9ee7d861f5`

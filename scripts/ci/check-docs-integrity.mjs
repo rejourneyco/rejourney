@@ -9,7 +9,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, "../..");
 
 const ROOT_DOCUMENTS = ["README.md", "SECURITY.md", "CONTRIBUTING.md"];
-const MARKDOWN_TREES = ["dev_docs", "local-k8s", "examples"];
+const MARKDOWN_TREES = ["local-k8s", "examples"];
 const README_TREES = ["backend", "packages"];
 
 // These directories contain website copy, translations, dependencies, or generated

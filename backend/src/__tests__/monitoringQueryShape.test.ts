@@ -32,18 +32,5 @@ describe('monitoring query shape', () => {
         expect(schema).toContain("index('recording_artifacts_failed_recent_idx')");
     });
 
-    it('keeps postgres exporter queries on pre-aggregated rollups before endpoint joins', () => {
-        const exporters = readWorkspaceFile('../../../k8s/exporters.yaml');
-
-        expect(exporters).toContain('rejourney_recording_artifacts_by_status:');
-        expect(exporters).toContain('WITH artifact_rollup AS (');
-        expect(exporters).toContain('FROM artifact_rollup ar');
-        expect(exporters).toContain('rejourney_artifacts_stalled:');
-        expect(exporters).toContain('WITH stalled AS (');
-        expect(exporters).not.toContain('session_backup_log');
-        expect(exporters).not.toContain('session_backup_queue');
-        expect(exporters).toContain('rejourney_artifacts_failed_recent:');
-        expect(exporters).toContain('rejourney_artifacts_upload_latency_recent:');
-        expect(exporters).toContain('FROM completed');
-    });
+    // Moved to the infra repo (__tests__/infraContract.test.ts) with the k8s manifests.
 });

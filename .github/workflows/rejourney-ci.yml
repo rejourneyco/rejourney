@@ -21,7 +21,6 @@ env:
   API_IMAGE: ghcr.io/${{ github.repository }}/api
   WEB_IMAGE: ghcr.io/${{ github.repository }}/web
   MIGRATION_IMAGE: ghcr.io/${{ github.repository }}/migration
-  RESEARCH_LAKE_COMPACTOR_IMAGE: ghcr.io/${{ github.repository }}/research-lake-compactor
   # Public ED25519 host key for the production VPS. Update deliberately when the
   # server host key is rotated; never replace this with runtime ssh-keyscan.
   VPS_SSH_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBXUAJEpy6J0613oSrn8Xc/sIwBbZ18HHoQJEPLJk1B2
@@ -130,7 +129,8 @@ jobs:
 
       - name: Schema / Migration Guard
         run: |
-          node scripts/check-worker-parity.mjs
+          # Worker parity moved to the infra repo: it needs both k8s/workers.yaml
+          # (private) and local-k8s/workers.yaml (public), which no single checkout has.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             bash scripts/check-schema-migration.sh --range "origin/${{ github.base_ref }}...HEAD"
@@ -189,7 +189,7 @@ jobs:
   # ------------------------------------------------------------------
   # K8S / DEPLOY CONFIG CHECKS
   # ------------------------------------------------------------------
-  k8s-config:
+  repo-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,9 +199,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ripgrep
 
-      - name: Validate Storage Cutover Config
+      # Cluster topology validation moved to the private infra repo along with k8s/.
+      - name: Repository, secret and docs hygiene
         run: |
-          bash scripts/k8s/validate-storage-cutover.sh
           bash scripts/ci/check-repository-hygiene.sh
           bash scripts/ci/check-secret-hygiene.sh
           node scripts/ci/check-docs-integrity.mjs
@@ -211,7 +211,7 @@ jobs:
   # DOCKER BUILD
   # ------------------------------------------------------------------
   build-images:
-    needs: [backend, web, k8s-config, check-version]
+    needs: [backend, web, repo-checks, check-version]
     if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
@@ -267,217 +267,36 @@ jobs:
             ${{ env.MIGRATION_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build Research Lake Compactor
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./scripts/research_lake_compactor/Dockerfile
-          push: true
-          tags: |
-            ${{ env.RESEARCH_LAKE_COMPACTOR_IMAGE }}:latest
-            ${{ env.RESEARCH_LAKE_COMPACTOR_IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   # ------------------------------------------------------------------
-  # DEPLOY TO VPS
+  # HAND OFF TO PRIVATE INFRA REPO
   # ------------------------------------------------------------------
-  deploy:
+  # Production topology, rollout scripting and the VPS credentials live in
+  # rejourneyco/rejourney-infra. This job only announces that exact-SHA images are
+  # published; that repo validates and performs the rollout.
+  dispatch-deploy:
     needs: [build-images, check-version]
     if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-      - name: Install pinned VPS SSH credentials
-        shell: bash
+      - uses: actions/checkout@v4
+
+      - name: Read release version
+        id: version
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger infra deploy
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "${VPS_HOST}"
-          test -n "${VPS_SSH_KEY}"
-
-          install -m 700 -d "${HOME}/.ssh"
-          printf '%s\n' "${VPS_SSH_KEY}" | tr -d '\r' > "${HOME}/.ssh/deploy_key"
-          chmod 600 "${HOME}/.ssh/deploy_key"
-          printf '%s %s\n' "${VPS_HOST}" "${VPS_SSH_HOST_KEY}" > "${HOME}/.ssh/known_hosts"
-          chmod 600 "${HOME}/.ssh/known_hosts"
-
-          # Fail before the rollout if the secret is not a usable private key.
-          ssh-keygen -y -f "${HOME}/.ssh/deploy_key" >/dev/null
-          ssh-keygen -lf "${HOME}/.ssh/known_hosts" -E sha256
-
-      - name: Deploy exact release to VPS
-        timeout-minutes: 65
-        shell: bash
-        env:
+          # Fine-grained PAT with contents:write on the infra repo. GITHUB_TOKEN
+          # cannot dispatch across repositories.
+          GH_TOKEN: ${{ secrets.INFRA_DISPATCH_TOKEN }}
           IMAGE_TAG: ${{ github.sha }}
-          REPOSITORY: ${{ github.repository }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
+          APP_VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
-
-          if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid release SHA: ${IMAGE_TAG}"
-            exit 1
-          fi
-          if [[ ! "${REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-            echo "Invalid GitHub repository name: ${REPOSITORY}"
-            exit 1
-          fi
-
-          SSH_OPTIONS=(
-            -T
-            -o BatchMode=yes
-            -o ConnectTimeout=20
-            -o ConnectionAttempts=3
-            -o IdentitiesOnly=yes
-            -o PreferredAuthentications=publickey
-            -o StrictHostKeyChecking=yes
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts"
-            -o GlobalKnownHostsFile=/dev/null
-            -o HostKeyAlgorithms=ssh-ed25519
-            -o UpdateHostKeys=no
-            -o ServerAliveInterval=30
-            -o ServerAliveCountMax=20
-            -i "${HOME}/.ssh/deploy_key"
-          )
-
-          # Values are validated above and shell-escaped before becoming remote
-          # environment assignments. The quoted heredoc prevents local expansion
-          # of any command in the deployment program.
-          printf -v REMOTE_COMMAND 'IMAGE_TAG=%q REPOSITORY=%q bash -s' "${IMAGE_TAG}" "${REPOSITORY}"
-          ssh "${SSH_OPTIONS[@]}" root@"${VPS_HOST}" "${REMOTE_COMMAND}" <<'REMOTE_SCRIPT'
-             set -euo pipefail
-
-             if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
-               echo "Invalid remote release SHA: ${IMAGE_TAG}"
-               exit 1
-             fi
-             if [[ ! "${REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-               echo "Invalid remote repository name: ${REPOSITORY}"
-               exit 1
-             fi
-
-             DEPLOYED_VERSION_DIR=/var/lib/rejourney
-             DEPLOYED_VERSION_FILE="${DEPLOYED_VERSION_DIR}/deployed-version"
-
-             write_deployed_version() {
-               local version="$1"
-               local marker_tmp
-               marker_tmp=$(mktemp "${DEPLOYED_VERSION_DIR}/deployed-version.XXXXXX")
-               printf '%s\n' "${version}" > "${marker_tmp}"
-               chmod 644 "${marker_tmp}"
-               mv -f "${marker_tmp}" "${DEPLOYED_VERSION_FILE}"
-             }
-
-             # Bootstrap the out-of-worktree success marker from the currently
-             # deployed checkout before changing it. A failed first rollout then
-             # retains the previous version and remains retryable.
-             if [ ! -f "${DEPLOYED_VERSION_FILE}" ]; then
-               PREVIOUS_DEPLOYED_VERSION=0.0.0
-               if [ -f /opt/rejourney/package.json ]; then
-                 PREVIOUS_DEPLOYED_VERSION=$(python3 -c 'import json; print(json.load(open("/opt/rejourney/package.json"))["version"])')
-               fi
-               install -m 755 -d "${DEPLOYED_VERSION_DIR}"
-               write_deployed_version "${PREVIOUS_DEPLOYED_VERSION}"
-             fi
-
-             # Update Repo
-             # Ensure the directory exists
-             if [ ! -d "/opt/rejourney" ]; then
-               echo "Directory /opt/rejourney not found, cloning..."
-               git clone "https://github.com/${REPOSITORY}.git" /opt/rejourney
-             fi
-
-             # SAFE CD: Exit if cd fails
-             cd /opt/rejourney || exit 1
-
-             # Public, tokenless origin. Never persist CI tokens in the VPS git config.
-             git remote set-url origin "https://github.com/${REPOSITORY}.git"
-
-             # If it's not a git repo, initialize it (fallback)
-             if [ ! -d ".git" ]; then
-               echo "Not a git repository, fixing..."
-               # CAREFUL: Only delete if we are CONFIRMED in /opt/rejourney
-               if [ "$(pwd)" == "/opt/rejourney" ]; then
-                   rm -rf * .[^.]*
-                   git clone "https://github.com/${REPOSITORY}.git" .
-               else
-                   echo "CRITICAL ERROR: Wrong directory $(pwd). Aborting wipe."
-                   exit 1
-               fi
-             fi
-
-             # Deploy the exact commit whose images passed CI. origin/main may
-             # already point at a newer push by the time this queued job runs.
-             git fetch --no-tags origin "${IMAGE_TAG}"
-             git reset --hard "${IMAGE_TAG}"
-             git clean -ffd
-             if [ "$(git rev-parse HEAD)" != "${IMAGE_TAG}" ]; then
-               echo "CRITICAL ERROR: checkout does not match image tag ${IMAGE_TAG}"
-               exit 1
-             fi
-
-             bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${REPOSITORY}"
-
-             # Commit the deployed version only after migrations and every
-             # workload rollout have succeeded. Rename is atomic on this volume.
-             DEPLOYED_VERSION=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
-             write_deployed_version "${DEPLOYED_VERSION}"
-
-             # Clean up old images
-             echo "🧹 Cleaning up old images..."
-             if command -v crictl &> /dev/null; then
-               crictl rmi --prune
-             elif command -v docker &> /dev/null; then
-               docker image prune -af --filter "until=24h"
-             fi
-
-             # ============================================
-             # CLEANUP: Run after every deployment
-             # ============================================
-             echo "🧹 Running post-deploy cleanup..."
-
-             # 1. Clean up completed/failed pods
-             echo "  → Cleaning completed pods..."
-             kubectl delete pods -n rejourney --field-selector=status.phase==Succeeded --ignore-not-found
-             kubectl delete pods -n rejourney --field-selector=status.phase==Failed --ignore-not-found
-
-             # 2. Clean up old debug pods (using kubectl native approach, no jq needed)
-             echo "  → Cleaning stale debug pods..."
-             kubectl get pods -n rejourney --no-headers -o custom-columns=":metadata.name" | grep "^debug-" | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
-
-             # 3. Clean up old completed job pods (keep last 3)
-             echo "  → Cleaning old job pods..."
-             kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
-
-             # 4. Restart session-backup-seed: kill any running pods/jobs so they pick up
-             #    the updated ConfigMap (session-backup-script) immediately instead of waiting
-             #    for the next cron tick. The CronJob will reschedule automatically.
-             echo "  → Restarting session-backup-seed pods to pick up new script..."
-             kubectl get jobs -n rejourney --no-headers -o custom-columns=":metadata.name" \
-               | grep "^session-backup-seed-" \
-               | xargs -r kubectl delete job -n rejourney --ignore-not-found || true
-             kubectl delete pods -n rejourney -l job-name \
-               --field-selector=status.phase==Running \
-               --selector='app in (session-backup-seed)' --ignore-not-found 2>/dev/null || true
-             # Also kill any stuck long-running session-backup (drain-queue) jobs older than 23h
-             # that pre-date the current deploy and are running with the old script.
-             echo "  → Clearing stale session-backup drain jobs..."
-             kubectl get jobs -n rejourney --no-headers \
-               -o custom-columns=":metadata.name,:metadata.creationTimestamp" \
-               | grep "^session-backup-[0-9]" \
-               | awk -v cutoff="$(date -u -d '23 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-23H +%Y-%m-%dT%H:%M:%SZ)" \
-                   '$2 < cutoff {print $1}' \
-               | xargs -r kubectl delete job -n rejourney --ignore-not-found || true
-
-             # 5. Clean containerd garbage (exited containers)
-             echo "  → Cleaning exited containers..."
-             if command -v crictl &> /dev/null; then
-               crictl rm $(crictl ps -a -q --state exited) 2>/dev/null || true
-             fi
-
-             echo "✅ Cleanup complete!"
-          REMOTE_SCRIPT
+          test -n "${GH_TOKEN}"
+          gh api /repos/rejourneyco/rejourney-infra/dispatches \
+            --method POST \
+            --field event_type=deploy-release \
+            --field "client_payload[image_tag]=${IMAGE_TAG}" \
+            --field "client_payload[app_version]=${APP_VERSION}"
+          echo "Dispatched deploy-release for ${IMAGE_TAG} (v${APP_VERSION})"

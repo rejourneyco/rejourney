@@ -155,7 +155,7 @@ npm run ci:local:fast
 physical column removal. If production is under load and the `sessions` table
 is busy, the migration may be recorded without dropping the old
 `replay_promoted*` columns. That is expected and safe because the application no
-longer depends on those columns. See `dev_docs/technical-debt.md` for the
+longer depends on those columns. See the maintainer `technical-debt.md` runbook in the private infra repo for the
 drop procedure.
 
 **BullMQ / Redis `noeviction`:** Workers use BullMQ queues backed by Redis. The local
