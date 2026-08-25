@@ -30,6 +30,37 @@ await Rejourney.start();
 > [!NOTE]
 > `autoStart` is `false` by default. You must call `start()` explicitly, which lets you gate recording behind a consent check. To start automatically after `init`, pass `{ autoStart: true }`.
 
+### Cross-Origin Stylesheets
+
+If a stylesheet is served from a different origin (for example, a CDN) and the
+replay is missing that styling, make the stylesheet available to CORS requests.
+This lets the recorder preserve its rules and lets the replay load it when
+needed.
+
+Add `crossorigin="anonymous"` to each cross-origin stylesheet link:
+
+```html
+<link
+  rel="stylesheet"
+  href="https://cdn.example.com/assets/app.css"
+  crossorigin="anonymous"
+>
+```
+
+Then configure the server or CDN that serves the CSS to allow `GET` and `HEAD`
+from these origins:
+
+- Your app origin, such as `https://app.example.com` (and any staging origin).
+- `https://rejourney.co` and `https://www.rejourney.co` when using Rejourney
+  Cloud.
+- Your `PUBLIC_DASHBOARD_URL` when self-hosting Rejourney.
+
+For public, cookie-free static CSS, `Access-Control-Allow-Origin: *` is the
+simplest option. Otherwise, configure the CDN to return the requesting origin
+only when it is in your allowlist; an `Access-Control-Allow-Origin` response
+can contain only one origin. No credentials or custom request headers are
+required for standard stylesheets.
+
 ### Framework Integrations
 
 The package ships dedicated entry points for popular frameworks. Use the one that matches your stack — or use the vanilla API above from any framework.

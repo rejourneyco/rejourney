@@ -54,6 +54,12 @@ The Redux middleware complements the normal Web SDK setup; it does not initializ
 
 Also check for Vue, Nuxt, SvelteKit, Remix, Gatsby, Astro, and Angular integrations if the app uses those frameworks.
 
+CROSS-ORIGIN STYLESHEETS (only when CSS is served from a different origin/CDN):
+- If a replay is missing cross-origin CSS, add crossorigin="anonymous" to the stylesheet link:
+  <link rel="stylesheet" href="https://cdn.example.com/assets/app.css" crossorigin="anonymous">
+- Configure the CSS server/CDN to allow GET and HEAD from the app's production/staging origins plus https://rejourney.co and https://www.rejourney.co. For a self-hosted deployment, allow its PUBLIC_DASHBOARD_URL instead of the Rejourney Cloud origins.
+- For genuinely public, cookie-free CSS, Access-Control-Allow-Origin: * is simplest. Otherwise, return one validated requesting origin; do not send credentials for normal stylesheet requests.
+
 ROUTE TRACKING:
 - If using a framework integration, prefer its built-in route tracking.
 - If using the vanilla browser API and you need custom names for in-page views, call trackScreen:

@@ -15,6 +15,9 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(AI_INTEGRATION_PROMPT).toContain("from '@rejourneyco/browser/redux'");
     expect(AI_INTEGRATION_PROMPT).toContain('getDefaultMiddleware().concat(');
     expect(AI_INTEGRATION_PROMPT).toContain("captureState: 'after'");
+    expect(AI_INTEGRATION_PROMPT).toContain('CROSS-ORIGIN STYLESHEETS');
+    expect(AI_INTEGRATION_PROMPT).toContain('crossorigin="anonymous"');
+    expect(AI_INTEGRATION_PROMPT).toContain('https://rejourney.co');
     expect(AI_INTEGRATION_PROMPT).toContain('IF FLUTTER');
     expect(AI_INTEGRATION_PROMPT).toContain('RejourneyNavigatorObserver');
   });
