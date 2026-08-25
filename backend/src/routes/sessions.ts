@@ -5,7 +5,7 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { Router } from 'express';
 import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns, type SQL } from 'drizzle-orm';
@@ -35,6 +35,7 @@ import {
     replayShareIdParamSchema,
 } from '../validation/sessions.js';
 import { generateAnonymousName } from '../utils/anonymousName.js';
+import { resolveReplayStylesheet } from '../services/replayCssProxy.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
 import { getRedis } from '../db/redis.js';
@@ -988,6 +989,7 @@ function rewriteRrwebReplayForShare(rrwebReplay: RrwebReplayPayload | undefined,
     const baseReplay = rrwebReplay || emptyRrwebReplayPayload();
     return {
         ...baseReplay,
+        cssProxyPath: `${apiBase}/replay-css`,
         segments: (baseReplay.segments || []).map((segment) => {
             const artifactId = segment.artifactId;
             return {
@@ -1243,6 +1245,13 @@ type RrwebReplayPayload = {
      *              exceed REPLAY_CORE_INLINE_LIMIT_BYTES so the server isn't a bottleneck.
      */
     loadMode?: 'inline' | 'segments';
+    /**
+     * API path the dashboard uses to proxy external stylesheet links that rrweb
+     * could not inline at record time. The client fetches through it and inlines
+     * the CSS into the snapshot, so the replay iframe never needs the CSP to
+     * allow customer origins.
+     */
+    cssProxyPath?: string;
 };
 
 const emptyRrwebReplayPayload = (): RrwebReplayPayload => ({
@@ -1352,6 +1361,7 @@ async function loadRrwebReplayPayload(
         return {
             events: [],
             eventCount: segmentEventCount,
+            cssProxyPath: `/api/session/replay-css/${session.id}`,
             segments: validSegments,
             page: null,
             viewport: null,
@@ -1428,6 +1438,7 @@ async function loadRrwebReplayPayload(
     events.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
 
     return {
+        cssProxyPath: `/api/session/replay-css/${session.id}`,
         events,
         eventCount: events.length,
         segments,
@@ -2791,6 +2802,84 @@ router.get(
         setPublicReplayHeaders(res);
         const { session } = await resolvePublicReplayShareContext(req.params.shareToken);
         return sendScreenshotFrameForSession(res, session, session.id, req.params.artifactId, 'no-store');
+    }),
+);
+
+/**
+ * Proxy an external stylesheet referenced by a recorded rrweb snapshot.
+ *
+ * rrweb inlines stylesheets it can read at record time; the ones it cannot
+ * (cross-origin CSS, or a snapshot racing the stylesheet load) stay as external
+ * links that the dashboard CSP will never allow the replay iframe to load. The
+ * client fetches those through this route and inlines the text into the
+ * snapshot before mounting the player. SSRF guarding lives in replayCssProxy.
+ */
+const REPLAY_CSS_CACHE_TTL_SECONDS = 3600;
+const REPLAY_CSS_CACHE_MAX_BYTES = 2 * 1024 * 1024;
+
+async function sendProxiedReplayCss(res: any, rawUrl: unknown, cacheControl: string) {
+    if (typeof rawUrl !== 'string' || rawUrl.length === 0 || rawUrl.length > 4096) {
+        throw ApiError.badRequest('A stylesheet url query parameter is required');
+    }
+
+    const redis = getRedis();
+    const cacheKey = `replay_css:${createHash('sha256').update(rawUrl).digest('hex')}`;
+
+    const sendCss = (body: Buffer) => {
+        res.setHeader('Content-Type', 'text/css; charset=utf-8');
+        res.setHeader('Cache-Control', cacheControl);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        return res.send(body);
+    };
+
+    try {
+        const cached = await redis.getBuffer(cacheKey);
+        if (cached) return sendCss(cached);
+    } catch (err) {
+        logger.warn({ err, event: 'replay_css.cache_read_failed' }, '[sessions] Failed to read replay CSS cache');
+    }
+
+    const result = await resolveReplayStylesheet(rawUrl);
+    if (!result.ok) {
+        // The replay simply stays unstyled for this sheet, exactly as before the proxy
+        // existed, so a 4xx here is informational rather than user-facing breakage.
+        throw ApiError.badRequest(`Stylesheet could not be proxied (${result.reason})`);
+    }
+
+    if (result.body.length <= REPLAY_CSS_CACHE_MAX_BYTES) {
+        try {
+            await redis.setex(cacheKey, REPLAY_CSS_CACHE_TTL_SECONDS, result.body);
+        } catch (err) {
+            logger.warn({ err, event: 'replay_css.cache_write_failed' }, '[sessions] Failed to cache replay CSS');
+        }
+    }
+
+    return sendCss(result.body);
+}
+
+/**
+ * GET /api/session/replay-css/:sessionId?url=<https-url>
+ */
+router.get(
+    '/replay-css/:sessionId',
+    sessionAuth,
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        await getAuthorizedSessionForFrames(req.user!.id, req.params.sessionId);
+        return sendProxiedReplayCss(res, req.query.url, 'private, max-age=3600');
+    }),
+);
+
+/**
+ * GET /api/session/share/replay/:shareToken/replay-css?url=<https-url>
+ */
+router.get(
+    '/share/replay/:shareToken/replay-css',
+    replayShareRateLimiter,
+    asyncHandler(async (req, res) => {
+        setPublicReplayHeaders(res);
+        await resolvePublicReplayShareContext(req.params.shareToken);
+        return sendProxiedReplayCss(res, req.query.url, 'no-store');
     }),
 );
 

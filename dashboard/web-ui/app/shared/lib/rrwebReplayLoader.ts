@@ -17,6 +17,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '~/shared/config/appConfig';
+import {
+    buildProxyCssFetcher,
+    collectExternalStylesheetLinks,
+    inlineExternalReplayStylesheets,
+    type FetchCssText,
+} from '~/shared/lib/replayCssInline';
 
 export type RrwebReplaySegment = {
     artifactId?: string;
@@ -36,6 +42,8 @@ export type RrwebReplayPayload = {
     page?: Record<string, unknown> | null;
     viewport?: Record<string, unknown> | null;
     loadMode?: 'inline' | 'segments';
+    /** Backend proxy path for inlining external stylesheet links client-side. */
+    cssProxyPath?: string;
 };
 
 export type RrwebReplayLoaderState = {
@@ -191,6 +199,40 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
 
     const loadMode = rrwebReplay?.loadMode ?? 'inline';
 
+    // Stylesheet links rrweb could not inline at record time are fetched through the
+    // backend proxy and inlined into the events BEFORE the player mounts them; the
+    // replay iframe then needs no style origins beyond the CSP's 'unsafe-inline'.
+    const cssProxyPath = rrwebReplay?.cssProxyPath;
+    const cssFetcher = useMemo<FetchCssText | null>(
+        () => (cssProxyPath ? buildProxyCssFetcher(cssProxyPath, API_BASE_URL, 'include') : null),
+        [cssProxyPath],
+    );
+    const cssFetcherRef = useRef<FetchCssText | null>(null);
+    cssFetcherRef.current = cssFetcher;
+
+    // null = inlining still in flight for inline-mode payloads.
+    const [inlineReadyEvents, setInlineReadyEvents] = useState<any[] | null>(null);
+    useEffect(() => {
+        if (inlineEvents.length === 0) {
+            setInlineReadyEvents(inlineEvents);
+            return;
+        }
+        if (!cssFetcher || collectExternalStylesheetLinks(inlineEvents).length === 0) {
+            setInlineReadyEvents(inlineEvents);
+            return;
+        }
+        let cancelled = false;
+        setInlineReadyEvents(null);
+        inlineExternalReplayStylesheets(inlineEvents, cssFetcher)
+            .catch(() => 0)
+            .then(() => {
+                if (!cancelled) setInlineReadyEvents(inlineEvents);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [inlineEvents, cssFetcher]);
+
     const [clientEvents, setClientEvents] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [progress, setProgress] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
@@ -276,6 +318,12 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
             loadedIndexes.add(segment.index);
             try {
                 const events = await fetchOneSegment(segment, abort.signal);
+                const fetchCss = cssFetcherRef.current;
+                if (fetchCss && !cancelled) {
+                    // Inline before publishing: the player will not re-render nodes
+                    // that were already mounted from this segment.
+                    await inlineExternalReplayStylesheets(events, fetchCss).catch(() => 0);
+                }
                 if (!cancelled) {
                     loadedSegmentsRef.current.set(segment.index, events);
                     publishLoadedEvents(publishImmediately);
@@ -328,5 +376,10 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
     if (loadMode === 'segments') {
         return { events: clientEvents, isLoading, progress, error };
     }
-    return { events: inlineEvents, isLoading: false, progress: { loaded: 0, total: 0 }, error: null };
+    return {
+        events: inlineReadyEvents ?? [],
+        isLoading: inlineReadyEvents === null,
+        progress: { loaded: 0, total: 0 },
+        error: null,
+    };
 }
