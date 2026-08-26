@@ -15,7 +15,7 @@
  * download every segment before first paint.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '~/shared/config/appConfig';
 import {
     buildProxyCssFetcher,
@@ -55,7 +55,122 @@ export type RrwebReplayLoaderState = {
     progress: { loaded: number; total: number };
     /** Set if any segment failed to fetch (still returns events from successful segments). */
     error: string | null;
+    /**
+     * Jump the fetch queue to the segment covering this 0..1 timeline fraction.
+     * No-op for inline payloads or once everything is loaded.
+     */
+    prioritizeSeek: (fraction: number) => void;
+    /** Loaded timeline coverage as 0..1 fractions, for a buffered-ranges indicator. */
+    loadedRanges: Array<{ start: number; end: number }>;
 };
+
+export type SegmentTimeBounds = { min: number; max: number };
+
+/**
+ * Overall time bounds across every segment that carries start/end metadata.
+ * Null when metadata is too sparse to reason about time at all.
+ */
+export function computeSegmentTimeBounds(segments: RrwebReplaySegment[]): SegmentTimeBounds | null {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const segment of segments) {
+        if (typeof segment.startTime === 'number') min = Math.min(min, segment.startTime);
+        if (typeof segment.endTime === 'number') max = Math.max(max, segment.endTime);
+        else if (typeof segment.startTime === 'number') max = Math.max(max, segment.startTime);
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+    return { min, max };
+}
+
+/**
+ * Pick which pending segment to fetch next.
+ *
+ * Without a seek target this is plain in-order loading. With one (a 0..1 fraction
+ * of the timeline, set when the user scrubs), the segment covering that time jumps
+ * the queue so a deep seek does not wait for everything before it. Falls back to a
+ * proportional index guess when segments carry no time metadata.
+ */
+export function pickNextPendingSegment(
+    pending: RrwebReplaySegment[],
+    totalSegments: number,
+    seekFraction: number | null,
+    bounds: SegmentTimeBounds | null,
+): number {
+    if (pending.length === 0) return -1;
+    if (seekFraction === null || pending.length === 1) return 0;
+
+    if (bounds) {
+        const targetTime = bounds.min + seekFraction * (bounds.max - bounds.min);
+        let bestIdx = 0;
+        let bestDistance = Infinity;
+        for (let i = 0; i < pending.length; i += 1) {
+            const { startTime, endTime } = pending[i];
+            if (typeof startTime !== 'number') continue;
+            const end = typeof endTime === 'number' ? endTime : startTime;
+            const distance = targetTime < startTime
+                ? startTime - targetTime
+                : (targetTime > end ? targetTime - end : 0);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIdx = i;
+            }
+            if (distance === 0) break;
+        }
+        return bestIdx;
+    }
+
+    const targetIndex = Math.round(seekFraction * Math.max(0, totalSegments - 1));
+    let bestIdx = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i < pending.length; i += 1) {
+        const distance = Math.abs((pending[i].index ?? 0) - targetIndex);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIdx = i;
+        }
+    }
+    return bestIdx;
+}
+
+/**
+ * Loaded timeline coverage as 0..1 fractions, for a buffered-ranges indicator.
+ * Adjacent/overlapping ranges are merged so the UI draws a few bars, not dozens.
+ */
+export function computeLoadedRanges(
+    segments: RrwebReplaySegment[],
+    loadedIndexes: ReadonlySet<number>,
+    bounds: SegmentTimeBounds | null,
+): Array<{ start: number; end: number }> {
+    if (segments.length === 0 || loadedIndexes.size === 0) return [];
+    const span = bounds ? bounds.max - bounds.min : 0;
+    const raw: Array<{ start: number; end: number }> = [];
+    for (const segment of segments) {
+        if (!loadedIndexes.has(segment.index)) continue;
+        if (bounds && typeof segment.startTime === 'number' && span > 0) {
+            const end = typeof segment.endTime === 'number' ? segment.endTime : segment.startTime;
+            raw.push({
+                start: Math.max(0, (segment.startTime - bounds.min) / span),
+                end: Math.min(1, (end - bounds.min) / span),
+            });
+        } else {
+            raw.push({
+                start: segment.index / segments.length,
+                end: (segment.index + 1) / segments.length,
+            });
+        }
+    }
+    raw.sort((a, b) => a.start - b.start);
+    const merged: Array<{ start: number; end: number }> = [];
+    for (const range of raw) {
+        const last = merged[merged.length - 1];
+        if (last && range.start <= last.end + 0.005) {
+            last.end = Math.max(last.end, range.end);
+        } else {
+            merged.push({ ...range });
+        }
+    }
+    return merged;
+}
 
 const DESKTOP_SEGMENT_FETCH_CONCURRENCY = 6;
 const MOBILE_SEGMENT_FETCH_CONCURRENCY = 4;
@@ -235,6 +350,13 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
 
     const [clientEvents, setClientEvents] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [loadedIndexes, setLoadedIndexes] = useState<ReadonlySet<number>>(new Set());
+    const seekFractionRef = useRef<number | null>(null);
+    const prioritizeSeek = useCallback((fraction: number) => {
+        if (Number.isFinite(fraction)) {
+            seekFractionRef.current = Math.max(0, Math.min(1, fraction));
+        }
+    }, []);
     const [progress, setProgress] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
     const [error, setError] = useState<string | null>(null);
 
@@ -254,6 +376,7 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
             setIsLoading(false);
             setProgress({ loaded: 0, total: 0 });
             setError(null);
+            setLoadedIndexes(new Set());
             lastKeyRef.current = segmentKey;
             return;
         }
@@ -337,6 +460,7 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
                 loadedCount += 1;
                 if (!cancelled) {
                     setProgress({ loaded: loadedCount, total: fetchable.length });
+                    setLoadedIndexes(new Set(loadedSegmentsRef.current.keys()));
                     publishLoadedEvents(false);
                 }
             }
@@ -349,11 +473,29 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
             await sleep(BACKGROUND_PREFETCH_START_DELAY_MS);
             if (cancelled) return;
 
-            const remaining = fetchable.slice(1);
-            await mapWithConcurrency(
-                remaining,
-                getAdaptiveSegmentFetchConcurrency(),
-                async (segment) => loadSegment(segment, false),
+            // Seek-aware scheduler: workers pull from a shared queue, and when the
+            // user scrubs, pickNextPendingSegment jumps the segment covering the
+            // seek target to the front instead of finishing everything before it.
+            const pending = fetchable.slice(1);
+            const bounds = computeSegmentTimeBounds(fetchable);
+            const worker = async () => {
+                while (!cancelled && pending.length > 0) {
+                    const pick = pickNextPendingSegment(
+                        pending,
+                        fetchable.length,
+                        seekFractionRef.current,
+                        bounds,
+                    );
+                    if (pick < 0) break;
+                    const [segment] = pending.splice(pick, 1);
+                    await loadSegment(segment, false);
+                }
+            };
+            await Promise.all(
+                Array.from(
+                    { length: Math.max(1, Math.min(getAdaptiveSegmentFetchConcurrency(), pending.length || 1)) },
+                    () => worker(),
+                ),
             );
             setIsLoading(false);
             publishLoadedEvents(true);
@@ -373,13 +515,22 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
         };
     }, [loadMode, segmentKey, segments]);
 
+    const loadedRanges = useMemo(
+        () => (loadMode === 'segments'
+            ? computeLoadedRanges(segments, loadedIndexes, computeSegmentTimeBounds(segments))
+            : []),
+        [loadMode, segments, loadedIndexes],
+    );
+
     if (loadMode === 'segments') {
-        return { events: clientEvents, isLoading, progress, error };
+        return { events: clientEvents, isLoading, progress, error, prioritizeSeek, loadedRanges };
     }
     return {
         events: inlineReadyEvents ?? [],
         isLoading: inlineReadyEvents === null,
         progress: { loaded: 0, total: 0 },
         error: null,
+        prioritizeSeek,
+        loadedRanges,
     };
 }

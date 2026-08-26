@@ -1424,6 +1424,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     // Screenshot playback state
     const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
     const screenshotFrameCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+    // Frames whose image fetch failed (signed URL and proxy both), with the failure
+    // time. Failed images are evicted from the cache instead of being cached broken
+    // forever; the timestamp gates re-tries to one every couple of seconds.
+    const screenshotFrameFailureRef = useRef<Map<string, number>>(new Map());
     const screenshotAnimationRef = useRef<number | null>(null);
     const webReplayAnimationRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef<number>(0);
@@ -2296,6 +2300,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         isLoading: rrwebSegmentsLoading,
         progress: rrwebSegmentProgress,
         error: rrwebSegmentError,
+        prioritizeSeek: rrwebPrioritizeSeek,
+        loadedRanges: rrwebLoadedRanges,
     } = useRrwebReplayEvents(fullSession?.rrwebReplay);
     const webReplayRawEndMs = useMemo(() => {
         const sessionStart = fullSession?.startTime || 0;
@@ -2578,6 +2584,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         const cachedImg = cache.get(cacheKey);
         if (cachedImg) return cachedImg;
 
+        // A frame that just failed gets a short cool-down before we retry, so a dead
+        // asset cannot spin the render loop into a request storm.
+        const failedAt = screenshotFrameFailureRef.current.get(cacheKey);
+        if (failedAt && Date.now() - failedAt < 2000) return null;
+
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.decoding = 'async';
@@ -2586,14 +2597,28 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         } catch {
             // fetchPriority is a best-effort browser hint.
         }
-        if (frame.proxyUrl && frame.proxyUrl !== frame.url) {
-            img.addEventListener('error', () => {
-                const currentSrc = img.currentSrc || img.src;
-                if (!currentSrc.endsWith(frame.proxyUrl || '') && img.src !== frame.proxyUrl) {
-                    img.src = frame.proxyUrl!;
-                }
-            }, { once: true });
-        }
+        const handleError = () => {
+            const canFallBack = frame.proxyUrl
+                && frame.proxyUrl !== frame.url
+                && img.src !== frame.proxyUrl;
+            if (canFallBack) {
+                img.src = frame.proxyUrl!;
+                return;
+            }
+            // Both attempts failed. Evict so the next request rebuilds the image —
+            // a broken Image left in the cache used to stick the player on the
+            // previous frame forever.
+            img.removeEventListener('error', handleError);
+            if (screenshotFrameCacheRef.current.get(cacheKey) === img) {
+                screenshotFrameCacheRef.current.delete(cacheKey);
+            }
+            screenshotFrameFailureRef.current.set(cacheKey, Date.now());
+        };
+        img.addEventListener('error', handleError);
+        img.addEventListener('load', () => {
+            img.removeEventListener('error', handleError);
+            screenshotFrameFailureRef.current.delete(cacheKey);
+        }, { once: true });
         img.src = frame.url;
         cache.set(cacheKey, img);
         return img;
@@ -2650,6 +2675,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
             const newTime = percent * playbackDurationSeconds;
             if (playbackMode === 'rrweb') {
+                // Pull the segment covering the seek target to the front of the
+                // fetch queue so a deep scrub doesn't wait for everything before it.
+                rrwebPrioritizeSeek(percent);
                 setCurrentPlaybackTime(newTime);
                 currentPlaybackTimeRef.current = newTime;
                 lastPlaybackUiUpdateRef.current = performance.now();
@@ -2681,7 +2709,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             syncPlaybackChrome(newTime);
             warmScreenshotFramesAround(left, 'high');
         },
-        [playbackDurationSeconds, playbackMode, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
+        [playbackDurationSeconds, playbackMode, rrwebPrioritizeSeek, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
     );
 
     const handleProgressMouseDown = useCallback(
@@ -2975,6 +3003,23 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         setTouchEvents(recentTouchEvents);
     }, [playbackMode, fullSession, currentPlaybackRawTimestamp, showTouchOverlay, detectedRageTaps, deviceWidth, deviceHeight]);
 
+    // Nearest frame whose image is already decoded, searching outward from the
+    // target. Lets a seek show real nearby content instantly instead of freezing
+    // on whatever was on the canvas before the scrub.
+    const findNearestReadyFrame = useCallback((targetIndex: number): HTMLImageElement | null => {
+        const cache = screenshotFrameCacheRef.current;
+        const maxDistance = Math.min(120, screenshotFrames.length);
+        for (let distance = 1; distance <= maxDistance; distance += 1) {
+            for (const idx of [targetIndex - distance, targetIndex + distance]) {
+                const frame = screenshotFrames[idx];
+                if (!frame?.url) continue;
+                const img = cache.get(`${frame.url}|${frame.proxyUrl || ''}`);
+                if (img && img.complete && img.naturalWidth > 0) return img;
+            }
+        }
+        return null;
+    }, [screenshotFrames]);
+
     const drawScreenshotFrame = useCallback((frameIndex: number) => {
         if (playbackMode !== 'screenshots' || !canvasRef.current || screenshotFrames.length === 0) {
             return;
@@ -2995,6 +3040,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
         const img = ensureScreenshotFrameImage(frame, 'high');
         if (!img) {
+            const placeholder = findNearestReadyFrame(frameIndex);
+            if (placeholder && canvasRef.current) {
+                ctx.drawImage(placeholder, 0, 0, canvasRef.current.width, canvasRef.current.height);
+            }
             return;
         }
 
@@ -3009,20 +3058,46 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
         if (img.complete && img.naturalWidth > 0) {
             drawCurrentFrame();
+            if (isBufferingRef.current) {
+                isBufferingRef.current = false;
+                setIsBuffering(false);
+            }
             return;
         }
 
+        // Target not decoded yet (typical after a scrub while paused): show the
+        // nearest loaded frame immediately and surface the buffering indicator,
+        // which previously only existed inside the playback tick loop.
+        const placeholder = findNearestReadyFrame(frameIndex);
+        if (placeholder && canvasRef.current) {
+            ctx.drawImage(placeholder, 0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+        if (!isBufferingRef.current) {
+            isBufferingRef.current = true;
+            setIsBuffering(true);
+        }
+
+        const clearBufferingIfCurrent = () => {
+            if (currentFrameIndexRef.current === frameIndex && isBufferingRef.current) {
+                isBufferingRef.current = false;
+                setIsBuffering(false);
+            }
+        };
         const handleLoad = () => {
             img.removeEventListener('error', handleError);
             drawCurrentFrame();
+            clearBufferingIfCurrent();
         };
         const handleError = (err: Event) => {
             img.removeEventListener('load', handleLoad);
             console.error('[SCREENSHOT] Frame load error:', frameIndex, frame.url, err);
+            // Leave the placeholder on screen; eviction in ensureScreenshotFrameImage
+            // lets a later draw retry the fetch.
+            clearBufferingIfCurrent();
         };
         img.addEventListener('load', handleLoad, { once: true });
         img.addEventListener('error', handleError, { once: true });
-    }, [ensureScreenshotFrameImage, id, playbackMode, screenshotFrames, warmScreenshotFramesAround]);
+    }, [ensureScreenshotFrameImage, findNearestReadyFrame, id, playbackMode, screenshotFrames, warmScreenshotFramesAround]);
 
     // Screenshot playback animation loop
     // Uses relativeTime (seconds from first frame) for proper real-time playback
@@ -5041,6 +5116,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                             className="absolute inset-0 h-full w-full object-contain"
                                                             style={{ zIndex: 1 }}
                                                         />
+                                                        {isBuffering && (
+                                                            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                                                                <div className="rounded-full bg-slate-950/60 p-2.5">
+                                                                    <svg className="h-5 w-5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                        <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                                                    </svg>
+                                                                </div>
+                                                            </div>
+                                                        )}
 
                                                         {showTouchOverlay && (
                                                             <TouchOverlay
@@ -5107,6 +5192,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         className="absolute inset-0 h-full w-full object-cover"
                                                         style={{ zIndex: 1 }}
                                                     />
+                                                    {isBuffering && (
+                                                        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                                                            <div className="rounded-full bg-slate-950/60 p-2.5">
+                                                                <svg className="h-5 w-5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                    <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                                                </svg>
+                                                            </div>
+                                                        </div>
+                                                    )}
 
                                                     {showTouchOverlay && (
                                                         <TouchOverlay
@@ -5370,6 +5465,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         onTouchStart={handleProgressTouchStart}
                                     >
                                         <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full border border-slate-400 bg-slate-200" />
+                                        {playbackMode === 'rrweb' && rrwebSegmentsLoading && rrwebLoadedRanges.length > 0 && (
+                                            <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-full">
+                                                {rrwebLoadedRanges.map((range, i) => (
+                                                    <div
+                                                        key={i}
+                                                        className="absolute h-full bg-slate-400/70"
+                                                        style={{
+                                                            left: `${range.start * 100}%`,
+                                                            width: `${Math.max(0.5, (range.end - range.start) * 100)}%`,
+                                                        }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
                                         <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-full">
                                             <div
                                                 ref={progressFillRef}
