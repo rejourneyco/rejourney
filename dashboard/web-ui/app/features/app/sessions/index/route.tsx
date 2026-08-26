@@ -975,8 +975,10 @@ export const RecordingsList: React.FC = () => {
                   }
                 : {
                     kind: 'native' as const,
-                    primary: formatNativeOsLabel(platformLabel, session.osVersion),
-                    secondary: displayDeviceModel,
+                    // Device model leads; the OS version is the secondary line. Web
+                    // sessions keep the browser on top intentionally.
+                    primary: displayDeviceModel,
+                    secondary: formatNativeOsLabel(platformLabel, session.osVersion),
                     iconName: platformLabel,
                     title: `${displayDeviceModel}${session.osVersion ? ` · ${session.osVersion}` : ''}`,
                   };
@@ -1458,8 +1460,10 @@ export const RecordingsList: React.FC = () => {
 	                  }
 	                : {
 	                    kind: 'native' as const,
-	                    primary: formatNativeOsLabel(platformLabel, session.osVersion),
-	                    secondary: displayDeviceModel,
+	                    // Device model leads; the OS version is the secondary line. Web
+	                    // sessions keep the browser on top intentionally.
+	                    primary: displayDeviceModel,
+	                    secondary: formatNativeOsLabel(platformLabel, session.osVersion),
 	                    iconName: platformLabel,
 	                    title: `${displayDeviceModel}${session.osVersion ? ` · ${session.osVersion}` : ''}`,
 	                  };
@@ -1824,6 +1828,15 @@ export const RecordingsList: React.FC = () => {
                                         {showTotal ? ` of ${totalSessions}` : ''}
                                       </span>
                                     </div>
+                                    {/* App version — saves opening the replay just to read it */}
+                                    {session.appVersion ? (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">App Version</span>
+                                        <span className="bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-slate-800" title={session.sdkVersion ? `SDK ${session.sdkVersion}` : undefined}>
+                                          {session.appVersion}
+                                        </span>
+                                      </div>
+                                    ) : null}
                                     {/* Engagement score */}
                                     <div className="flex flex-col gap-2">
                                       <div className="flex justify-between items-center">
