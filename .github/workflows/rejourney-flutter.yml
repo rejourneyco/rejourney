@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Detect a version bump or an untagged canceled release
+      - name: Detect a version with no release tag
         id: version-check
         env:
           BEFORE_SHA: ${{ github.event.before }}
@@ -50,30 +50,28 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Current Flutter package version: $version"
 
-          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || \
-             ! git cat-file -e "$BEFORE_SHA:packages/rejourney/pubspec.yaml" 2>/dev/null; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "This is the package's first commit; publish and transfer the first version manually before enabling automation."
-            exit 0
-          fi
-
-          previous_version="$(git show "$BEFORE_SHA:packages/rejourney/pubspec.yaml" | sed -n 's/^version: //p')"
-          test -n "$previous_version"
-          echo "Previous Flutter package version: $previous_version"
-
-          if [ "$version" != "$previous_version" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Flutter package version changed."
-            exit 0
-          fi
-
           tag="flutter-v${version}"
+
+          # The tag is the source of truth for "has this version been released".
+          # A version diff against the previous commit cannot be, because
+          # github.event.before is unreachable after a force-push (the old tip
+          # is orphaned and checkout only fetches refs/heads and refs/tags), and
+          # a comparison that cannot run must not be read as "nothing to release".
           if git show-ref --verify --quiet "refs/tags/${tag}"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "$tag already exists; no release is needed."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "$tag is missing; releasing $version."
+
+          if [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && \
+             git cat-file -e "$BEFORE_SHA:packages/rejourney/pubspec.yaml" 2>/dev/null; then
+            previous_version="$(git show "$BEFORE_SHA:packages/rejourney/pubspec.yaml" | sed -n 's/^version: //p')"
+            echo "Previous Flutter package version: $previous_version"
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "$tag is missing; resuming the tested release after a canceled or failed run."
+            echo "Previous version unavailable (orphaned or absent before SHA); relying on the tag check alone."
           fi
 
   dart:
