@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Apple, Blocks, Check, Globe, MonitorSmartphone } from 'lucide-react';
+import { AlertTriangle, Check, Globe } from 'lucide-react';
+import { AppleBrandIcon, FlutterBrandIcon, ReactBrandIcon } from '~/shared/ui/core/PlatformBrandIcon';
 import { createProject, updateProject, type ApiTeam } from '~/shared/api/client';
 import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import type { Project } from '~/shared/types';
@@ -15,9 +16,9 @@ import {
 
 const platformIcons: Record<SetupIntegration, React.ElementType> = {
   web: Globe,
-  'react-native': MonitorSmartphone,
-  flutter: Blocks,
-  ios: Apple,
+  'react-native': ReactBrandIcon,
+  flutter: FlutterBrandIcon,
+  ios: AppleBrandIcon,
 };
 
 interface CreateProjectFormProps {
