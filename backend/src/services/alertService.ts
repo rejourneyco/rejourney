@@ -361,7 +361,7 @@ export async function triggerStabilityDigestEmail(
             projectId: input.projectId,
             recipients: recipientDetails,
             alertType: 'stability_digest',
-            subject: stabilityDigestSubject({ projectName, detectedAt }),
+            subject: stabilityDigestSubject({ projectName, trendCount: eligibleTrends.length }),
             issueTitle: eligibleTrends.map((trend) => trend.title).join(' · '),
             issueId: eligibleTrends.find((trend) => trend.issueId)?.issueId,
         });
