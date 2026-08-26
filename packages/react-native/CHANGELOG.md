@@ -1,3 +1,19 @@
+## 1.4.1
+
+- Android: JPEG compression moves off the main thread onto the encode executor
+  (it ran on main during every capture), and the same adaptive capture throttle
+  now applies. The retry drain on Android was already asynchronous.
+- Never block the main thread when the app backgrounds: the upload retry drain
+  is now fire-and-forget instead of parking the main thread on a utility-QoS
+  network queue (priority inversion that froze apps at every backgrounding,
+  including tapping outbound links).
+- Screenshot capture now self-throttles: a frame whose main-thread cost exceeds
+  the 34ms budget stretches the capture interval (up to 4x) and recovers when
+  the screen becomes cheap to render again, eliminating visible hitches on
+  blur- and glass-heavy screens (iOS 26 Liquid Glass).
+- Capture also skips ticks while the JPEG encode queue is backlogged, so a slow
+  device can never accumulate memory or main-thread pressure from the recorder.
+
 # Changelog
 
 ## 1.4.0

@@ -119,9 +119,17 @@ final class SegmentDispatcher {
         active = false
     }
     
+    /// Kick a retry-queue drain on the worker queue.
+    ///
+    /// Deliberately fire-and-forget. Callers include main-thread lifecycle
+    /// observers (didEnterBackground, termination, session finalize), and the
+    /// previous waitUntilAllOperationsAreFinished() here parked the MAIN thread
+    /// on a utility-QoS queue that performs network uploads — a priority
+    /// inversion that froze apps for seconds on every backgrounding and risked
+    /// the watchdog. The drain that must complete before suspension owns a
+    /// proper UIApplication background task in TelemetryPipeline instead.
     func shipPending() {
         workerQueue.addOperation { [weak self] in self?.drainRetryQueue() }
-        workerQueue.waitUntilAllOperationsAreFinished()
     }
     
     func transmitFrameBundle(payload: Data, startMs: UInt64, endMs: UInt64, frameCount: Int, completion: ((Bool) -> Void)? = nil) {

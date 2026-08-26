@@ -22,7 +22,7 @@ export 'src/navigation.dart';
 /// await Rejourney.start();
 /// ```
 abstract final class Rejourney {
-  static const String version = '0.3.1';
+  static const String version = '0.3.2';
 
   static String? _publicKey;
   static RejourneyConfig? _config;

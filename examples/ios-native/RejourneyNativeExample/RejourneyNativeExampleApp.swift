@@ -102,6 +102,12 @@ struct RejourneyNativeExampleView: View {
                 }
             }
             .navigationTitle("Rejourney")
+            .task {
+                // Lets automated/simulator runs start recording without UI taps.
+                if ProcessInfo.processInfo.environment["REJOURNEY_AUTOSTART"] == "true" {
+                    await startSession()
+                }
+            }
         }
     }
 

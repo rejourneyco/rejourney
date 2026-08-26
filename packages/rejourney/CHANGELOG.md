@@ -1,3 +1,16 @@
+## 0.3.2
+
+- Android: JPEG compression moves off the main thread onto the encode executor
+  (it ran on main during every capture), and the same adaptive capture throttle
+  now applies. The retry drain on Android was already asynchronous.
+- Never block the main thread when the app backgrounds: the upload retry drain
+  is now fire-and-forget instead of parking the main thread on a utility-QoS
+  network queue (priority inversion that froze apps at every backgrounding).
+- Screenshot capture now self-throttles: a frame whose main-thread cost exceeds
+  the budget stretches the capture interval (up to 4x) and recovers when the
+  screen becomes cheap to render again, eliminating visible hitches on blur-
+  and glass-heavy screens.
+
 ## 0.3.1
 
 - Make the debug-only retained-layer integration hook deterministic on headless

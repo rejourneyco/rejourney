@@ -351,8 +351,52 @@ final class VisualCapture: NSObject {
         _captureTimer = nil
     }
 
+    // MARK: - Adaptive capture back-off
+    //
+    // drawHierarchy must run on the main thread (UIKit rule shared by every
+    // screenshot-based replay recorder), but its cost scales with what is on screen — blur
+    // and glass-heavy screens on iOS 26 can push a single capture past a frame
+    // budget and produce visible hitches at 1 FPS. Rather than a fixed interval,
+    // the capture self-throttles: a frame whose main-thread portion exceeds the
+    // budget stretches the effective interval (skipping timer ticks, up to 4x),
+    // and sustained cheap frames restore it. Forced captures are never skipped.
+    private static let _mainThreadBudgetMs: Double = 34.0
+    private static let _maxBackoffLevel = 3
+    private static let _maxEncodeBacklog = 4
+    private var _backoffLevel = 0
+    private var _backoffTicksRemaining = 0
+
+    private func _noteCaptureCost(mainMs: Double) {
+        if mainMs > Self._mainThreadBudgetMs {
+            if _backoffLevel < Self._maxBackoffLevel {
+                _backoffLevel += 1
+                DiagnosticLog.notice("[VisualCapture] Capture cost \(String(format: "%.0f", mainMs))ms > budget; backing off to every \(_backoffLevel + 1)s")
+            }
+        } else if mainMs < Self._mainThreadBudgetMs / 2, _backoffLevel > 0 {
+            _backoffLevel -= 1
+            if _backoffLevel == 0 {
+                DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+            }
+        }
+        _backoffTicksRemaining = _backoffLevel
+    }
+
     private func _captureFrame(forced: Bool = false) {
         guard _stateMachine.currentState == .capturing else { return }
+
+        if !forced {
+            // Honor the adaptive back-off before doing any work at all.
+            if _backoffTicksRemaining > 0 {
+                _backoffTicksRemaining -= 1
+                return
+            }
+            // If JPEG encoding cannot keep up, capturing more pixels only grows
+            // the backlog and memory; skip until it drains.
+            if _encodeQueue.operationCount > Self._maxEncodeBacklog {
+                DiagnosticLog.trace("[VisualCapture] SKIPPING frame (encode backlog \(_encodeQueue.operationCount))")
+                return
+            }
+        }
 
         // Skip capture if app is not in foreground (prevents "not in visible window" warnings)
         guard UIApplication.shared.applicationState == .active else { return }
@@ -479,6 +523,10 @@ final class VisualCapture: NSObject {
             if ReplayOrchestrator.shared.hierarchyCaptureEnabled {
                 ReplayOrchestrator.shared.captureHierarchyForFrame(timestampMs: captureTs)
             }
+
+            // Everything above this line ran on the main thread; feed the
+            // adaptive throttle before handing off to the encode queue.
+            _noteCaptureCost(mainMs: (CFAbsoluteTimeGetCurrent() - frameStart) * 1000)
 
             // Move JPEG compression off the main thread.
             // drawHierarchy must be on main, but jpegData is thread-safe and

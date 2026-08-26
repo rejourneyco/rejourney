@@ -409,6 +409,34 @@ class VisualCapture private constructor(private val context: Context) {
         )
     }
 
+    // Adaptive capture back-off: decorView.draw must run on the main thread
+    // (a constraint shared by every screenshot-based replay recorder), but its
+    // cost scales with what is on screen. A frame whose main-thread portion
+    // exceeds the budget stretches the effective interval (skipping timer
+    // ticks, up to 4x); sustained cheap frames restore full rate. Touched only
+    // from the main-thread capture loop, so no locking is needed.
+    private val mainThreadBudgetMs = 34L
+    private val maxBackoffLevel = 3
+    private val maxEncodeBacklog = 4
+    private var backoffLevel = 0
+    private var backoffTicksRemaining = 0
+    private val pendingEncodes = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun noteCaptureCost(mainMs: Long) {
+        if (mainMs > mainThreadBudgetMs) {
+            if (backoffLevel < maxBackoffLevel) {
+                backoffLevel += 1
+                DiagnosticLog.notice("[VisualCapture] Capture cost ${mainMs}ms > budget; backing off to every ${backoffLevel + 1}s")
+            }
+        } else if (mainMs < mainThreadBudgetMs / 2 && backoffLevel > 0) {
+            backoffLevel -= 1
+            if (backoffLevel == 0) {
+                DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+            }
+        }
+        backoffTicksRemaining = backoffLevel
+    }
+
     private fun captureFrame(force: Boolean = false) {
         val currentFrameNum = frameCounter.get()
         if (currentFrameNum < 3) {
@@ -418,6 +446,20 @@ class VisualCapture private constructor(private val context: Context) {
         if (stateMachine.currentState != CaptureState.CAPTURING) {
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - state=${stateMachine.currentState}")
             return
+        }
+
+        if (!force) {
+            // Honor the adaptive back-off before doing any work at all.
+            if (backoffTicksRemaining > 0) {
+                backoffTicksRemaining -= 1
+                return
+            }
+            // If JPEG encoding cannot keep up, capturing more pixels only grows
+            // the backlog and memory; skip until it drains.
+            if (pendingEncodes.get() > maxEncodeBacklog) {
+                DiagnosticLog.trace("[VisualCapture] SKIPPING frame (encode backlog ${pendingEncodes.get()})")
+                return
+            }
         }
 
         if (useFlutterRendererCapture.get()) {
@@ -1601,12 +1643,6 @@ class VisualCapture private constructor(private val context: Context) {
             }
         }
 
-        // Compress to JPEG
-        val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
-        bitmap.recycle()
-
-        val data = stream.toByteArray()
         val captureTs = System.currentTimeMillis()
         val frameNum = frameCounter.incrementAndGet()
         val captureMicros =
@@ -1619,30 +1655,51 @@ class VisualCapture private constructor(private val context: Context) {
             ReplayOrchestrator.shared?.captureHierarchyForFrame(captureTs)
         }
 
-        if (frameNum == 1L) {
-            DiagnosticLog.trace("[VisualCapture] First frame captured! size=${data.size} bytes")
-        }
-        if (frameNum % 30 == 0L) {
-            val frameDurationMs = (SystemClock.elapsedRealtime() - frameStart).toDouble()
-            val isMainThread = Looper.myLooper() == Looper.getMainLooper()
-            DiagnosticLog.perfFrame("screenshot", frameDurationMs, frameNum.toInt(), isMainThread)
-        }
+        // Everything above ran on the main thread; feed the adaptive throttle, then
+        // move JPEG compression to the encode executor — it was the largest
+        // remaining main-thread cost in the capture path. The single-thread
+        // executor preserves frame order, and the existing
+        // waitForEncodingToComplete() drain barrier covers this work, so
+        // backgrounding and shutdown still flush every frame.
+        noteCaptureCost(SystemClock.elapsedRealtime() - frameStart)
+        pendingEncodes.incrementAndGet()
+        encodeExecutor.execute {
+            try {
+                // Compress to JPEG
+                val stream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
+                bitmap.recycle()
 
-        // Store in buffer
-        stateLock.withLock {
-            screenshots.add(Pair(data, captureTs))
-            enforceScreenshotCaps()
-            val count = screenshots.size
-            val shouldSend = force || count >= uploadBatchSize
-            // Time-based flush: if frames have been sitting for longer than one full
-            // batch interval, send regardless of count. This ensures sessions that end
-            // before reaching uploadBatchSize frames (very short sessions) still ship
-            // their frames promptly rather than waiting for shutdown.
-            val shouldFlushByTime = !shouldSend && count > 0 &&
-                (captureTs - screenshots[0].second) >= (uploadBatchSize * snapshotInterval * 1_000).toLong()
+                val data = stream.toByteArray()
 
-            if (shouldSend || shouldFlushByTime) {
-                sendScreenshots()
+                if (frameNum == 1L) {
+                    DiagnosticLog.trace("[VisualCapture] First frame captured! size=${data.size} bytes")
+                }
+                if (frameNum % 30 == 0L) {
+                    val frameDurationMs = (SystemClock.elapsedRealtime() - frameStart).toDouble()
+                    val isMainThread = Looper.myLooper() == Looper.getMainLooper()
+                    DiagnosticLog.perfFrame("screenshot", frameDurationMs, frameNum.toInt(), isMainThread)
+                }
+
+                // Store in buffer
+                stateLock.withLock {
+                    screenshots.add(Pair(data, captureTs))
+                    enforceScreenshotCaps()
+                    val count = screenshots.size
+                    val shouldSend = force || count >= uploadBatchSize
+                    // Time-based flush: if frames have been sitting for longer than one full
+                    // batch interval, send regardless of count. This ensures sessions that end
+                    // before reaching uploadBatchSize frames (very short sessions) still ship
+                    // their frames promptly rather than waiting for shutdown.
+                    val shouldFlushByTime = !shouldSend && count > 0 &&
+                        (captureTs - screenshots[0].second) >= (uploadBatchSize * snapshotInterval * 1_000).toLong()
+
+                    if (shouldSend || shouldFlushByTime) {
+                        sendScreenshots()
+                    }
+                }
+            } finally {
+                pendingEncodes.decrementAndGet()
             }
         }
     }

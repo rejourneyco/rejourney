@@ -1,3 +1,13 @@
+## 0.4.1
+
+- Never block the main thread when the app backgrounds: the upload retry drain
+  is now fire-and-forget instead of parking the main thread on a utility-QoS
+  network queue (priority inversion that froze apps at every backgrounding).
+- Screenshot capture now self-throttles: a frame whose main-thread cost exceeds
+  the budget stretches the capture interval (up to 4x) and recovers when the
+  screen becomes cheap to render again, eliminating visible hitches on blur-
+  and glass-heavy screens.
+
 # Changelog
 
 ## 0.4.0

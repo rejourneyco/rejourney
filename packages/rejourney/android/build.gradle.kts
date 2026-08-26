@@ -1,5 +1,5 @@
 group = "co.rejourney.rejourney"
-version = "0.3.1"
+version = "0.3.2"
 
 buildscript {
     val kotlinVersion = "2.3.20"
