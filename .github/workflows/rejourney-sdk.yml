@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# The install-smoke and optional-peers jobs scaffold a fresh React Native app.
+# Pinned instead of 'latest': on 2026-08-26 Meta published react-native 0.87.1
+# whose community template was not yet resolvable, breaking every scaffold for
+# hours. Bump deliberately when validating a new RN release.
+env:
+  RN_SCAFFOLD_VERSION: 0.87.0
+
 jobs:
   # ------------------------------------------------------------------
   # SDK JOBS
@@ -90,6 +97,7 @@ jobs:
         run: |
           npx --yes @react-native-community/cli init ValidationApp \
             --skip-install --skip-git-init \
+            --version "$RN_SCAFFOLD_VERSION" \
             --directory /tmp/rj-optional-peers-${{ github.run_id }}
           echo "APP_DIR=/tmp/rj-optional-peers-${{ github.run_id }}" >> $GITHUB_ENV
 
@@ -164,6 +172,7 @@ jobs:
         working-directory: ./packages/react-native
         env:
           REJOURNEY_INSTALL_TEST_DIR: /tmp/rejourney-ci-install-${{ github.run_id }}-${{ github.run_attempt }}-ios-bare
+          RN_VERSION: ${{ env.RN_SCAFFOLD_VERSION }}
         run: chmod +x ./scripts/test-ios-install.sh && ./scripts/test-ios-install.sh
 
       - name: Bare RN — Android install smoke (test-android-install.sh)
@@ -171,6 +180,7 @@ jobs:
         working-directory: ./packages/react-native
         env:
           REJOURNEY_INSTALL_TEST_DIR: /tmp/rejourney-ci-install-${{ github.run_id }}-${{ github.run_attempt }}-android-bare
+          RN_VERSION: ${{ env.RN_SCAFFOLD_VERSION }}
         run: chmod +x ./scripts/test-android-install.sh && ./scripts/test-android-install.sh
 
       - name: Build & Pack SDK (Expo matrix)
