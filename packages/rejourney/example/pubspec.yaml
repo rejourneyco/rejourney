@@ -17,6 +17,10 @@ dependencies:
   # and GPU-heavy 3D. All remote assets are royalty-free.
   video_player: ^2.14.0
   flutter_scene: ^0.23.0
+  # hook/build.dart imports this directly to run flutter_scene's asset build.
+  # The analyzer treats hook/ like lib/, so a dev_dependency does not satisfy
+  # depend_on_referenced_packages here.
+  hooks: ^2.2.0
 
 dev_dependencies:
   integration_test:
