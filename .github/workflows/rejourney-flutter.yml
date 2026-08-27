@@ -170,11 +170,16 @@ jobs:
       - run: flutter test
       - run: flutter build ios --simulator --no-codesign
       - name: Run native integration on iOS simulator
+        # A step-level cap fails with the log intact; a job-level cancel
+        # truncates it, which is why the first two hangs told us nothing.
+        # --verbose so a stall names the phase it is stuck in.
+        timeout-minutes: 20
         run: |
           device_id="$(xcrun simctl list devices available -j | ruby -rjson -e 'puts JSON.parse(STDIN.read).fetch("devices").values.flatten.find { |device| device.fetch("name", "").start_with?("iPhone") }.fetch("udid")')"
+          echo "Selected simulator: $device_id"
           xcrun simctl boot "$device_id" 2>/dev/null || :
           xcrun simctl bootstatus "$device_id" -b
-          flutter test integration_test/plugin_integration_test.dart -d "$device_id" --reporter expanded
+          flutter test integration_test/plugin_integration_test.dart -d "$device_id" --reporter expanded --verbose
 
   consumer-example:
     name: Standalone consumer example
