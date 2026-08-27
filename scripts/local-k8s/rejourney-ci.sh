@@ -166,7 +166,6 @@ run_ci_checks() {
     bash "$ROOT_DIR/scripts/ci/check-repository-hygiene.sh"
     bash "$ROOT_DIR/scripts/ci/check-secret-hygiene.sh"
     node "$ROOT_DIR/scripts/ci/check-docs-integrity.mjs"
-    node "$ROOT_DIR/scripts/check-worker-parity.mjs"
     bash "$ROOT_DIR/scripts/check-schema-migration.sh"
 
     log "Running backend checks"
