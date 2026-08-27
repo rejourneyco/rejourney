@@ -33,11 +33,31 @@ class StressMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <(String, String, Widget)>[
-      ('S4 · Video', 'A surface that changes every frame', const StressVideoScreen()),
-      ('S5 · Single image', 'One large decoded image', const StressImageScreen()),
-      ('S6 · Image scroll', 'Fling through many decoded images', const StressImageScrollScreen()),
-      ('S7 · Dense tree', 'Hundreds of deeply nested widgets', const StressDenseScreen()),
-      ('S1-S3 · 3D scene', 'Continuously animating GPU content', const Stress3DScreen()),
+      (
+        'S4 · Video',
+        'A surface that changes every frame',
+        const StressVideoScreen(),
+      ),
+      (
+        'S5 · Single image',
+        'One large decoded image',
+        const StressImageScreen(),
+      ),
+      (
+        'S6 · Image scroll',
+        'Fling through many decoded images',
+        const StressImageScrollScreen(),
+      ),
+      (
+        'S7 · Dense tree',
+        'Hundreds of deeply nested widgets',
+        const StressDenseScreen(),
+      ),
+      (
+        'S1-S3 · 3D scene',
+        'Continuously animating GPU content',
+        const Stress3DScreen(),
+      ),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('Stress screens')),
@@ -50,9 +70,9 @@ class StressMenuScreen extends StatelessWidget {
             title: Text(title),
             subtitle: Text(subtitle),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => screen),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute<void>(builder: (_) => screen)),
           );
         },
       ),
@@ -77,19 +97,23 @@ class _StressVideoScreenState extends State<StressVideoScreen> {
   @override
   void initState() {
     super.initState();
-    final controller =
-        VideoPlayerController.networkUrl(Uri.parse(_bigBuckBunny));
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(_bigBuckBunny),
+    );
     _controller = controller;
-    controller.initialize().then((_) {
-      if (!mounted) return;
-      controller
-        ..setLooping(true)
-        ..play();
-      setState(() {});
-    }).catchError((Object e) {
-      if (!mounted) return;
-      setState(() => _error = '$e');
-    });
+    controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          controller
+            ..setLooping(true)
+            ..play();
+          setState(() {});
+        })
+        .catchError((Object e) {
+          if (!mounted) return;
+          setState(() => _error = '$e');
+        });
   }
 
   @override
@@ -107,11 +131,11 @@ class _StressVideoScreenState extends State<StressVideoScreen> {
         child: _error != null
             ? _Placeholder(label: 'Video unavailable offline', detail: _error)
             : (controller != null && controller.value.isInitialized)
-                ? AspectRatio(
-                    aspectRatio: controller.value.aspectRatio,
-                    child: VideoPlayer(controller),
-                  )
-                : const CircularProgressIndicator(),
+            ? AspectRatio(
+                aspectRatio: controller.value.aspectRatio,
+                child: VideoPlayer(controller),
+              )
+            : const CircularProgressIndicator(),
       ),
     );
   }
@@ -163,9 +187,8 @@ class StressImageScrollScreen extends StatelessWidget {
                 child: Image.network(
                   _photo(i + 10),
                   fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const _Placeholder(
-                    label: 'offline',
-                  ),
+                  errorBuilder: (_, _, _) =>
+                      const _Placeholder(label: 'offline'),
                 ),
               ),
               Padding(
@@ -228,10 +251,7 @@ class StressDenseScreen extends StatelessWidget {
                     Colors.teal.shade100,
                     ((row * _columns + col) % 20) / 20,
                   ),
-                  child: Text(
-                    '$row.$col',
-                    style: const TextStyle(fontSize: 9),
-                  ),
+                  child: Text('$row.$col', style: const TextStyle(fontSize: 9)),
                 ),
                 _nesting,
               ),
@@ -365,13 +385,28 @@ class _RotatingMeshPainter extends CustomPainter {
     // A wireframe cube projected by hand -- enough geometry to make the GPU
     // work on every frame without depending on an experimental 3D toolchain.
     const verts = <List<double>>[
-      [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
-      [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+      [-1, -1, -1],
+      [1, -1, -1],
+      [1, 1, -1],
+      [-1, 1, -1],
+      [-1, -1, 1],
+      [1, -1, 1],
+      [1, 1, 1],
+      [-1, 1, 1],
     ];
     const edges = <List<int>>[
-      [0, 1], [1, 2], [2, 3], [3, 0],
-      [4, 5], [5, 6], [6, 7], [7, 4],
-      [0, 4], [1, 5], [2, 6], [3, 7],
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+      [4, 5],
+      [5, 6],
+      [6, 7],
+      [7, 4],
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7],
     ];
 
     Offset project(List<double> v) {
