@@ -213,6 +213,15 @@ final class VisualCapture: NSObject {
     }
     
     @objc func beginCapture(sessionOrigin: UInt64) {
+        // Per-session counters and dedup state. The first frame of a session
+        // must always store, even if it matches the last frame of the previous.
+        _lastFrameHash = nil
+        framesCaptured = 0
+        skippedFramesThrottle = 0
+        skippedFramesBacklog = 0
+        skippedFramesMapMoving = 0
+        skippedFramesDuplicate = 0
+
         // If still in CAPTURING state (halt() from previous session hasn't
         // run yet), force-halt first to prevent it from stopping the new session.
         if _stateMachine.currentState == .capturing {
@@ -338,22 +347,69 @@ final class VisualCapture: NSObject {
     // the capture self-throttles: a frame whose main-thread portion exceeds the
     // budget stretches the effective interval (skipping timer ticks, up to 4x),
     // and sustained cheap frames restore it. Forced captures are never skipped.
-    private static let _mainThreadBudgetMs: Double = 34.0
+    /// Throttling is a last resort, not routine pacing. It exists to stop a
+    /// pathologically expensive screen from compounding jank, so the bar is a
+    /// stall a user would actually feel -- roughly nine dropped frames at 60Hz --
+    /// rather than a merely costly capture. At the previous 34ms bar an ordinary
+    /// blur-heavy screen throttled immediately and, because recovery required
+    /// half that, never came back: measured runs sat at the 4x ceiling for
+    /// 92-98% of their captures.
+    private static let _mainThreadBudgetMs: Double = 150.0
+    /// One expensive frame is not a slow screen. Cold start, a first capture, or
+    /// a single hitch should not cost the session its capture rate, so a
+    /// sustained run of over-budget captures is required before backing off.
+    private static let _overBudgetRunToBackOff = 3
     private static let _maxBackoffLevel = 3
     private static let _maxEncodeBacklog = 4
     private var _backoffLevel = 0
     private var _backoffTicksRemaining = 0
+    private var _overBudgetRun = 0
+
+    /// Frames the SDK chose not to capture, reported per session.
+    /// Dropping frames silently is how a degraded replay looks identical to a
+    /// healthy one in the data; these make the loss measurable instead.
+    private(set) var skippedFramesThrottle = 0
+    private(set) var skippedFramesBacklog = 0
+
+    /// Sampling attempts, whether or not they produced an uploaded frame.
+    /// Capture cadence is a property of the SDK, not of the user, so it belongs
+    /// here rather than being inferred from how many frames got stored.
+    private(set) var framesCaptured = 0
+
+    /// Frames dropped because the screen had not changed at all.
+    private(set) var skippedFramesDuplicate = 0
+
+    /// Hash of the last stored frame, so an unchanged screen is not stored
+    /// again. Measured on real sessions, 93-98% of stored frames were byte
+    /// identical to one already uploaded -- one image appeared 53 times. The
+    /// player holds the last frame until the next one, so a duplicate renders
+    /// exactly the same as its absence while costing quota, storage, battery
+    /// and bandwidth. The hierarchy path has always deduplicated this way.
+    private var _lastFrameHash: Int?
+    /// Frames skipped by the capture-when-idle heuristic while a map camera is
+    /// moving. Deliberate -- readback on moving map tiles stutters and those
+    /// frames are largely redundant -- but counted so the cost is measurable
+    /// rather than assumed.
+    private(set) var skippedFramesMapMoving = 0
 
     private func _noteCaptureCost(mainMs: Double) {
         if mainMs > Self._mainThreadBudgetMs {
-            if _backoffLevel < Self._maxBackoffLevel {
+            _overBudgetRun += 1
+            if _overBudgetRun >= Self._overBudgetRunToBackOff, _backoffLevel < Self._maxBackoffLevel {
                 _backoffLevel += 1
-                DiagnosticLog.notice("[VisualCapture] Capture cost \(String(format: "%.0f", mainMs))ms > budget; backing off to every \(_backoffLevel + 1)s")
+                _overBudgetRun = 0
+                DiagnosticLog.notice("[VisualCapture] Capture cost \(String(format: "%.0f", mainMs))ms sustained over budget; backing off to every \(_backoffLevel + 1)s")
             }
-        } else if mainMs < Self._mainThreadBudgetMs / 2, _backoffLevel > 0 {
-            _backoffLevel -= 1
-            if _backoffLevel == 0 {
-                DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+        } else {
+            _overBudgetRun = 0
+            // Any capture back inside the budget earns a step back toward full
+            // rate. Recovery used to need half the budget, which a screen that
+            // had just tripped the limit rarely reached.
+            if _backoffLevel > 0 {
+                _backoffLevel -= 1
+                if _backoffLevel == 0 {
+                    DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+                }
             }
         }
         _backoffTicksRemaining = _backoffLevel
@@ -361,16 +417,19 @@ final class VisualCapture: NSObject {
 
     private func _captureFrame(forced: Bool = false) {
         guard _stateMachine.currentState == .capturing else { return }
+        framesCaptured += 1
 
         if !forced {
             // Honor the adaptive back-off before doing any work at all.
             if _backoffTicksRemaining > 0 {
                 _backoffTicksRemaining -= 1
+                skippedFramesThrottle += 1
                 return
             }
             // If JPEG encoding cannot keep up, capturing more pixels only grows
             // the backlog and memory; skip until it drains.
             if _encodeQueue.operationCount > Self._maxEncodeBacklog {
+                skippedFramesBacklog += 1
                 DiagnosticLog.trace("[VisualCapture] SKIPPING frame (encode backlog \(_encodeQueue.operationCount))")
                 return
             }
@@ -402,6 +461,7 @@ final class VisualCapture: NSObject {
         // Metal/OpenGL-backed map tiles.  We resume capture at 1 FPS once
         // the map SDK reports idle.
         if !forced && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+            skippedFramesMapMoving += 1
             DiagnosticLog.trace("[VisualCapture] SKIPPING frame (map moving)")
             return
         }
@@ -525,8 +585,20 @@ final class VisualCapture: NSObject {
                     self._stateLock.unlock()
                     return
                 }
-                self._screenshots.append((data, captureTs))
-                self._enforceScreenshotCaps()
+                var frameHasher = Hasher()
+                frameHasher.combine(data)
+                let frameHash = frameHasher.finalize()
+                // Skip only the append. Flushing must still be evaluated below:
+                // on a screen that never changes, returning here would leave the
+                // one stored frame sitting in the buffer forever, because the
+                // batch can never fill and the time-based flush never runs.
+                if frameHash == self._lastFrameHash {
+                    self.skippedFramesDuplicate += 1
+                } else {
+                    self._lastFrameHash = frameHash
+                    self._screenshots.append((data, captureTs))
+                    self._enforceScreenshotCaps()
+                }
                 let count = self._screenshots.count
                 let shouldSend = forced || count >= self._uploadBatchSize
                 // Time-based flush: if frames have been sitting for longer than one full
@@ -911,6 +983,18 @@ final class VisualCapture: NSObject {
         guard !view.isHidden, view.alpha > 0.01 else { return }
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         if view.accessibilityHint == "rejourney_occlude" || view.accessibilityIdentifier?.hasPrefix("rj_occlude") == true {
+            return
+        }
+
+        // Never descend into a map. A map SDK lays its annotations out in its
+        // own coordinate space, with anchors that are not the view's frame
+        // origin, so a rect converted out of that hierarchy lands beside the
+        // thing it meant to cover -- which is how map pins ended up with white
+        // boxes clipped over their corners. Map tiles and pins are app chrome
+        // rather than user content, so there is nothing here to redact anyway.
+        // A caller that does want part of a map hidden can still mark it with
+        // rejourney_occlude, which is handled above this check.
+        if SpecialCases.shared.isMapView(view) {
             return
         }
 
@@ -1704,6 +1788,16 @@ final class RedactionMask {
 
         if let maskKind = _maskKind(view) {
             views.append(WeakViewRef(view: view, kind: maskKind))
+            return
+        }
+
+        // Do not descend into a map. Its annotations live in the map's own
+        // coordinate space, and because this pass keeps a reference and
+        // recomputes the rect every frame, a masked annotation drags a white
+        // box around with it as the user pans. Map tiles and pins are app
+        // chrome, not user content. A map the caller genuinely wants hidden is
+        // still caught by _maskKind above, which honours rejourney_occlude.
+        if SpecialCases.shared.isMapView(view) {
             return
         }
 

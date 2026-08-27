@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:rejourney/rejourney.dart';
 
+import 'stress.dart';
+
 const _publicKey = String.fromEnvironment(
   'REJOURNEY_PUBLIC_KEY',
   defaultValue: 'rj_63bf781af9fc20fad303abaa4325eed0',
@@ -39,6 +41,7 @@ class RejourneyExampleApp extends StatelessWidget {
       routes: <String, WidgetBuilder>{
         '/': (_) => DemoHome(initializeSdk: initializeSdk),
         '/checkout': (_) => const CheckoutPage(),
+        '/stress': (_) => const StressMenuScreen(),
       },
     );
   }
@@ -273,6 +276,13 @@ class _DemoHomeState extends State<DemoHome> {
             onPressed: () => Navigator.of(context).pushNamed('/checkout'),
             icon: const Icon(Icons.shopping_bag_outlined),
             label: const Text('Open checkout demo'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('open-stress'),
+            onPressed: () => Navigator.of(context).pushNamed('/stress'),
+            icon: const Icon(Icons.speed),
+            label: const Text('Stress screens'),
           ),
           const SizedBox(height: 20),
           Text(

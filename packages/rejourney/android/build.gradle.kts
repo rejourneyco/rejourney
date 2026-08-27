@@ -1,5 +1,5 @@
-group = "co.rejourney.rejourney"
-version = "0.3.2"
+group = "com.rejourney"
+version = "0.4.0"
 
 buildscript {
     val kotlinVersion = "2.3.20"
@@ -26,7 +26,7 @@ plugins {
 }
 
 android {
-    namespace = "co.rejourney.rejourney"
+    namespace = "com.rejourney"
 
     compileSdk = 36
 
@@ -50,6 +50,7 @@ android {
 
     defaultConfig {
         minSdk = 24
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     testOptions {

@@ -88,7 +88,15 @@ object DiagnosticLog {
     @JvmStatic var detailedOutput: Boolean = false
     @JvmStatic var performanceTracing: Boolean = false
 
-    private val dateFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+    /// SimpleDateFormat is documented as not synchronized: concurrent format()
+    /// calls on one instance corrupt its internal calendar state and can throw.
+    /// This object is a singleton and logs from the upload, encode and main
+    /// threads, so each thread gets its own instance. java.time's thread-safe
+    /// DateTimeFormatter would be the alternative, but it needs core library
+    /// desugaring, which these modules do not enable at minSdk 24.
+    private val dateFormatter = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+    }
 
     // Level-Based Emission
 
@@ -366,7 +374,7 @@ object DiagnosticLog {
             append("[RJ]")
             if (includeTimestamp) {
                 append(" ")
-                append(dateFormatter.format(Date()))
+                append(dateFormatter.get()!!.format(Date()))
             }
             append(" [$prefix] $message")
         }

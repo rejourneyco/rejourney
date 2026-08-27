@@ -125,6 +125,11 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
         // Start heartbeat timer on main thread
         mainHandler.post {
+            // A Runnable that re-posts itself stays queued on the Handler after
+            // its reference is overwritten. Re-activating for a new session
+            // without removing the previous one would leave it calling
+            // dispatchNow() every 5s for the rest of the process.
+            heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
             heartbeatRunnable = object : Runnable {
                 override fun run() {
                     dispatchNow()

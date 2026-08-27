@@ -37,18 +37,18 @@ struct PerformanceSnapshot {
     let timestamp: CFAbsoluteTime
     let isMainThread: Bool
     let threadName: String
-    
+
     static func capture() -> PerformanceSnapshot {
         var taskInfo = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        
+
         var cpuTimeMs: Double = 0
         if task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), withUnsafeMutablePointer(to: &taskInfo) { $0.withMemoryRebound(to: Int32.self, capacity: 1) { $0 } }, &count) == KERN_SUCCESS {
             let userTimeMs = Double(taskInfo.user_time.seconds) * 1000.0 + Double(taskInfo.user_time.microseconds) / 1000.0
             let systemTimeMs = Double(taskInfo.system_time.seconds) * 1000.0 + Double(taskInfo.system_time.microseconds) / 1000.0
             cpuTimeMs = userTimeMs + systemTimeMs
         }
-        
+
         let isMain = Thread.isMainThread
         let name: String
         if isMain {
@@ -58,7 +58,7 @@ struct PerformanceSnapshot {
         } else {
             name = "bg-\(String(format: "%04x", UInt16(truncatingIfNeeded: UInt(bitPattern: ObjectIdentifier(Thread.current)))))"
         }
-        
+
         return PerformanceSnapshot(
             wallTimeMs: CACurrentMediaTime() * 1000,
             cpuTimeMs: cpuTimeMs,
@@ -68,7 +68,7 @@ struct PerformanceSnapshot {
             threadName: name
         )
     }
-    
+
     func elapsed(since start: PerformanceSnapshot) -> (wall: Double, cpu: Double, thread: String) {
         return (
             wall: wallTimeMs - start.wallTimeMs,
@@ -83,19 +83,19 @@ struct PerformanceSnapshot {
 /// Centralized logging facility for SDK diagnostics
 @objc(RJNativeDiagnosticLog)
 final class DiagnosticLog: NSObject {
-    
+
     // MARK: Configuration
-    
+
     @objc static var minimumLevel: Int = 1
     @objc static var includeTimestamp: Bool = true
     @objc static var detailedOutput: Bool = false
     @objc static var performanceTracing: Bool = false
-    
+
     // MARK: Level-Based Emission
-    
+
     static func emit(_ level: LogLevel, _ message: String) {
         guard level.rawValue >= minimumLevel else { return }
-        
+
         let prefix: String
         switch level {
         case .trace:   prefix = "TRACE"
@@ -103,52 +103,52 @@ final class DiagnosticLog: NSObject {
         case .caution: prefix = "WARN"
         case .fault:   prefix = "ERROR"
         }
-        
+
         _writeLog(prefix: prefix, message: message)
     }
-    
+
     // MARK: Convenience Methods
-    
+
     @objc static func trace(_ message: String) {
         guard minimumLevel <= 0 else { return }
         _writeLog(prefix: "VERBOSE", message: message)
     }
-    
+
     @objc static func notice(_ message: String) {
         guard minimumLevel <= 1 else { return }
         _writeLog(prefix: "INFO", message: message)
     }
-    
+
     @objc static func caution(_ message: String) {
         guard minimumLevel <= 2 else { return }
         _writeLog(prefix: "WARN", message: message)
     }
-    
+
     @objc static func fault(_ message: String) {
         guard minimumLevel <= 3 else { return }
         _writeLog(prefix: "ERROR", message: message)
     }
-    
+
     // MARK: Lifecycle Events
-    
+
     @objc static func sdkReady(_ version: String) {
         notice("[Rejourney] SDK initialized v\(version)")
     }
-    
+
     @objc static func sdkFailed(_ reason: String) {
         fault("[Rejourney] Initialization failed: \(reason)")
     }
-    
+
     @objc static func replayBegan(_ sessionId: String) {
         notice("[Rejourney] Recording started: \(sessionId)")
     }
-    
+
     @objc static func replayEnded(_ sessionId: String) {
         notice("[Rejourney] Recording ended: \(sessionId)")
     }
-    
+
     // MARK: Debug-Only Session Logs
-    
+
     static func debugSessionCreate(phase: String, details: String, perf: PerformanceSnapshot? = nil) {
         guard detailedOutput else { return }
         var msg = "📍 [SESSION] \(phase): \(details)"
@@ -158,33 +158,33 @@ final class DiagnosticLog: NSObject {
         }
         _writeLog(prefix: "DEBUG", message: msg)
     }
-    
+
     static func debugSessionTiming(operation: String, startPerf: PerformanceSnapshot, endPerf: PerformanceSnapshot) {
         guard detailedOutput && performanceTracing else { return }
         let elapsed = endPerf.elapsed(since: startPerf)
         _writeLog(prefix: "PERF", message: "⏱️ [\(operation)] \(elapsed.thread) | wall=\(String(format: "%.2f", elapsed.wall))ms cpu=\(String(format: "%.2f", elapsed.cpu))ms")
     }
-    
+
     // MARK: Enhanced Performance Logging
-    
+
     /// Log a timed operation with automatic thread detection
     static func perfOperation(_ name: String, category: String = "OP", block: () -> Void) {
         guard detailedOutput && performanceTracing else {
             block()
             return
         }
-        
+
         let start = PerformanceSnapshot.capture()
         block()
         let end = PerformanceSnapshot.capture()
         let elapsed = end.elapsed(since: start)
-        
+
         let warningThreshold: Double = 16.67 // One frame at 60fps
         let icon = elapsed.wall > warningThreshold ? "🔴" : (elapsed.wall > 8 ? "🟡" : "🟢")
-        
+
         _writeLog(prefix: "PERF", message: "\(icon) [\(category)] \(name) | \(elapsed.thread) | ⏱️ \(String(format: "%.2f", elapsed.wall))ms wall, \(String(format: "%.2f", elapsed.cpu))ms cpu")
     }
-    
+
     /// Log a timed async operation start
     static func perfStart(_ name: String, category: String = "ASYNC") -> CFAbsoluteTime {
         let start = CFAbsoluteTimeGetCurrent()
@@ -194,39 +194,39 @@ final class DiagnosticLog: NSObject {
         }
         return start
     }
-    
+
     /// Log a timed async operation end
     static func perfEnd(_ name: String, startTime: CFAbsoluteTime, category: String = "ASYNC", success: Bool = true) {
         guard detailedOutput && performanceTracing else { return }
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         let threadInfo = Thread.isMainThread ? "🟢 MAIN" : "🔵 BG"
         let icon = success ? "✅" : "❌"
-        
+
         let warningThreshold: Double = 100 // 100ms for async ops
         let timeIcon = elapsed > warningThreshold ? "🔴" : (elapsed > 50 ? "🟡" : "🟢")
-        
+
         _writeLog(prefix: "PERF", message: "\(icon) [\(category)] \(name) finished | \(threadInfo) | \(timeIcon) \(String(format: "%.2f", elapsed))ms")
     }
-    
+
     /// Log frame timing for visual capture
     static func perfFrame(operation: String, durationMs: Double, frameNumber: Int, isMainThread: Bool) {
         guard detailedOutput && performanceTracing else { return }
         let threadInfo = isMainThread ? "🟢 MAIN" : "🔵 BG"
         let budget: Double = 33.33 // 30fps budget
         let icon = durationMs > budget ? "🔴 DROPPED" : (durationMs > 16.67 ? "🟡 SLOW" : "🟢 OK")
-        
+
         _writeLog(prefix: "FRAME", message: "🎬 [\(operation)] #\(frameNumber) | \(threadInfo) | \(icon) \(String(format: "%.2f", durationMs))ms (budget: \(String(format: "%.1f", budget))ms)")
     }
-    
+
     /// Log batch operation timing
     static func perfBatch(operation: String, itemCount: Int, totalMs: Double, isMainThread: Bool) {
         guard detailedOutput && performanceTracing else { return }
         let threadInfo = isMainThread ? "🟢 MAIN" : "🔵 BG"
         let avgMs = itemCount > 0 ? totalMs / Double(itemCount) : 0
-        
+
         _writeLog(prefix: "BATCH", message: "📦 [\(operation)] \(itemCount) items | \(threadInfo) | total=\(String(format: "%.2f", totalMs))ms avg=\(String(format: "%.3f", avgMs))ms/item")
     }
-    
+
     /// Log network timing with throughput
     static func perfNetwork(operation: String, url: String, durationMs: Double, bytesTransferred: Int, success: Bool) {
         guard detailedOutput && performanceTracing else { return }
@@ -234,17 +234,17 @@ final class DiagnosticLog: NSObject {
         let throughputKBps = durationMs > 0 ? Double(bytesTransferred) / durationMs : 0
         let icon = success ? "✅" : "❌"
         let shortUrl = url.components(separatedBy: "/").suffix(2).joined(separator: "/")
-        
+
         _writeLog(prefix: "NET", message: "\(icon) [\(operation)] \(shortUrl) | \(threadInfo) | \(String(format: "%.2f", durationMs))ms, \(bytesTransferred)B @ \(String(format: "%.1f", throughputKBps))KB/s")
     }
-    
+
     // MARK: Debug-Only Presign Logs
-    
+
     static func debugPresignRequest(url: String, sessionId: String, kind: String, sizeBytes: Int) {
         guard detailedOutput else { return }
         _writeLog(prefix: "DEBUG", message: "🔐 [PRESIGN-REQ] url=\(url) sessionId=\(sessionId) kind=\(kind) size=\(sizeBytes)B")
     }
-    
+
     static func debugPresignResponse(status: Int, segmentId: String?, uploadUrl: String?, durationMs: Double) {
         guard detailedOutput else { return }
         if let segId = segmentId, let url = uploadUrl {
@@ -254,20 +254,20 @@ final class DiagnosticLog: NSObject {
             _writeLog(prefix: "DEBUG", message: "❌ [PRESIGN-FAIL] status=\(status) took=\(String(format: "%.1f", durationMs))ms")
         }
     }
-    
+
     static func debugUploadProgress(phase: String, segmentId: String, bytesWritten: Int64, totalBytes: Int64) {
         guard detailedOutput else { return }
         let pct = totalBytes > 0 ? Double(bytesWritten) / Double(totalBytes) * 100 : 0
         _writeLog(prefix: "DEBUG", message: "📤 [UPLOAD] \(phase) segmentId=\(segmentId) progress=\(String(format: "%.1f", pct))% (\(bytesWritten)/\(totalBytes)B)")
     }
-    
+
     static func debugUploadComplete(segmentId: String, status: Int, durationMs: Double, throughputKBps: Double) {
         guard detailedOutput else { return }
         _writeLog(prefix: "DEBUG", message: "📤 [UPLOAD-DONE] segmentId=\(segmentId) status=\(status) took=\(String(format: "%.1f", durationMs))ms throughput=\(String(format: "%.1f", throughputKBps))KB/s")
     }
-    
+
     // MARK: Debug-Only Network Logs
-    
+
     static func debugNetworkRequest(method: String, url: String, headers: [String: String]?) {
         guard detailedOutput else { return }
         var msg = "🌐 [NET-REQ] \(method) \(url)"
@@ -277,31 +277,31 @@ final class DiagnosticLog: NSObject {
         }
         _writeLog(prefix: "DEBUG", message: msg)
     }
-    
+
     static func debugNetworkResponse(url: String, status: Int, bodySize: Int, durationMs: Double) {
         guard detailedOutput else { return }
         _writeLog(prefix: "DEBUG", message: "🌐 [NET-RSP] \(url.components(separatedBy: "/").last ?? url) status=\(status) size=\(bodySize)B took=\(String(format: "%.1f", durationMs))ms")
     }
-    
+
     // MARK: Debug-Only Credential Logs
-    
+
     static func debugCredentialFlow(phase: String, fingerprint: String?, success: Bool, detail: String = "") {
         guard detailedOutput else { return }
         let fp = fingerprint.map { String($0.prefix(12)) + "..." } ?? "nil"
         let icon = success ? "✅" : "❌"
         _writeLog(prefix: "DEBUG", message: "\(icon) [CRED] \(phase) fingerprint=\(fp) \(detail)")
     }
-    
+
     // MARK: Debug-Only Storage Logs
-    
+
     static func debugStorage(op: String, key: String, success: Bool, detail: String = "") {
         guard detailedOutput else { return }
         let icon = success ? "✅" : "❌"
         _writeLog(prefix: "DEBUG", message: "\(icon) [STORAGE] \(op) key=\(key) \(detail)")
     }
-    
+
     // MARK: Debug-Only Performance Logs
-    
+
     static func debugPerformanceMarker(_ operation: String, startTime: CFAbsoluteTime, context: String = "") {
         guard detailedOutput && performanceTracing else { return }
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
@@ -311,7 +311,7 @@ final class DiagnosticLog: NSObject {
         if !context.isEmpty { msg += " | \(context)" }
         _writeLog(prefix: "PERF", message: msg)
     }
-    
+
     static func debugMemoryUsage(context: String) {
         guard detailedOutput && performanceTracing else { return }
         var info = mach_task_basic_info()
@@ -326,17 +326,17 @@ final class DiagnosticLog: NSObject {
             _writeLog(prefix: "MEM", message: "\(warningIcon) [\(context)] resident=\(String(format: "%.1f", usedMB))MB virtual=\(String(format: "%.1f", virtualMB))MB")
         }
     }
-    
+
     static func debugCPUUsage(context: String) {
         guard detailedOutput && performanceTracing else { return }
         var threadsList: thread_act_array_t?
         var threadCount: mach_msg_type_number_t = 0
         guard task_threads(mach_task_self_, &threadsList, &threadCount) == KERN_SUCCESS, let threads = threadsList else { return }
-        
+
         var totalCPU: Double = 0
         var mainThreadCPU: Double = 0
         let threadInfoCount = mach_msg_type_number_t(MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
-        
+
         for i in 0..<Int(threadCount) {
             var info = thread_basic_info()
             var infoCount = threadInfoCount
@@ -349,15 +349,15 @@ final class DiagnosticLog: NSObject {
                 if i == 0 { mainThreadCPU = cpuUsage } // First thread is typically main
             }
         }
-        
+
         vm_deallocate(mach_task_self_, vm_address_t(bitPattern: threads), vm_size_t(threadCount) * vm_size_t(MemoryLayout<thread_t>.size))
-        
+
         let warningIcon = totalCPU > 80 ? "🔴" : (totalCPU > 50 ? "🟡" : "🟢")
         _writeLog(prefix: "CPU", message: "\(warningIcon) [\(context)] 🟢 main=\(String(format: "%.1f", mainThreadCPU))% | total=\(String(format: "%.1f", totalCPU))% across \(threadCount) threads")
     }
-    
+
     // MARK: Configuration
-    
+
     @objc static func setVerbose(_ enabled: Bool) {
         detailedOutput = enabled
         performanceTracing = enabled
@@ -366,18 +366,26 @@ final class DiagnosticLog: NSObject {
             _writeLog(prefix: "INFO", message: "🔧 [CONFIG] Debug mode ENABLED: detailedOutput=\(detailedOutput), performanceTracing=\(performanceTracing), minimumLevel=\(minimumLevel)")
         }
     }
-    
+
     // MARK: Private Implementation
-    
+
+    /// Built once. Constructing a date formatter is expensive -- it goes through
+    /// CFDateFormatter and ICU -- and this used to happen on every emitted line.
+    /// Configured here and only read afterwards, which is the shared-formatter
+    /// pattern Apple documents as safe on current systems.
+    private static let _timestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     private static func _writeLog(prefix: String, message: String) {
         var output = "[RJ]"
-        
+
         if includeTimestamp {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            output += " \(formatter.string(from: Date()))"
+            output += " \(_timestampFormatter.string(from: Date()))"
         }
-        
+
         output += " [\(prefix)] \(message)"
         print(output)
     }

@@ -19,36 +19,40 @@ import QuartzCore
 
 @objc(RJNativeTelemetryPipeline)
 final class TelemetryPipeline: NSObject {
-    
+
     @objc static let shared = TelemetryPipeline()
-    
+
     @objc var endpoint = "https://api.rejourney.co" {
         didSet { SegmentDispatcher.shared.endpoint = endpoint }
     }
-    
+
     @objc var currentReplayId: String? {
         didSet {
             SegmentDispatcher.shared.currentReplayId = currentReplayId
         }
     }
-    
+
     var credential: String? {
         didSet { SegmentDispatcher.shared.credential = credential }
     }
-    
+
     var apiToken: String? {
         didSet { SegmentDispatcher.shared.apiToken = apiToken }
     }
-    
+
     var projectId: String? {
         didSet { SegmentDispatcher.shared.projectId = projectId }
     }
-    
+
     /// SDK's sampling decision for server-side enforcement
     var isSampledIn: Bool = true {
         didSet { SegmentDispatcher.shared.isSampledIn = isSampledIn }
     }
-    
+
+    /// Remote-config privacy control. When off, batches carry only the
+    /// timestamp and no hardware, OS, vendor or network identifiers.
+    var collectDeviceInfo: Bool = true
+
     private let _eventRing = EventRingBuffer(capacity: 5000)
     private let _frameQueue = FrameBundleQueue(maxPending: 200)
     private var _batchSeq = 0
@@ -56,12 +60,12 @@ final class TelemetryPipeline: NSObject {
     private let _drainStateLock = NSLock()
     private var _shutdownCompletions: [() -> Void] = []
     private var _backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
-    
+
     private let _serialWorker = DispatchQueue(label: "co.rejourney.telemetry", qos: .utility)
     private var _heartbeat: Timer?
-    
+
     private let _batchSizeLimit = 500_000
-    
+
     // Dead tap detection — timestamp comparison.
     // After a tap, a 400ms timer fires and checks whether any "response" event
     // (navigation, input, haptics, or animation) occurred since the tap.  If not → dead tap.
@@ -104,30 +108,35 @@ final class TelemetryPipeline: NSObject {
         _setKeyboardVisible(true, frame: scannedFrame)
         return scannedFrame.insetBy(dx: -8, dy: -8).contains(point)
     }
-    
+
     /// Call this when haptic feedback, animations, or other UI responses occur.
     /// This prevents the current tap from being marked as a "dead tap".
     @objc func markResponseReceived() {
         _lastResponseTs = _ts()
     }
-    
+
     private override init() {
         super.init()
     }
-    
+
     @objc func activate() {
         // Upload any pending data from previous sessions first
         _uploadPendingSessions()
-        
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // A run loop keeps a strong reference to a scheduled timer, so
+            // dropping the last reference does not stop it. Re-activating for a
+            // new session without invalidating first would leave the previous
+            // heartbeat firing dispatchNow() for the rest of the process.
+            self._heartbeat?.invalidate()
             // Industry standard: Use default run loop mode (NOT .common)
             // This lets the timer pause during scrolling which prevents stutter
             self._heartbeat = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
                 self?.dispatchNow()
             }
         }
-        
+
         NotificationCenter.default.addObserver(self, selector: #selector(_appSuspending), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(_appSuspending), name: UIApplication.willTerminateNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(_keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
@@ -144,7 +153,7 @@ final class TelemetryPipeline: NSObject {
             }
         }
     }
-    
+
     /// Pause the heartbeat timer when the app goes to background.
     /// This prevents the pipeline from uploading empty event batches
     /// while backgrounded, which would inflate session duration.
@@ -152,7 +161,7 @@ final class TelemetryPipeline: NSObject {
         _heartbeat?.invalidate()
         _heartbeat = nil
     }
-    
+
     /// Resume the heartbeat timer when the app returns to foreground.
     @objc func resume() {
         guard _heartbeat == nil else { return }
@@ -163,7 +172,7 @@ final class TelemetryPipeline: NSObject {
             }
         }
     }
-    
+
     @objc func shutdown() {
         shutdown(completion: nil)
     }
@@ -182,11 +191,11 @@ final class TelemetryPipeline: NSObject {
 
         _drainPendingDataForShutdown(completion: completion, skipVisualFlush: skipVisualFlush)
     }
-    
+
     @objc func finalizeAndShip() {
         shutdown()
     }
-    
+
     @objc func submitFrameBundle(payload: Data, filename: String, startMs: UInt64, endMs: UInt64, frameCount: Int, sessionId: String? = nil) {
         // Capture the session ID now so frames are always attributed to the
         // session that was active when they were captured, not when they ship.
@@ -206,14 +215,14 @@ final class TelemetryPipeline: NSObject {
             DiagnosticLog.trace("[TelemetryPipeline] Dropped stale pending telemetry for new session \(replayId.prefix(20)) (events=\(droppedEvents), frames=\(droppedFrames))")
         }
     }
-    
+
     @objc func dispatchNow() {
         _serialWorker.async {
             self._shipPendingEvents()
             self._shipPendingFrames()
         }
     }
-    
+
     @objc func getQueueDepth() -> Int {
         _eventRing.count + _frameQueue.count
     }
@@ -357,7 +366,7 @@ final class TelemetryPipeline: NSObject {
         guard !clipped.origin.x.isNaN, !clipped.origin.y.isNaN, !clipped.width.isNaN, !clipped.height.isNaN else { return nil }
         return clipped
     }
-    
+
     private func _endBackgroundTask() {
         guard _backgroundTaskId != .invalid else { return }
         UIApplication.shared.endBackgroundTask(_backgroundTaskId)
@@ -399,20 +408,20 @@ final class TelemetryPipeline: NSObject {
             completions.forEach { $0() }
         }
     }
-    
+
     private func _uploadPendingSessions() {
         // Intentionally deferred: crash/interruption recovery currently restores
         // pending visual frames via ReplayOrchestrator + VisualCapture only.
         // Telemetry events remain best-effort and are not replayed from EventBuffer yet.
     }
-    
+
     private func _uploadSessionEvents(sessionId: String, events: [[String: Any]], completion: @escaping (Bool) -> Void) {
         let payload = _serializeBatchFromEvents(events: events)
         guard let compressed = payload.gzipCompress() else {
             completion(false)
             return
         }
-        
+
         SegmentDispatcher.shared.transmitEventBatchAlternate(
             replayId: sessionId,
             eventPayload: compressed,
@@ -420,33 +429,37 @@ final class TelemetryPipeline: NSObject {
             completion: completion
         )
     }
-    
+
     private func _serializeBatchFromEvents(events: [[String: Any]]) -> Data {
         let device = UIDevice.current
-        
+
         let networkType = ReplayOrchestrator.shared.currentNetworkType
         let isConstrained = ReplayOrchestrator.shared.networkIsConstrained
         let isExpensive = ReplayOrchestrator.shared.networkIsExpensive
-        
+
         // Prefer detailed hardware model (e.g. "iPhone16,1") when available,
         // falling back to the generic UIDevice.model ("iPhone", "iPad", etc.).
         let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
-        
-        let meta: [String: Any] = [
+
+        var meta: [String: Any] = [
             "platform": "ios",
-            "model": hardwareModel,
-            "osVersion": device.systemVersion,
-            "vendorId": device.identifierForVendor?.uuidString ?? "",
-            "time": Date().timeIntervalSince1970,
-            "networkType": networkType,
-            "isConstrained": isConstrained,
-            "isExpensive": isExpensive
+            "time": Date().timeIntervalSince1970
         ]
-        
+        if collectDeviceInfo {
+            meta.merge([
+                "model": hardwareModel,
+                "osVersion": device.systemVersion,
+                "vendorId": device.identifierForVendor?.uuidString ?? "",
+                "networkType": networkType,
+                "isConstrained": isConstrained,
+                "isExpensive": isExpensive
+            ]) { _, new in new }
+        }
+
         let wrapper: [String: Any] = ["events": events, "deviceInfo": meta]
         return (try? JSONSerialization.data(withJSONObject: wrapper)) ?? Data()
     }
-    
+
     private func _shipPendingFrames() {
         guard let next = _frameQueue.dequeue() else { return }
 
@@ -468,7 +481,7 @@ final class TelemetryPipeline: NSObject {
         if let bundleSession = next.sessionId, bundleSession != currentReplayId {
             DiagnosticLog.trace("[TelemetryPipeline] Routing \(next.count) frames to captured session \(bundleSession) (current=\(currentReplayId ?? "nil"))")
         }
-        
+
         SegmentDispatcher.shared.transmitFrameBundle(
             for: targetSession,
             payload: next.payload,
@@ -490,26 +503,26 @@ final class TelemetryPipeline: NSObject {
             }
         }
     }
-    
+
     private func _shipPendingEvents() {
         let batch = _eventRing.drain(maxBytes: _batchSizeLimit)
         guard !batch.isEmpty else { return }
-        
+
         let payload = _serializeBatch(events: batch)
         guard let compressed = payload.gzipCompress() else {
             batch.forEach { _eventRing.push($0) }
             return
         }
-        
+
         let seq = _batchSeq
         _batchSeq += 1
-        
+
         SegmentDispatcher.shared.transmitEventBatch(payload: compressed, batchNumber: seq, eventCount: batch.count) { [weak self] ok in
             if !ok { batch.forEach { self?._eventRing.push($0) } }
             else if self?._draining == true { }
         }
     }
-    
+
     private func _serializeBatch(events: [EventEntry]) -> Data {
         var jsonEvents: [[String: Any]] = []
         for e in events {
@@ -517,51 +530,55 @@ final class TelemetryPipeline: NSObject {
             if clean.last == 0x0A { clean = clean.dropLast() }
             if let obj = try? JSONSerialization.jsonObject(with: clean) as? [String: Any] { jsonEvents.append(obj) }
         }
-        
+
         let device = UIDevice.current
         let screen = UIScreen.main
         let bounds = screen.bounds
         let scale = screen.scale
-        
+
         // Get current network state from orchestrator
         let networkType = ReplayOrchestrator.shared.currentNetworkType
         let isConstrained = ReplayOrchestrator.shared.networkIsConstrained
         let isExpensive = ReplayOrchestrator.shared.networkIsExpensive
-        
+
         // Get app version from bundle
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appId = Bundle.main.bundleIdentifier ?? "unknown"
-        
+
         // Prefer detailed hardware model from DeviceRegistrar when available.
         let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
-        
-        let meta: [String: Any] = [
+
+        var meta: [String: Any] = [
             "platform": "ios",
-            "model": hardwareModel,
-            "osVersion": device.systemVersion,
-            "vendorId": device.identifierForVendor?.uuidString ?? "",
             "time": Date().timeIntervalSince1970,
-            "networkType": networkType,
-            "isConstrained": isConstrained,
-            "isExpensive": isExpensive,
-            "appVersion": appVersion,
-            "sdkVersion": RejourneySDKInfo.version,
-            "appId": appId,
-            "screenWidth": Int(bounds.width),
-            "screenHeight": Int(bounds.height),
-            "screenWidthPixels": Int(bounds.width * scale),
-            "screenHeightPixels": Int(bounds.height * scale),
-            "screenScale": scale,
-            "pixelRatio": scale,
-            "coordinateSpace": "pt",
-            "systemName": device.systemName,
-            "name": device.name
+            "sdkVersion": RejourneySDKInfo.version
         ]
-        
+        if collectDeviceInfo {
+            meta.merge([
+                "model": hardwareModel,
+                "osVersion": device.systemVersion,
+                "vendorId": device.identifierForVendor?.uuidString ?? "",
+                "networkType": networkType,
+                "isConstrained": isConstrained,
+                "isExpensive": isExpensive,
+                "appVersion": appVersion,
+                "appId": appId,
+                "screenWidth": Int(bounds.width),
+                "screenHeight": Int(bounds.height),
+                "screenWidthPixels": Int(bounds.width * scale),
+                "screenHeightPixels": Int(bounds.height * scale),
+                "screenScale": scale,
+                "pixelRatio": scale,
+                "coordinateSpace": "pt",
+                "systemName": device.systemName,
+                "name": device.name
+            ]) { _, new in new }
+        }
+
         let wrapper: [String: Any] = ["events": jsonEvents, "deviceInfo": meta]
         return (try? JSONSerialization.data(withJSONObject: wrapper)) ?? Data()
     }
-    
+
     @objc func recordAttribute(key: String, value: String) {
         let payload = RejourneyEventSerializer.jsonString(from: [
             "key": key,
@@ -569,11 +586,11 @@ final class TelemetryPipeline: NSObject {
         ])
         _enqueue(["type": "custom", "timestamp": _ts(), "name": "attribute", "payload": payload])
     }
-    
+
     @objc func recordCustomEvent(name: String, payload: String) {
         _enqueue(["type": "custom", "timestamp": _ts(), "name": name, "payload": payload])
     }
-    
+
     @objc func recordConsoleLogEvent(level: String, message: String) {
         _enqueue([
             "type": "log",
@@ -582,8 +599,20 @@ final class TelemetryPipeline: NSObject {
             "message": message
         ])
     }
-    
-    @objc func recordJSErrorEvent(name: String, message: String, stack: String?) {
+
+    /// The trailing fields are optional because only some hosts supply them:
+    /// React Native and Flutter forward the framework's own error metadata,
+    /// while a native call site has just the three basics. Not @objc -- every
+    /// caller is Swift, and defaulted arguments would not survive the bridge.
+    func recordJSErrorEvent(
+        name: String,
+        message: String,
+        stack: String?,
+        incidentId: String? = nil,
+        exceptionCategory: String? = nil,
+        source: String? = nil,
+        handled: Bool? = nil
+    ) {
         var event: [String: Any] = [
             "type": "error",
             "timestamp": _ts(),
@@ -593,13 +622,25 @@ final class TelemetryPipeline: NSObject {
         if let stack = stack {
             event["stack"] = stack
         }
+        if let incidentId {
+            event["incidentId"] = incidentId
+        }
+        if let exceptionCategory {
+            event["exceptionCategory"] = exceptionCategory
+        }
+        if let source {
+            event["source"] = source
+        }
+        if let handled {
+            event["handled"] = handled
+        }
         _enqueue(event)
         // Prioritize JS error delivery to reduce loss on fatal terminations.
         _serialWorker.async { [weak self] in
             self?._shipPendingEvents()
         }
     }
-    
+
     @objc func recordAnrEvent(durationMs: Int, stack: String?, incidentId: String? = nil) {
         var event: [String: Any] = [
             "type": "anr",
@@ -619,22 +660,22 @@ final class TelemetryPipeline: NSObject {
             self?._shipPendingEvents()
         }
     }
-    
+
     @objc func recordUserAssociation(_ userId: String) {
         _enqueue(["type": "user_identity_changed", "timestamp": _ts(), "userId": userId])
     }
-    
+
     @objc func recordTapEvent(label: String, x: UInt64, y: UInt64, isInteractive: Bool = false) {
         let tapTs = _ts()
         _enqueue(["type": "touch", "gestureType": "tap", "timestamp": tapTs, "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": tapTs]]])
-        
+
         // Skip dead tap detection for interactive elements (buttons, touchables, etc.)
         // These are expected to respond, so we don't need to track "no response" as dead.
         if isInteractive {
             // Interactive elements are assumed to respond — no dead tap timer needed
             return
         }
-        
+
         // Start dead tap timer only for non-interactive elements (labels, images, empty space)
         // When it fires, check if any response event occurred after this tap. If not → dead tap.
         let tapLabel = label
@@ -652,7 +693,7 @@ final class TelemetryPipeline: NSObject {
         _deadTapTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + TelemetryPipeline._deadTapTimeoutSec, execute: work)
     }
-    
+
     @objc func recordRageTapEvent(label: String, x: UInt64, y: UInt64, count: Int) {
         // Cross-version safety for users who update the backend before app
         // binaries. Backend still understands Swift 0.2.x rage/dead tap shapes,
@@ -672,7 +713,7 @@ final class TelemetryPipeline: NSObject {
             "touches": [["x": x, "y": y, "timestamp": timestamp]]
         ])
     }
-    
+
     @objc func recordDeadTapEvent(label: String, x: UInt64, y: UInt64) {
         // See recordRageTapEvent: keyboard-region taps are normal typing, never
         // frustration, regardless of backend/package version skew.
@@ -688,11 +729,11 @@ final class TelemetryPipeline: NSObject {
             "touches": [["x": x, "y": y, "timestamp": _ts()]]
         ])
     }
-    
+
     @objc func recordSwipeEvent(label: String, x: UInt64, y: UInt64, direction: String) {
         _enqueue(["type": "gesture", "gestureType": "swipe", "timestamp": _ts(), "label": label, "x": x, "y": y, "direction": direction, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordScrollEvent(label: String, x: UInt64, y: UInt64, direction: String) {
         // NOTE: Do NOT mark scroll as a "response" for dead tap detection.
         // Gesture recognisers classify micro-movement during a tap as a scroll,
@@ -700,33 +741,33 @@ final class TelemetryPipeline: NSObject {
         // count as definitive responses.
         _enqueue(["type": "gesture", "gestureType": "scroll", "timestamp": _ts(), "label": label, "x": x, "y": y, "direction": direction, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordPanEvent(label: String, x: UInt64, y: UInt64) {
         _enqueue(["type": "gesture", "gestureType": "pan", "timestamp": _ts(), "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordLongPressEvent(label: String, x: UInt64, y: UInt64) {
         _enqueue(["type": "gesture", "gestureType": "long_press", "timestamp": _ts(), "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordPinchEvent(label: String, x: UInt64, y: UInt64, scale: Double) {
         _enqueue(["type": "gesture", "gestureType": "pinch", "timestamp": _ts(), "label": label, "x": x, "y": y, "scale": scale, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordRotationEvent(label: String, x: UInt64, y: UInt64, angle: Double) {
         _enqueue(["type": "gesture", "gestureType": "rotation", "timestamp": _ts(), "label": label, "x": x, "y": y, "angle": angle, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
-    
+
     @objc func recordInputEvent(value: String, redacted: Bool, label: String) {
         _lastResponseTs = _ts()   // keyboard input = definitive response
         _enqueue(["type": "input", "timestamp": _ts(), "value": redacted ? "***" : value, "redacted": redacted, "label": label])
     }
-    
+
     @objc func recordViewTransition(viewId: String, viewLabel: String, entering: Bool) {
         _lastResponseTs = _ts()   // navigation = definitive response
         _enqueue(["type": "navigation", "timestamp": _ts(), "screen": viewLabel, "screenName": viewLabel, "viewId": viewId, "entering": entering])
     }
-    
+
     @objc func recordNetworkEvent(details: [String: Any]) {
         guard !RejourneyNetworkEventFilter.shouldIgnore(details: details) else { return }
         var e = details
@@ -734,7 +775,7 @@ final class TelemetryPipeline: NSObject {
         e["timestamp"] = _ts()
         _enqueue(e)
     }
-    
+
     @objc func recordAppStartup(durationMs: Int64) {
         _enqueue([
             "type": "app_startup",
@@ -743,7 +784,7 @@ final class TelemetryPipeline: NSObject {
             "platform": "ios"
         ])
     }
-    
+
     @objc func recordAppForeground(totalBackgroundTimeMs: UInt64) {
         _enqueue([
             "type": "app_foreground",
@@ -758,14 +799,14 @@ final class TelemetryPipeline: NSObject {
             "timestamp": _ts(),
         ])
     }
-    
+
     // MARK: - Dead Tap Timer
-    
+
     private func _cancelDeadTapTimer() {
         _deadTapTimer?.cancel()
         _deadTapTimer = nil
     }
-    
+
     private func _enqueue(_ dict: [String: Any]) {
         // Keep in memory ring for immediate upload
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
@@ -773,7 +814,7 @@ final class TelemetryPipeline: NSObject {
         d.append(0x0A)
         _eventRing.push(EventEntry(data: d, size: d.count))
     }
-    
+
     private func _ts() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 }
 
@@ -786,25 +827,25 @@ private final class EventRingBuffer {
     private var _storage: ContiguousArray<EventEntry> = []
     private let _capacity: Int
     private let _lock = NSLock()
-    
+
     init(capacity: Int) {
         _capacity = capacity
         _storage.reserveCapacity(capacity)
     }
-    
+
     var count: Int {
         _lock.lock()
         defer { _lock.unlock() }
         return _storage.count
     }
-    
+
     func push(_ entry: EventEntry) {
         _lock.lock()
         defer { _lock.unlock() }
         if _storage.count >= _capacity { _storage.removeFirst() }
         _storage.append(entry)
     }
-    
+
     func drain(maxBytes: Int) -> [EventEntry] {
         _lock.lock()
         defer { _lock.unlock() }
@@ -842,31 +883,31 @@ private final class FrameBundleQueue {
     private var _queue: [PendingFrameBundle] = []
     private let _maxPending: Int
     private let _lock = NSLock()
-    
+
     init(maxPending: Int) {
         _maxPending = maxPending
     }
-    
+
     var count: Int {
         _lock.lock()
         defer { _lock.unlock() }
         return _queue.count
     }
-    
+
     func enqueue(_ bundle: PendingFrameBundle) {
         _lock.lock()
         defer { _lock.unlock() }
         if _queue.count >= _maxPending { _queue.removeFirst() }
         _queue.append(bundle)
     }
-    
+
     func dequeue() -> PendingFrameBundle? {
         _lock.lock()
         defer { _lock.unlock() }
         guard !_queue.isEmpty else { return nil }
         return _queue.removeFirst()
     }
-    
+
     func requeue(_ bundle: PendingFrameBundle) {
         _lock.lock()
         defer { _lock.unlock() }

@@ -79,6 +79,13 @@ data class IncidentRecord(
             val timestampMs = json.optLong("timestampMs", 0)
             val category = json.optString("category", "")
             val identifier = json.optString("identifier", "")
+            // Records written before incidents carried an id get a synthetic one.
+            // ifBlank rather than an optString default, because a record can carry
+            // the key with an empty value and a default only covers a missing key --
+            // that path used to yield an incident with no identity at all.
+            // Each component is bounded separately so all of them survive: capping
+            // the joined string instead would truncate the tail away and collide
+            // incidents that share a session, timestamp and category.
             val incidentId = json.optString("incidentId", "").ifBlank {
                 "legacy-${sessionId.take(32)}-$timestampMs-${category.take(16)}-${identifier.hashCode()}"
             }

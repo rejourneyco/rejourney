@@ -238,6 +238,8 @@ final class StabilityMonitor: NSObject {
             && existing.category.lowercased() == "exception"
             && !existing.frames.isEmpty
 
+        // An uncaught NSException later terminates through SIGABRT. Keep the
+        // exception's original call stack instead of the signal-handler stack.
         if existingHasUsefulException && incoming.category.lowercased() == "signal" {
             return false
         }

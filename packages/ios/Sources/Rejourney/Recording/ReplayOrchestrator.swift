@@ -199,7 +199,14 @@ final class ReplayOrchestrator: NSObject {
             "rageTapCount": _rageCount,
             "deadTapCount": _deadTapCount,
             "screensVisited": _visitedScreens,
-            "screenCount": Set(_visitedScreens).count
+            "screenCount": Set(_visitedScreens).count,
+            // Frames the SDK declined to capture. Without these a heavily
+            // degraded replay is indistinguishable from a complete one.
+            "framesSkippedThrottle": VisualCapture.shared.skippedFramesThrottle,
+            "framesSkippedBacklog": VisualCapture.shared.skippedFramesBacklog,
+            "framesSkippedMapMoving": VisualCapture.shared.skippedFramesMapMoving,
+            "framesCaptured": VisualCapture.shared.framesCaptured,
+            "framesSkippedDuplicate": VisualCapture.shared.skippedFramesDuplicate
         ]
         let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
 
@@ -474,6 +481,13 @@ final class ReplayOrchestrator: NSObject {
         frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 3
         SegmentDispatcher.shared.collectGeoLocation = cfg["collectGeoLocation"] as? Bool ?? true
         SegmentDispatcher.shared.observeOnly = cfg["observeOnly"] as? Bool ?? false
+        InteractionRecorder.shared.configureRageTapDetection(
+            enabled: cfg["detectRageTaps"] as? Bool ?? true,
+            threshold: cfg["rageTapThreshold"] as? Int ?? 3,
+            timeWindowMs: cfg["rageTapTimeWindow"] as? Int ?? 500,
+            radius: CGFloat(cfg["rageTapRadius"] as? Double ?? 50)
+        )
+        TelemetryPipeline.shared.collectDeviceInfo = cfg["collectDeviceInfo"] as? Bool ?? true
     }
 
     private func _monitorNetwork(token: String) {

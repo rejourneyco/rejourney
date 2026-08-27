@@ -1,4 +1,4 @@
-package co.rejourney.rejourney
+package com.rejourney
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel

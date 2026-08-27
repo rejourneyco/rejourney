@@ -17,9 +17,9 @@
 import Foundation
 
 final class SegmentDispatcher {
-    
+
     static let shared = SegmentDispatcher()
-    
+
     var endpoint: String = "https://api.rejourney.co"
     var currentReplayId: String?
     var apiToken: String?
@@ -30,7 +30,7 @@ final class SegmentDispatcher {
     var collectGeoLocation: Bool = true
     /** When true, signals the backend that no visual artifacts will ever arrive for this session */
     var observeOnly: Bool = false
-    
+
     private var batchSeqNumber = 0
     private var billingBlocked = false
     private var consecutiveFailures = 0
@@ -38,7 +38,7 @@ final class SegmentDispatcher {
     private var circuitOpenTime: TimeInterval = 0
     private let circuitBreakerThreshold = 5
     private let circuitResetTime: TimeInterval = 60
-    
+
     private let workerQueue: OperationQueue = {
         let q = OperationQueue()
         q.maxConcurrentOperationCount = 2
@@ -46,12 +46,21 @@ final class SegmentDispatcher {
         q.name = "co.rejourney.uploader"
         return q
     }()
-    
+
     private let httpSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.httpMaximumConnectionsPerHost = 4
-        cfg.waitsForConnectivity = true
-        cfg.timeoutIntervalForRequest = 30
+        // Offline uploads must fail rather than wait. With waitsForConnectivity
+        // the request parks in memory until connectivity returns, so it never
+        // errors, never reaches the on-disk retry queue, and is lost outright if
+        // the process is killed first. Failing fast persists the segment instead.
+        cfg.waitsForConnectivity = false
+        // Inactivity timeout: long enough for a slow link to keep making
+        // progress, short enough to give up on a dead one.
+        cfg.timeoutIntervalForRequest = 15
+        // Whole-transfer ceiling. Kept generous so a large segment on a slow
+        // connection still completes; in-flight uploads no longer hold stop(),
+        // so this does not delay teardown.
         cfg.timeoutIntervalForResource = 60
         // Strip our own protocol to prevent self-interception. Without this,
         // every SDK upload is intercepted by RejourneyURLProtocol which
@@ -59,7 +68,7 @@ final class SegmentDispatcher {
         cfg.protocolClasses = cfg.protocolClasses?.filter { $0 != RejourneyURLProtocol.self } ?? []
         return URLSession(configuration: cfg)
     }()
-    
+
     private var retryQueue: [PendingUpload] = []
     private let retryLock = NSLock()
     private let maxRetryQueueSize = 20
@@ -67,7 +76,7 @@ final class SegmentDispatcher {
 
     // Tracks in-flight upload chains so the shutdown drain can wait for real completion.
     private let _uploadGroup = DispatchGroup()
-    
+
     private let metricsLock = NSLock()
     private var uploadSuccessCount = 0
     private var uploadFailureCount = 0
@@ -83,9 +92,9 @@ final class SegmentDispatcher {
     private var uploadDurationSampleCount = 0
     private var lastUploadTime: Int64?
     private var lastRetryTime: Int64?
-    
+
     private init() {}
-    
+
     func configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Bool = true) {
         currentReplayId = replayId
         self.apiToken = apiToken
@@ -107,18 +116,18 @@ final class SegmentDispatcher {
         }
         resetSessionTelemetry()
     }
-    
+
     /// Reactivate the dispatcher for a new session
     func activate() {
         active = true
         consecutiveFailures = 0
         circuitOpen = false
     }
-    
+
     func halt() {
         active = false
     }
-    
+
     /// Kick a retry-queue drain on the worker queue.
     ///
     /// Deliberately fire-and-forget. Callers include main-thread lifecycle
@@ -131,7 +140,7 @@ final class SegmentDispatcher {
     func shipPending() {
         workerQueue.addOperation { [weak self] in self?.drainRetryQueue() }
     }
-    
+
     func transmitFrameBundle(payload: Data, startMs: UInt64, endMs: UInt64, frameCount: Int, completion: ((Bool) -> Void)? = nil) {
         transmitFrameBundle(for: currentReplayId, payload: payload, startMs: startMs, endMs: endMs, frameCount: frameCount, completion: completion)
     }
@@ -141,7 +150,7 @@ final class SegmentDispatcher {
             completion?(false)
             return
         }
-        
+
         let upload = PendingUpload(
             sessionId: sid,
             contentType: "screenshots",
@@ -155,13 +164,13 @@ final class SegmentDispatcher {
         )
         scheduleUpload(upload, completion: completion)
     }
-    
+
     func transmitHierarchy(replayId: String, hierarchyPayload: Data, timestampMs: UInt64, completion: ((Bool) -> Void)? = nil) {
         guard canUploadNow() else {
             completion?(false)
             return
         }
-        
+
         let upload = PendingUpload(
             sessionId: replayId,
             contentType: "hierarchy",
@@ -175,34 +184,34 @@ final class SegmentDispatcher {
         )
         scheduleUpload(upload, completion: completion)
     }
-    
+
     func transmitEventBatch(payload: Data, batchNumber: Int, eventCount: Int, completion: ((Bool) -> Void)? = nil) {
         guard let sid = currentReplayId, canUploadNow() else {
             completion?(false)
             return
         }
-        
+
         let sampledIn = isSampledIn
         workerQueue.addOperation { [weak self] in
             self?.executeEventBatchUpload(sessionId: sid, payload: payload, batchNum: batchNumber, eventCount: eventCount, isSampledIn: sampledIn, completion: completion)
         }
     }
-    
+
     func transmitEventBatchAlternate(replayId: String, eventPayload: Data, eventCount: Int, completion: ((Bool) -> Void)? = nil) {
         guard canUploadNow() else {
             completion?(false)
             return
         }
-        
+
         batchSeqNumber += 1
         let seq = batchSeqNumber
-        
+
         let sampledIn = isSampledIn
         workerQueue.addOperation { [weak self] in
             self?.executeEventBatchUpload(sessionId: replayId, payload: eventPayload, batchNum: seq, eventCount: eventCount, isSampledIn: sampledIn, completion: completion)
         }
     }
-    
+
     func concludeReplay(
         replayId: String,
         concludedAt: UInt64,
@@ -219,12 +228,12 @@ final class SegmentDispatcher {
             return
         }
         ingestFinalizeMetrics(metrics)
-        
+
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuthHeaders(&req, sessionId: replayId)
-        
+
         var body: [String: Any] = [
             "sessionId": replayId,
             "endedAt": concludedAt,
@@ -243,19 +252,19 @@ final class SegmentDispatcher {
         if let closeAnchorAtMs, closeAnchorAtMs > 0 {
             body["closeAnchorAtMs"] = closeAnchorAtMs
         }
-        
+
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             completion(false)
             return
         }
-        
+
         httpSession.dataTask(with: req) { _, resp, _ in
             completion((resp as? HTTPURLResponse)?.statusCode == 200)
         }.resume()
     }
-    
+
     private func canUploadNow() -> Bool {
         if billingBlocked { return false }
         if circuitOpen {
@@ -267,25 +276,25 @@ final class SegmentDispatcher {
         }
         return true
     }
-    
+
     private func registerFailure() {
         consecutiveFailures += 1
         metricsLock.lock()
         uploadFailureCount += 1
         metricsLock.unlock()
-        
+
         if consecutiveFailures >= circuitBreakerThreshold {
             metricsLock.lock()
             if !circuitOpen {
                 circuitBreakerOpenCount += 1
             }
             metricsLock.unlock()
-            
+
             circuitOpen = true
             circuitOpenTime = Date().timeIntervalSince1970
         }
     }
-    
+
     private func registerSuccess() {
         consecutiveFailures = 0
         metricsLock.lock()
@@ -293,7 +302,7 @@ final class SegmentDispatcher {
         lastUploadTime = Self.nowMs()
         metricsLock.unlock()
     }
-    
+
     private func scheduleUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
         guard active else {
             completion?(false)
@@ -303,7 +312,7 @@ final class SegmentDispatcher {
             self?.executeSegmentUpload(upload, completion: completion)
         }
     }
-    
+
     private func executeSegmentUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
         // Track this upload chain so waitForPendingUploads() can block until completion.
         _uploadGroup.enter()
@@ -366,7 +375,7 @@ final class SegmentDispatcher {
     func waitForPendingUploads(timeout: TimeInterval = 25.0) {
         _ = _uploadGroup.wait(timeout: .now() + timeout)
     }
-    
+
     private func scheduleRetryIfNeeded(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
         if isUploadForClosedSession(upload.sessionId) {
             DiagnosticLog.trace("[SegmentDispatcher] Discarding retry for closed session \(upload.sessionId.prefix(20))")
@@ -382,7 +391,7 @@ final class SegmentDispatcher {
             }
             retryQueue.append(retry)
             retryLock.unlock()
-            
+
             metricsLock.lock()
             retryAttemptCount += 1
             lastRetryTime = Self.nowMs()
@@ -390,7 +399,7 @@ final class SegmentDispatcher {
         }
         completion?(false)
     }
-    
+
     private func drainRetryQueue() {
         retryLock.lock()
         let items = retryQueue
@@ -398,27 +407,27 @@ final class SegmentDispatcher {
         retryLock.unlock()
         items.forEach { executeSegmentUpload($0, completion: nil) }
     }
-    
+
     private func requestPresignedUrl(upload: PendingUpload, completion: @escaping (PresignResponse?) -> Void) {
         let urlPath = upload.contentType == "events" ? "/api/ingest/presign" : "/api/ingest/segment/presign"
-        
+
         guard let url = URL(string: "\(endpoint)\(urlPath)") else {
             completion(nil)
             return
         }
-        
+
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuthHeaders(&req, sessionId: upload.sessionId)
-        
+
         var body: [String: Any] = [
             "sessionId": upload.sessionId,
             "sizeBytes": upload.payload.count,
             "sdkVersion": RejourneySDKInfo.version,
             "isSampledIn": upload.isSampledIn
         ]
-        
+
         if upload.contentType == "events" {
             body["contentType"] = "events"
             body["batchNumber"] = upload.batchNumber
@@ -429,69 +438,69 @@ final class SegmentDispatcher {
             body["frameCount"] = upload.itemCount
             body["compression"] = "gzip"
         }
-        
+
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             completion(nil)
             return
         }
-        
+
         httpSession.dataTask(with: req) { [weak self] data, resp, _ in
             guard let httpResp = resp as? HTTPURLResponse else {
                 completion(nil)
                 return
             }
-            
+
             if httpResp.statusCode == 402 {
                 self?.billingBlocked = true
                 completion(nil)
                 return
             }
-            
+
             guard httpResp.statusCode == 200,
                   let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 completion(nil)
                 return
             }
-            
+
             if json["skipUpload"] as? Bool == true {
                 completion(PresignResponse(presignedUrl: "", batchId: "", skipUpload: true))
                 return
             }
-            
+
             guard let presignedUrl = json["presignedUrl"] as? String else {
                 completion(nil)
                 return
             }
-            
+
             let batchId = json["batchId"] as? String ?? json["segmentId"] as? String ?? ""
-            
+
             completion(PresignResponse(presignedUrl: presignedUrl, batchId: batchId, skipUpload: false))
         }.resume()
     }
-    
+
     private func uploadToS3(url: String, payload: Data, completion: @escaping (Bool) -> Void) {
         RejourneyNetworkEventFilter.registerInternalURL(urlString: url)
         guard let uploadUrl = URL(string: url) else {
             completion(false)
             return
         }
-        
+
         var req = URLRequest(url: uploadUrl)
         req.httpMethod = "PUT"
-        
+
         req.setValue("application/gzip", forHTTPHeaderField: "Content-Type")
-        
+
         req.httpBody = payload
         let startMs = Date().timeIntervalSince1970 * 1000
-        
+
         httpSession.dataTask(with: req) { _, resp, _ in
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             let succeeded = status >= 200 && status < 300
             let durationMs = (Date().timeIntervalSince1970 * 1000) - startMs
-            
+
             self.metricsLock.lock()
             self.uploadDurationSampleCount += 1
             self.totalUploadDurationMs += durationMs
@@ -499,30 +508,30 @@ final class SegmentDispatcher {
                 self.totalBytesUploaded += Int64(payload.count)
             }
             self.metricsLock.unlock()
-            
+
             completion(succeeded)
         }.resume()
     }
-    
+
     private func confirmBatchComplete(batchId: String, upload: PendingUpload, completion: @escaping (Bool) -> Void) {
         let urlPath = upload.contentType == "events" ? "/api/ingest/batch/complete" : "/api/ingest/segment/complete"
-        
+
         guard let url = URL(string: "\(endpoint)\(urlPath)") else {
             completion(false)
             return
         }
-        
+
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuthHeaders(&req, sessionId: upload.sessionId)
-        
+
         var body: [String: Any] = [
             "actualSizeBytes": upload.payload.count,
             "timestamp": Date().timeIntervalSince1970 * 1000
         ]
         body["sdkTelemetry"] = sdkTelemetrySnapshot(currentQueueDepth: 0)
-        
+
         if upload.contentType == "events" {
             body["batchId"] = batchId
             body["eventCount"] = upload.itemCount
@@ -530,19 +539,19 @@ final class SegmentDispatcher {
             body["segmentId"] = batchId
             body["frameCount"] = upload.itemCount
         }
-        
+
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             completion(false)
             return
         }
-        
+
         httpSession.dataTask(with: req) { _, resp, _ in
             completion((resp as? HTTPURLResponse)?.statusCode == 200)
         }.resume()
     }
-    
+
     private func executeEventBatchUpload(sessionId: String, payload: Data, batchNum: Int, eventCount: Int, isSampledIn: Bool, completion: ((Bool) -> Void)?) {
         let upload = PendingUpload(
             sessionId: sessionId,
@@ -560,21 +569,21 @@ final class SegmentDispatcher {
             completion?(false)
             return
         }
-        
+
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
             guard let self, let presign = presignResponse else {
                 self?.registerFailure()
                 completion?(false)
                 return
             }
-            
+
             self.uploadToS3(url: presign.presignedUrl, payload: payload) { s3ok in
                 guard s3ok else {
                     self.registerFailure()
                     completion?(false)
                     return
                 }
-                
+
                 self.confirmBatchComplete(batchId: presign.batchId, upload: upload) { confirmOk in
                     if confirmOk {
                         self.registerSuccess()
@@ -584,7 +593,7 @@ final class SegmentDispatcher {
             }
         }
     }
-    
+
     private func applyAuthHeaders(_ req: inout URLRequest, sessionId: String? = nil) {
         if let t = apiToken {
             req.setValue(t, forHTTPHeaderField: "x-rejourney-key")
@@ -609,19 +618,19 @@ final class SegmentDispatcher {
         }
         return sessionId != activeSessionId
     }
-    
+
     private func ingestFinalizeMetrics(_ metrics: [String: Any]?) {
         guard let crashes = (metrics?["crashCount"] as? NSNumber)?.intValue else { return }
         metricsLock.lock()
         crashCount = max(crashCount, crashes)
         metricsLock.unlock()
     }
-    
+
     func sdkTelemetrySnapshot(currentQueueDepth: Int = 0) -> [String: Any] {
         retryLock.lock()
         let retryDepth = retryQueue.count
         retryLock.unlock()
-        
+
         metricsLock.lock()
         let successCount = uploadSuccessCount
         let failureCount = uploadFailureCount
@@ -639,10 +648,10 @@ final class SegmentDispatcher {
         let uploadTs = lastUploadTime
         let retryTs = lastRetryTime
         metricsLock.unlock()
-        
+
         let totalUploads = successCount + failureCount
         let successRate = totalUploads > 0 ? Double(successCount) / Double(totalUploads) : 1.0
-        
+
         return [
             "uploadSuccessCount": successCount,
             "uploadFailureCount": failureCount,
@@ -661,7 +670,7 @@ final class SegmentDispatcher {
             "totalBytesEvicted": evictedBytes
         ]
     }
-    
+
     private func resetSessionTelemetry() {
         metricsLock.lock()
         uploadSuccessCount = 0
@@ -680,7 +689,7 @@ final class SegmentDispatcher {
         lastRetryTime = nil
         metricsLock.unlock()
     }
-    
+
     private static func nowMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }

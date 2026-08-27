@@ -244,7 +244,14 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             "rageTapCount" to rageCount,
             "deadTapCount" to deadTapCount,
             "screensVisited" to visitedScreens.toList(),
-            "screenCount" to visitedScreens.toSet().size
+            "screenCount" to visitedScreens.toSet().size,
+            // Frames the SDK declined to capture. Without these a heavily
+            // degraded replay is indistinguishable from a complete one.
+            "framesSkippedThrottle" to (VisualCapture.shared?.skippedFramesThrottle?.get() ?: 0),
+            "framesSkippedBacklog" to (VisualCapture.shared?.skippedFramesBacklog?.get() ?: 0),
+            "framesSkippedMapMoving" to (VisualCapture.shared?.skippedFramesMapMoving?.get() ?: 0),
+            "framesCaptured" to (VisualCapture.shared?.framesCaptured?.get() ?: 0),
+            "framesSkippedDuplicate" to (VisualCapture.shared?.skippedFramesDuplicate?.get() ?: 0)
         )
         val queueDepthAtFinalize = TelemetryPipeline.shared?.getQueueDepth() ?: 0
 

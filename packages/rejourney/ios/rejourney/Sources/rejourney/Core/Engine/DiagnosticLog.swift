@@ -369,13 +369,21 @@ final class DiagnosticLog: NSObject {
 
     // MARK: Private Implementation
 
+    /// Built once. Constructing a date formatter is expensive -- it goes through
+    /// CFDateFormatter and ICU -- and this used to happen on every emitted line.
+    /// Configured here and only read afterwards, which is the shared-formatter
+    /// pattern Apple documents as safe on current systems.
+    private static let _timestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     private static func _writeLog(prefix: String, message: String) {
         var output = "[RJ]"
 
         if includeTimestamp {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            output += " \(formatter.string(from: Date()))"
+            output += " \(_timestampFormatter.string(from: Date()))"
         }
 
         output += " [\(prefix)] \(message)"

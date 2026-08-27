@@ -87,6 +87,11 @@ jobs:
           flutter-version: "3.47.0"
           channel: stable
           cache: true
+      # This package vendors the shared recording core; the gate fails if its
+      # copy has been edited instead of packages/core. See packages/core/README.
+      - name: Verify the shared SDK core has not drifted
+        working-directory: .
+        run: node scripts/sync-sdk-core.mjs --check
       - name: Verify release versions and changelog agree
         run: |
           version="$(sed -n 's/^version: //p' pubspec.yaml)"
@@ -94,7 +99,7 @@ jobs:
           grep -Fqx "## $version" <(head -n 1 CHANGELOG.md)
           grep -Fq "static const String version = '$version';" lib/rejourney.dart
           grep -Fq "version = \"$version\"" android/build.gradle.kts
-          grep -Fq "const val SDK_VERSION = \"$version\"" android/src/main/kotlin/co/rejourney/rejourney/RejourneyNativeController.kt
+          grep -Fq "const val SDK_VERSION = \"$version\"" android/src/main/kotlin/com/rejourney/RejourneyNativeController.kt
           grep -Fq "var sdkVersion: String = \"$version\"" android/src/main/kotlin/com/rejourney/RejourneySdkInfo.kt
           grep -Fq "s.version          = '$version'" ios/rejourney.podspec
           grep -Fq "static var version = \"$version\"" ios/rejourney/Sources/rejourney/Core/RejourneySDKInfo.swift

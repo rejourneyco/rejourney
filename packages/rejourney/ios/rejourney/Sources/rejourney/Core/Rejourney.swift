@@ -1021,18 +1021,11 @@ struct RejourneyCaptureSettings: Equatable {
     }
 }
 
-enum RejourneyEventSerializer {
+// jsonString(from:) lives in the shared core; this overload stays here because
+// RejourneyMetadataValue is part of this SDK's public surface, not the core's.
+extension RejourneyEventSerializer {
     static func jsonObject(from metadata: [String: RejourneyMetadataValue]) -> [String: Any] {
         metadata.mapValues { $0.jsonObject }
-    }
-
-    static func jsonString(from object: [String: Any]) -> String {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return string
     }
 }
 

@@ -19,28 +19,42 @@ import ObjectiveC
 
 @objc(RJNativeInteractionRecorder)
 final class InteractionRecorder: NSObject {
-    
+
     @objc static let shared = InteractionRecorder()
-    
+
     @objc private(set) var isTracking = false
-    
+
     private var _gestureAggregator: GestureAggregator?
     private var _inputObservers = NSMapTable<UITextField, AnyObject>.weakToStrongObjects()
     private var _navigationStack: [String] = []
     private let _coalesceWindow: TimeInterval = 0.3
     private var _lastInteractionTimestampMs: UInt64 = 0
-    
+    fileprivate var _rageTapSettings = RageTapSettings()
+
     private override init() {
         super.init()
     }
-    
+
+    /// Applied from remote config. Before this was shared, the native SDK
+    /// hardcoded these and silently ignored whatever the server sent.
+    @objc func configureRageTapDetection(enabled: Bool, threshold: Int, timeWindowMs: Int, radius: CGFloat) {
+        let settings = RageTapSettings(
+            enabled: enabled,
+            threshold: max(1, threshold),
+            timeWindow: max(0.001, CFAbsoluteTime(timeWindowMs) / 1000.0),
+            radius: max(1, radius)
+        )
+        _rageTapSettings = settings
+        _gestureAggregator?.updateRageTapSettings(settings)
+    }
+
     @objc func activate() {
         guard !isTracking else { return }
         isTracking = true
         _gestureAggregator = GestureAggregator(delegate: self)
         _installSendEventHook()
     }
-    
+
     @objc func deactivate() {
         guard isTracking else { return }
         isTracking = false
@@ -51,30 +65,30 @@ final class InteractionRecorder: NSObject {
         _navigationStack.removeAll()
         _lastInteractionTimestampMs = 0
     }
-    
+
     @objc func latestInteractionTimestampMs() -> UInt64 {
         _lastInteractionTimestampMs
     }
-    
+
     @objc func observeTextField(_ field: UITextField) {
         guard _inputObservers.object(forKey: field) == nil else { return }
         let observer = InputEndObserver(recorder: self, field: field)
         _inputObservers.setObject(observer, forKey: field)
     }
-    
+
     @objc func pushScreen(_ identifier: String) {
         _navigationStack.append(identifier)
         TelemetryPipeline.shared.recordViewTransition(viewId: identifier, viewLabel: identifier, entering: true)
         ReplayOrchestrator.shared.logScreenView(identifier)
     }
-    
+
     @objc func popScreen() {
         guard let last = _navigationStack.popLast() else { return }
         TelemetryPipeline.shared.recordViewTransition(viewId: last, viewLabel: last, entering: false)
     }
-    
+
     private static var _sendEventSwizzled = false
-    
+
     /// Install a UIWindow.sendEvent swizzle to passively observe all touch events.
     /// Unlike gesture recognizers, this does NOT participate in the iOS gesture
     /// resolution system, so it never triggers "System gesture gate timed out"
@@ -89,7 +103,7 @@ final class InteractionRecorder: NSObject {
             replacement: #selector(UIWindow.rj_sendEvent(_:))
         )
     }
-    
+
     /// Called from the swizzled UIWindow.sendEvent to process raw touch events.
     @objc func processRawTouches(_ event: UIEvent, in window: UIWindow) {
         guard isTracking, let agg = _gestureAggregator else { return }
@@ -114,12 +128,12 @@ final class InteractionRecorder: NSObject {
             agg.processTouch(touch, in: window)
         }
     }
-    
+
     fileprivate func reportTap(location: CGPoint, target: String, isInteractive: Bool) {
         TelemetryPipeline.shared.recordTapEvent(label: target, x: UInt64(max(0, location.x)), y: UInt64(max(0, location.y)), isInteractive: isInteractive)
         ReplayOrchestrator.shared.incrementTapTally()
     }
-    
+
     fileprivate func reportSwipe(location: CGPoint, direction: SwipeVector, target: String) {
         TelemetryPipeline.shared.recordSwipeEvent(
             label: target,
@@ -129,7 +143,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementGestureTally()
     }
-    
+
     fileprivate func reportScroll(location: CGPoint, target: String) {
         TelemetryPipeline.shared.recordScrollEvent(
             label: target,
@@ -139,7 +153,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementGestureTally()
     }
-    
+
     fileprivate func reportPan(location: CGPoint, target: String) {
         TelemetryPipeline.shared.recordPanEvent(
             label: target,
@@ -147,7 +161,7 @@ final class InteractionRecorder: NSObject {
             y: UInt64(max(0, location.y))
         )
     }
-    
+
     fileprivate func reportLongPress(location: CGPoint, target: String) {
         TelemetryPipeline.shared.recordLongPressEvent(
             label: target,
@@ -156,7 +170,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementGestureTally()
     }
-    
+
     fileprivate func reportPinch(location: CGPoint, scale: CGFloat, target: String) {
         TelemetryPipeline.shared.recordPinchEvent(
             label: target,
@@ -166,7 +180,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementGestureTally()
     }
-    
+
     fileprivate func reportRotation(location: CGPoint, angle: CGFloat, target: String) {
         TelemetryPipeline.shared.recordRotationEvent(
             label: target,
@@ -176,7 +190,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementGestureTally()
     }
-    
+
     fileprivate func reportRageTap(location: CGPoint, count: Int, target: String) {
         TelemetryPipeline.shared.recordRageTapEvent(
             label: target,
@@ -186,7 +200,7 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementRageTapTally()
     }
-    
+
     fileprivate func reportDeadTap(location: CGPoint, target: String) {
         TelemetryPipeline.shared.recordDeadTapEvent(
             label: target,
@@ -195,16 +209,25 @@ final class InteractionRecorder: NSObject {
         )
         ReplayOrchestrator.shared.incrementDeadTapTally()
     }
-    
+
     fileprivate func reportInput(value: String, masked: Bool, hint: String) {
         TelemetryPipeline.shared.recordInputEvent(value: value, redacted: masked, label: hint)
     }
 }
 
+/// Rage-tap tuning, remote-configurable. The 500ms window is the shared
+/// default across all three SDKs.
+fileprivate struct RageTapSettings {
+    var enabled = true
+    var threshold = 3
+    var timeWindow: CFAbsoluteTime = 0.5
+    var radius: CGFloat = 50
+}
+
 private final class GestureAggregator: NSObject {
-    
+
     weak var recorder: InteractionRecorder?
-    
+
     // Per-touch state for raw touch processing (replaces UIGestureRecognizer)
     private struct TouchState {
         let startLocation: CGPoint
@@ -213,30 +236,36 @@ private final class GestureAggregator: NSObject {
         var isPanning: Bool
         var maxDistance: CGFloat
     }
-    
+
     private var _activeTouches: [ObjectIdentifier: TouchState] = [:]
-    
+
     // Gesture detection thresholds
     private let _tapMaxDuration: CFAbsoluteTime = 0.3
     private let _tapMaxDistance: CGFloat = 10
     private let _panStartThreshold: CGFloat = 10
     private let _longPressMinDuration: CFAbsoluteTime = 0.5
-    
+
     // Rage tap detection
     private var _recentTaps: [(location: CGPoint, time: CFAbsoluteTime)] = []
-    private let _rageTapThreshold = 3
-    private let _rageTapWindow: CFAbsoluteTime = 1.0
-    private let _rageTapRadius: CGFloat = 50
-    
+    private var _rageTapSettings: RageTapSettings
+
     // Throttle pan events to avoid flooding
     private var _lastPanTime: CFAbsoluteTime = 0
     private let _panThrottleInterval: CFAbsoluteTime = 0.1
-    
+
     init(delegate: InteractionRecorder) {
         self.recorder = delegate
+        self._rageTapSettings = delegate._rageTapSettings
         super.init()
     }
-    
+
+    func updateRageTapSettings(_ settings: RageTapSettings) {
+        _rageTapSettings = settings
+        if !settings.enabled {
+            _recentTaps.removeAll()
+        }
+    }
+
     /// Process a raw touch event from UIWindow.sendEvent swizzle.
     /// This replaces all UIGestureRecognizer-based detection. No recognizers are
     /// installed on any window, so iOS's system gesture gate is never triggered
@@ -246,7 +275,7 @@ private final class GestureAggregator: NSObject {
         let localLocation = touch.location(in: window)
         let location = _replayLocation(for: touch, in: window)
         let now = CFAbsoluteTimeGetCurrent()
-        
+
         switch touch.phase {
         case .began:
             _activeTouches[touchId] = TouchState(
@@ -256,35 +285,35 @@ private final class GestureAggregator: NSObject {
                 isPanning: false,
                 maxDistance: 0
             )
-            
+
         case .moved:
             guard var state = _activeTouches[touchId] else { return }
             let distance = location.distance(to: state.startLocation)
             state.maxDistance = max(state.maxDistance, distance)
-            
+
             if !state.isPanning && distance > _panStartThreshold {
                 state.isPanning = true
             }
-            
+
             if state.isPanning && (now - state.lastReportTime) >= _panThrottleInterval {
                 state.lastReportTime = now
                 let (target, _) = _resolveTarget(at: localLocation, in: window)
                 recorder?.reportPan(location: location, target: target)
             }
-            
+
             _activeTouches[touchId] = state
-            
+
         case .ended:
             guard let state = _activeTouches.removeValue(forKey: touchId) else { return }
             let duration = now - state.startTime
-            
+
             if state.isPanning {
                 // Calculate velocity for swipe vs scroll detection
                 let dt = max(duration, 0.001)
                 let dx = location.x - state.startLocation.x
                 let dy = location.y - state.startLocation.y
                 let velocity = CGPoint(x: dx / dt, y: dy / dt)
-                
+
                 let (target, _) = _resolveTarget(at: localLocation, in: window)
                 let vec = SwipeVector.from(velocity: velocity)
                 if vec != .none {
@@ -305,12 +334,12 @@ private final class GestureAggregator: NSObject {
                     recorder?.reportTap(location: location, target: target, isInteractive: true)
                     return
                 }
-                
+
                 _recentTaps.append((location: location, time: now))
                 _pruneOldTaps(now: now)
-                
-                let nearby = _recentTaps.filter { $0.location.distance(to: location) < _rageTapRadius }
-                if nearby.count >= _rageTapThreshold {
+
+                let nearby = _recentTaps.filter { $0.location.distance(to: location) < _rageTapSettings.radius }
+                if _rageTapSettings.enabled && nearby.count >= _rageTapSettings.threshold {
                     recorder?.reportRageTap(location: location, count: nearby.count, target: target)
                     _recentTaps.removeAll()
                 } else {
@@ -321,17 +350,17 @@ private final class GestureAggregator: NSObject {
                 let (target, _) = _resolveTarget(at: localLocation, in: window)
                 recorder?.reportLongPress(location: location, target: target)
             }
-            
+
         case .cancelled:
             _activeTouches.removeValue(forKey: touchId)
-            
+
         default:
             break
         }
     }
-    
+
     private func _pruneOldTaps(now: CFAbsoluteTime) {
-        let cutoff = now - _rageTapWindow
+        let cutoff = now - _rageTapSettings.timeWindow
         _recentTaps.removeAll { $0.time < cutoff }
     }
 
@@ -363,7 +392,7 @@ private final class GestureAggregator: NSObject {
 
         return TelemetryPipeline.shared.isPointInsideKeyboardArea(replayLocation)
     }
-    
+
     private func _resolveTarget(at point: CGPoint, in window: UIWindow) -> (label: String, isInteractive: Bool) {
         // When a map view is visible, skip hitTest entirely — performing
         // hitTest on a deep Metal/OpenGL map hierarchy is expensive and
@@ -371,15 +400,15 @@ private final class GestureAggregator: NSObject {
         if SpecialCases.shared.mapVisible {
             return ("map", false)
         }
-        
+
         guard let hit = window.hitTest(point, with: nil) else { return ("window", false) }
-        
+
         let label = hit.accessibilityIdentifier ?? hit.accessibilityLabel ?? String(describing: type(of: hit))
         let isInteractive = _isViewInteractive(hit)
-        
+
         return (label, isInteractive)
     }
-    
+
     /// Check if a view is interactive (buttons, touchables, controls, etc.)
     ///
     /// Swift SDK 0.2.x originally treated `isAccessibilityElement` as
@@ -396,7 +425,7 @@ private final class GestureAggregator: NSObject {
     /// (e.g. Text inside a Pressable), not the Pressable itself.
     private func _isViewInteractive(_ view: UIView) -> Bool {
         if _isSingleViewInteractive(view) { return true }
-        
+
         // Walk ancestor chain — tap inside <Pressable><Text>...</Text></Pressable>
         // hits the Text, but the Pressable parent is the interactive element.
         var ancestor = view.superview
@@ -406,30 +435,30 @@ private final class GestureAggregator: NSObject {
             ancestor = parent.superview
             depth += 1
         }
-        
+
         return false
     }
-    
+
     private func _isSingleViewInteractive(_ view: UIView) -> Bool {
         // Native UIControls (UIButton, UISwitch, UISlider, etc.)
         if view is UIControl { return true }
-        
+
         // Text inputs
         if view is UITextField || view is UITextView { return true }
-        
+
         // Explicit accessibility role indicating interactivity
         let traits = view.accessibilityTraits
         if traits.contains(.button) || traits.contains(.link) || traits.contains(.adjustable) {
             return true
         }
-        
+
         return false
     }
 }
 
 private enum SwipeVector {
     case up, down, left, right, none
-    
+
     var label: String {
         switch self {
         case .up: return "up"
@@ -439,7 +468,7 @@ private enum SwipeVector {
         case .none: return "none"
         }
     }
-    
+
     static func from(velocity: CGPoint) -> SwipeVector {
         let threshold: CGFloat = 200
         if abs(velocity.x) > abs(velocity.y) {
@@ -456,14 +485,14 @@ private enum SwipeVector {
 private final class InputEndObserver: NSObject {
     weak var recorder: InteractionRecorder?
     weak var field: UITextField?
-    
+
     init(recorder: InteractionRecorder, field: UITextField) {
         self.recorder = recorder
         self.field = field
         super.init()
         field.addTarget(self, action: #selector(editingEnded), for: .editingDidEnd)
     }
-    
+
     @objc private func editingEnded() {
         guard let f = field else { return }
         let masked = f.isSecureTextEntry || ReplayOrchestrator.shared.maskTextInputsByDefault

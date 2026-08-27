@@ -1,3 +1,54 @@
+## 0.4.0
+
+- Identical screenshots are no longer stored. On measured sessions 93-98% of
+  uploaded frames were byte-identical to one already sent. The player holds the
+  last frame until the next, so a duplicate rendered exactly the same as its
+  absence while consuming replay quota, storage, battery and bandwidth.
+- Android retained-layer capture is paced for the viewer rather than for the
+  readback. The interactive minimum drops from 5s to 1.5s and the settle window
+  from 2.5s to 600ms, and a deferral ceiling stops continuous interaction from
+  starving capture entirely -- previously every new visual change pushed the
+  settle window forward, so the most active part of a session was the least
+  recorded. Measured on an emulator: median frame interval 4.3s to 1.0s, worst
+  gap 38.6s to 3.0s. The idle heartbeat stays at 15s.
+- Screenshot capture now throttles only on a sustained severe stall.
+- View hierarchies are captured to 24 levels rather than 12, and trees cut by
+  the depth limit now say so.
+- A view marked for occlusion through the accessibility hint is now masked even
+  if that lookup fails.
+- The Android and iOS recording cores are now one shared source rather than
+  per-SDK copies, so a fix lands on every platform at once. CI fails if a
+  vendored copy is edited instead of the original.
+- Fixed white boxes drawn over map annotations on iOS. Both view scans descended
+  into map views and produced redaction rects for annotation subviews, which a
+  map SDK lays out in its own coordinate space with anchors that are not the
+  view's frame origin, so the rect landed beside what it meant to cover. The
+  sensitive-view pass holds a reference and recomputes the rect every frame, so
+  the stray box tracked the pin while panning. Neither scan descends into a map
+  now; `rejourney_occlude` still hides one on request.
+- Fixed a leaked heartbeat timer: starting a new session scheduled another
+  5-second timer without cancelling the previous one, and the old Runnable
+  stayed queued on the Handler, so every session added another uploader that
+  ran for the life of the process.
+- View-hierarchy scanning no longer resolves React Native resource ids by name
+  on every view of every scan. The lookup is resolved once and cached,
+  including when it fails, which is the normal case on a Flutter app.
+- The Android plugin now ships consumer ProGuard rules. It previously shipped
+  none, while the same reflection-heavy map integration code was kept by rules
+  on the React Native side.
+- The Android plugin classes moved from `co.rejourney.rejourney` to
+  `com.rejourney`, matching the rest of the plugin. Flutter regenerates the
+  plugin registrant on every build, so no app changes are needed.
+- Rage-tap detection reads its threshold, window and radius from remote config
+  on every platform, defaulting to a 500ms window.
+
+- Sessions now report capture accounting in their end-of-session metrics:
+  `framesCaptured`, `framesSkippedDuplicate`, `framesSkippedThrottle`,
+  `framesSkippedBacklog` and `framesSkippedMapMoving`. Frame loss was previously
+  invisible -- a session that dropped most of its frames looked identical in the
+  data to a complete one. Note the ingest metrics schema must accept these keys
+  before they are persisted; until then they are sent and discarded.
+
 ## 0.3.2
 
 - Android: JPEG compression moves off the main thread onto the encode executor

@@ -12,6 +12,11 @@ dependencies:
   rejourney:
     path: ../
   cupertino_icons: ^1.0.8
+  # Stress-test screens. These exist to exercise the capture path on the kinds
+  # of screens that actually strain it: video surfaces, many decoded images,
+  # and GPU-heavy 3D. All remote assets are royalty-free.
+  video_player: ^2.14.0
+  flutter_scene: ^0.23.0
 
 dev_dependencies:
   integration_test:
@@ -21,4 +26,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
+  assets:
+    - assets/model.glb
+    - flutter_scene_generated/
   uses-material-design: true

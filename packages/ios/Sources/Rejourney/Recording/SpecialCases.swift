@@ -221,6 +221,15 @@ final class SpecialCases: NSObject {
     /// Walk the superclass chain and return the map SDK type if any
     /// ancestor is a known map base class.
     ///
+    /// True when this view is a map from any SDK we recognise.
+    ///
+    /// Capture uses this to leave map internals alone: a map lays its
+    /// annotations out in its own coordinate space, so rects converted out of
+    /// that hierarchy do not line up with what they meant to cover.
+    @objc func isMapView(_ view: UIView) -> Bool {
+        return _classifyByInheritance(view) != nil
+    }
+
     /// NSStringFromClass for Swift classes includes the module prefix, e.g.:
     ///   "MapboxMaps.MapView", "rnmapbox_maps.RNMBXMapView"
     /// The module prefix varies by build config (static lib, framework, etc.)

@@ -119,6 +119,15 @@ class VisualCapture private constructor(private val context: Context) {
     }
     
     fun beginCapture(sessionOrigin: Long) {
+        // Per-session counters and dedup state. The first frame of a session
+        // must always store, even if it matches the last frame of the previous.
+        lastFrameHash = null
+        framesCaptured.set(0)
+        skippedFramesThrottle.set(0)
+        skippedFramesBacklog.set(0)
+        skippedFramesMapMoving.set(0)
+        skippedFramesDuplicate.set(0)
+
         DiagnosticLog.trace("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}, state=${stateMachine.currentState}")
 
         // If we're still in CAPTURING state (halt() from previous session hasn't
@@ -263,23 +272,70 @@ class VisualCapture private constructor(private val context: Context) {
     // exceeds the budget stretches the effective interval (skipping timer
     // ticks, up to 4x); sustained cheap frames restore full rate. Touched only
     // from the main-thread capture loop, so no locking is needed.
-    private val mainThreadBudgetMs = 34L
+    /// Throttling is a last resort, not routine pacing. It exists to stop a
+    /// pathologically expensive screen from compounding jank, so the bar is a
+    /// stall a user would actually feel -- roughly nine dropped frames at 60Hz --
+    /// rather than a merely costly capture. At the previous 34ms bar an ordinary
+    /// screen throttled immediately and, because recovery required half that,
+    /// never came back: measured runs sat at the 4x ceiling for 92-98% of their
+    /// captures.
+    private val mainThreadBudgetMs = 150L
+    /// One expensive frame is not a slow screen. Cold start, a first capture, or
+    /// a single hitch should not cost the session its capture rate, so a
+    /// sustained run of over-budget captures is required before backing off.
+    private val overBudgetRunToBackOff = 3
     private val maxBackoffLevel = 3
     private val maxEncodeBacklog = 4
     private var backoffLevel = 0
     private var backoffTicksRemaining = 0
+    private var overBudgetRun = 0
+
+    /// Frames the SDK chose not to capture, reported per session.
+    /// Dropping frames silently is how a degraded replay looks identical to a
+    /// healthy one in the data; these make the loss measurable instead.
+    val skippedFramesThrottle = java.util.concurrent.atomic.AtomicInteger(0)
+    val skippedFramesBacklog = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /// Sampling attempts, whether or not they produced an uploaded frame.
+    /// Capture cadence is a property of the SDK, not of the user, so it belongs
+    /// here rather than being inferred from how many frames got stored.
+    val framesCaptured = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /// Frames dropped because the screen had not changed at all.
+    val skippedFramesDuplicate = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /// Hash of the last stored frame, so an unchanged screen is not stored
+    /// again. Measured on real sessions, 93-98% of stored frames were byte
+    /// identical to one already uploaded -- one image appeared 53 times. The
+    /// player holds the last frame until the next one, so a duplicate renders
+    /// exactly the same as its absence while costing quota, storage, battery
+    /// and bandwidth. The hierarchy path has always deduplicated this way.
+    private var lastFrameHash: Int? = null
+    /// Frames skipped by the capture-when-idle heuristic while a map camera is
+    /// moving. Deliberate -- readback on moving map tiles stutters and those
+    /// frames are largely redundant -- but counted so the cost is measurable
+    /// rather than assumed.
+    val skippedFramesMapMoving = java.util.concurrent.atomic.AtomicInteger(0)
     private val pendingEncodes = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun noteCaptureCost(mainMs: Long) {
         if (mainMs > mainThreadBudgetMs) {
-            if (backoffLevel < maxBackoffLevel) {
+            overBudgetRun += 1
+            if (overBudgetRun >= overBudgetRunToBackOff && backoffLevel < maxBackoffLevel) {
                 backoffLevel += 1
-                DiagnosticLog.notice("[VisualCapture] Capture cost ${mainMs}ms > budget; backing off to every ${backoffLevel + 1}s")
+                overBudgetRun = 0
+                DiagnosticLog.notice("[VisualCapture] Capture cost ${mainMs}ms sustained over budget; backing off to every ${backoffLevel + 1}s")
             }
-        } else if (mainMs < mainThreadBudgetMs / 2 && backoffLevel > 0) {
-            backoffLevel -= 1
-            if (backoffLevel == 0) {
-                DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+        } else {
+            overBudgetRun = 0
+            // Any capture back inside the budget earns a step back toward full
+            // rate. Recovery used to need half the budget, which a screen that
+            // had just tripped the limit rarely reached.
+            if (backoffLevel > 0) {
+                backoffLevel -= 1
+                if (backoffLevel == 0) {
+                    DiagnosticLog.trace("[VisualCapture] Capture cost recovered; back to full rate")
+                }
             }
         }
         backoffTicksRemaining = backoffLevel
@@ -291,6 +347,8 @@ class VisualCapture private constructor(private val context: Context) {
             DiagnosticLog.trace("[VisualCapture] captureFrame #$currentFrameNum, state=${stateMachine.currentState}, activity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
         }
         
+        framesCaptured.incrementAndGet()
+
         if (stateMachine.currentState != CaptureState.CAPTURING) {
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - state=${stateMachine.currentState}")
             return
@@ -300,11 +358,13 @@ class VisualCapture private constructor(private val context: Context) {
             // Honor the adaptive back-off before doing any work at all.
             if (backoffTicksRemaining > 0) {
                 backoffTicksRemaining -= 1
+                skippedFramesThrottle.incrementAndGet()
                 return
             }
             // If JPEG encoding cannot keep up, capturing more pixels only grows
             // the backlog and memory; skip until it drains.
             if (pendingEncodes.get() > maxEncodeBacklog) {
+                skippedFramesBacklog.incrementAndGet()
                 DiagnosticLog.trace("[VisualCapture] SKIPPING frame (encode backlog ${pendingEncodes.get()})")
                 return
             }
@@ -325,6 +385,7 @@ class VisualCapture private constructor(private val context: Context) {
         // map tiles which causes visible stutter.  We resume capture at 1 FPS
         // once the map SDK reports idle.
         if (!force && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+            skippedFramesMapMoving.incrementAndGet()
             if (currentFrameNum < 3 || currentFrameNum % 30 == 0L) {
                 DiagnosticLog.trace("[VisualCapture] SKIPPING capture - map moving (mapIdle=false)")
             }
@@ -727,8 +788,19 @@ class VisualCapture private constructor(private val context: Context) {
         
                 // Store in buffer
                 stateLock.withLock {
-                    screenshots.add(Pair(data, captureTs))
-                    enforceScreenshotCaps()
+                    val frameHash = data.contentHashCode()
+                    // Skip only the append. Flushing must still be evaluated
+                    // below: on a screen that never changes, returning here
+                    // would leave the one stored frame sitting in the buffer
+                    // forever, because the batch can never fill and the
+                    // time-based flush never runs.
+                    if (frameHash == lastFrameHash) {
+                        skippedFramesDuplicate.incrementAndGet()
+                    } else {
+                        lastFrameHash = frameHash
+                        screenshots.add(Pair(data, captureTs))
+                        enforceScreenshotCaps()
+                    }
                     val count = screenshots.size
                     val shouldSend = force || count >= uploadBatchSize
                     // Time-based flush: if frames have been sitting for longer than one full

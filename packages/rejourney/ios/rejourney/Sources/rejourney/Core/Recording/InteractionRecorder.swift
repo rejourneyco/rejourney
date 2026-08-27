@@ -35,6 +35,19 @@ final class InteractionRecorder: NSObject {
         super.init()
     }
 
+    /// Applied from remote config. Before this was shared, the native SDK
+    /// hardcoded these and silently ignored whatever the server sent.
+    @objc func configureRageTapDetection(enabled: Bool, threshold: Int, timeWindowMs: Int, radius: CGFloat) {
+        let settings = RageTapSettings(
+            enabled: enabled,
+            threshold: max(1, threshold),
+            timeWindow: max(0.001, CFAbsoluteTime(timeWindowMs) / 1000.0),
+            radius: max(1, radius)
+        )
+        _rageTapSettings = settings
+        _gestureAggregator?.updateRageTapSettings(settings)
+    }
+
     @objc func activate() {
         guard !isTracking else { return }
         isTracking = true
@@ -55,17 +68,6 @@ final class InteractionRecorder: NSObject {
 
     @objc func latestInteractionTimestampMs() -> UInt64 {
         _lastInteractionTimestampMs
-    }
-
-    @objc func configureRageTapDetection(enabled: Bool, threshold: Int, timeWindowMs: Int, radius: CGFloat) {
-        let settings = RageTapSettings(
-            enabled: enabled,
-            threshold: max(1, threshold),
-            timeWindow: max(0.001, CFAbsoluteTime(timeWindowMs) / 1000),
-            radius: max(1, radius)
-        )
-        _rageTapSettings = settings
-        _gestureAggregator?.updateRageTapSettings(settings)
     }
 
     @objc func observeTextField(_ field: UITextField) {
@@ -213,6 +215,8 @@ final class InteractionRecorder: NSObject {
     }
 }
 
+/// Rage-tap tuning, remote-configurable. The 500ms window is the shared
+/// default across all three SDKs.
 fileprivate struct RageTapSettings {
     var enabled = true
     var threshold = 3
@@ -331,18 +335,11 @@ private final class GestureAggregator: NSObject {
                     return
                 }
 
-                let rageTapSettings = _rageTapSettings
-                guard rageTapSettings.enabled else {
-                    _recentTaps.removeAll()
-                    recorder?.reportTap(location: location, target: target, isInteractive: isInteractive)
-                    return
-                }
-
                 _recentTaps.append((location: location, time: now))
-                _pruneOldTaps(now: now, window: rageTapSettings.timeWindow)
+                _pruneOldTaps(now: now)
 
-                let nearby = _recentTaps.filter { $0.location.distance(to: location) < rageTapSettings.radius }
-                if nearby.count >= rageTapSettings.threshold {
+                let nearby = _recentTaps.filter { $0.location.distance(to: location) < _rageTapSettings.radius }
+                if _rageTapSettings.enabled && nearby.count >= _rageTapSettings.threshold {
                     recorder?.reportRageTap(location: location, count: nearby.count, target: target)
                     _recentTaps.removeAll()
                 } else {
@@ -362,8 +359,8 @@ private final class GestureAggregator: NSObject {
         }
     }
 
-    private func _pruneOldTaps(now: CFAbsoluteTime, window: CFAbsoluteTime) {
-        let cutoff = now - window
+    private func _pruneOldTaps(now: CFAbsoluteTime) {
+        let cutoff = now - _rageTapSettings.timeWindow
         _recentTaps.removeAll { $0.time < cutoff }
     }
 

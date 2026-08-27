@@ -1,4 +1,4 @@
-package co.rejourney.rejourney
+package com.rejourney
 
 import android.app.Activity
 import android.os.Handler

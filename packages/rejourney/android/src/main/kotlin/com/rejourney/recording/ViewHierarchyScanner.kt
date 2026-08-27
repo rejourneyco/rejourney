@@ -42,7 +42,16 @@ class ViewHierarchyScanner private constructor() {
             }
     }
 
-    var maxDepth: Int = 12
+    /// Depth cap for the serialized tree.
+    ///
+    /// This was 12, and measurement showed it doing the cutting rather than
+    /// protecting anything: across sampled production hierarchies 76% ended at
+    /// exactly 12 -- the signature of truncation, not of trees that happen to
+    /// be that deep -- while the 16ms time budget that is the real cost guard
+    /// never fired once. Modern React Native trees nest well past 12 through
+    /// wrapper views alone. The budget still bounds the work, and unlike this
+    /// cap it marks what it cut.
+    var maxDepth: Int = 24
     var includeTextContent: Boolean = true
     var includeVisualProperties: Boolean = true
 
@@ -89,14 +98,14 @@ class ViewHierarchyScanner private constructor() {
     private fun serializeView(view: View, depth: Int, startTime: Long, density: Float): Map<String, Any>? {
         if (depth > maxDepth) return null
         if (SystemClock.elapsedRealtime() - startTime > timeBudgetMs) {
-            return mapOf("type" to view.javaClass.simpleName, "bailout" to true)
+            return mapOf("type" to simpleNameOf(view), "bailout" to true)
         }
         if (depth > 0 && (!view.isShown || view.alpha <= 0.01f || view.width <= 0 || view.height <= 0)) {
             return null
         }
 
         val node = mutableMapOf<String, Any>()
-        node["type"] = view.javaClass.simpleName
+        node["type"] = simpleNameOf(view)
 
         val location = IntArray(2)
         view.getLocationInWindow(location)
@@ -123,7 +132,10 @@ class ViewHierarchyScanner private constructor() {
             }
         } catch (_: Exception) { }
 
-        if (isSensitive(view)) node["masked"] = true
+        // Resolved once: isSensitive does a resource-tag lookup and a string
+        // allocation, and it used to be asked twice for every view in the tree.
+        val sensitive = isSensitive(view)
+        if (sensitive) node["masked"] = true
 
         if (includeVisualProperties) {
             view.background?.let { bg ->
@@ -137,7 +149,6 @@ class ViewHierarchyScanner private constructor() {
             }
         }
 
-        val sensitive = isSensitive(view)
         if (includeTextContent) {
             when (view) {
                 is TextView -> {
@@ -187,6 +198,12 @@ class ViewHierarchyScanner private constructor() {
 
         // Process children
         if (view is ViewGroup) {
+            if (depth >= maxDepth && view.childCount > 0) {
+                // Say so rather than silently presenting a leaf. Budget
+                // exhaustion already marks itself; depth truncation did not,
+                // which is why it went unnoticed.
+                node["truncated"] = true
+            }
             val children = mutableListOf<Map<String, Any>>()
             for (i in 0 until view.childCount) {
                 val child = view.getChildAt(i)
@@ -211,7 +228,14 @@ class ViewHierarchyScanner private constructor() {
             // Check for React Native accessibility hint tag
             val hint = optionalResourceTag(view, "accessibility_hint", "com.facebook.react") as? String
             if (hint == "rejourney_occlude") return true
-        } catch (_: Exception) { }
+        } catch (_: Exception) {
+            // Fail closed. This lookup is how a caller marks a view for
+            // occlusion through React Native's accessibility hint, so a failure
+            // here means we cannot tell whether they asked for it. Swallowing
+            // the error and continuing would answer "not sensitive" and put the
+            // content in the replay -- the wrong direction for a privacy check.
+            return true
+        }
 
         if (view is EditText) {
             val inputType = view.inputType
@@ -228,14 +252,31 @@ class ViewHierarchyScanner private constructor() {
     }
 
     private fun isTextInputClass(view: View): Boolean {
-        val className = view.javaClass.simpleName
+        val className = simpleNameOf(view)
         return className == "ReactEditText" ||
             className == "RCTEditText" ||
             className.contains("TextInput", ignoreCase = true)
     }
 
+    /// Resource ids are fixed for the life of the process, but getIdentifier
+    /// resolves them by string every call. This runs per view per scan, and on
+    /// an app without React on the classpath every one of those lookups fails,
+    /// so the misses are cached as absent too.
+    private val resourceIdCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /// Class.getSimpleName() derives the name from the binary name and allocates
+    /// on each call, and this is asked two or three times per view on every scan
+    /// of the whole tree. An app has a small, fixed set of view classes, so the
+    /// cache stays tiny and never needs eviction.
+    private val simpleNameCache = java.util.concurrent.ConcurrentHashMap<Class<*>, String>()
+
+    private fun simpleNameOf(view: View): String =
+        simpleNameCache.getOrPut(view.javaClass) { view.javaClass.simpleName }
+
     private fun optionalResourceTag(view: View, name: String, packageName: String): Any? {
-        val identifier = view.resources.getIdentifier(name, "id", packageName)
+        val identifier = resourceIdCache.getOrPut("$packageName:$name") {
+            view.resources.getIdentifier(name, "id", packageName)
+        }
         return if (identifier == 0) null else view.getTag(identifier)
     }
 

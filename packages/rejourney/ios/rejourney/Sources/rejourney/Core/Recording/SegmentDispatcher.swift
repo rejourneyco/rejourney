@@ -50,11 +50,18 @@ final class SegmentDispatcher {
     private let httpSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.httpMaximumConnectionsPerHost = 4
-        // Persist failed work for retry instead of keeping stop() blocked while
-        // an offline device waits for connectivity.
+        // Offline uploads must fail rather than wait. With waitsForConnectivity
+        // the request parks in memory until connectivity returns, so it never
+        // errors, never reaches the on-disk retry queue, and is lost outright if
+        // the process is killed first. Failing fast persists the segment instead.
         cfg.waitsForConnectivity = false
-        cfg.timeoutIntervalForRequest = 8
-        cfg.timeoutIntervalForResource = 12
+        // Inactivity timeout: long enough for a slow link to keep making
+        // progress, short enough to give up on a dead one.
+        cfg.timeoutIntervalForRequest = 15
+        // Whole-transfer ceiling. Kept generous so a large segment on a slow
+        // connection still completes; in-flight uploads no longer hold stop(),
+        // so this does not delay teardown.
+        cfg.timeoutIntervalForResource = 60
         // Strip our own protocol to prevent self-interception. Without this,
         // every SDK upload is intercepted by RejourneyURLProtocol which
         // generates redundant network events and wastes resources.

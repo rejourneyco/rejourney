@@ -32,6 +32,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # The recording core is one source in packages/core, vendored into each
+      # SDK because npm and pub archives cannot reach outside their own package
+      # root. This is what stops the copies forking again.
+      - name: Verify the shared SDK core has not drifted
+        run: node scripts/sync-sdk-core.mjs --check
+
       - name: TypeScript check
         working-directory: ./packages/react-native
         run: npm run typescript

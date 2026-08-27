@@ -348,6 +348,11 @@ class SegmentDispatcher private constructor() {
 
         scope.launch {
             try {
+                // Every response here goes through use{}, which closes the body.
+                // Reading only response.code closes nothing, and an unclosed body
+                // holds its connection until the pool evicts it -- OkHttp reports
+                // those as leaked connections. use{} is inline over try/finally,
+                // so the non-local returns further down still close the response.
                 httpClient.newCall(request).execute().use { response ->
                     completion(response.code == 200)
                 }

@@ -36,7 +36,7 @@ internal class RetainedCapturePolicyTest {
     @Test
     fun explicitVisualChangeCanCaptureSoonerThanHeartbeat() {
         assertEquals(
-            1_000L,
+            0L,
             RetainedCapturePolicy.remainingDelayMs(
                 nowMs = 14_000L,
                 lastCaptureStartedAtMs = 10_000L,
@@ -48,12 +48,45 @@ internal class RetainedCapturePolicyTest {
 
     @Test
     fun explicitVisualChangeWaitsForUiToSettle() {
+        // Capture ran 1.4s ago (interval leaves 100ms) but the UI changed just
+        // now, so the 600ms settle window is the binding constraint.
         assertEquals(
-            2_000L,
+            600L,
             RetainedCapturePolicy.remainingDelayMs(
-                nowMs = 20_500L,
-                lastCaptureStartedAtMs = 10_000L,
+                nowMs = 20_000L,
+                lastCaptureStartedAtMs = 18_600L,
                 lastVisualChangeAtMs = 20_000L,
+                explicitVisualChange = true
+            )
+        )
+    }
+
+    @Test
+    fun continuousInteractionDoesNotStarveCapture() {
+        // A change landed 1ms ago and they keep coming, so the settle window
+        // would defer forever. Past MAX_SETTLE_DEFERRAL_MS since the last
+        // capture, capture goes ahead anyway.
+        assertEquals(
+            0L,
+            RetainedCapturePolicy.remainingDelayMs(
+                nowMs = 20_000L,
+                lastCaptureStartedAtMs = 16_000L,
+                lastVisualChangeAtMs = 19_999L,
+                explicitVisualChange = true
+            )
+        )
+    }
+
+    @Test
+    fun minimumIntervalStillFloorsCaptureRate() {
+        // Capture ran 500ms ago, so the 1.5s interval governs and outweighs the
+        // shorter settle window -- pacing is never faster than the interval.
+        assertEquals(
+            1_000L,
+            RetainedCapturePolicy.remainingDelayMs(
+                nowMs = 20_000L,
+                lastCaptureStartedAtMs = 19_500L,
+                lastVisualChangeAtMs = 19_999L,
                 explicitVisualChange = true
             )
         )

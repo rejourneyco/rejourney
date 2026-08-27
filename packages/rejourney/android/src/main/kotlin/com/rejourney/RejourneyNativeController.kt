@@ -1,4 +1,4 @@
-package co.rejourney.rejourney
+package com.rejourney
 
 import android.app.Activity
 import android.app.Application
@@ -8,7 +8,6 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import com.rejourney.RejourneySdkInfo
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.platform.SessionLifecycleService
@@ -611,7 +610,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.3.2"
+        const val SDK_VERSION = "0.4.0"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

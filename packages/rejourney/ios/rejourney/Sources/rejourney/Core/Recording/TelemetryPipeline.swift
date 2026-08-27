@@ -49,6 +49,8 @@ final class TelemetryPipeline: NSObject {
         didSet { SegmentDispatcher.shared.isSampledIn = isSampledIn }
     }
 
+    /// Remote-config privacy control. When off, batches carry only the
+    /// timestamp and no hardware, OS, vendor or network identifiers.
     var collectDeviceInfo: Bool = true
 
     private let _eventRing = EventRingBuffer(capacity: 5000)
@@ -123,6 +125,11 @@ final class TelemetryPipeline: NSObject {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // A run loop keeps a strong reference to a scheduled timer, so
+            // dropping the last reference does not stop it. Re-activating for a
+            // new session without invalidating first would leave the previous
+            // heartbeat firing dispatchNow() for the rest of the process.
+            self._heartbeat?.invalidate()
             // Industry standard: Use default run loop mode (NOT .common)
             // This lets the timer pause during scrolling which prevents stutter
             self._heartbeat = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -593,6 +600,10 @@ final class TelemetryPipeline: NSObject {
         ])
     }
 
+    /// The trailing fields are optional because only some hosts supply them:
+    /// React Native and Flutter forward the framework's own error metadata,
+    /// while a native call site has just the three basics. Not @objc -- every
+    /// caller is Swift, and defaulted arguments would not survive the bridge.
     func recordJSErrorEvent(
         name: String,
         message: String,

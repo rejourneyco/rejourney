@@ -1,3 +1,48 @@
+## 0.5.0
+
+- Identical screenshots are no longer stored. On measured sessions 93-98% of
+  uploaded frames were byte-identical to one already sent, one image appearing
+  53 times. The player holds the last frame until the next, so a duplicate
+  rendered exactly the same as its absence while consuming replay quota,
+  storage, battery and bandwidth.
+- Screenshot capture now throttles only on a sustained severe stall. The bar
+  was one capture over 34ms, which an ordinary screen crosses; recovery
+  required half that, which it rarely reached, so sessions sat at the 4x
+  interval for 92-98% of their captures. It is now three consecutive captures
+  over 150ms, and any capture back inside budget steps the rate back up.
+- View hierarchies are captured to 24 levels rather than 12. Sampled sessions
+  showed 76% of trees ending at exactly 12 -- truncation, not depth -- while
+  the 16ms scan budget that bounds the cost never fired. Trees cut by the depth
+  limit now say so, as budget-exhausted ones already did.
+- The recording core is now one shared source with the React Native and Flutter
+  SDKs rather than a per-SDK copy, so a fix lands on every platform at once.
+  CI fails if a vendored copy is edited instead of the original.
+- Rage-tap detection now honours remote configuration. Its threshold, window
+  and radius were hardcoded, so server-side settings were silently ignored.
+  The shared default window is 500ms, where this SDK previously used 1.0s.
+- Added the `collectDeviceInfo` privacy control, which omits hardware, OS,
+  vendor and network identifiers from telemetry batches when disabled.
+- Fixed white boxes drawn over map annotations. Both view scans descended into
+  map views and produced redaction rects for annotation subviews, which a map
+  SDK lays out in its own coordinate space with anchors that are not the view's
+  frame origin, so the rect landed beside what it meant to cover. The
+  sensitive-view pass holds a reference and recomputes the rect every frame, so
+  the stray box tracked the pin while panning. Neither scan descends into a map
+  now; `rejourney_occlude` still hides one on request.
+- Fixed a leaked heartbeat timer: starting a new session scheduled another
+  5-second timer without invalidating the previous one. A run loop retains a
+  scheduled timer, so the old one kept uploading for the life of the process.
+- Uploads no longer wait for connectivity inside URLSession. An offline request
+  now fails and is persisted to the on-disk retry queue instead of parking in
+  memory, where it was lost if the process was killed.
+
+- Sessions now report capture accounting in their end-of-session metrics:
+  `framesCaptured`, `framesSkippedDuplicate`, `framesSkippedThrottle`,
+  `framesSkippedBacklog` and `framesSkippedMapMoving`. Frame loss was previously
+  invisible -- a session that dropped most of its frames looked identical in the
+  data to a complete one. Note the ingest metrics schema must accept these keys
+  before they are persisted; until then they are sent and discarded.
+
 ## 0.4.1
 
 - Never block the main thread when the app backgrounds: the upload retry drain
