@@ -124,7 +124,6 @@ npm run ci:local
 That flow:
 
 - updates `.env.k8s.local` and the example app URLs with the current LAN IP
-- checks local-vs-prod worker manifest parity, including the ingest/replay split
 - runs the schema/migration guard
 - runs backend lint, unit tests, billing tests, and billing-specific ESLint
 - runs web typecheck and build

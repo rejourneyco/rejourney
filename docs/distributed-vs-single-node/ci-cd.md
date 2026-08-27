@@ -32,14 +32,11 @@ The production app pipeline is the `Rejourney CI` workflow.
 
 | Job | Runs | What it checks |
 | --- | --- | --- |
-| `backend` | PRs and pushes | Backend install, worker parity, schema/migration guard, lint, full tests, billing tests, billing ESLint |
+| `backend` | PRs and pushes | Backend install, schema/migration guard, lint, full tests, billing tests, billing ESLint |
 | `web` | PRs and pushes | Root install, dashboard typecheck, dashboard SSR build |
 | `k8s-config` | PRs and pushes | Storage cutover validation and secret-hygiene scanning |
 
-The backend guard runs:
-
-- `scripts/check-worker-parity.mjs`
-- `scripts/check-schema-migration.sh`
+The backend guard runs `scripts/check-schema-migration.sh`. Worker-manifest parity is checked in the private infrastructure repository, which owns the production manifests.
 
 The Kubernetes/config guard runs:
 
@@ -230,7 +227,7 @@ These call `scripts/local-k8s/rejourney-ci.sh`.
 | `npm run ci:local:checks` | Validation checks only |
 | `npm run ci:local:deploy` | Rebuild/import/deploy local images without rerunning validation |
 
-The local parity runner uses the production-style migration path, not a schema push shortcut. It also runs the worker parity and schema migration guards before local deployment.
+The local parity runner uses the production-style migration path, not a schema push shortcut. It runs the schema migration guard before local deployment.
 
 ---
 

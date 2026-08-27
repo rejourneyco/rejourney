@@ -43,6 +43,11 @@ extension AppEnvironment {
                             Label("Media", systemImage: "photo.on.rectangle.angled")
                         }
 
+                    StressTestView()
+                        .tabItem {
+                            Label("Stress", systemImage: "speedometer")
+                        }
+
                     NestedVideoTestView()
                         .tabItem {
                             Label("Nested Video", systemImage: "play.rectangle.on.rectangle")
