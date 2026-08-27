@@ -153,6 +153,9 @@ jobs:
   ios:
     name: iOS plugin and example
     runs-on: macos-15
+    # The simulator integration step can hang instead of failing, and without a
+    # cap it sits until the 6-hour job limit before anyone finds out.
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: packages/rejourney/example
