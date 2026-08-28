@@ -43,6 +43,10 @@ export function normalizeSessionEndReason(value: unknown): string {
     return normalizeEndReason(value) ?? 'legacy';
 }
 
+function enumValue(value: unknown, allowed: readonly string[]): string | undefined {
+    return typeof value === 'string' && allowed.includes(value) ? value : undefined;
+}
+
 export function calculateSessionDurationBreakdown(
     startedAt: Date,
     endedAtInput: unknown,
@@ -91,6 +95,62 @@ export function buildSessionEndMetricsMergeSet(
     if (apiErrorCount !== undefined) updates.apiErrorCount = apiErrorCount;
     const apiTotalCount = toNonNegativeInt(metrics.apiTotalCount);
     if (apiTotalCount !== undefined) updates.apiTotalCount = apiTotalCount;
+    const framesCaptured = toNonNegativeInt(metrics.framesCaptured);
+    if (framesCaptured !== undefined) updates.framesCaptured = framesCaptured;
+    const framesSkippedDuplicate = toNonNegativeInt(metrics.framesSkippedDuplicate);
+    if (framesSkippedDuplicate !== undefined) updates.framesSkippedDuplicate = framesSkippedDuplicate;
+    const framesSkippedThrottle = toNonNegativeInt(metrics.framesSkippedThrottle);
+    if (framesSkippedThrottle !== undefined) updates.framesSkippedThrottle = framesSkippedThrottle;
+    const framesSkippedBacklog = toNonNegativeInt(metrics.framesSkippedBacklog);
+    if (framesSkippedBacklog !== undefined) updates.framesSkippedBacklog = framesSkippedBacklog;
+    const framesSkippedMapMoving = toNonNegativeInt(metrics.framesSkippedMapMoving);
+    if (framesSkippedMapMoving !== undefined) updates.framesSkippedMapMoving = framesSkippedMapMoving;
+
+    const thermalStates = ['nominal', 'fair', 'serious', 'critical', 'unknown'] as const;
+    for (const key of ['thermalStateStart', 'thermalStatePeak', 'thermalStateEnd'] as const) {
+        const value = enumValue(metrics[key], thermalStates);
+        if (value !== undefined) updates[key] = value;
+    }
+    const thermalThrottledDurationMs = toNonNegativeInt(metrics.thermalThrottledDurationMs);
+    if (thermalThrottledDurationMs !== undefined) updates.thermalThrottledDurationMs = thermalThrottledDurationMs;
+    const memoryPressurePeak = enumValue(metrics.memoryPressurePeak, ['normal', 'warning', 'critical']);
+    if (memoryPressurePeak !== undefined) updates.memoryPressurePeak = memoryPressurePeak;
+    const memoryPressureEventCount = toNonNegativeInt(metrics.memoryPressureEventCount);
+    if (memoryPressureEventCount !== undefined) updates.memoryPressureEventCount = memoryPressureEventCount;
+    for (const key of ['memoryHeadroomMbBucketStart', 'memoryHeadroomMbBucketMin', 'memoryHeadroomMbBucketEnd'] as const) {
+        const value = toNonNegativeInt(metrics[key]);
+        if (value !== undefined && value <= 8192) updates[key] = value;
+    }
+    const fontScaleBucket = enumValue(metrics.fontScaleBucket, ['compact', 'standard', 'large', 'accessibility']);
+    if (fontScaleBucket !== undefined) updates.fontScaleBucket = fontScaleBucket;
+    const uiStyle = enumValue(metrics.uiStyle, ['light', 'dark', 'unspecified']);
+    if (uiStyle !== undefined) updates.uiStyle = uiStyle;
+    const layoutDirection = enumValue(metrics.layoutDirection, ['ltr', 'rtl']);
+    if (layoutDirection !== undefined) updates.layoutDirection = layoutDirection;
+    for (const key of ['orientationStart', 'orientationEnd'] as const) {
+        const value = enumValue(metrics[key], ['portrait', 'landscape', 'unknown']);
+        if (value !== undefined) updates[key] = value;
+    }
+    const orientationChangeCount = toNonNegativeInt(metrics.orientationChangeCount);
+    if (orientationChangeCount !== undefined) updates.orientationChangeCount = orientationChangeCount;
+    const displayMaxRefreshRateHz = toNonNegativeInt(metrics.displayMaxRefreshRateHz);
+    if (displayMaxRefreshRateHz !== undefined && displayMaxRefreshRateHz > 0 && displayMaxRefreshRateHz <= 1000) {
+        updates.displayMaxRefreshRateHz = displayMaxRefreshRateHz;
+    }
+    for (const key of ['batteryLevelStartPercent', 'batteryLevelEndPercent'] as const) {
+        const value = toNonNegativeInt(metrics[key]);
+        if (value !== undefined && value <= 100) updates[key] = value;
+    }
+    const batteryDeltaPercent = toFiniteNumber(metrics.batteryDeltaPercent);
+    if (batteryDeltaPercent !== undefined && Number.isInteger(batteryDeltaPercent) && batteryDeltaPercent >= -100 && batteryDeltaPercent <= 100) {
+        updates.batteryDeltaPercent = batteryDeltaPercent;
+    }
+    for (const key of ['batteryStateStart', 'batteryStateEnd'] as const) {
+        const value = enumValue(metrics[key], ['charging', 'full', 'unplugged', 'unknown']);
+        if (value !== undefined) updates[key] = value;
+    }
+    if (typeof metrics.chargingStateChanged === 'boolean') updates.chargingStateChanged = metrics.chargingStateChanged;
+    if (typeof metrics.lowPowerModeObserved === 'boolean') updates.lowPowerModeObserved = metrics.lowPowerModeObserved;
     if (Array.isArray(metrics.screensVisited)) {
         updates.screensVisited = metrics.screensVisited;
     }
@@ -131,6 +191,11 @@ export function summarizeSessionEndMetrics(
         crashCount: toNonNegativeInt(metrics.crashCount),
         anrCount: toNonNegativeInt(metrics.anrCount),
         apiTotalCount: toNonNegativeInt(metrics.apiTotalCount),
+        framesCaptured: toNonNegativeInt(metrics.framesCaptured),
+        framesSkippedDuplicate: toNonNegativeInt(metrics.framesSkippedDuplicate),
+        framesSkippedThrottle: toNonNegativeInt(metrics.framesSkippedThrottle),
+        framesSkippedBacklog: toNonNegativeInt(metrics.framesSkippedBacklog),
+        framesSkippedMapMoving: toNonNegativeInt(metrics.framesSkippedMapMoving),
     }).filter(([, value]) => value !== undefined) as Array<[string, number]>;
 
     return Object.fromEntries(summaryEntries);

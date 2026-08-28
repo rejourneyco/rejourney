@@ -17,6 +17,26 @@
 import Foundation
 import MachO
 
+@_silgen_name("rj_install_signal_handler")
+private func rjInstallSignalHandler(_ path: UnsafePointer<CChar>) -> Int32
+
+@_silgen_name("rj_uninstall_signal_handler")
+private func rjUninstallSignalHandler()
+
+private typealias RJExceptionCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
+
+@_silgen_name("rj_install_exception_handler")
+private func rjInstallExceptionHandler(_ callback: RJExceptionCallback)
+
+@_silgen_name("rj_uninstall_exception_handler")
+private func rjUninstallExceptionHandler()
+
+private func rjCaptureUncaughtException(_ opaque: UnsafeMutableRawPointer?) {
+    guard let opaque else { return }
+    let exception = Unmanaged<NSException>.fromOpaque(opaque).takeUnretainedValue()
+    StabilityMonitor.shared.captureUncaughtException(exception)
+}
+
 struct IncidentRecord: Codable {
     let incidentId: String
     let sessionId: String
@@ -61,61 +81,47 @@ struct IncidentRecord: Codable {
     }
 }
 
-private func _rjSignalHandler(_ signum: Int32) {
-    let name: String
-    switch signum {
-    case SIGABRT: name = "SIGABRT"
-    case SIGBUS:  name = "SIGBUS"
-    case SIGFPE:  name = "SIGFPE"
-    case SIGILL:  name = "SIGILL"
-    case SIGSEGV: name = "SIGSEGV"
-    case SIGTRAP: name = "SIGTRAP"
-    default:      name = "SIG\(signum)"
-    }
-
-    let incident = IncidentRecord(
-        sessionId: StabilityMonitor.shared.currentSessionId ?? "unknown",
-        timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
-        category: "signal",
-        identifier: name,
-        detail: "Signal \(signum) received",
-        frames: Thread.callStackSymbols.map { $0.trimmingCharacters(in: .whitespaces) },
-        context: [
-            "threadName": Thread.current.name ?? "unnamed",
-            "isMain": Thread.isMainThread ? "true" : "false",
-            "priority": String(format: "%.2f", Thread.current.threadPriority)
-        ]
-    )
-
-    ReplayOrchestrator.shared.incrementFaultTally()
-    StabilityMonitor.shared.persistIncidentSync(incident)
-
-    // Flush visual frames to disk for crash safety
-    VisualCapture.shared.flushToDisk()
-
-    signal(signum, SIG_DFL)
-    raise(signum)
-}
-
 @objc(RJNativeStabilityMonitor)
 final class StabilityMonitor: NSObject {
 
     @objc static let shared = StabilityMonitor()
     @objc var isMonitoring = false
-    @objc var currentSessionId: String?
+    @objc var currentSessionId: String? {
+        didSet {
+            guard let currentSessionId, !currentSessionId.isEmpty else { return }
+            try? Data(currentSessionId.utf8).write(to: _sessionContextStore, options: .atomic)
+        }
+    }
 
     private let _incidentStore: URL
+    private let _signalMarkerStore: URL
+    private let _sessionContextStore: URL
+    private let _previousSessionId: String?
     private let _incidentStoreLock = NSLock()
     private let _workerQueue = DispatchQueue(label: "co.rejourney.stability", qos: .utility)
     private var _uploadInFlight = false
 
-    private static var _chainedExceptionHandler: NSUncaughtExceptionHandler?
-    private static var _chainedSignalHandlers: [Int32: sig_t] = [:]
-    private static let _trackedSignals: [Int32] = [SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP]
-
     private override init() {
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        _incidentStore = cache.appendingPathComponent("rj_incidents.json")
+        let supportBase = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!.appendingPathComponent("Rejourney", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: supportBase,
+            withIntermediateDirectories: true
+        )
+        _incidentStore = supportBase.appendingPathComponent("rj_incidents.json")
+        _signalMarkerStore = supportBase.appendingPathComponent("rj_signal.marker")
+        _sessionContextStore = supportBase.appendingPathComponent("rj_last_session.txt")
+        _previousSessionId = (try? String(contentsOf: _sessionContextStore, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let legacy = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("rj_incidents.json"),
+           FileManager.default.fileExists(atPath: legacy.path),
+           !FileManager.default.fileExists(atPath: _incidentStore.path) {
+            try? FileManager.default.moveItem(at: legacy, to: _incidentStore)
+        }
         super.init()
     }
 
@@ -123,14 +129,13 @@ final class StabilityMonitor: NSObject {
         guard !isMonitoring else { return }
         isMonitoring = true
 
-        StabilityMonitor._chainedExceptionHandler = NSGetUncaughtExceptionHandler()
-        NSSetUncaughtExceptionHandler { ex in
-            StabilityMonitor.shared._captureException(ex)
-            StabilityMonitor._chainedExceptionHandler?(ex)
-        }
+        rjInstallExceptionHandler(rjCaptureUncaughtException)
 
-        for sig in StabilityMonitor._trackedSignals {
-            StabilityMonitor._chainedSignalHandlers[sig] = signal(sig, _rjSignalHandler)
+        _processSignalMarker()
+        _signalMarkerStore.path.withCString { path in
+            if rjInstallSignalHandler(path) != 0 {
+                DiagnosticLog.fault("[StabilityMonitor] Failed to install safe signal marker")
+            }
         }
 
         _workerQueue.async { [weak self] in
@@ -142,17 +147,8 @@ final class StabilityMonitor: NSObject {
         guard isMonitoring else { return }
         isMonitoring = false
 
-        NSSetUncaughtExceptionHandler(nil)
-        StabilityMonitor._chainedExceptionHandler = nil
-
-        for sig in StabilityMonitor._trackedSignals {
-            if let prev = StabilityMonitor._chainedSignalHandlers[sig] {
-                signal(sig, prev)
-            } else {
-                signal(sig, SIG_DFL)
-            }
-        }
-        StabilityMonitor._chainedSignalHandlers.removeAll()
+        rjUninstallExceptionHandler()
+        rjUninstallSignalHandler()
     }
 
     @objc func transmitStoredReport() {
@@ -176,9 +172,58 @@ final class StabilityMonitor: NSObject {
         _persistIncident(incident)
 
         // Flush visual frames to disk for crash safety
-        VisualCapture.shared.flushToDisk()
+        VisualCapture.shared.flushToDiskForCrash()
 
-        Thread.sleep(forTimeInterval: 0.15)
+    }
+
+    fileprivate func captureUncaughtException(_ exception: NSException) {
+        _captureException(exception)
+    }
+
+    private func _processSignalMarker() {
+        guard let marker = try? Data(contentsOf: _signalMarkerStore), marker.count >= 8 else {
+            return
+        }
+        let bytes = [UInt8](marker.prefix(8))
+        guard bytes[0] == 0x52, bytes[1] == 0x4A, bytes[2] == 0x53, bytes[3] == 0x31 else {
+            try? FileManager.default.removeItem(at: _signalMarkerStore)
+            return
+        }
+        let signalNumber = Int32(bitPattern:
+            UInt32(bytes[4]) |
+            (UInt32(bytes[5]) << 8) |
+            (UInt32(bytes[6]) << 16) |
+            (UInt32(bytes[7]) << 24)
+        )
+        let signalName: String
+        switch signalNumber {
+        case SIGABRT: signalName = "SIGABRT"
+        case SIGBUS: signalName = "SIGBUS"
+        case SIGFPE: signalName = "SIGFPE"
+        case SIGILL: signalName = "SIGILL"
+        case SIGSEGV: signalName = "SIGSEGV"
+        case SIGTRAP: signalName = "SIGTRAP"
+        default: signalName = "SIG\(signalNumber)"
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: _signalMarkerStore.path)
+        let modified = attributes?[.modificationDate] as? Date ?? Date()
+        let sessionId = (_previousSessionId?.isEmpty == false ? _previousSessionId : nil)
+            ?? "historical_signal_\(UInt64(modified.timeIntervalSince1970 * 1000))"
+        let incident = IncidentRecord(
+            sessionId: sessionId,
+            timestampMs: UInt64(max(0, modified.timeIntervalSince1970 * 1000)),
+            category: "signal",
+            identifier: signalName,
+            detail: "Fatal signal \(signalNumber) recorded by async-signal-safe marker",
+            frames: [],
+            context: [
+                "source": "async_signal_safe_marker",
+                "signalNumber": "\(signalNumber)",
+                "framesAvailable": "false"
+            ]
+        )
+        persistIncidentSync(incident)
+        try? FileManager.default.removeItem(at: _signalMarkerStore)
     }
 
     func persistIncidentSync(_ incident: IncidentRecord) {
@@ -309,6 +354,7 @@ final class StabilityMonitor: NSObject {
         }
 
         var req = URLRequest(url: url)
+        req.timeoutInterval = 10
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

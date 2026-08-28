@@ -1,3 +1,20 @@
+## 0.4.1
+
+- Add permissionless, callback-driven battery start/end, thermal, memory
+  pressure/headroom, UI environment, orientation, and display refresh context,
+  with no new Android manifest permission or iOS usage-description key.
+- Keep capture-when-idle map behavior while replacing synchronous Android
+  Mapbox snapshots with one asynchronous snapshot per settled camera epoch and
+  hardening nested-wrapper, map-bounds touch, stalled-callback, fling-settle,
+  and iOS delegate cleanup behavior.
+- Add Beta `Rejourney.pause()` / `resume()` on Dart, Android, and iOS, with
+  paired timeline gap markers and no manifest or Info.plist additions.
+- Capture uncaught current-isolate Dart errors in addition to Flutter framework
+  and platform-dispatcher errors, while preserving handlers installed later.
+- Recover Android 11+ system-classified ANRs and crashes, use an
+  async-signal-safe next-launch marker on iOS, and retain pending fault records
+  outside purgeable caches.
+
 ## 0.4.0
 
 - Identical screenshots are no longer stored. On measured sessions 93-98% of

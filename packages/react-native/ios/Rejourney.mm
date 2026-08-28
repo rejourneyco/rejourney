@@ -165,6 +165,26 @@ RCT_EXPORT_METHOD(stopSession : (RCTPromiseResolveBlock)
   [impl stopSession:resolve reject:reject];
 }
 
+RCT_EXPORT_METHOD(pauseSession : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve(@{ @"success" : @NO });
+    return;
+  }
+  [impl pauseSession:resolve reject:reject];
+}
+
+RCT_EXPORT_METHOD(resumeSession : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve(@{ @"success" : @NO });
+    return;
+  }
+  [impl resumeSession:resolve reject:reject];
+}
+
 RCT_EXPORT_METHOD(getSessionId : (RCTPromiseResolveBlock)
                       resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];

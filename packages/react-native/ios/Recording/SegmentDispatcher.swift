@@ -20,16 +20,50 @@ final class SegmentDispatcher {
 
     static let shared = SegmentDispatcher()
 
-    var endpoint: String = "https://api.rejourney.co"
-    var currentReplayId: String?
-    var apiToken: String?
-    var credential: String?
-    var projectId: String?
-    var isSampledIn: Bool = true  // SDK's sampling decision for server-side enforcement
+    private let stateLock = NSLock()
+    private var _endpoint: String = "https://api.rejourney.co"
+    private var _currentReplayId: String?
+    private var _apiToken: String?
+    private var _credential: String?
+    private var _projectId: String?
+    private var _isSampledIn: Bool = true
+    private var _collectGeoLocation: Bool = true
+    private var _observeOnly: Bool = false
+
+    var endpoint: String {
+        get { withState { _endpoint } }
+        set { withState { _endpoint = newValue } }
+    }
+    var currentReplayId: String? {
+        get { withState { _currentReplayId } }
+        set { withState { _currentReplayId = newValue } }
+    }
+    var apiToken: String? {
+        get { withState { _apiToken } }
+        set { withState { _apiToken = newValue } }
+    }
+    var credential: String? {
+        get { withState { _credential } }
+        set { withState { _credential = newValue } }
+    }
+    var projectId: String? {
+        get { withState { _projectId } }
+        set { withState { _projectId = newValue } }
+    }
+    var isSampledIn: Bool {
+        get { withState { _isSampledIn } }
+        set { withState { _isSampledIn = newValue } }
+    }
     /** When false, the backend is instructed to skip IP geolocation lookup for this session */
-    var collectGeoLocation: Bool = true
+    var collectGeoLocation: Bool {
+        get { withState { _collectGeoLocation } }
+        set { withState { _collectGeoLocation = newValue } }
+    }
     /** When true, signals the backend that no visual artifacts will ever arrive for this session */
-    var observeOnly: Bool = false
+    var observeOnly: Bool {
+        get { withState { _observeOnly } }
+        set { withState { _observeOnly = newValue } }
+    }
 
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -38,6 +72,13 @@ final class SegmentDispatcher {
     private var circuitOpenTime: TimeInterval = 0
     private let circuitBreakerThreshold = 5
     private let circuitResetTime: TimeInterval = 60
+
+    @discardableResult
+    private func withState<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
+    }
 
     private let workerQueue: OperationQueue = {
         let q = OperationQueue()
@@ -65,14 +106,27 @@ final class SegmentDispatcher {
         // Strip our own protocol to prevent self-interception. Without this,
         // every SDK upload is intercepted by RejourneyURLProtocol which
         // generates redundant network events and wastes resources.
-        cfg.protocolClasses = cfg.protocolClasses?.filter { $0 != RejourneyURLProtocol.self } ?? []
+        if let protocolClasses = cfg.protocolClasses {
+            cfg.protocolClasses = protocolClasses.filter { $0 != RejourneyURLProtocol.self }
+        }
         return URLSession(configuration: cfg)
     }()
 
     private var retryQueue: [PendingUpload] = []
     private let retryLock = NSLock()
-    private let maxRetryQueueSize = 20
+    // A single changed screen can produce both a screenshot bundle and a
+    // hierarchy artifact. Twenty entries was small enough to discard useful
+    // replay data during an ordinary one-minute outage, especially while the
+    // circuit breaker was open. Keep this bounded, but large enough for the
+    // documented offline/relaunch matrix to preserve a realistic session.
+    private let maxRetryQueueSize = 64
+    private let maxPersistedRetryBytes: Int64 = 32 * 1024 * 1024
     private var active = true
+    private let retryDirectoryURL: URL?
+    private let persistenceLock = NSLock()
+    private var persistedUploadKeys: Set<String> = []
+    private var persistedUploadSizes: [String: Int64] = [:]
+    private var persistedUploadBytes: Int64 = 0
 
     // Tracks in-flight upload chains so the shutdown drain can wait for real completion.
     private let _uploadGroup = DispatchGroup()
@@ -93,39 +147,42 @@ final class SegmentDispatcher {
     private var lastUploadTime: Int64?
     private var lastRetryTime: Int64?
 
-    private init() {}
+    private init() {
+        retryDirectoryURL = Self.makeRetryDirectory()
+        loadPersistedRetries()
+    }
 
     func configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Bool = true) {
-        currentReplayId = replayId
-        self.apiToken = apiToken
-        self.credential = credential
-        self.projectId = projectId
-        self.isSampledIn = isSampledIn
-        batchSeqNumber = 0
-        billingBlocked = false
-        consecutiveFailures = 0
-        circuitOpen = false
-        circuitOpenTime = 0
-        active = true
-        retryLock.lock()
-        let droppedRetries = retryQueue.count
-        retryQueue.removeAll()
-        retryLock.unlock()
-        if droppedRetries > 0 {
-            DiagnosticLog.trace("[SegmentDispatcher] Dropped \(droppedRetries) stale retries while configuring session \(replayId.prefix(20))")
+        withState {
+            _currentReplayId = replayId
+            _apiToken = apiToken
+            _credential = credential
+            _projectId = projectId
+            _isSampledIn = isSampledIn
+            batchSeqNumber = 0
+            billingBlocked = false
+            consecutiveFailures = 0
+            circuitOpen = false
+            circuitOpenTime = 0
+            active = true
         }
         resetSessionTelemetry()
+        // Persisted uploads carry their original session ID, so they can be
+        // safely retried after a process restart or session rollover.
+        shipPending()
     }
 
     /// Reactivate the dispatcher for a new session
     func activate() {
-        active = true
-        consecutiveFailures = 0
-        circuitOpen = false
+        withState {
+            active = true
+            consecutiveFailures = 0
+            circuitOpen = false
+        }
     }
 
     func halt() {
-        active = false
+        withState { active = false }
     }
 
     /// Kick a retry-queue drain on the worker queue.
@@ -146,7 +203,7 @@ final class SegmentDispatcher {
     }
 
     func transmitFrameBundle(for sessionId: String?, payload: Data, startMs: UInt64, endMs: UInt64, frameCount: Int, completion: ((Bool) -> Void)? = nil) {
-        guard let sid = sessionId, canUploadNow() else {
+        guard let sid = sessionId else {
             completion?(false)
             return
         }
@@ -166,11 +223,6 @@ final class SegmentDispatcher {
     }
 
     func transmitHierarchy(replayId: String, hierarchyPayload: Data, timestampMs: UInt64, completion: ((Bool) -> Void)? = nil) {
-        guard canUploadNow() else {
-            completion?(false)
-            return
-        }
-
         let upload = PendingUpload(
             sessionId: replayId,
             contentType: "hierarchy",
@@ -186,30 +238,40 @@ final class SegmentDispatcher {
     }
 
     func transmitEventBatch(payload: Data, batchNumber: Int, eventCount: Int, completion: ((Bool) -> Void)? = nil) {
-        guard let sid = currentReplayId, canUploadNow() else {
+        guard let sid = currentReplayId else {
             completion?(false)
             return
         }
 
-        let sampledIn = isSampledIn
-        workerQueue.addOperation { [weak self] in
-            self?.executeEventBatchUpload(sessionId: sid, payload: payload, batchNum: batchNumber, eventCount: eventCount, isSampledIn: sampledIn, completion: completion)
-        }
+        scheduleUpload(PendingUpload(
+            sessionId: sid,
+            contentType: "events",
+            payload: payload,
+            rangeStart: 0,
+            rangeEnd: 0,
+            itemCount: eventCount,
+            attempt: 0,
+            batchNumber: batchNumber,
+            isSampledIn: isSampledIn
+        ), completion: completion)
     }
 
     func transmitEventBatchAlternate(replayId: String, eventPayload: Data, eventCount: Int, completion: ((Bool) -> Void)? = nil) {
-        guard canUploadNow() else {
-            completion?(false)
-            return
+        let seq = withState {
+            batchSeqNumber += 1
+            return batchSeqNumber
         }
-
-        batchSeqNumber += 1
-        let seq = batchSeqNumber
-
-        let sampledIn = isSampledIn
-        workerQueue.addOperation { [weak self] in
-            self?.executeEventBatchUpload(sessionId: replayId, payload: eventPayload, batchNum: seq, eventCount: eventCount, isSampledIn: sampledIn, completion: completion)
-        }
+        scheduleUpload(PendingUpload(
+            sessionId: replayId,
+            contentType: "events",
+            payload: eventPayload,
+            rangeStart: 0,
+            rangeEnd: 0,
+            itemCount: eventCount,
+            attempt: 0,
+            batchNumber: seq,
+            isSampledIn: isSampledIn
+        ), completion: completion)
     }
 
     func concludeReplay(
@@ -266,37 +328,36 @@ final class SegmentDispatcher {
     }
 
     private func canUploadNow() -> Bool {
-        if billingBlocked { return false }
-        if circuitOpen {
-            if Date().timeIntervalSince1970 - circuitOpenTime > circuitResetTime {
-                circuitOpen = false
-            } else {
-                return false
+        withState {
+            if billingBlocked { return false }
+            if circuitOpen {
+                if Date().timeIntervalSince1970 - circuitOpenTime > circuitResetTime {
+                    circuitOpen = false
+                } else {
+                    return false
+                }
             }
+            return true
         }
-        return true
     }
 
     private func registerFailure() {
-        consecutiveFailures += 1
-        metricsLock.lock()
-        uploadFailureCount += 1
-        metricsLock.unlock()
-
-        if consecutiveFailures >= circuitBreakerThreshold {
-            metricsLock.lock()
-            if !circuitOpen {
-                circuitBreakerOpenCount += 1
-            }
-            metricsLock.unlock()
-
+        let openedCircuit = withState { () -> Bool in
+            consecutiveFailures += 1
+            guard consecutiveFailures >= circuitBreakerThreshold else { return false }
+            let newlyOpened = !circuitOpen
             circuitOpen = true
             circuitOpenTime = Date().timeIntervalSince1970
+            return newlyOpened
         }
+        metricsLock.lock()
+        uploadFailureCount += 1
+        if openedCircuit { circuitBreakerOpenCount += 1 }
+        metricsLock.unlock()
     }
 
     private func registerSuccess() {
-        consecutiveFailures = 0
+        withState { consecutiveFailures = 0 }
         metricsLock.lock()
         uploadSuccessCount += 1
         lastUploadTime = Self.nowMs()
@@ -304,100 +365,158 @@ final class SegmentDispatcher {
     }
 
     private func scheduleUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
-        guard active else {
+        guard withState({ active }) else {
             completion?(false)
             return
         }
+        // Enter before enqueueing so shutdown observes queued work as well as
+        // URLSession callbacks that are already in flight.
+        let uploadGroup = _uploadGroup
+        uploadGroup.enter()
         workerQueue.addOperation { [weak self] in
-            self?.executeSegmentUpload(upload, completion: completion)
+            defer { uploadGroup.leave() }
+            guard let self else { return }
+            _ = self.persistUpload(upload)
+            self.executeSegmentUpload(upload, completion: completion)
         }
     }
 
     private func executeSegmentUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
-        // Track this upload chain so waitForPendingUploads() can block until completion.
-        _uploadGroup.enter()
-
-        guard active else {
-            _uploadGroup.leave()
-            completion?(false)
-            return
+        // A block Operation is considered finished as soon as its block
+        // returns. Wait on this utility worker until the asynchronous
+        // presign/upload/confirm chain completes so OperationQueue's configured
+        // concurrency of two is a real in-flight network bound.
+        let finished = DispatchSemaphore(value: 0)
+        let finish: (Bool) -> Void = { success in
+            completion?(success)
+            // Treat the caller's acknowledgement/requeue callback as part of
+            // the upload chain. A shutdown drain must not finish in the narrow
+            // window after the network callback but before buffer ownership is
+            // settled.
+            finished.signal()
         }
-        if isUploadForClosedSession(upload.sessionId) {
-            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale \(upload.contentType) upload for closed session \(upload.sessionId.prefix(20))")
-            _uploadGroup.leave()
-            completion?(false)
+
+        guard canUploadNow() else {
+            // The circuit breaker rejected this before a network attempt was
+            // made. Requeue the same durable item without consuming one of its
+            // retry attempts; otherwise each drain burns an attempt and can
+            // evict the recording without ever making another request.
+            deferUploadWithoutAttempt(upload, completion: finish)
+            finished.wait()
             return
         }
 
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
-            guard let self, self.active else {
-                self?._uploadGroup.leave()
-                completion?(false)
+            guard let self else {
+                finish(false)
                 return
             }
 
             guard let presign = presignResponse else {
                 self.registerFailure()
-                self._uploadGroup.leave()
-                self.scheduleRetryIfNeeded(upload, completion: completion)
+                self.scheduleRetryIfNeeded(upload, completion: finish)
                 return
             }
 
             if presign.skipUpload {
                 self.registerSuccess()
-                self._uploadGroup.leave()
-                completion?(true)
+                self.removePersistedUpload(upload)
+                finish(true)
                 return
             }
 
             self.uploadToS3(url: presign.presignedUrl, payload: upload.payload) { s3ok in
                 guard s3ok else {
                     self.registerFailure()
-                    self._uploadGroup.leave()
-                    self.scheduleRetryIfNeeded(upload, completion: completion)
+                    self.scheduleRetryIfNeeded(upload, completion: finish)
                     return
                 }
 
                 self.confirmBatchComplete(batchId: presign.batchId, upload: upload) { confirmOk in
                     if confirmOk {
                         self.registerSuccess()
+                        self.removePersistedUpload(upload)
+                        finish(true)
+                    } else {
+                        self.registerFailure()
+                        self.scheduleRetryIfNeeded(upload, completion: finish)
                     }
-                    self._uploadGroup.leave()
-                    completion?(confirmOk)
                 }
             }
         }
+        finished.wait()
     }
 
     /// Blocks the calling thread until all in-flight upload chains complete, or
     /// until `timeout` seconds elapse. Called by TelemetryPipeline during shutdown
     /// to ensure frames are delivered before the background task ends.
     func waitForPendingUploads(timeout: TimeInterval = 25.0) {
+        // Drain synchronously only as far as queue submission. Network work is
+        // still bounded and asynchronous on the utility workers.
+        drainRetryQueue()
         _ = _uploadGroup.wait(timeout: .now() + timeout)
     }
 
     private func scheduleRetryIfNeeded(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
-        if isUploadForClosedSession(upload.sessionId) {
-            DiagnosticLog.trace("[SegmentDispatcher] Discarding retry for closed session \(upload.sessionId.prefix(20))")
-            completion?(false)
-            return
-        }
         if upload.attempt < 3 {
             var retry = upload
             retry.attempt += 1
+            let persisted = persistUpload(retry)
+            var evicted: PendingUpload?
             retryLock.lock()
             if retryQueue.count >= maxRetryQueueSize {
-                retryQueue.removeFirst()
+                evicted = retryQueue.removeFirst()
             }
             retryQueue.append(retry)
             retryLock.unlock()
 
+            if let evicted {
+                removePersistedUpload(evicted)
+                metricsLock.lock()
+                memoryEvictionCount += 1
+                totalBytesEvicted += Int64(evicted.payload.count)
+                metricsLock.unlock()
+            }
+
             metricsLock.lock()
             retryAttemptCount += 1
+            if persisted { offlinePersistCount += 1 }
             lastRetryTime = Self.nowMs()
             metricsLock.unlock()
+            // Once accepted by the retry queue, the caller must not retain a
+            // second in-memory copy of the same payload. Persistence failures
+            // still leave this bounded in-memory copy available for the next drain.
+            completion?(true)
+            return
         }
+        removePersistedUpload(upload)
         completion?(false)
+    }
+
+    private func deferUploadWithoutAttempt(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
+        _ = persistUpload(upload)
+        var evicted: PendingUpload?
+        retryLock.lock()
+        let alreadyQueued = retryQueue.contains { $0.persistenceKey == upload.persistenceKey }
+        if !alreadyQueued {
+            if retryQueue.count >= maxRetryQueueSize {
+                evicted = retryQueue.removeFirst()
+            }
+            retryQueue.append(upload)
+        }
+        retryLock.unlock()
+
+        if let evicted {
+            removePersistedUpload(evicted)
+            metricsLock.lock()
+            memoryEvictionCount += 1
+            totalBytesEvicted += Int64(evicted.payload.count)
+            metricsLock.unlock()
+        }
+
+        // No retry metric is incremented here: the breaker prevented a network
+        // attempt, and the item's attempt number intentionally did not change.
+        completion?(true)
     }
 
     private func drainRetryQueue() {
@@ -405,7 +524,160 @@ final class SegmentDispatcher {
         let items = retryQueue
         retryQueue.removeAll()
         retryLock.unlock()
-        items.forEach { executeSegmentUpload($0, completion: nil) }
+        items.forEach { scheduleUpload($0, completion: nil) }
+    }
+
+    private static func makeRetryDirectory() -> URL? {
+        let manager = FileManager.default
+        guard let base = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let directory = base.appendingPathComponent("Rejourney/UploadRetry", isDirectory: true)
+        do {
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            var mutableDirectory = directory
+            try? mutableDirectory.setResourceValues(values)
+            return directory
+        } catch {
+            DiagnosticLog.caution("[SegmentDispatcher] Could not create upload retry directory: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func persistUpload(_ upload: PendingUpload) -> Bool {
+        guard let directory = retryDirectoryURL else { return false }
+        let target = directory.appendingPathComponent("\(upload.persistenceKey).plist")
+        do {
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            try encoder.encode(upload).write(to: target, options: .atomic)
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: target.path
+            )
+            let size = Int64(
+                (try? target.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+                    ?? upload.payload.count
+            )
+            persistenceLock.lock()
+            persistedUploadKeys.insert(upload.persistenceKey)
+            let previousSize = persistedUploadSizes.updateValue(size, forKey: upload.persistenceKey) ?? 0
+            persistedUploadBytes = max(0, persistedUploadBytes - previousSize + size)
+            let needsTrim = persistedUploadKeys.count > maxRetryQueueSize
+                || persistedUploadBytes > maxPersistedRetryBytes
+            persistenceLock.unlock()
+            // Directory enumeration is relatively expensive on mobile flash.
+            // Only perform it when the known durable set crosses its bound,
+            // rather than for every successful online upload.
+            if needsTrim { trimPersistedRetries(in: directory) }
+            return true
+        } catch {
+            DiagnosticLog.caution("[SegmentDispatcher] Could not persist upload retry: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func removePersistedUpload(_ upload: PendingUpload) {
+        guard let directory = retryDirectoryURL else { return }
+        let target = directory.appendingPathComponent("\(upload.persistenceKey).plist")
+        let fallbackSize = Int64(
+            (try? target.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        )
+        try? FileManager.default.removeItem(at: target)
+        persistenceLock.lock()
+        persistedUploadKeys.remove(upload.persistenceKey)
+        let removedSize = persistedUploadSizes.removeValue(forKey: upload.persistenceKey) ?? fallbackSize
+        persistedUploadBytes = max(0, persistedUploadBytes - removedSize)
+        persistenceLock.unlock()
+    }
+
+    private func loadPersistedRetries() {
+        guard let directory = retryDirectoryURL,
+              let urls = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+              ) else { return }
+        let decoder = PropertyListDecoder()
+        let decoded = urls.compactMap { url -> (PendingUpload, Date, Int64)? in
+            guard url.pathExtension == "plist",
+                  let data = try? Data(contentsOf: url),
+                  let upload = try? decoder.decode(PendingUpload.self, from: data) else {
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? data.count)
+            return (upload, date, size)
+        }
+        let uploads = decoded.sorted { $0.1 < $1.1 }
+        let retained = Array(uploads.suffix(maxRetryQueueSize))
+        retryQueue = retained.map(\.0)
+        persistenceLock.lock()
+        persistedUploadKeys = Set(retryQueue.map(\.persistenceKey))
+        persistedUploadSizes = Dictionary(uniqueKeysWithValues: retained.map { ($0.0.persistenceKey, $0.2) })
+        persistedUploadBytes = retained.reduce(0) { $0 + $1.2 }
+        let exceedsByteLimit = persistedUploadBytes > maxPersistedRetryBytes
+        persistenceLock.unlock()
+        if uploads.count > maxRetryQueueSize || exceedsByteLimit {
+            trimPersistedRetries(in: directory)
+            persistenceLock.lock()
+            let retainedKeys = persistedUploadKeys
+            persistenceLock.unlock()
+            retryLock.lock()
+            retryQueue.removeAll { !retainedKeys.contains($0.persistenceKey) }
+            retryLock.unlock()
+        }
+    }
+
+    private func trimPersistedRetries(in directory: URL) {
+        guard var urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        urls = urls.filter { $0.pathExtension == "plist" }
+        urls.sort {
+            let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhs < rhs
+        }
+        var retainedCount = urls.count
+        var retainedBytes = urls.reduce(Int64(0)) { partial, url in
+            partial + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        var removedKeys: Set<String> = []
+        for url in urls {
+            if retainedCount <= maxRetryQueueSize && retainedBytes <= maxPersistedRetryBytes { break }
+            let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            try? FileManager.default.removeItem(at: url)
+            let key = url.deletingPathExtension().lastPathComponent
+            removedKeys.insert(key)
+            persistenceLock.lock()
+            persistedUploadKeys.remove(key)
+            persistedUploadSizes.removeValue(forKey: key)
+            persistenceLock.unlock()
+            retainedCount -= 1
+            retainedBytes = max(0, retainedBytes - size)
+        }
+        persistenceLock.lock()
+        persistedUploadBytes = retainedBytes
+        persistenceLock.unlock()
+        if !removedKeys.isEmpty {
+            retryLock.lock()
+            let evicted = retryQueue.filter { removedKeys.contains($0.persistenceKey) }
+            retryQueue.removeAll { removedKeys.contains($0.persistenceKey) }
+            retryLock.unlock()
+            if !evicted.isEmpty {
+                metricsLock.lock()
+                memoryEvictionCount += evicted.count
+                totalBytesEvicted += evicted.reduce(0) { $0 + Int64($1.payload.count) }
+                metricsLock.unlock()
+            }
+        }
     }
 
     private func requestPresignedUrl(upload: PendingUpload, completion: @escaping (PresignResponse?) -> Void) {
@@ -453,7 +725,9 @@ final class SegmentDispatcher {
             }
 
             if httpResp.statusCode == 402 {
-                self?.billingBlocked = true
+                if let self {
+                    self.withState { self.billingBlocked = true }
+                }
                 completion(nil)
                 return
             }
@@ -552,48 +826,6 @@ final class SegmentDispatcher {
         }.resume()
     }
 
-    private func executeEventBatchUpload(sessionId: String, payload: Data, batchNum: Int, eventCount: Int, isSampledIn: Bool, completion: ((Bool) -> Void)?) {
-        let upload = PendingUpload(
-            sessionId: sessionId,
-            contentType: "events",
-            payload: payload,
-            rangeStart: 0,
-            rangeEnd: 0,
-            itemCount: eventCount,
-            attempt: 0,
-            batchNumber: batchNum,
-            isSampledIn: isSampledIn
-        )
-        if isUploadForClosedSession(upload.sessionId) {
-            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale events upload for closed session \(upload.sessionId.prefix(20))")
-            completion?(false)
-            return
-        }
-
-        requestPresignedUrl(upload: upload) { [weak self] presignResponse in
-            guard let self, let presign = presignResponse else {
-                self?.registerFailure()
-                completion?(false)
-                return
-            }
-
-            self.uploadToS3(url: presign.presignedUrl, payload: payload) { s3ok in
-                guard s3ok else {
-                    self.registerFailure()
-                    completion?(false)
-                    return
-                }
-
-                self.confirmBatchComplete(batchId: presign.batchId, upload: upload) { confirmOk in
-                    if confirmOk {
-                        self.registerSuccess()
-                    }
-                    completion?(confirmOk)
-                }
-            }
-        }
-    }
-
     private func applyAuthHeaders(_ req: inout URLRequest, sessionId: String? = nil) {
         if let t = apiToken {
             req.setValue(t, forHTTPHeaderField: "x-rejourney-key")
@@ -610,13 +842,6 @@ final class SegmentDispatcher {
         if observeOnly {
             req.setValue("1", forHTTPHeaderField: "x-rj-observe-only")
         }
-    }
-
-    private func isUploadForClosedSession(_ sessionId: String) -> Bool {
-        guard let activeSessionId = currentReplayId, !activeSessionId.isEmpty else {
-            return false
-        }
-        return sessionId != activeSessionId
     }
 
     private func ingestFinalizeMetrics(_ metrics: [String: Any]?) {
@@ -690,12 +915,45 @@ final class SegmentDispatcher {
         metricsLock.unlock()
     }
 
+#if DEBUG
+    /// Test-only cleanup for the singleton's durable and in-memory retry state.
+    func resetRetryStateForTesting() {
+        workerQueue.waitUntilAllOperationsAreFinished()
+        retryLock.lock()
+        retryQueue.removeAll()
+        retryLock.unlock()
+        if let retryDirectoryURL,
+           let urls = try? FileManager.default.contentsOfDirectory(
+               at: retryDirectoryURL,
+               includingPropertiesForKeys: nil
+           ) {
+            for url in urls where url.pathExtension == "plist" {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        persistenceLock.lock()
+        persistedUploadKeys.removeAll()
+        persistedUploadSizes.removeAll()
+        persistedUploadBytes = 0
+        persistenceLock.unlock()
+        withState {
+            consecutiveFailures = 0
+            circuitOpen = false
+            circuitOpenTime = 0
+            billingBlocked = false
+            active = true
+        }
+        resetSessionTelemetry()
+    }
+#endif
+
     private static func nowMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 }
 
-private struct PendingUpload {
+private struct PendingUpload: Codable {
+    let persistenceKey: String
     let sessionId: String
     let contentType: String
     let payload: Data
@@ -705,6 +963,30 @@ private struct PendingUpload {
     var attempt: Int
     let batchNumber: Int
     let isSampledIn: Bool
+
+    init(
+        persistenceKey: String = UUID().uuidString,
+        sessionId: String,
+        contentType: String,
+        payload: Data,
+        rangeStart: UInt64,
+        rangeEnd: UInt64,
+        itemCount: Int,
+        attempt: Int,
+        batchNumber: Int,
+        isSampledIn: Bool
+    ) {
+        self.persistenceKey = persistenceKey
+        self.sessionId = sessionId
+        self.contentType = contentType
+        self.payload = payload
+        self.rangeStart = rangeStart
+        self.rangeEnd = rangeEnd
+        self.itemCount = itemCount
+        self.attempt = attempt
+        self.batchNumber = batchNumber
+        self.isSampledIn = isSampledIn
+    }
 }
 
 private struct PresignResponse {

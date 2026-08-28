@@ -10,7 +10,7 @@ Add this repository URL in Xcode:
 https://github.com/rejourneyco/rejourney
 ```
 
-Select the `Rejourney` package product and choose a version tag (e.g. `v0.4.0`).
+Select the `Rejourney` package product and choose a version tag (e.g. `v0.5.1`).
 
 SwiftPM resolves packages from Git tags — there is no npm publish step or registry account. New versions are tagged automatically by CI when `packages/ios/VERSION` is bumped (see [Releasing a new version](#releasing-a-new-version) below).
 
@@ -44,6 +44,37 @@ struct AppMain: App {
 
 The native SDK fetches `/api/sdk/config` itself, then uses the existing production ingest routes under `https://api.rejourney.co`.
 Those Rejourney-owned config, ingest, and upload-relay calls are excluded from network monitoring automatically so they do not appear as application API traffic.
+
+## Pause and resume (Beta, iOS 0.5.1+)
+
+Use the Beta pause API around a foreground experience where capture overhead is
+undesirable, such as a camera, AR, or graphics-heavy screen:
+
+```swift
+let paused = Rejourney.pause()
+// Present the high-cost experience.
+let resumed = Rejourney.resume()
+```
+
+`pause()` is idempotent and keeps the session open while stopping screenshots,
+hierarchy scans, interaction capture, live hang sampling, network instrumentation,
+and ordinary telemetry intake. Before stopping intake it emits `sdk_paused` and
+flushes pending work. `resume()` is also idempotent; while the app is foregrounded
+it resumes the same session and emits `sdk_resumed` with the matching `pauseId`
+and `gapDurationMs`, so the missing interval is explicit in the timeline.
+
+Fatal-process hooks remain installed during a pause so a crash can still be
+recovered without periodic capture work. The normal lifecycle contract still
+applies: a background interval longer than 60 seconds rolls over the session and
+the replacement session remains paused until `resume()` is called. Resuming while
+the app is backgrounded returns `false`. This Beta API requires SDK 0.5.1 or newer.
+It does not require an Info.plist or entitlement change.
+
+When device-information collection is enabled by project policy, the SDK also
+sends coarse battery, thermal, memory-pressure/headroom, UI environment,
+orientation, and display-refresh context. It uses lifecycle reads and OS
+callbacks only (no polling), requires no Info.plist usage-description key or
+entitlement, and omits the fields when device-information collection is off.
 
 ## Releasing a new version
 

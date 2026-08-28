@@ -50,9 +50,12 @@ import com.rejourney.platform.SessionLifecycleService
 import com.rejourney.platform.TaskRemovedListener
 import com.rejourney.recording.*
 import kotlinx.coroutines.*
+import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.math.roundToInt
@@ -75,7 +78,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.5.0"
+        var sdkVersion = "1.5.1"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
@@ -89,6 +92,7 @@ class RejourneyModuleImpl(
     // State machine
     private var state: SessionState = SessionState.Idle
     private val stateLock = ReentrantLock()
+    private val startGeneration = AtomicLong(0)
 
     // Internal storage
     private var currentUserIdentity: String? = null
@@ -96,7 +100,10 @@ class RejourneyModuleImpl(
     private var lastSessionConfig: Map<String, Any>? = null
     private var lastApiUrl: String? = null
     private var lastPublicKey: String? = null
+    private var nativeNetworkTrackingEnabled = true
     private var lastKnownActivity: WeakReference<Activity>? = null
+    private data class UserPause(val id: String, val startedAtMs: Long)
+    private var userPause: UserPause? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -290,6 +297,7 @@ class RejourneyModuleImpl(
                 SegmentDispatcher.shared.shipPending()
                 // Stop the heartbeat timer to prevent event uploads while backgrounded
                 TelemetryPipeline.shared?.pause()
+                RejourneyNetworkInterceptor.setEnabled(false)
             }
         }
     }
@@ -314,10 +322,12 @@ class RejourneyModuleImpl(
             DiagnosticLog.notice("[Rejourney] App foregrounded after ${backgroundDuration / 1000}s (timeout: ${SESSION_TIMEOUT_MS / 1000}s)")
 
             // Resume the heartbeat timer now that we're back in foreground
-            TelemetryPipeline.shared?.resume()
+            if (userPause == null) TelemetryPipeline.shared?.resume()
+            if (userPause == null) RejourneyNetworkInterceptor.setEnabled(nativeNetworkTrackingEnabled)
 
             if (backgroundDuration > SESSION_TIMEOUT_MS) {
                 // End current session and start a new one
+                val rolloverGeneration = startGeneration.incrementAndGet()
                 state = SessionState.Idle
                 val oldSessionId = currentState.sessionId
                 
@@ -327,7 +337,7 @@ class RejourneyModuleImpl(
                 val triggerRestart: (String) -> Unit = { source ->
                     if (restartStarted.compareAndSet(false, true)) {
                         DiagnosticLog.notice("[Rejourney] Session rollover trigger source=$source, oldSession=$oldSessionId")
-                        mainHandler.post { startNewSessionAfterTimeout() }
+                        mainHandler.post { startNewSessionAfterTimeout(rolloverGeneration) }
                     }
                 }
 
@@ -355,9 +365,10 @@ class RejourneyModuleImpl(
                 if (orchestratorSessionId.isNullOrEmpty()) {
                     // The old session can end while app is backgrounded (e.g. duration limit).
                     // Do not resume a dead session; start a fresh one.
+                    val rolloverGeneration = startGeneration.incrementAndGet()
                     state = SessionState.Idle
                     DiagnosticLog.notice("[Rejourney] Session ended while backgrounded, starting fresh session on foreground")
-                    mainHandler.post { startNewSessionAfterTimeout() }
+                    mainHandler.post { startNewSessionAfterTimeout(rolloverGeneration) }
                     return
                 }
 
@@ -370,17 +381,17 @@ class RejourneyModuleImpl(
                     DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
                 }
 
-                VisualCapture.shared?.resumeFromBackground()
-                ReplayOrchestrator.shared?.resumeFromBackground()
-                
-                // Record foreground event
-                TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
+                if (userPause == null) {
+                    VisualCapture.shared?.resumeFromBackground()
+                    ReplayOrchestrator.shared?.resumeFromBackground()
+                    TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
+                }
                 StabilityMonitor.shared?.transmitStoredReport()
             }
         }
     }
 
-    private fun startNewSessionAfterTimeout() {
+    private fun startNewSessionAfterTimeout(expectedGeneration: Long) {
         if (isShuttingDown) {
             DiagnosticLog.notice("[Rejourney] Skipping session restart during module shutdown")
             return
@@ -391,6 +402,11 @@ class RejourneyModuleImpl(
         val savedUserId = currentUserIdentity
 
         DiagnosticLog.notice("[Rejourney] Starting new session after timeout (user: $savedUserId)")
+        val generation = stateLock.withLock {
+            if (startGeneration.get() != expectedGeneration || state !is SessionState.Idle) return
+            state = SessionState.Starting("pending_${System.currentTimeMillis()}", System.currentTimeMillis())
+            expectedGeneration
+        }
 
         // Refresh activity on capture components (guards against race with onActivityResumed)
         val activity = currentCaptureActivity()
@@ -418,12 +434,13 @@ class RejourneyModuleImpl(
         }
 
         // Poll for session ready
-        waitForSessionReady(savedUserId, 0)
+        waitForSessionReady(savedUserId, 0, generation)
     }
 
     private fun waitForSessionReady(
         savedUserId: String?,
         attempts: Int,
+        generation: Long,
         onReady: ((String) -> Unit)? = null,
         onTimeout: (() -> Unit)? = null
     ) {
@@ -435,6 +452,14 @@ class RejourneyModuleImpl(
         val maxAttempts = 50 // 5 seconds max
 
         mainHandler.postDelayed({
+            val isCurrent = stateLock.withLock {
+                startGeneration.get() == generation && state is SessionState.Starting
+            }
+            if (!isCurrent) {
+                onTimeout?.invoke()
+                return@postDelayed
+            }
+
             val newSid = ReplayOrchestrator.shared?.replayId
             if (!newSid.isNullOrEmpty()) {
                 stateLock.withLock {
@@ -443,8 +468,23 @@ class RejourneyModuleImpl(
 
                 ReplayOrchestrator.shared?.activateGestureRecording()
 
-                // Restore user identity
-                if (!savedUserId.isNullOrBlank() && savedUserId != "anonymous" && !savedUserId.startsWith("anon_")) {
+                val pause = userPause
+                if (pause != null) {
+                    ReplayOrchestrator.shared?.recordCustomEvent(
+                        "sdk_paused",
+                        JSONObject(
+                            mapOf(
+                                "pauseId" to pause.id,
+                                "reason" to "session_rollover_while_paused",
+                                "sdkVersion" to sdkVersion,
+                                "apiStatus" to "beta"
+                            )
+                        ).toString()
+                    )
+                    VisualCapture.shared?.pauseForUser()
+                    ReplayOrchestrator.shared?.pauseForUser()
+                    TelemetryPipeline.shared?.pause()
+                } else if (!savedUserId.isNullOrBlank() && savedUserId != "anonymous" && !savedUserId.startsWith("anon_")) {
                     ReplayOrchestrator.shared?.associateUser(savedUserId)
                     DiagnosticLog.notice("[Rejourney] ✅ Restored user identity '$savedUserId' to new session $newSid")
                 }
@@ -453,9 +493,17 @@ class RejourneyModuleImpl(
                 DiagnosticLog.notice("[Rejourney] ✅ New session started: $newSid")
                 onReady?.invoke(newSid)
             } else if (attempts < maxAttempts) {
-                waitForSessionReady(savedUserId, attempts + 1, onReady, onTimeout)
+                waitForSessionReady(savedUserId, attempts + 1, generation, onReady, onTimeout)
             } else {
                 DiagnosticLog.caution("[Rejourney] ⚠️ Timeout waiting for new session to initialize")
+                stateLock.withLock {
+                    if (startGeneration.get() == generation && state is SessionState.Starting) {
+                        state = SessionState.Idle
+                        startGeneration.incrementAndGet()
+                    }
+                }
+                ReplayOrchestrator.shared?.cancelPendingReplayStart()
+                RejourneyNetworkInterceptor.setEnabled(false)
                 onTimeout?.invoke()
             }
         }, 100)
@@ -491,6 +539,7 @@ class RejourneyModuleImpl(
         val userId = options.getStringSafe("userId", "anonymous")
         val apiUrl = options.getStringSafe("apiUrl", "https://api.rejourney.co")
         val publicKey = options.getStringSafe("publicKey", "")
+        nativeNetworkTrackingEnabled = options.getBooleanSafe("autoTrackNetwork", true)
 
         if (publicKey.isEmpty()) {
             promise.reject("INVALID_KEY", "publicKey is required")
@@ -505,6 +554,7 @@ class RejourneyModuleImpl(
         if (options.hasKey("captureANR")) config["captureANR"] = options.getBoolean("captureANR")
         if (options.hasKey("wifiOnly")) config["wifiOnly"] = options.getBoolean("wifiOnly")
         if (options.hasKey("captureLogs")) config["captureLogs"] = options.getBoolean("captureLogs")
+        if (options.hasKey("collectDeviceInfo")) config["collectDeviceInfo"] = options.getBoolean("collectDeviceInfo")
         if (options.hasKey("collectGeoLocation")) config["collectGeoLocation"] = options.getBoolean("collectGeoLocation")
         if (options.hasKey("observeOnly")) config["observeOnly"] = options.getBoolean("observeOnly")
         if (options.hasKey("textInputMasking")) config["textInputMasking"] = options.getString("textInputMasking") ?: "all"
@@ -529,6 +579,7 @@ class RejourneyModuleImpl(
         }
 
         mainHandler.post {
+            RejourneyNetworkInterceptor.setEnabled(nativeNetworkTrackingEnabled)
             // Check if already active
             stateLock.withLock {
                 val currentState = state
@@ -578,8 +629,10 @@ class RejourneyModuleImpl(
             }
 
             val pendingSessionId = "session_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().replace("-", "").lowercase()}"
-            stateLock.withLock {
+            val generation = stateLock.withLock {
+                val next = startGeneration.incrementAndGet()
                 state = SessionState.Starting(pendingSessionId, System.currentTimeMillis())
+                next
             }
 
             // Begin replay
@@ -595,17 +648,19 @@ class RejourneyModuleImpl(
             waitForSessionReady(
                 savedUserId = userId,
                 attempts = 0,
+                generation = generation,
                 onReady = { sid ->
                     promise.resolve(createResultMap(true, sid))
                 },
                 onTimeout = {
                     stateLock.withLock {
-                        if (state is SessionState.Starting) {
+                        if (startGeneration.get() == generation && state is SessionState.Starting) {
                             state = SessionState.Idle
                         }
                     }
                     stopSessionLifecycleService()
-                    promise.resolve(createResultMap(false, "", "Timed out waiting for replay session to initialize"))
+                    RejourneyNetworkInterceptor.setEnabled(false)
+                    promise.resolve(createResultMap(false, "", "Session start cancelled or timed out"))
                 }
             )
         }
@@ -642,6 +697,7 @@ class RejourneyModuleImpl(
             var targetSid = ""
 
             stateLock.withLock {
+                startGeneration.incrementAndGet()
                 val currentState = state
                 when (currentState) {
                     is SessionState.Active -> {
@@ -650,12 +706,18 @@ class RejourneyModuleImpl(
                     is SessionState.Paused -> {
                         targetSid = currentState.sessionId
                     }
+                    is SessionState.Starting -> {
+                        targetSid = ReplayOrchestrator.shared?.replayId ?: ""
+                    }
                     else -> {
                         // Nothing to finalize.
                     }
                 }
                 state = SessionState.Idle
+                userPause = null
+                RejourneyNetworkInterceptor.setEnabled(false)
             }
+            ReplayOrchestrator.shared?.cancelPendingReplayStart()
             
             
             // Android-specific: Stop SessionLifecycleService
@@ -675,6 +737,88 @@ class RejourneyModuleImpl(
                     putBoolean("uploadSuccess", uploaded)
                 })
             }
+        }
+    }
+
+    fun pauseSession(promise: Promise) {
+        mainHandler.post {
+            var newlyPaused = false
+            val active = stateLock.withLock {
+                val current = state as? SessionState.Active ?: return@withLock null
+                if (ReplayOrchestrator.shared?.replayId != current.sessionId) return@withLock null
+                if (userPause == null) {
+                    userPause = UserPause(UUID.randomUUID().toString(), System.currentTimeMillis())
+                    newlyPaused = true
+                }
+                current
+            }
+            val pause = userPause
+            if (active == null || pause == null) {
+                promise.resolve(createResultMap(false))
+                return@post
+            }
+
+            if (!newlyPaused) {
+                promise.resolve(createResultMap(true, active.sessionId))
+                return@post
+            }
+
+            ReplayOrchestrator.shared?.recordCustomEvent(
+                "sdk_paused",
+                JSONObject(
+                    mapOf(
+                        "pauseId" to pause.id,
+                        "sdkVersion" to sdkVersion,
+                        "apiStatus" to "beta"
+                    )
+                ).toString()
+            )
+            TelemetryPipeline.shared?.dispatchNow()
+            SegmentDispatcher.shared.shipPending()
+            VisualCapture.shared?.pauseForUser()
+            ReplayOrchestrator.shared?.pauseForUser()
+            TelemetryPipeline.shared?.pause()
+            RejourneyNetworkInterceptor.setEnabled(false)
+            promise.resolve(createResultMap(true, active.sessionId))
+        }
+    }
+
+    fun resumeSession(promise: Promise) {
+        mainHandler.post {
+            var pause: UserPause? = null
+            val active = stateLock.withLock {
+                val current = state as? SessionState.Active ?: return@withLock null
+                if (ReplayOrchestrator.shared?.replayId != current.sessionId) return@withLock null
+                pause = userPause
+                userPause = null
+                current
+            }
+            if (active == null) {
+                promise.resolve(createResultMap(false))
+                return@post
+            }
+            val capturedPause = pause
+            if (capturedPause == null) {
+                promise.resolve(createResultMap(true, active.sessionId))
+                return@post
+            }
+
+            TelemetryPipeline.shared?.resume()
+            ReplayOrchestrator.shared?.recordCustomEvent(
+                "sdk_resumed",
+                JSONObject(
+                    mapOf(
+                        "pauseId" to capturedPause.id,
+                        "gapDurationMs" to (System.currentTimeMillis() - capturedPause.startedAtMs).coerceAtLeast(0),
+                        "sdkVersion" to sdkVersion,
+                        "apiStatus" to "beta"
+                    )
+                ).toString()
+            )
+            ReplayOrchestrator.shared?.resumeFromUser()
+            VisualCapture.shared?.resumeFromUser()
+            RejourneyNetworkInterceptor.setEnabled(nativeNetworkTrackingEnabled)
+            promise.resolve(createResultMap(true, active.sessionId))
         }
     }
 
@@ -996,6 +1140,7 @@ class RejourneyModuleImpl(
         val deviceHash = computeDeviceHash()
         val displayMetrics = reactContext.resources.displayMetrics
         val density = displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val batteryInfo = TelemetryPipeline.getInstance(reactContext).currentBatteryInfo()
         
         promise.resolve(Arguments.createMap().apply {
             putString("platform", "android")
@@ -1011,6 +1156,11 @@ class RejourneyModuleImpl(
             putString("coordinateSpace", "dp")
             putString("deviceHash", deviceHash)
             putString("bundleId", reactContext.packageName ?: "unknown")
+            (batteryInfo["batteryLevelPercent"] as? Number)?.let {
+                putInt("batteryLevelPercent", it.toInt())
+            }
+            putString("batteryState", batteryInfo["batteryState"] as? String ?: "unknown")
+            putBoolean("lowPowerModeEnabled", batteryInfo["lowPowerModeEnabled"] as? Boolean ?: false)
         })
     }
 
@@ -1111,23 +1261,27 @@ class RejourneyModuleImpl(
 
     fun invalidate() {
         isShuttingDown = true
+        startGeneration.incrementAndGet()
+        ReplayOrchestrator.shared?.cancelPendingReplayStart()
         scope.cancel()
         backgroundScope.cancel()
-        mainHandler.removeCallbacksAndMessages(null)
         
         val application = reactContext.applicationContext as? Application
         application?.unregisterActivityLifecycleCallbacks(this)
 
-        val removeLifecycleObserver = {
+        val cleanupMainThreadState = {
             try {
                 ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
             } catch (_: Exception) {}
+            updateCaptureActivity(null)
+            SpecialCases.shared.reset()
+            mainHandler.removeCallbacksAndMessages(null)
         }
 
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            removeLifecycleObserver()
+            cleanupMainThreadState()
         } else {
-            mainHandler.post { removeLifecycleObserver() }
+            mainHandler.post { cleanupMainThreadState() }
         }
     }
 }

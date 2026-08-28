@@ -76,6 +76,18 @@ export interface Spec extends TurboModule {
     error?: string;
   }>;
 
+  /** Pause all active capture work without ending the current session (Beta). */
+  pauseSession(): Promise<{
+    success: boolean;
+    sessionId?: string;
+  }>;
+
+  /** Resume capture in the same foreground session after a Beta pause. */
+  resumeSession(): Promise<{
+    success: boolean;
+    sessionId?: string;
+  }>;
+
   /**
    * Log a custom event
    */

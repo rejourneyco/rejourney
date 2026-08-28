@@ -4,6 +4,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Native OkHttp Interceptor for Rejourney
@@ -16,8 +17,17 @@ import java.util.UUID
  */
 class RejourneyNetworkInterceptor : Interceptor {
 
+    companion object {
+        private val enabled = AtomicBoolean(false)
+
+        fun setEnabled(value: Boolean) {
+            enabled.set(value)
+        }
+    }
+
     @Throws(IOException::class)
     override fun intercept(chain: Interceptor.Chain): Response {
+        if (!enabled.get()) return chain.proceed(chain.request())
         val request = chain.request()
         if (RejourneyNetworkEventFilter.shouldIgnore(request.url)) {
             return chain.proceed(request)

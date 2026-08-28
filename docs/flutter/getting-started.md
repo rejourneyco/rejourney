@@ -59,6 +59,28 @@ if (await consentStore.canRecord()) {
 }
 ```
 
+## Pause and Resume (Beta, 0.4.1+)
+
+Use the Beta pause API for a foreground camera, AR, or graphics-heavy route
+where you want the current session to remain open without capture overhead:
+
+```dart
+final paused = await Rejourney.pause();
+// Present the high-cost route.
+final resumed = await Rejourney.resume();
+```
+
+Pause flushes pending work and emits `sdk_paused`, then stops native visual,
+hierarchy, interaction, live-hang, network, and ordinary Dart/native telemetry
+work. Resume continues the same foreground session and emits `sdk_resumed` with
+the matching `pauseId` and `gapDurationMs`. Both calls are idempotent.
+
+Fatal-process recovery remains armed during the gap. A background interval over
+the intentional 60-second lifecycle boundary still rolls over the session; the
+replacement remains paused until resume. Resume returns `false` while
+backgrounded. This API is Beta and requires Flutter SDK 0.4.1 or newer. It
+requires no Android manifest or iOS Info.plist additions.
+
 ## Remote Recording Settings
 
 Each `start` reads the project's current recording configuration. When the service is temporarily unavailable, the native SDK uses its cached configuration when possible and otherwise falls back to the local safe defaults.
@@ -399,6 +421,13 @@ await Rejourney.init(
 | `autoTrackNetwork` | `true` | Enable supported request instrumentation. |
 | `captureNativeSheets` | `true` | Capture supported native modal surfaces. |
 | `networkCaptureSizes` | `true` | Include request/response byte sizes. |
+
+When `collectDeviceInfo` is enabled, Rejourney also records coarse session
+quality context: battery start/end/change, thermal state, memory pressure and
+headroom buckets, font scale, light/dark style, layout direction, orientation,
+and maximum display refresh rate. Native collection is driven by lifecycle
+boundaries and OS callbacks, not polling, and requires no Android manifest
+permission or iOS usage-description key. Disable `collectDeviceInfo` to omit it.
 
 ## Lifecycle and Advanced API
 

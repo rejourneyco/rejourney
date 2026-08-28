@@ -69,6 +69,7 @@ class SpecialCases private constructor() {
         // Mapbox uses UIScrollView.DecelerationRate.normal (0.998/ms).
         // At 2s after a 500pt/s flick, residual velocity is ~9pt/s (barely visible).
         private const val TOUCH_DEBOUNCE_MS = 2000L
+        private const val CAMERA_SETTLE_SAMPLE_MS = 500L
     }
 
     // -- Public state --------------------------------------------------------
@@ -88,6 +89,7 @@ class SpecialCases private constructor() {
     private fun setMapIdle(idle: Boolean) {
         val wasIdle = mapIdle
         mapIdle = idle
+        if (!idle && wasIdle) MapboxSnapshotCache.invalidate()
         DiagnosticLog.trace("[SpecialCases] mapIdle=$idle (was $wasIdle)")
         if (idle && !wasIdle) {
             // Map just settled — capture a frame immediately instead of
@@ -105,6 +107,9 @@ class SpecialCases private constructor() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var hookedMapView: WeakReference<View>? = null
+    private var mapController: WeakReference<Any>? = null
+    private var lastCameraSignature: String? = null
+    private var cameraSettleRunnable: Runnable? = null
 
     /** When true, idle detection is driven by touch events from
      *  InteractionRecorder rather than SDK listener hooks.
@@ -114,6 +119,7 @@ class SpecialCases private constructor() {
 
     /** Runnable posted with TOUCH_DEBOUNCE_MS delay for touch-based idle. */
     private var touchDebounceRunnable: Runnable? = null
+    private var activeMapTouch = false
 
     // -- Map detection (shallow walk) ----------------------------------------
 
@@ -145,8 +151,11 @@ class SpecialCases private constructor() {
             // Only hook once per map view instance
             val prev = hookedMapView?.get()
             if (prev == null || prev !== mapView) {
+                clearControllerState()
                 hookedMapView = WeakReference(mapView)
                 hookIdleCallbacks(mapView, sdk)
+            } else {
+                sampleCameraMotion()
             }
 
             if (!wasVisible) {
@@ -217,8 +226,10 @@ class SpecialCases private constructor() {
     }
 
     // ---- Google Maps -------------------------------------------------------
-    // GoogleMap.setOnCameraIdleListener   -> idle
-    // GoogleMap.setOnCameraMoveStartedListener -> not idle
+    // GoogleMap exposes only setter-style camera callbacks. Taking ownership
+    // of those would replace the host application's listeners, so Rejourney
+    // observes camera position non-invasively and combines that with touch
+    // state instead.
 
     private fun hookGoogleMaps(mapView: View) {
         try {
@@ -236,7 +247,9 @@ class SpecialCases private constructor() {
             ) { _, method, args ->
                 if (method.name == "onMapReady" && args != null && args.isNotEmpty()) {
                     val googleMap = args[0] ?: return@newProxyInstance null
-                    attachGoogleMapListeners(googleMap)
+                    mapController = WeakReference(googleMap)
+                    lastCameraSignature = cameraSignature(googleMap, MapSDKType.GOOGLE_MAPS)
+                    usesTouchBasedIdle = true
                 }
                 null
             }
@@ -245,47 +258,6 @@ class SpecialCases private constructor() {
         } catch (e: Exception) {
             DiagnosticLog.trace("[SpecialCases] Google Maps hook failed: ${e.message}")
             // Leave mapIdle = true so capture is never blocked
-        }
-    }
-
-    private fun attachGoogleMapListeners(googleMap: Any) {
-        try {
-            // setOnCameraIdleListener
-            val idleListenerClass = Class.forName(
-                "com.google.android.gms.maps.GoogleMap\$OnCameraIdleListener"
-            )
-            val idleProxy = java.lang.reflect.Proxy.newProxyInstance(
-                googleMap.javaClass.classLoader,
-                arrayOf(idleListenerClass)
-            ) { _, method, _ ->
-                if (method.name == "onCameraIdle") {
-                    setMapIdle(true)
-                }
-                null
-            }
-            googleMap.javaClass.getMethod("setOnCameraIdleListener", idleListenerClass)
-                .invoke(googleMap, idleProxy)
-
-            // setOnCameraMoveStartedListener
-            val moveListenerClass = Class.forName(
-                "com.google.android.gms.maps.GoogleMap\$OnCameraMoveStartedListener"
-            )
-            val moveProxy = java.lang.reflect.Proxy.newProxyInstance(
-                googleMap.javaClass.classLoader,
-                arrayOf(moveListenerClass)
-            ) { _, method, _ ->
-                if (method.name == "onCameraMoveStarted") {
-                    setMapIdle(false)
-                }
-                null
-            }
-            googleMap.javaClass.getMethod("setOnCameraMoveStartedListener", moveListenerClass)
-                .invoke(googleMap, moveProxy)
-
-            DiagnosticLog.trace("[SpecialCases] Google Maps idle/move listeners attached")
-        } catch (e: Exception) {
-            DiagnosticLog.trace("[SpecialCases] Google Maps listener attach failed: ${e.message}")
-            mapIdle = true
         }
     }
 
@@ -298,14 +270,42 @@ class SpecialCases private constructor() {
         // not the actual com.mapbox.maps.MapView.  Find the real MapView child.
         val actualMapView = findActualMapboxMapView(mapView) ?: mapView
 
-        // Try v10 first, then v9, then fall back to touch-based
-        if (!tryHookMapboxV10(actualMapView)) {
-            if (!tryHookMapboxV9(actualMapView)) {
-                // All reflection-based hooking failed — fall back to touch-based
-                usesTouchBasedIdle = true
-                DiagnosticLog.trace("[SpecialCases] Mapbox: using touch-based idle detection")
+        // Mapbox subscriptions retain their observer and return cancellation
+        // handles. Reflection makes version-correct ownership brittle, so use
+        // the same non-invasive camera-state sampling as Google Maps.
+        usesTouchBasedIdle = true
+        try {
+            val getMapboxMap = actualMapView.javaClass.getMethod("getMapboxMap")
+            val controller = getMapboxMap.invoke(actualMapView)
+            if (controller != null) {
+                mapController = WeakReference(controller)
+                lastCameraSignature = cameraSignature(controller, MapSDKType.MAPBOX)
+            }
+        } catch (_: Exception) {
+            // Mapbox v9 exposes its controller asynchronously. Keep the
+            // callback read-only: it stores the controller for sampling and
+            // never installs camera listeners on the host object.
+            try {
+                val callbackClass = Class.forName("com.mapbox.mapboxsdk.maps.OnMapReadyCallback")
+                val getMapAsync = actualMapView.javaClass.getMethod("getMapAsync", callbackClass)
+                val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                    actualMapView.javaClass.classLoader,
+                    arrayOf(callbackClass)
+                ) { _, method, args ->
+                    if (method.name == "onMapReady" && !args.isNullOrEmpty()) {
+                        args[0]?.let { controller ->
+                            mapController = WeakReference(controller)
+                            lastCameraSignature = cameraSignature(controller, MapSDKType.MAPBOX)
+                        }
+                    }
+                    null
+                }
+                getMapAsync.invoke(actualMapView, proxy)
+            } catch (_: Exception) {
+                // Wrapper variants still retain touch-based idle handling.
             }
         }
+        DiagnosticLog.trace("[SpecialCases] Mapbox: using non-invasive camera sampling")
     }
 
     /**
@@ -321,206 +321,85 @@ class SpecialCases private constructor() {
 
     /**
      * If the detected view is the RNMBXMapView wrapper, find the actual
-     * com.mapbox.maps.MapView inside it (immediate children).
+     * com.mapbox.maps.MapView inside it (bounded recursive search).
      */
-    private fun findActualMapboxMapView(view: View): View? {
+    private fun findActualMapboxMapView(view: View, depth: Int = 0): View? {
+        if (depth > 8) return null
         // If this view itself is a com.mapbox.maps.MapView, use it directly
         var cls: Class<*>? = view.javaClass
         while (cls != null && cls != View::class.java) {
             if (cls.name == MAPBOX_V10_CLASS || cls.name == MAPBOX_V9_CLASS) return view
             cls = cls.superclass
         }
-        // Search immediate children
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 val child = try { view.getChildAt(i) } catch (_: Exception) { null } ?: continue
-                var childCls: Class<*>? = child.javaClass
-                while (childCls != null && childCls != View::class.java) {
-                    if (childCls.name == MAPBOX_V10_CLASS || childCls.name == MAPBOX_V9_CLASS) return child
-                    childCls = childCls.superclass
-                }
-            }
-            // One more level deep
-            for (i in 0 until view.childCount) {
-                val child = try { view.getChildAt(i) } catch (_: Exception) { null } ?: continue
-                if (child is ViewGroup) {
-                    for (j in 0 until child.childCount) {
-                        val grandchild = try { child.getChildAt(j) } catch (_: Exception) { null } ?: continue
-                        var gcCls: Class<*>? = grandchild.javaClass
-                        while (gcCls != null && gcCls != View::class.java) {
-                            if (gcCls.name == MAPBOX_V10_CLASS || gcCls.name == MAPBOX_V9_CLASS) return grandchild
-                            gcCls = gcCls.superclass
-                        }
-                    }
-                }
+                findActualMapboxMapView(child, depth + 1)?.let { return it }
             }
         }
         return null
     }
 
     /**
-     * Mapbox Maps SDK v10+
-     * MapView.getMapboxMap() -> MapboxMap
-     * MapboxMap.subscribeMapIdle { ... }
-     * MapboxMap.subscribeCameraChanged { ... }
+     * Observe public camera state without registering or replacing SDK
+     * listeners. Sampling happens at the existing map refresh cadence and only
+     * increases to 2 Hz while a camera change is settling.
      */
-    private fun tryHookMapboxV10(mapView: View): Boolean {
+    private fun sampleCameraMotion() {
+        val controller = mapController?.get() ?: return
+        val sdk = detectedSDK ?: return
+        val signature = cameraSignature(controller, sdk) ?: return
+        val previous = lastCameraSignature
+        lastCameraSignature = signature
+        if (previous != null && previous != signature) {
+            setMapIdle(false)
+            scheduleCameraSettleCheck()
+        }
+    }
+
+    private fun cameraSignature(controller: Any, sdk: MapSDKType): String? {
         return try {
-            val getMapboxMap = mapView.javaClass.getMethod("getMapboxMap")
-            val mapboxMap = getMapboxMap.invoke(mapView) ?: return false
-
-            // subscribeMapIdle -> idle
-            try {
-                val subscribeIdle = mapboxMap.javaClass.getMethod(
-                    "subscribeMapIdle",
-                    Class.forName("com.mapbox.maps.plugin.delegates.listeners.OnMapIdleListener")
-                )
-                val idleListenerClass = Class.forName(
-                    "com.mapbox.maps.plugin.delegates.listeners.OnMapIdleListener"
-                )
-                val idleProxy = java.lang.reflect.Proxy.newProxyInstance(
-                    mapboxMap.javaClass.classLoader,
-                    arrayOf(idleListenerClass)
-                ) { _, method, _ ->
-                    if (method.name == "onMapIdle") {
-                        setMapIdle(true)
-                    }
-                    null
+            val state = when (sdk) {
+                MapSDKType.GOOGLE_MAPS -> controller.javaClass.getMethod("getCameraPosition").invoke(controller)
+                MapSDKType.MAPBOX -> try {
+                    controller.javaClass.getMethod("getCameraState").invoke(controller)
+                } catch (_: Exception) {
+                    controller.javaClass.getMethod("getCameraPosition").invoke(controller)
                 }
-                subscribeIdle.invoke(mapboxMap, idleProxy)
-            } catch (_: Exception) {
-                // v11 uses a different API shape — try lambda-based subscribe
-                tryHookMapboxV11Idle(mapboxMap)
-            }
-
-            // subscribeCameraChanged -> not idle
-            try {
-                val subscribeCam = mapboxMap.javaClass.getMethod(
-                    "subscribeCameraChanged",
-                    Class.forName("com.mapbox.maps.plugin.delegates.listeners.OnCameraChangeListener")
-                )
-                val camListenerClass = Class.forName(
-                    "com.mapbox.maps.plugin.delegates.listeners.OnCameraChangeListener"
-                )
-                val camProxy = java.lang.reflect.Proxy.newProxyInstance(
-                    mapboxMap.javaClass.classLoader,
-                    arrayOf(camListenerClass)
-                ) { _, method, _ ->
-                    if (method.name == "onCameraChanged") {
-                        setMapIdle(false)
-                    }
-                    null
-                }
-                subscribeCam.invoke(mapboxMap, camProxy)
-            } catch (_: Exception) {
-                // Camera-changed hook is best-effort; idle hook is enough
-            }
-
-            DiagnosticLog.trace("[SpecialCases] Mapbox v10 idle hooks attached")
-            true
+            } ?: return null
+            state.toString()
         } catch (_: Exception) {
-            false
+            null
         }
     }
 
-    /**
-     * Mapbox v11+ uses addOnMapIdleListener instead of subscribeMapIdle.
-     */
-    private fun tryHookMapboxV11Idle(mapboxMap: Any) {
-        try {
-            val addIdleListener = mapboxMap.javaClass.getMethod(
-                "addOnMapIdleListener",
-                Class.forName("com.mapbox.maps.plugin.delegates.listeners.OnMapIdleListener")
-            )
-            val idleListenerClass = Class.forName(
-                "com.mapbox.maps.plugin.delegates.listeners.OnMapIdleListener"
-            )
-            val idleProxy = java.lang.reflect.Proxy.newProxyInstance(
-                mapboxMap.javaClass.classLoader,
-                arrayOf(idleListenerClass)
-            ) { _, method, _ ->
-                if (method.name == "onMapIdle") {
+    private fun scheduleCameraSettleCheck() {
+        cameraSettleRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = object : Runnable {
+            override fun run() {
+                cameraSettleRunnable = null
+                val controller = mapController?.get()
+                val sdk = detectedSDK
+                if (controller == null || sdk == null) {
                     setMapIdle(true)
+                    return
                 }
-                null
-            }
-            addIdleListener.invoke(mapboxMap, idleProxy)
-            DiagnosticLog.trace("[SpecialCases] Mapbox v11 idle listener attached")
-        } catch (e: Exception) {
-            DiagnosticLog.trace("[SpecialCases] Mapbox v11 idle hook failed: ${e.message}")
-        }
-    }
-
-    /**
-     * Mapbox Maps SDK v9 (legacy)
-     * MapView.getMapAsync(OnMapReadyCallback) -> MapboxMap
-     * MapboxMap.addOnMapIdleListener(...)
-     * MapboxMap.addOnCameraMoveStartedListener(...)
-     */
-    private fun tryHookMapboxV9(mapView: View): Boolean {
-        return try {
-            val callbackClassName = "com.mapbox.mapboxsdk.maps.OnMapReadyCallback"
-            val callbackClass = Class.forName(callbackClassName)
-            val getMapAsync = mapView.javaClass.getMethod("getMapAsync", callbackClass)
-
-            val proxy = java.lang.reflect.Proxy.newProxyInstance(
-                mapView.javaClass.classLoader,
-                arrayOf(callbackClass)
-            ) { _, method, args ->
-                if (method.name == "onMapReady" && args != null && args.isNotEmpty()) {
-                    val mapboxMap = args[0] ?: return@newProxyInstance null
-                    attachMapboxV9Listeners(mapboxMap)
-                }
-                null
-            }
-            getMapAsync.invoke(mapView, proxy)
-            DiagnosticLog.trace("[SpecialCases] Mapbox v9 getMapAsync invoked")
-            true
-        } catch (e: Exception) {
-            DiagnosticLog.trace("[SpecialCases] Mapbox v9 hook failed: ${e.message}")
-            false
-        }
-    }
-
-    private fun attachMapboxV9Listeners(mapboxMap: Any) {
-        try {
-            // addOnMapIdleListener -> idle
-            val idleListenerClass = Class.forName(
-                "com.mapbox.mapboxsdk.maps.MapboxMap\$OnMapIdleListener"
-            )
-            val idleProxy = java.lang.reflect.Proxy.newProxyInstance(
-                mapboxMap.javaClass.classLoader,
-                arrayOf(idleListenerClass)
-            ) { _, method, _ ->
-                if (method.name == "onMapIdle") {
+                val signature = cameraSignature(controller, sdk)
+                if (signature == null) {
                     setMapIdle(true)
+                    return
                 }
-                null
-            }
-            mapboxMap.javaClass.getMethod("addOnMapIdleListener", idleListenerClass)
-                .invoke(mapboxMap, idleProxy)
-
-            // addOnCameraMoveStartedListener -> not idle
-            val moveListenerClass = Class.forName(
-                "com.mapbox.mapboxsdk.maps.MapboxMap\$OnCameraMoveStartedListener"
-            )
-            val moveProxy = java.lang.reflect.Proxy.newProxyInstance(
-                mapboxMap.javaClass.classLoader,
-                arrayOf(moveListenerClass)
-            ) { _, method, _ ->
-                if (method.name == "onCameraMoveStarted") {
-                    setMapIdle(false)
+                if (signature == lastCameraSignature) {
+                    setMapIdle(true)
+                } else {
+                    lastCameraSignature = signature
+                    cameraSettleRunnable = this
+                    mainHandler.postDelayed(this, CAMERA_SETTLE_SAMPLE_MS)
                 }
-                null
             }
-            mapboxMap.javaClass.getMethod("addOnCameraMoveStartedListener", moveListenerClass)
-                .invoke(mapboxMap, moveProxy)
-
-            DiagnosticLog.trace("[SpecialCases] Mapbox v9 idle/move listeners attached")
-        } catch (e: Exception) {
-            DiagnosticLog.trace("[SpecialCases] Mapbox v9 listener attach failed: ${e.message}")
-            mapIdle = true
         }
+        cameraSettleRunnable = runnable
+        mainHandler.postDelayed(runnable, CAMERA_SETTLE_SAMPLE_MS)
     }
 
     // -- Touch-based idle detection (fallback) --------------------------------
@@ -531,8 +410,11 @@ class SpecialCases private constructor() {
      * because SDK camera-change hooks (subscribeCameraChanged etc.) often fail
      * or use different APIs across Mapbox v10/v11.
      */
-    fun notifyTouchBegan() {
+    fun notifyTouchBegan(rawX: Float, rawY: Float) {
+        activeMapTouch = false
         if (!mapVisible) return
+        activeMapTouch = pointInsideHookedMap(rawX, rawY)
+        if (!activeMapTouch) return
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         touchDebounceRunnable = null
         if (mapIdle) {
@@ -542,31 +424,70 @@ class SpecialCases private constructor() {
 
     /**
      * Called by InteractionRecorder when a touch ends/cancels while a map is visible.
-     * Starts a debounce timer; when it fires, mapIdle becomes true (accounting
-     * for momentum scrolling/deceleration after the finger lifts).
+     * Starts a debounce timer and then confirms a stable camera signature,
+     * accounting for momentum after the finger lifts.
      */
     fun notifyTouchEnded() {
-        if (!usesTouchBasedIdle || !mapVisible) return
+        val endedMapTouch = activeMapTouch
+        activeMapTouch = false
+        if (!endedMapTouch || !usesTouchBasedIdle || !mapVisible) return
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         val runnable = Runnable {
             touchDebounceRunnable = null
             if (!mapIdle) {
-                setMapIdle(true)
+                // Do not let a fixed debounce race a still-decelerating or
+                // programmatically animated camera. Confirm a stable public
+                // camera state before the idle transition captures a frame.
+                scheduleCameraSettleCheck()
             }
         }
         touchDebounceRunnable = runnable
         mainHandler.postDelayed(runnable, TOUCH_DEBOUNCE_MS)
     }
 
+    private fun pointInsideHookedMap(rawX: Float, rawY: Float): Boolean {
+        val map = hookedMapView?.get() ?: return false
+        if (!map.isShown || map.width <= 0 || map.height <= 0) return false
+        return try {
+            val location = IntArray(2)
+            map.getLocationOnScreen(location)
+            rawX >= location[0] && rawX < location[0] + map.width &&
+                rawY >= location[1] && rawY < location[1] + map.height
+        } catch (_: Exception) {
+            // If window coordinates are temporarily unavailable, retaining the
+            // conservative behavior avoids recording a moving map frame.
+            true
+        }
+    }
+
     // -- Cleanup -------------------------------------------------------------
+
+    /** Release map references and timers when recording stops. */
+    fun reset() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            clearMapState()
+        } else {
+            mainHandler.post { clearMapState() }
+        }
+    }
+
+    private fun clearControllerState() {
+        mapController = null
+        lastCameraSignature = null
+        cameraSettleRunnable?.let { mainHandler.removeCallbacks(it) }
+        cameraSettleRunnable = null
+    }
 
     private fun clearMapState() {
         mapVisible = false
         mapIdle = true
         detectedSDK = null
         hookedMapView = null
+        clearControllerState()
         usesTouchBasedIdle = false
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         touchDebounceRunnable = null
+        activeMapTouch = false
+        MapboxSnapshotCache.clear()
     }
 }

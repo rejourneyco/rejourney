@@ -1,3 +1,23 @@
+## 1.5.1
+
+- Add permissionless, callback-driven battery start/end, thermal, memory
+  pressure/headroom, UI environment, orientation, and display refresh context,
+  with no new Android manifest permission or iOS usage-description key.
+- Keep the capture-when-idle map strategy while removing Mapbox's synchronous
+  Android snapshot readback, confirming camera stability after fling, finding
+  deeper wrappers, bounding stalled/failed snapshot retries, ignoring touches
+  outside the map, and preserving later iOS delegate hooks during cleanup.
+- Add Beta `Rejourney.pause()` / `resume()` plus standalone aliases across both
+  architectures and platforms, with paired timeline gap markers and no new
+  Android manifest or iOS Info.plist requirements.
+- Use Android 11+ historical process-exit reasons to recover system-classified
+  ANRs, Java crashes, and native crashes that an in-process watchdog cannot see.
+- Replace unsafe iOS signal-handler work with a next-launch native marker and
+  move pending fault records out of purgeable caches.
+- Stop delaying the pre-existing React Native fatal handler by 1.2 seconds,
+  preserve handlers installed after Rejourney, and remove JS/network hooks while
+  Beta-paused.
+
 ## 1.5.0
 
 - Identical screenshots are no longer stored. On measured sessions 93-98% of

@@ -17,7 +17,7 @@ Privacy-first session replay, mobile observability, crash reporting, and product
 
 ```yaml
 dependencies:
-  rejourney: ^0.3.1
+  rejourney: ^0.4.1
 ```
 
 Then install packages:
@@ -43,6 +43,29 @@ Future<void> main() async {
 ```
 
 `init` configures the SDK but does not record. `start` begins a native session, fetches project recording settings, and respects sampling and the remote kill switch. Call `stop` when the user revokes consent or explicitly signs out of an instrumented experience.
+
+## Pause and resume (Beta, Flutter 0.4.1+)
+
+Pause Rejourney around a foreground camera, AR, or graphics-heavy route without
+ending the current session:
+
+```dart
+final paused = await Rejourney.pause();
+// Present the high-cost experience.
+final resumed = await Rejourney.resume();
+```
+
+Both calls are idempotent. Pause flushes pending work, emits `sdk_paused`, and
+stops screenshots, hierarchy and interaction capture, live hang sampling,
+network instrumentation, and ordinary Dart/native telemetry intake. Resume
+continues the same foreground session and emits `sdk_resumed` with the matching
+`pauseId` and `gapDurationMs`, making the gap explicit in replay.
+
+Fatal-process hooks remain installed during a pause so crashes can still be
+recovered without periodic capture work. A background interval longer than the
+intentional 60-second boundary still creates a replacement session, which stays
+paused until resume. Resume returns `false` while backgrounded. This Beta API
+requires 0.4.1 or newer and needs no Android manifest or iOS Info.plist changes.
 
 ## Route tracking
 
@@ -157,9 +180,16 @@ await Rejourney.init(
 
 Important options include `enabled`, `observeOnly`, `captureFps`, `maxSessionDuration`, `stopTimeout`, `captureScreen`, `captureAnalytics`, `captureCrashes`, `captureAnrs`, `wifiOnly`, `captureQuality`, `trackConsoleLogs`, `autoTrackNetwork`, and the privacy/device collection controls. `stopTimeout` defaults to 10 seconds; native teardown and best-effort persistence continue if an offline flush exceeds that deadline. Dashboard recording settings may further restrict local capture settings.
 
+With `collectDeviceInfo` enabled, the plugin also sends coarse, permissionless
+battery, thermal, memory-pressure/headroom, UI environment, orientation, and
+display-refresh context. It uses lifecycle reads and OS callbacks only (no
+polling), needs no Android manifest permission or iOS usage-description key,
+and is omitted when `collectDeviceInfo` is disabled.
+
 ## Additional API
 
 - `Rejourney.getSessionId()` returns the active session identifier.
+- `Rejourney.pause()` and `Rejourney.resume()` control the Beta in-session capture gap.
 - `Rejourney.trackScreen()` records a screen manually.
 - `Rejourney.markVisualChange()` requests an immediate capture when allowed.
 - `Rejourney.onScroll()` supplies scroll activity to adaptive capture.

@@ -1,3 +1,20 @@
+## 0.5.1
+
+- Add permissionless, callback-driven battery start/end, thermal, memory
+  pressure/headroom, UI environment, orientation, and display refresh context.
+  Collection adds no polling timer, Android-style permission, or iOS usage key.
+- Harden capture-when-idle maps: precise delegate callbacks no longer race a
+  fallback debounce, and cleanup preserves delegate hooks installed later by
+  the host or another SDK.
+- Add the Beta `Rejourney.pause()` / `resume()` API. It suspends capture,
+  telemetry intake, live hang work, and network instrumentation without ending
+  the foreground session, then records paired gap markers on resume.
+- Replace unsafe Swift work in fatal signal handlers with an async-signal-safe
+  native marker that is converted to an incident on the next launch.
+- Keep crash and MetricKit hang correlation records in Application Support
+  rather than purgeable caches, restore pre-existing exception handlers, and
+  remove the crash-path sleep.
+
 ## 0.5.0
 
 - Identical screenshots are no longer stored. On measured sessions 93-98% of

@@ -17,7 +17,7 @@ Or add it directly to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.3.0")
+    .package(url: "https://github.com/rejourneyco/rejourney", from: "0.5.1")
 ],
 targets: [
     .target(
@@ -86,6 +86,28 @@ if result.success, let sessionId = result.sessionId {
     print("Recording started — session: \(sessionId)")
 }
 ```
+
+## Pause and Resume (Beta, 0.5.1+)
+
+Use the Beta pause API for a foreground camera, AR, or graphics-heavy screen
+where you want the current session to remain open without capture overhead:
+
+```swift
+guard Rejourney.pause() else { return }
+// Present the high-cost screen.
+_ = Rejourney.resume()
+```
+
+`pause()` flushes pending work and emits `sdk_paused`, then stops visual,
+hierarchy, interaction, live-hang, network, and ordinary telemetry work.
+`resume()` continues the same foreground session and emits `sdk_resumed` with
+the matching `pauseId` and `gapDurationMs`. Both methods are idempotent.
+
+Fatal-process recovery remains armed during the gap. If the app backgrounds for
+more than the intentional 60-second session boundary, the replacement session
+also remains paused until resume. Resume returns `false` while backgrounded.
+This API is Beta and requires native iOS SDK 0.5.1 or newer. No Info.plist or
+entitlement additions are required.
 
 ## Remote Recording Settings
 
@@ -371,6 +393,14 @@ Rejourney.configure(
     options: RejourneyOptions(captureNativeSheets: false)
 )
 ```
+
+When device-information collection is enabled by project policy, Rejourney
+records coarse session quality context: battery start/end/change, thermal state,
+memory pressure and headroom buckets, font scale, light/dark style, layout
+direction, orientation, and maximum display refresh rate. Collection happens at
+lifecycle boundaries and through OS callbacks rather than polling. It requires
+no Info.plist usage-description key or entitlement and is omitted when device
+information collection is disabled.
 
 ### User Consent & GDPR
 

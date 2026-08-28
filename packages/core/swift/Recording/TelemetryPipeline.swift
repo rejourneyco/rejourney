@@ -53,6 +53,20 @@ final class TelemetryPipeline: NSObject {
     /// timestamp and no hardware, OS, vendor or network identifiers.
     var collectDeviceInfo: Bool = true
 
+    private let _deviceEnvironmentMonitor = DeviceEnvironmentMonitor()
+
+    /// Returns a low-cardinality battery snapshot for public device-info APIs.
+    /// Active sessions are notification-backed; inactive reads are one-shot
+    /// and restore the host application's UIDevice monitoring preference.
+    func currentBatteryInfo() -> [String: Any] {
+        _deviceEnvironmentMonitor.currentBatterySnapshot()
+    }
+
+    func sessionDeviceMetrics() -> [String: Any] {
+        guard collectDeviceInfo else { return [:] }
+        return _deviceEnvironmentMonitor.sessionSummary()
+    }
+
     private let _eventRing = EventRingBuffer(capacity: 5000)
     private let _frameQueue = FrameBundleQueue(maxPending: 200)
     private var _batchSeq = 0
@@ -63,6 +77,8 @@ final class TelemetryPipeline: NSObject {
 
     private let _serialWorker = DispatchQueue(label: "co.rejourney.telemetry", qos: .utility)
     private var _heartbeat: Timer?
+    private var _acceptingEvents = false
+    private var _captureStateLock = os_unfair_lock_s()
 
     private let _batchSizeLimit = 500_000
 
@@ -120,6 +136,13 @@ final class TelemetryPipeline: NSObject {
     }
 
     @objc func activate() {
+        _setAcceptingEvents(true)
+        if collectDeviceInfo {
+            _deviceEnvironmentMonitor.start(resetSession: true)
+        } else {
+            _deviceEnvironmentMonitor.clearSession()
+        }
+
         // Upload any pending data from previous sessions first
         _uploadPendingSessions()
 
@@ -158,13 +181,18 @@ final class TelemetryPipeline: NSObject {
     /// This prevents the pipeline from uploading empty event batches
     /// while backgrounded, which would inflate session duration.
     @objc func pause() {
+        _setAcceptingEvents(false)
+        _cancelDeadTapTimer()
+        _deviceEnvironmentMonitor.pause()
         _heartbeat?.invalidate()
         _heartbeat = nil
     }
 
     /// Resume the heartbeat timer when the app returns to foreground.
     @objc func resume() {
+        _setAcceptingEvents(true)
         guard _heartbeat == nil else { return }
+        if collectDeviceInfo { _deviceEnvironmentMonitor.start(resetSession: false) }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self._heartbeat = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -178,6 +206,9 @@ final class TelemetryPipeline: NSObject {
     }
 
     func shutdown(completion: (() -> Void)? = nil, skipVisualFlush: Bool = false) {
+        _setAcceptingEvents(false)
+        _cancelDeadTapTimer()
+        _deviceEnvironmentMonitor.pause()
         if Thread.isMainThread {
             _heartbeat?.invalidate()
             _heartbeat = nil
@@ -443,7 +474,8 @@ final class TelemetryPipeline: NSObject {
 
         var meta: [String: Any] = [
             "platform": "ios",
-            "time": Date().timeIntervalSince1970
+            "time": Date().timeIntervalSince1970,
+            "sdkVersion": RejourneySDKInfo.version
         ]
         if collectDeviceInfo {
             meta.merge([
@@ -454,6 +486,7 @@ final class TelemetryPipeline: NSObject {
                 "isConstrained": isConstrained,
                 "isExpensive": isExpensive
             ]) { _, new in new }
+            meta.merge(_deviceEnvironmentMonitor.currentSnapshot()) { _, new in new }
         }
 
         let wrapper: [String: Any] = ["events": events, "deviceInfo": meta]
@@ -551,7 +584,18 @@ final class TelemetryPipeline: NSObject {
         var meta: [String: Any] = [
             "platform": "ios",
             "time": Date().timeIntervalSince1970,
-            "sdkVersion": RejourneySDKInfo.version
+            "sdkVersion": RejourneySDKInfo.version,
+            // Rendering geometry and app identity are required to interpret
+            // replay coordinates and releases; they do not identify a device.
+            "appVersion": appVersion,
+            "appId": appId,
+            "screenWidth": Int(bounds.width),
+            "screenHeight": Int(bounds.height),
+            "screenWidthPixels": Int(bounds.width * scale),
+            "screenHeightPixels": Int(bounds.height * scale),
+            "screenScale": scale,
+            "pixelRatio": scale,
+            "coordinateSpace": "pt"
         ]
         if collectDeviceInfo {
             meta.merge([
@@ -561,18 +605,10 @@ final class TelemetryPipeline: NSObject {
                 "networkType": networkType,
                 "isConstrained": isConstrained,
                 "isExpensive": isExpensive,
-                "appVersion": appVersion,
-                "appId": appId,
-                "screenWidth": Int(bounds.width),
-                "screenHeight": Int(bounds.height),
-                "screenWidthPixels": Int(bounds.width * scale),
-                "screenHeightPixels": Int(bounds.height * scale),
-                "screenScale": scale,
-                "pixelRatio": scale,
-                "coordinateSpace": "pt",
                 "systemName": device.systemName,
                 "name": device.name
             ]) { _, new in new }
+            meta.merge(_deviceEnvironmentMonitor.currentSnapshot()) { _, new in new }
         }
 
         let wrapper: [String: Any] = ["events": jsonEvents, "deviceInfo": meta]
@@ -666,6 +702,9 @@ final class TelemetryPipeline: NSObject {
     }
 
     @objc func recordTapEvent(label: String, x: UInt64, y: UInt64, isInteractive: Bool = false) {
+        // A newer tap supersedes the previous dead-tap candidate. Without this,
+        // the old work item remains scheduled and can report a false dead tap.
+        _cancelDeadTapTimer()
         let tapTs = _ts()
         _enqueue(["type": "touch", "gestureType": "tap", "timestamp": tapTs, "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": tapTs]]])
 
@@ -695,6 +734,8 @@ final class TelemetryPipeline: NSObject {
     }
 
     @objc func recordRageTapEvent(label: String, x: UInt64, y: UInt64, count: Int) {
+        // The taps collapsed into a rage gesture must not also become a dead tap.
+        _cancelDeadTapTimer()
         // Cross-version safety for users who update the backend before app
         // binaries. Backend still understands Swift 0.2.x rage/dead tap shapes,
         // but current package builds must not create frustration events inside
@@ -808,6 +849,11 @@ final class TelemetryPipeline: NSObject {
     }
 
     private func _enqueue(_ dict: [String: Any]) {
+        os_unfair_lock_lock(&_captureStateLock)
+        let acceptingEvents = _acceptingEvents
+        os_unfair_lock_unlock(&_captureStateLock)
+        guard acceptingEvents else { return }
+
         // Keep in memory ring for immediate upload
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         var d = data
@@ -816,6 +862,12 @@ final class TelemetryPipeline: NSObject {
     }
 
     private func _ts() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    private func _setAcceptingEvents(_ accepting: Bool) {
+        os_unfair_lock_lock(&_captureStateLock)
+        _acceptingEvents = accepting
+        os_unfair_lock_unlock(&_captureStateLock)
+    }
 }
 
 private struct EventEntry {
@@ -824,26 +876,34 @@ private struct EventEntry {
 }
 
 private final class EventRingBuffer {
-    private var _storage: ContiguousArray<EventEntry> = []
+    private var _storage: ContiguousArray<EventEntry?>
     private let _capacity: Int
+    private var _head = 0
+    private var _count = 0
     private let _lock = NSLock()
 
     init(capacity: Int) {
-        _capacity = capacity
-        _storage.reserveCapacity(capacity)
+        _capacity = max(1, capacity)
+        _storage = ContiguousArray(repeating: nil, count: max(1, capacity))
     }
 
     var count: Int {
         _lock.lock()
         defer { _lock.unlock() }
-        return _storage.count
+        return _count
     }
 
     func push(_ entry: EventEntry) {
         _lock.lock()
         defer { _lock.unlock() }
-        if _storage.count >= _capacity { _storage.removeFirst() }
-        _storage.append(entry)
+        if _count == _capacity {
+            _storage[_head] = entry
+            _head = (_head + 1) % _capacity
+        } else {
+            let tail = (_head + _count) % _capacity
+            _storage[tail] = entry
+            _count += 1
+        }
     }
 
     func drain(maxBytes: Int) -> [EventEntry] {
@@ -851,12 +911,13 @@ private final class EventRingBuffer {
         defer { _lock.unlock() }
         var result: [EventEntry] = []
         var total = 0
-        while !_storage.isEmpty {
-            let next = _storage.first!
+        while _count > 0, let next = _storage[_head] {
             if total + next.size > maxBytes { break }
             result.append(next)
             total += next.size
-            _storage.removeFirst()
+            _storage[_head] = nil
+            _head = (_head + 1) % _capacity
+            _count -= 1
         }
         return result
     }
@@ -864,8 +925,10 @@ private final class EventRingBuffer {
     func clear() -> Int {
         _lock.lock()
         defer { _lock.unlock() }
-        let cleared = _storage.count
-        _storage.removeAll()
+        let cleared = _count
+        _storage = ContiguousArray(repeating: nil, count: _capacity)
+        _head = 0
+        _count = 0
         return cleared
     }
 }
@@ -880,45 +943,61 @@ private struct PendingFrameBundle {
 }
 
 private final class FrameBundleQueue {
-    private var _queue: [PendingFrameBundle] = []
+    private var _queue: [PendingFrameBundle?]
     private let _maxPending: Int
+    private var _head = 0
+    private var _count = 0
     private let _lock = NSLock()
 
     init(maxPending: Int) {
-        _maxPending = maxPending
+        _maxPending = max(1, maxPending)
+        _queue = Array(repeating: nil, count: max(1, maxPending))
     }
 
     var count: Int {
         _lock.lock()
         defer { _lock.unlock() }
-        return _queue.count
+        return _count
     }
 
     func enqueue(_ bundle: PendingFrameBundle) {
         _lock.lock()
         defer { _lock.unlock() }
-        if _queue.count >= _maxPending { _queue.removeFirst() }
-        _queue.append(bundle)
+        if _count == _maxPending {
+            _queue[_head] = bundle
+            _head = (_head + 1) % _maxPending
+        } else {
+            let tail = (_head + _count) % _maxPending
+            _queue[tail] = bundle
+            _count += 1
+        }
     }
 
     func dequeue() -> PendingFrameBundle? {
         _lock.lock()
         defer { _lock.unlock() }
-        guard !_queue.isEmpty else { return nil }
-        return _queue.removeFirst()
+        guard _count > 0, let bundle = _queue[_head] else { return nil }
+        _queue[_head] = nil
+        _head = (_head + 1) % _maxPending
+        _count -= 1
+        return bundle
     }
 
     func requeue(_ bundle: PendingFrameBundle) {
         _lock.lock()
         defer { _lock.unlock() }
-        _queue.insert(bundle, at: 0)
+        _head = (_head - 1 + _maxPending) % _maxPending
+        _queue[_head] = bundle
+        if _count < _maxPending { _count += 1 }
     }
 
     func clear() -> Int {
         _lock.lock()
         defer { _lock.unlock() }
-        let cleared = _queue.count
-        _queue.removeAll()
+        let cleared = _count
+        _queue = Array(repeating: nil, count: _maxPending)
+        _head = 0
+        _count = 0
         return cleared
     }
 }

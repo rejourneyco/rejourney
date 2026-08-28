@@ -94,10 +94,11 @@ class InteractionRecorder private constructor(private val context: Context) {
     fun setCurrentActivity(activity: Activity?) {
         val oldActivity = currentActivity?.get()
         currentActivity = if (activity != null) WeakReference(activity) else null
-        // Re-install the touch listener when the activity changes while tracking
-        if (isTracking && activity != null && activity !== oldActivity) {
+        // Remove the old callback even when the activity becomes null; otherwise
+        // originalWindowCallback retains the destroyed Activity's Window.
+        if (isTracking && activity !== oldActivity) {
             removeGlobalTouchListener()
-            installGlobalTouchListener()
+            if (activity != null) installGlobalTouchListener()
         }
     }
 
@@ -166,6 +167,7 @@ class InteractionRecorder private constructor(private val context: Context) {
     }
 
     private var originalWindowCallback: Window.Callback? = null
+    private var installedWindowCallback: Window.Callback? = null
     private var installedWindow: WeakReference<Window>? = null
 
     private fun installGlobalTouchListener() {
@@ -180,9 +182,9 @@ class InteractionRecorder private constructor(private val context: Context) {
         installedWindow = WeakReference(window)
         val agg = gestureAggregator ?: return
 
-        window.callback = object : Window.Callback by original {
+        val wrapper = object : Window.Callback by original {
             override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
-                if (event != null) {
+                if (event != null && isTracking) {
                     markInteractionNow()
                     agg.processTouchEvent(event)
 
@@ -191,7 +193,7 @@ class InteractionRecorder private constructor(private val context: Context) {
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             VisualCapture.shared?.invalidateMaskCache()
-                            SpecialCases.shared.notifyTouchBegan()
+                            SpecialCases.shared.notifyTouchBegan(event.rawX, event.rawY)
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                             SpecialCases.shared.notifyTouchEnded()
@@ -200,6 +202,8 @@ class InteractionRecorder private constructor(private val context: Context) {
                 return original.dispatchTouchEvent(event)
             }
         }
+        installedWindowCallback = wrapper
+        window.callback = wrapper
     }
 
     private fun markInteractionNow() {
@@ -208,10 +212,13 @@ class InteractionRecorder private constructor(private val context: Context) {
 
     private fun removeGlobalTouchListener() {
         val window = installedWindow?.get()
-        if (window != null) {
+        // Another library may have wrapped the callback after us. Restore only
+        // when we still own the installed slot so we never clobber its wrapper.
+        if (window != null && window.callback === installedWindowCallback) {
             originalWindowCallback?.let { window.callback = it }
         }
         originalWindowCallback = null
+        installedWindowCallback = null
         installedWindow = null
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "@rejourneyco/react-native",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Rejourney Session Recording SDK for React Native",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",

@@ -136,6 +136,32 @@ type SessionContext = {
     cellular_generation: string | null;
     is_constrained: boolean | null;
     is_expensive: boolean | null;
+    battery_level_percent: number | null;
+    battery_state: string | null;
+    low_power_mode_enabled: boolean | null;
+    battery_level_start_percent: number | null;
+    battery_level_end_percent: number | null;
+    battery_delta_percent: number | null;
+    battery_state_start: string | null;
+    battery_state_end: string | null;
+    charging_state_changed: boolean | null;
+    low_power_mode_observed: boolean | null;
+    thermal_state_start: string | null;
+    thermal_state_peak: string | null;
+    thermal_state_end: string | null;
+    thermal_throttled_duration_ms: number | null;
+    memory_pressure_peak: string | null;
+    memory_pressure_event_count: number | null;
+    memory_headroom_mb_bucket_start: number | null;
+    memory_headroom_mb_bucket_min: number | null;
+    memory_headroom_mb_bucket_end: number | null;
+    font_scale_bucket: string | null;
+    ui_style: string | null;
+    layout_direction: string | null;
+    orientation_start: string | null;
+    orientation_end: string | null;
+    orientation_change_count: number | null;
+    display_max_refresh_rate_hz: number | null;
     sdk_upload_success_count: number | null;
     sdk_upload_failure_count: number | null;
     sdk_retry_attempt_count: number | null;
@@ -3248,6 +3274,32 @@ async function loadSessionContext(sessionId: string): Promise<{
             sm.cellular_generation,
             sm.is_constrained,
             sm.is_expensive,
+            sm.battery_level_percent,
+            sm.battery_state,
+            sm.low_power_mode_enabled,
+            sm.battery_level_start_percent,
+            sm.battery_level_end_percent,
+            sm.battery_delta_percent,
+            sm.battery_state_start,
+            sm.battery_state_end,
+            sm.charging_state_changed,
+            sm.low_power_mode_observed,
+            sm.thermal_state_start,
+            sm.thermal_state_peak,
+            sm.thermal_state_end,
+            sm.thermal_throttled_duration_ms,
+            sm.memory_pressure_peak,
+            sm.memory_pressure_event_count,
+            sm.memory_headroom_mb_bucket_start,
+            sm.memory_headroom_mb_bucket_min,
+            sm.memory_headroom_mb_bucket_end,
+            sm.font_scale_bucket,
+            sm.ui_style,
+            sm.layout_direction,
+            sm.orientation_start,
+            sm.orientation_end,
+            sm.orientation_change_count,
+            sm.display_max_refresh_rate_hz,
             sm.sdk_upload_success_count,
             sm.sdk_upload_failure_count,
             sm.sdk_retry_attempt_count,
@@ -4272,6 +4324,32 @@ function buildSessionMetrics(session: SessionContext): Record<string, unknown> {
         cellular_generation: session.cellular_generation || null,
         is_constrained: booleanValue(session.is_constrained),
         is_expensive: booleanValue(session.is_expensive),
+        battery_level_percent_bucket: bucketNumber(session.battery_level_percent, 10, 0, 100),
+        battery_state: session.battery_state || null,
+        low_power_mode_enabled: booleanValue(session.low_power_mode_enabled),
+        battery_level_start_bucket: bucketNumber(session.battery_level_start_percent, 10, 0, 100),
+        battery_level_end_bucket: bucketNumber(session.battery_level_end_percent, 10, 0, 100),
+        battery_delta_bucket: bucketNumber(session.battery_delta_percent, 5, -100, 100),
+        battery_state_start: session.battery_state_start || null,
+        battery_state_end: session.battery_state_end || null,
+        charging_state_changed: booleanValue(session.charging_state_changed),
+        low_power_mode_observed: booleanValue(session.low_power_mode_observed),
+        thermal_state_start: session.thermal_state_start || null,
+        thermal_state_peak: session.thermal_state_peak || null,
+        thermal_state_end: session.thermal_state_end || null,
+        thermal_throttled_duration_ms: session.thermal_throttled_duration_ms ?? null,
+        memory_pressure_peak: session.memory_pressure_peak || null,
+        memory_pressure_event_count: session.memory_pressure_event_count ?? null,
+        memory_headroom_mb_bucket_start: session.memory_headroom_mb_bucket_start ?? null,
+        memory_headroom_mb_bucket_min: session.memory_headroom_mb_bucket_min ?? null,
+        memory_headroom_mb_bucket_end: session.memory_headroom_mb_bucket_end ?? null,
+        font_scale_bucket: session.font_scale_bucket || null,
+        ui_style: session.ui_style || null,
+        layout_direction: session.layout_direction || null,
+        orientation_start: session.orientation_start || null,
+        orientation_end: session.orientation_end || null,
+        orientation_change_count: session.orientation_change_count ?? null,
+        display_max_refresh_rate_hz: session.display_max_refresh_rate_hz ?? null,
         sdk_upload_success_count: session.sdk_upload_success_count || 0,
         sdk_upload_failure_count: session.sdk_upload_failure_count || 0,
         sdk_retry_attempt_count: session.sdk_retry_attempt_count || 0,
