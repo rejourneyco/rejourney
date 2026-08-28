@@ -121,8 +121,7 @@ void main() {
     expect(
       fake.calls.where(
         (call) =>
-            call.$1 == 'logEvent' &&
-            call.$2?['name'] == 'must_not_cross_pause',
+            call.$1 == 'logEvent' && call.$2?['name'] == 'must_not_cross_pause',
       ),
       isEmpty,
     );

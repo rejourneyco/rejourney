@@ -82,7 +82,8 @@ abstract final class Rejourney {
   static Future<bool> pause() async {
     if (!_recording) return false;
     if (_paused) return true;
-    final paused = await RejourneyPlatform.instance.invoke<bool>('pause') ?? false;
+    final paused =
+        await RejourneyPlatform.instance.invoke<bool>('pause') ?? false;
     if (paused) _paused = true;
     return paused;
   }
@@ -91,7 +92,8 @@ abstract final class Rejourney {
   static Future<bool> resume() async {
     if (!_recording) return false;
     if (!_paused) return true;
-    final resumed = await RejourneyPlatform.instance.invoke<bool>('resume') ?? false;
+    final resumed =
+        await RejourneyPlatform.instance.invoke<bool>('resume') ?? false;
     if (resumed) _paused = false;
     return resumed;
   }
