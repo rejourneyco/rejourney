@@ -16,10 +16,7 @@
 
 package com.rejourney.recording
 
-import android.app.ActivityManager
-import android.app.ApplicationExitInfo
 import android.content.Context
-import android.os.Build
 import android.util.AtomicFile
 import com.rejourney.engine.DiagnosticLog
 import org.json.JSONArray
@@ -29,7 +26,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.util.UUID
 import java.util.concurrent.Executors
-import kotlin.math.abs
+import kotlin.concurrent.thread
 
 /**
  * Incident record for crash reporting
@@ -174,62 +171,33 @@ class StabilityMonitor private constructor(private val context: Context) {
 
     var isMonitoring = false
         private set
-    private val statePreferences = context.getSharedPreferences(
-        "com.rejourney.stability",
-        Context.MODE_PRIVATE
-    )
-    private val previousSessionId = statePreferences.getString("last_session_id", null)
-    private val previousSessionStartedAtMs = statePreferences.getLong("last_session_started_at_ms", 0L)
     var currentSessionId: String? = null
-        set(value) {
-            val changed = !value.isNullOrBlank() && value != field
-            field = value
-            if (changed) {
-                statePreferences.edit()
-                    .putString("last_session_id", value)
-                    .putLong("last_session_started_at_ms", System.currentTimeMillis())
-                    .apply()
-            }
-        }
 
-    private val incidentStore: File = File(context.filesDir, "rejourney/rj_incidents.json").also {
-        it.parentFile?.mkdirs()
-        val legacy = File(context.cacheDir, "rj_incidents.json")
-        if (!it.exists() && legacy.exists()) {
-            runCatching { legacy.copyTo(it, overwrite = false) }
-                .onSuccess { legacy.delete() }
-        }
+    private val incidentStore: File by lazy {
+        File(context.cacheDir, "rj_incidents.json")
     }
     private val incidentStoreLock = Any()
 
     private val workerExecutor = Executors.newSingleThreadExecutor()
 
     private var chainedExceptionHandler: Thread.UncaughtExceptionHandler? = null
-    private var installedExceptionHandler: Thread.UncaughtExceptionHandler? = null
-    private var exceptionHandlerChainedExternally = false
 
     fun activate() {
         if (isMonitoring) return
         isMonitoring = true
 
-        val currentHandler = Thread.getDefaultUncaughtExceptionHandler()
-        if (currentHandler !== installedExceptionHandler && !exceptionHandlerChainedExternally) {
-            // Install once above the current owner. If a later crash reporter
-            // wraps us, subsequent session activation keeps that ordering so
-            // it cannot create a recursive A -> Rejourney -> A chain.
-            chainedExceptionHandler = currentHandler
-            installedExceptionHandler = Thread.UncaughtExceptionHandler { thread, throwable ->
-                if (isMonitoring) captureException(thread, throwable)
-                chainedExceptionHandler?.uncaughtException(thread, throwable)
-            }
-            Thread.setDefaultUncaughtExceptionHandler(installedExceptionHandler)
+        // Chain existing handler
+        chainedExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
+
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            captureException(thread, throwable)
+
+            // Call chained handler
+            chainedExceptionHandler?.uncaughtException(thread, throwable)
         }
 
-        // Android 11+ retains system-classified exits across process death. Process
-        // these before upload so killed ANRs and native crashes are not limited to
-        // what an in-process watchdog or Java exception handler can observe.
+        // Upload any stored incidents
         workerExecutor.execute {
-            captureHistoricalProcessExits()
             uploadStoredIncidents()
         }
     }
@@ -238,18 +206,9 @@ class StabilityMonitor private constructor(private val context: Context) {
         if (!isMonitoring) return
         isMonitoring = false
 
-        // Do not overwrite a crash reporter installed after Rejourney.
-        if (Thread.getDefaultUncaughtExceptionHandler() === installedExceptionHandler) {
-            Thread.setDefaultUncaughtExceptionHandler(chainedExceptionHandler)
-            installedExceptionHandler = null
-            chainedExceptionHandler = null
-            exceptionHandlerChainedExternally = false
-        } else if (installedExceptionHandler != null) {
-            // The current owner may retain our handler as its predecessor.
-            // Keep the predecessor reference alive so its chain still reaches
-            // the system/previous crash handler while Rejourney is inactive.
-            exceptionHandlerChainedExternally = true
-        }
+        // Restore original handler
+        Thread.setDefaultUncaughtExceptionHandler(chainedExceptionHandler)
+        chainedExceptionHandler = null
     }
 
     fun transmitStoredReport() {
@@ -266,7 +225,6 @@ class StabilityMonitor private constructor(private val context: Context) {
         val frames = stackTrace.lines()
             .filter { it.trim().startsWith("at ") }
             .map { it.trim() }
-            .take(256)
 
         val incident = IncidentRecord(
             sessionId = currentSessionId ?: "unknown",
@@ -286,116 +244,10 @@ class StabilityMonitor private constructor(private val context: Context) {
         persistIncident(incident)
 
         // Flush visual frames to disk for crash safety
-        try { VisualCapture.shared?.flushToDiskForCrash() } catch (_: Exception) { }
+        try { VisualCapture.shared?.flushToDisk() } catch (_: Exception) { }
 
-    }
-
-    private fun captureHistoricalProcessExits() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-
-        try {
-            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                ?: return
-            val processed = LinkedHashSet(
-                statePreferences.getStringSet("processed_exit_keys", emptySet()) ?: emptySet()
-            )
-
-            val mainProcessName = context.applicationInfo.processName
-            val relevantExits = activityManager
-                .getHistoricalProcessExitReasons(context.packageName, 0, 32)
-                .filter { exit ->
-                    exit.processName == mainProcessName &&
-                        (exit.reason == ApplicationExitInfo.REASON_ANR ||
-                            exit.reason == ApplicationExitInfo.REASON_CRASH ||
-                            exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE)
-                }
-                .sortedBy { it.timestamp }
-            val attributableExit = relevantExits.lastOrNull { exit ->
-                previousSessionId != null &&
-                    (previousSessionStartedAtMs <= 0L || exit.timestamp >= previousSessionStartedAtMs)
-            }
-
-            relevantExits
-                .forEach { exit ->
-                    val category = when (exit.reason) {
-                        ApplicationExitInfo.REASON_ANR -> "anr"
-                        ApplicationExitInfo.REASON_CRASH,
-                        ApplicationExitInfo.REASON_CRASH_NATIVE -> "crash"
-                        else -> return@forEach
-                    }
-                    val exitKey = "${exit.timestamp}:${exit.pid}:${exit.reason}:${exit.status}"
-                    if (exitKey in processed) return@forEach
-
-                    // ApplicationExitInfo can retain a backlog that predates
-                    // SDK installation and can include other app processes.
-                    // Only the newest main-process exit after the saved session
-                    // start has defensible session ownership.
-                    if (exit !== attributableExit) {
-                        processed.add(exitKey)
-                        return@forEach
-                    }
-
-                    val sessionId = previousSessionId ?: return@forEach
-                    val alreadyPersisted = synchronized(incidentStoreLock) {
-                        readStoredIncidentsLocked().any { stored ->
-                            stored.sessionId == sessionId &&
-                                abs(stored.timestampMs - exit.timestamp) <= 10_000L &&
-                                (stored.category == category ||
-                                    stored.category == "exception" ||
-                                    stored.category == "signal")
-                        }
-                    }
-                    if (!alreadyPersisted) {
-                        val trace = if (exit.reason == ApplicationExitInfo.REASON_ANR) {
-                            runCatching {
-                                exit.traceInputStream?.bufferedReader()?.use { reader ->
-                                    val buffer = CharArray(262_144)
-                                    val count = reader.read(buffer)
-                                    if (count > 0) String(buffer, 0, count) else ""
-                                }
-                            }.getOrNull().orEmpty()
-                        } else {
-                            ""
-                        }
-                        val identifier = when (exit.reason) {
-                            ApplicationExitInfo.REASON_ANR -> "ApplicationExitInfo.REASON_ANR"
-                            ApplicationExitInfo.REASON_CRASH_NATIVE -> "ApplicationExitInfo.REASON_CRASH_NATIVE"
-                            else -> "ApplicationExitInfo.REASON_CRASH"
-                        }
-                        persistIncidentSync(
-                            IncidentRecord(
-                                sessionId = sessionId,
-                                timestampMs = exit.timestamp,
-                                category = category,
-                                identifier = identifier,
-                                detail = exit.description ?: identifier,
-                                frames = trace.lineSequence()
-                                    .map(String::trim)
-                                    .filter(String::isNotEmpty)
-                                    .take(256)
-                                    .toList(),
-                                context = mapOf(
-                                    "source" to "application_exit_info",
-                                    "processName" to exit.processName,
-                                    "pid" to exit.pid.toString(),
-                                    "importance" to exit.importance.toString(),
-                                    "pssKb" to exit.pss.toString(),
-                                    "rssKb" to exit.rss.toString(),
-                                    "status" to exit.status.toString(),
-                                    "reasonCode" to exit.reason.toString()
-                                )
-                            )
-                        )
-                    }
-
-                    processed.add(exitKey)
-                }
-
-            val bounded = processed.toList().takeLast(128).toSet()
-            statePreferences.edit().putStringSet("processed_exit_keys", bounded).apply()
-        } catch (error: Exception) {
-            DiagnosticLog.fault("Historical exit processing failed: ${error.message}")
-        }
+        // Give time to write
+        Thread.sleep(150)
     }
 
     fun persistIncidentSync(incident: IncidentRecord) {
@@ -471,8 +323,6 @@ class StabilityMonitor private constructor(private val context: Context) {
         try {
             val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "POST"
-            connection.connectTimeout = 5_000
-            connection.readTimeout = 10_000
             connection.setRequestProperty("Content-Type", "application/json")
 
             SegmentDispatcher.shared.apiToken?.let {

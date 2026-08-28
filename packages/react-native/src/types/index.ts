@@ -421,12 +421,6 @@ export interface DeviceInfo {
   locale?: string;
   /** Device timezone */
   timezone?: string;
-  /** Current battery level as an integer percentage from 0 to 100 */
-  batteryLevelPercent?: number;
-  /** Current normalized charging state */
-  batteryState?: 'charging' | 'full' | 'unplugged' | 'unknown';
-  /** Whether the operating system's low-power mode is active */
-  lowPowerModeEnabled?: boolean;
   /** Total device memory (MB) */
   totalMemory?: number;
 }
@@ -565,10 +559,6 @@ export interface RejourneyAPI {
   start(): void;
   /** Stop recording */
   stop(): void;
-  /** Pause all capture work without ending the active session (Beta). */
-  pause(): Promise<boolean>;
-  /** Resume capture in the same foreground session after a Beta pause. */
-  resume(): Promise<boolean>;
   /** Internal method to start recording session (called by start() / startRejourney()) */
   _startSession(): Promise<boolean>;
   /** Internal method to stop recording session (called by stopRejourney) */

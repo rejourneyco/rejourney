@@ -118,19 +118,6 @@ describe('sessionConfig', () => {
       ).toMatchObject({ collectGeoLocation: true });
     });
 
-    it('forwards collectDeviceInfo to the native telemetry pipeline', () => {
-      expect(
-        buildNativeStartOptions({ collectDeviceInfo: false }, 'u1')
-      ).toMatchObject({ collectDeviceInfo: false });
-      expect(
-        buildNativeStartOptions({ collectDeviceInfo: true }, 'u1')
-      ).toMatchObject({ collectDeviceInfo: true });
-    });
-
-    it('omits collectDeviceInfo when not set, leaving native to use its default', () => {
-      expect(buildNativeStartOptions({}, 'u1')).not.toHaveProperty('collectDeviceInfo');
-    });
-
     it('omits collectGeoLocation when not set, leaving native to use its default', () => {
       const opts = buildNativeStartOptions({}, 'u1');
       expect(opts).not.toHaveProperty('collectGeoLocation');

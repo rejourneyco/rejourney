@@ -20,31 +20,6 @@ Rejourney.init('rj_your_public_key');
 Rejourney.start();
 ```
 
-## Pause and resume (Beta, React Native 1.5.1+)
-
-Pause Rejourney around a foreground camera, AR, or graphics-heavy screen without
-ending the current session:
-
-```typescript
-const paused = await Rejourney.pause();
-// Present the high-cost experience.
-const resumed = await Rejourney.resume();
-```
-
-The standalone aliases `pauseRejourney()` and `resumeRejourney()` are equivalent.
-Both calls are idempotent. Pause flushes pending work, emits `sdk_paused`, then
-stops screenshots, hierarchy and interaction capture, live hang sampling, JS
-tracking hooks, network instrumentation, and ordinary telemetry intake. Resume
-continues the same foreground session and emits `sdk_resumed` with the matching
-`pauseId` and `gapDurationMs`, making the gap explicit in replay.
-
-Fatal-process hooks remain installed during a pause so crashes can still be
-recovered without periodic capture work. A background interval longer than the
-intentional 60-second lifecycle boundary still creates a replacement session;
-that replacement stays paused until resume. Resume returns `false` while the app
-is backgrounded. This Beta API requires 1.5.1 or newer and needs no Android
-manifest or iOS Info.plist additions.
-
 ## Navigation Tracking
 
 Rejourney automatically tracks screen changes to provide context for your session replays.
@@ -116,12 +91,6 @@ Rejourney.setMetadata({
 
 Network capture is enabled by default. Rejourney SDK calls to `/api/sdk/config`, `/api/ingest`, and `/upload/artifacts` are always excluded from monitoring; use `networkIgnoreUrls` or `autoTrackNetwork: false` for your own app traffic.
 
-With `collectDeviceInfo` enabled, the SDK also sends coarse, permissionless
-battery, thermal, memory-pressure/headroom, UI environment, orientation, and
-display-refresh context. It uses lifecycle reads and OS callbacks only (no
-polling), needs no Android manifest permission or iOS usage-description key,
-and is omitted when `collectDeviceInfo` is disabled.
-
 ## API Reference & Compatibility
 
 Rejourney supports both a standardized `Rejourney.` namespace and standalone function exports (AKA calls). Both are fully supported.
@@ -131,8 +100,6 @@ Rejourney supports both a standardized `Rejourney.` namespace and standalone fun
 | `Rejourney.init()` | `initRejourney()` |
 | `Rejourney.start()` | `startRejourney()` |
 | `Rejourney.stop()` | `stopRejourney()` |
-| `Rejourney.pause()` **Beta** | `pauseRejourney()` |
-| `Rejourney.resume()` **Beta** | `resumeRejourney()` |
 | `Rejourney.useNavigationTracking()` | `useNavigationTracking()` |
 
 > [!TIP]

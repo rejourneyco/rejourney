@@ -27,9 +27,8 @@ import com.rejourney.utility.gzipCompress
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.*
-import java.util.ArrayDeque
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.math.roundToInt
@@ -93,27 +92,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
     var collectDeviceInfo: Boolean = true
 
-    init {
-        SegmentDispatcher.shared.configurePersistence(context)
-    }
-
-    private val deviceEnvironmentMonitor = DeviceEnvironmentMonitor(context)
-
-    /**
-     * Returns a low-cardinality battery snapshot without requiring a runtime
-     * permission. Android recommends a one-shot read of the sticky
-     * ACTION_BATTERY_CHANGED intent when continuous monitoring is unnecessary;
-     * the short cache avoids repeating that system query for every event batch.
-     * Missing emulator/OEM values are omitted instead of guessed.
-     */
-    fun currentBatteryInfo(): Map<String, Any> = deviceEnvironmentMonitor.currentBatterySnapshot()
-
-    /** Additive session-boundary metrics included in /session/end. */
-    fun sessionDeviceMetrics(): Map<String, Any> {
-        if (!collectDeviceInfo) return emptyMap()
-        return deviceEnvironmentMonitor.sessionSummary()
-    }
-
     // Event ring buffer
     private val eventRing = EventRingBuffer(5000)
     private val frameQueue = FrameBundleQueue(200)
@@ -125,7 +103,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
     private val serialWorker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var heartbeatRunnable: Runnable? = null
-    private val acceptingEvents = AtomicBoolean(false)
 
     private val batchSizeLimit = 500_000
 
@@ -143,12 +120,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
     private var lastResponseTs: Long = 0
 
     fun activate() {
-        acceptingEvents.set(true)
-        if (collectDeviceInfo) {
-            deviceEnvironmentMonitor.start(resetSession = true)
-        } else {
-            deviceEnvironmentMonitor.clearSession()
-        }
         // Upload any pending data from previous sessions first
         uploadPendingSessions()
 
@@ -175,9 +146,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
      * while backgrounded, which would inflate session duration.
      */
     fun pause() {
-        acceptingEvents.set(false)
-        cancelDeadTapTimer()
-        deviceEnvironmentMonitor.pause()
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null
     }
@@ -186,8 +154,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
      * Resume the heartbeat timer when the app returns to foreground.
      */
     fun resume() {
-        acceptingEvents.set(true)
-        if (collectDeviceInfo) deviceEnvironmentMonitor.start(resetSession = false)
         if (heartbeatRunnable != null) return
         mainHandler.post {
             heartbeatRunnable = object : Runnable {
@@ -201,9 +167,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     fun shutdown(completion: (() -> Unit)? = null, skipVisualFlush: Boolean = false) {
-        acceptingEvents.set(false)
-        cancelDeadTapTimer()
-        deviceEnvironmentMonitor.pause()
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null
 
@@ -450,17 +413,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
             put("platform", "android")
             put("time", System.currentTimeMillis() / 1000.0)
             put("sdkVersion", RejourneySdkInfo.sdkVersion)
-            // Rendering geometry and app identity are required to interpret
-            // replay coordinates and releases; they do not identify a device.
-            put("appVersion", getAppVersion())
-            put("appId", context.packageName)
-            put("screenWidth", (displayMetrics.widthPixels / density).roundToInt())
-            put("screenHeight", (displayMetrics.heightPixels / density).roundToInt())
-            put("screenWidthPixels", displayMetrics.widthPixels)
-            put("screenHeightPixels", displayMetrics.heightPixels)
-            put("screenScale", density.toDouble())
-            put("pixelRatio", density.toDouble())
-            put("coordinateSpace", "dp")
             if (collectDeviceInfo) {
                 put("model", Build.MODEL)
                 put("osVersion", Build.VERSION.RELEASE)
@@ -468,9 +420,17 @@ class TelemetryPipeline private constructor(private val context: Context) {
                 put("networkType", orchestrator?.currentNetworkType ?: "unknown")
                 put("isConstrained", orchestrator?.networkIsConstrained ?: false)
                 put("isExpensive", orchestrator?.networkIsExpensive ?: false)
+                put("appVersion", getAppVersion())
+                put("appId", context.packageName)
+                put("screenWidth", (displayMetrics.widthPixels / density).roundToInt())
+                put("screenHeight", (displayMetrics.heightPixels / density).roundToInt())
+                put("screenWidthPixels", displayMetrics.widthPixels)
+                put("screenHeightPixels", displayMetrics.heightPixels)
+                put("screenScale", density.toDouble())
+                put("pixelRatio", density.toDouble())
+                put("coordinateSpace", "dp")
                 put("systemName", "Android")
                 put("name", Build.DEVICE)
-                deviceEnvironmentMonitor.currentSnapshot().forEach { (key, value) -> put(key, value) }
             }
         }
 
@@ -792,7 +752,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     private fun enqueue(dict: Map<String, Any>) {
-        if (!acceptingEvents.get()) return
         try {
             val json = JSONObject(dict)
             val data = (json.toString() + "\n").toByteArray(Charsets.UTF_8)
@@ -809,18 +768,15 @@ private data class EventEntry(
 )
 
 private class EventRingBuffer(private val capacity: Int) {
-    // Mutations dominate this hot path. A CopyOnWriteArrayList copied up to
-    // 5,000 entries on every enqueue/dequeue even though access was already
-    // serialized by this lock.
-    private val storage = ArrayDeque<EventEntry>(capacity)
+    private val storage = CopyOnWriteArrayList<EventEntry>()
     private val lock = ReentrantLock()
 
     fun push(entry: EventEntry) {
         lock.withLock {
             if (storage.size >= capacity) {
-                storage.removeFirst()
+                storage.removeAt(0)
             }
-            storage.addLast(entry)
+            storage.add(entry)
         }
     }
 
@@ -833,13 +789,13 @@ private class EventRingBuffer(private val capacity: Int) {
                 if (total + next.size > maxBytes) break
                 result.add(next)
                 total += next.size
-                storage.removeFirst()
+                storage.removeAt(0)
             }
             return result
         }
     }
 
-    fun size(): Int = lock.withLock { storage.size }
+    fun size(): Int = storage.size
 
     fun clear(): Int {
         lock.withLock {
@@ -860,37 +816,32 @@ private data class PendingFrameBundle(
 )
 
 private class FrameBundleQueue(private val maxPending: Int) {
-    private val queue = ArrayDeque<PendingFrameBundle>(maxPending)
+    private val queue = mutableListOf<PendingFrameBundle>()
     private val lock = ReentrantLock()
 
     fun enqueue(bundle: PendingFrameBundle) {
         lock.withLock {
             if (queue.size >= maxPending) {
-                queue.removeFirst()
+                queue.removeAt(0)
             }
-            queue.addLast(bundle)
+            queue.add(bundle)
         }
     }
 
     fun dequeue(): PendingFrameBundle? {
         lock.withLock {
             if (queue.isEmpty()) return null
-            return queue.removeFirst()
+            return queue.removeAt(0)
         }
     }
 
     fun requeue(bundle: PendingFrameBundle) {
         lock.withLock {
-            if (queue.size >= maxPending) {
-                // Preserve the failed oldest bundle for retry while keeping the
-                // queue's memory bound if new captures arrived in flight.
-                queue.removeLast()
-            }
-            queue.addFirst(bundle)
+            queue.add(0, bundle)
         }
     }
 
-    fun size(): Int = lock.withLock { queue.size }
+    fun size(): Int = queue.size
 
     fun clear(): Int {
         lock.withLock {

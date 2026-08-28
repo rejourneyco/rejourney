@@ -153,15 +153,10 @@ function getLogger() {
 let _networkInterceptor: {
   initNetworkInterceptor: typeof import('./sdk/networkInterceptor').initNetworkInterceptor;
   disableNetworkInterceptor: typeof import('./sdk/networkInterceptor').disableNetworkInterceptor;
-  restoreNetworkInterceptor: typeof import('./sdk/networkInterceptor').restoreNetworkInterceptor;
 } | null = null;
 
 function getNetworkInterceptor() {
-  if (_sdkDisabled) return {
-    initNetworkInterceptor: () => { },
-    disableNetworkInterceptor: () => { },
-    restoreNetworkInterceptor: () => { },
-  };
+  if (_sdkDisabled) return { initNetworkInterceptor: () => { }, disableNetworkInterceptor: () => { } };
   if (_networkInterceptor) return _networkInterceptor;
 
   try {
@@ -169,11 +164,7 @@ function getNetworkInterceptor() {
     return _networkInterceptor!;
   } catch (error: any) {
     getLogger().warn('Failed to load network interceptor:', error?.message || error);
-    return {
-      initNetworkInterceptor: () => { },
-      disableNetworkInterceptor: () => { },
-      restoreNetworkInterceptor: () => { },
-    };
+    return { initNetworkInterceptor: () => { }, disableNetworkInterceptor: () => { } };
   }
 }
 
@@ -181,8 +172,6 @@ function getNetworkInterceptor() {
 let _autoTracking: {
   initAutoTracking: typeof import('./sdk/autoTracking').initAutoTracking;
   cleanupAutoTracking: typeof import('./sdk/autoTracking').cleanupAutoTracking;
-  pauseAutoTracking: typeof import('./sdk/autoTracking').pauseAutoTracking;
-  resumeAutoTracking: typeof import('./sdk/autoTracking').resumeAutoTracking;
   trackScroll: typeof import('./sdk/autoTracking').trackScroll;
   trackScreen: typeof import('./sdk/autoTracking').trackScreen;
   trackAPIRequest: typeof import('./sdk/autoTracking').trackAPIRequest;
@@ -198,8 +187,6 @@ let _autoTracking: {
 const noopAutoTracking = {
   initAutoTracking: () => { },
   cleanupAutoTracking: () => { },
-  pauseAutoTracking: () => { },
-  resumeAutoTracking: () => { },
   trackScroll: () => { },
   trackScreen: () => { },
   trackAPIRequest: () => { },
@@ -227,9 +214,6 @@ function getAutoTracking() {
 // State
 let _isInitialized = false;
 let _isRecording = false;
-let _isPaused = false;
-let _isStarting = false;
-let _sessionOperationGeneration = 0;
 let _initializationFailed = false;
 let _appStateSubscription: { remove: () => void } | null = null;
 let _authErrorSubscription: { remove: () => void } | null = null;
@@ -542,27 +526,6 @@ function safeNativeCallSync<T>(
   }
 }
 
-function setupNetworkInterception(): void {
-  if (!_isRecording || _isPaused || _storedConfig?.autoTrackNetwork === false) return;
-  const apiUrl = _storedConfig?.apiUrl || 'https://api.rejourney.co';
-  getNetworkInterceptor().initNetworkInterceptor(
-    (request: NetworkRequestParams) => {
-      getAutoTracking().trackAPIRequest(
-        request.success || false,
-        request.statusCode,
-        request.duration || 0,
-        request.responseBodySize || 0
-      );
-      Rejourney.logNetworkRequest(request);
-    },
-    {
-      apiUrl,
-      ignoreUrls: _storedConfig?.networkIgnoreUrls || [],
-      captureSizes: _storedConfig?.networkCaptureSizes !== false,
-    }
-  );
-}
-
 /**
  * Main Rejourney API (Internal)
  */
@@ -604,13 +567,10 @@ export const Rejourney: RejourneyAPI = {
     getLogger().debug('Native module found, checking if already recording...');
     syncNativeSdkVersion(nativeModule);
 
-    if (_isRecording || _isStarting) {
-      getLogger().warn(_isRecording ? 'Recording already started' : 'Recording is already starting');
+    if (_isRecording) {
+      getLogger().warn('Recording already started');
       return false;
     }
-
-    const generation = ++_sessionOperationGeneration;
-    _isStarting = true;
 
     try {
       const apiUrl = _storedConfig.apiUrl || 'https://api.rejourney.co';
@@ -621,7 +581,6 @@ export const Rejourney: RejourneyAPI = {
       // This determines if recording is enabled and at what rate
       // =========================================================
       const configResult = await fetchRemoteConfig(apiUrl, publicKey);
-      if (generation !== _sessionOperationGeneration) return false;
 
       // =========================================================
       // CASE 0: Access denied (401/403) - abort immediately
@@ -702,12 +661,10 @@ export const Rejourney: RejourneyAPI = {
       );
 
       const deviceId = await getAutoTracking().ensurePersistentAnonymousId();
-      if (generation !== _sessionOperationGeneration) return false;
 
       if (!_userIdentity) {
         _userIdentity = await loadPersistedUserIdentity();
       }
-      if (generation !== _sessionOperationGeneration) return false;
 
       const userId = _userIdentity || deviceId;
       getLogger().debug(`userId=${userId.substring(0, 8)}...`);
@@ -734,11 +691,6 @@ export const Rejourney: RejourneyAPI = {
         : await nativeModule.startSession(userId, apiUrl, publicKey);
       getLogger().debug('Native session start returned:', JSON.stringify(result));
 
-      if (generation !== _sessionOperationGeneration) {
-        await safeNativeCall('stopSession', () => nativeModule.stopSession(), undefined);
-        return false;
-      }
-
       if (!result?.success) {
         const reason = result?.error || 'Native startSession returned success=false';
         if (/disabled|blocked|not enabled/i.test(reason)) {
@@ -749,7 +701,6 @@ export const Rejourney: RejourneyAPI = {
       }
 
       _isRecording = true;
-      _isPaused = false;
       getLogger().debug(`✅ Session started: ${result.sessionId}`);
       getLogger().logSessionStart(result.sessionId);
 
@@ -795,7 +746,6 @@ export const Rejourney: RejourneyAPI = {
           getLogger().warn('Failed to collect device info:', deviceError);
         }
       }
-      if (generation !== _sessionOperationGeneration) return false;
 
       if (_storedConfig?.autoTrackNetwork !== false) {
         try {
@@ -804,7 +754,22 @@ export const Rejourney: RejourneyAPI = {
           // RejourneyNetworkInterceptor on Android) are supplementary — they capture
           // native-originated HTTP calls that bypass JS fetch(), but cannot intercept
           // RN's own networking since it creates its NSURLSession/OkHttpClient at init time.
-          setupNetworkInterception();
+          getNetworkInterceptor().initNetworkInterceptor(
+            (request: NetworkRequestParams) => {
+              getAutoTracking().trackAPIRequest(
+                request.success || false,
+                request.statusCode,
+                request.duration || 0,
+                request.responseBodySize || 0
+              );
+              Rejourney.logNetworkRequest(request);
+            },
+            {
+              apiUrl,
+              ignoreUrls: _storedConfig?.networkIgnoreUrls || [],
+              captureSizes: _storedConfig?.networkCaptureSizes !== false,
+            }
+          );
 
         } catch (networkError) {
           getLogger().warn('Failed to setup network interception:', networkError);
@@ -815,10 +780,8 @@ export const Rejourney: RejourneyAPI = {
       return true;
     } catch (error) {
       getLogger().error('Failed to start recording:', error);
-      if (generation === _sessionOperationGeneration) _isRecording = false;
+      _isRecording = false;
       return false;
-    } finally {
-      if (generation === _sessionOperationGeneration) _isStarting = false;
     }
   },
 
@@ -826,14 +789,8 @@ export const Rejourney: RejourneyAPI = {
    * Stop the current recording session
    */
   async _stopSession(): Promise<void> {
-    const shouldStopNative = _isRecording || _isStarting;
-    _sessionOperationGeneration++;
-    _isStarting = false;
-
-    if (!shouldStopNative) {
+    if (!_isRecording) {
       getLogger().warn('No active recording to stop');
-      getNetworkInterceptor().restoreNetworkInterceptor();
-      getAutoTracking().cleanupAutoTracking();
       return;
     }
 
@@ -841,14 +798,13 @@ export const Rejourney: RejourneyAPI = {
       const metrics = getAutoTracking().getSessionMetrics();
       this.logEvent('session_metrics', metrics as unknown as Record<string, unknown>);
 
-      getNetworkInterceptor().restoreNetworkInterceptor();
+      getNetworkInterceptor().disableNetworkInterceptor();
       getAutoTracking().cleanupAutoTracking();
       getAutoTracking().resetMetrics();
 
       await safeNativeCall('stopSession', () => getRejourneyNative()!.stopSession(), undefined);
 
       _isRecording = false;
-      _isPaused = false;
       getLogger().logSessionEnd('current');
     } catch (error) {
       getLogger().error('Failed to stop recording:', error);
@@ -864,7 +820,6 @@ export const Rejourney: RejourneyAPI = {
    * Rejourney.logEvent('button_click', { buttonId: 'submit' });
    */
   logEvent(name: string, properties?: Record<string, unknown>): void {
-    if (!_isRecording || _isPaused) return;
     safeNativeCallSync(
       'logEvent',
       () => {
@@ -967,7 +922,6 @@ export const Rejourney: RejourneyAPI = {
    * @param params - Optional screen parameters
    */
   trackScreen(screenName: string, _params?: Record<string, unknown>): void {
-    if (_isPaused) return;
     getAutoTracking().trackScreen(screenName);
   },
 
@@ -1061,45 +1015,6 @@ export const Rejourney: RejourneyAPI = {
   },
 
   /**
-   * Pause all capture work without ending the active session (Beta).
-   * Returns false when there is no foreground session to pause.
-   */
-  async pause(): Promise<boolean> {
-    if (!_isRecording) return false;
-    if (_isPaused) return true;
-    const result = await safeNativeCall(
-      'pauseSession',
-      () => getRejourneyNative()!.pauseSession(),
-      { success: false }
-    );
-    if (!result?.success) return false;
-    _isPaused = true;
-    getNetworkInterceptor().restoreNetworkInterceptor();
-    getAutoTracking().pauseAutoTracking();
-    return true;
-  },
-
-  /** Resume capture in the same foreground session after a Beta pause. */
-  async resume(): Promise<boolean> {
-    if (!_isRecording) return false;
-    if (!_isPaused) return true;
-    const result = await safeNativeCall(
-      'resumeSession',
-      () => getRejourneyNative()!.resumeSession(),
-      { success: false }
-    );
-    if (!result?.success) return false;
-    _isPaused = false;
-    getAutoTracking().resumeAutoTracking();
-    try {
-      setupNetworkInterception();
-    } catch (error) {
-      getLogger().warn('Failed to restore network interception after resume:', error);
-    }
-    return true;
-  },
-
-  /**
    * Get storage usage
    * 
    * @returns Storage usage info (always 0 - storage on dashboard server)
@@ -1132,7 +1047,6 @@ export const Rejourney: RejourneyAPI = {
     reason: string,
     importance: 'low' | 'medium' | 'high' | 'critical' = 'medium'
   ): Promise<boolean> {
-    if (_isPaused) return false;
     return safeNativeCall(
       'markVisualChange',
       async () => {
@@ -1204,7 +1118,6 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onOAuthStarted(provider: string): Promise<boolean> {
-    if (_isPaused) return false;
     return safeNativeCall(
       'onOAuthStarted',
       async () => {
@@ -1232,7 +1145,6 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onOAuthCompleted(provider: string, success: boolean): Promise<boolean> {
-    if (_isPaused) return false;
     return safeNativeCall(
       'onOAuthCompleted',
       async () => {
@@ -1260,7 +1172,6 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onExternalURLOpened(urlScheme: string): Promise<boolean> {
-    if (_isPaused) return false;
     return safeNativeCall(
       'onExternalURLOpened',
       async () => {
@@ -1501,7 +1412,6 @@ export const Rejourney: RejourneyAPI = {
  * correctly against the new native session.
  */
 function _reinitAutoTrackingForNewSession(): void {
-  const generation = _sessionOperationGeneration;
   try {
     // 1. Tear down old session's auto-tracking state
     getAutoTracking().cleanupAutoTracking();
@@ -1541,9 +1451,7 @@ function _reinitAutoTrackingForNewSession(): void {
     // 3. Re-collect device info for the new session
     if (_storedConfig?.collectDeviceInfo !== false) {
       getAutoTracking().collectDeviceInfo().then((deviceInfo) => {
-        if (generation === _sessionOperationGeneration && _isRecording) {
-          Rejourney.logEvent('device_info', deviceInfo as unknown as Record<string, unknown>);
-        }
+        Rejourney.logEvent('device_info', deviceInfo as unknown as Record<string, unknown>);
       }).catch(() => { });
     }
 
@@ -1603,7 +1511,7 @@ function handleAppStateChange(nextAppState: string): void {
           getLogger().debug(
             `Session rollover: background ${Math.round(backgroundDurationMs / 1000)}s > ${SESSION_TIMEOUT_MS / 1000}s timeout`
           );
-          if (!_isPaused) _reinitAutoTrackingForNewSession();
+          _reinitAutoTrackingForNewSession();
         }
       }
       _backgroundEntryTime = null;
@@ -1677,12 +1585,7 @@ function setupAuthErrorListener(): void {
             getLogger().logInvalidProjectKey();
           }
 
-          _sessionOperationGeneration++;
-          _isStarting = false;
           _isRecording = false;
-          getNetworkInterceptor().restoreNetworkInterceptor();
-          getAutoTracking().cleanupAutoTracking();
-          getAutoTracking().resetMetrics();
 
           if (_storedConfig?.onAuthError) {
             try {
@@ -1843,21 +1746,10 @@ export function stopRejourney(): void {
     cleanupLifecycleManagement();
     Rejourney._stopSession();
     _isRecording = false;
-    _isPaused = false;
     getLogger().debug('Rejourney stopped');
   } catch (error) {
     getLogger().warn('Error stopping Rejourney:', error);
   }
-}
-
-/** Pause the active recording session without ending it (Beta). */
-export async function pauseRejourney(): Promise<boolean> {
-  return Rejourney.pause();
-}
-
-/** Resume a Beta-paused session while the app remains in the foreground. */
-export async function resumeRejourney(): Promise<boolean> {
-  return Rejourney.resume();
 }
 export default Rejourney;
 

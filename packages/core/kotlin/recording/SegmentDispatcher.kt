@@ -16,18 +16,14 @@
 
 package com.rejourney.recording
 
-import android.content.Context
-import android.util.AtomicFile
-import android.util.Base64
 import com.rejourney.RejourneySdkInfo
 import com.rejourney.engine.DiagnosticLog
 import kotlinx.coroutines.*
 import okhttp3.*
+import com.rejourney.recording.RejourneyNetworkInterceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.File
-import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -145,29 +141,13 @@ class SegmentDispatcher private constructor() {
 
     private val retryQueue = mutableListOf<PendingUpload>()
     private val retryLock = ReentrantLock()
-    private val maxRetryQueueSize = 64
-    private val maxPersistedRetryBytes = 32L * 1024L * 1024L
-    private val persistenceLock = ReentrantLock()
-    private var retryDirectory: File? = null
-    private val persistedUploadKeys = mutableSetOf<String>()
-    private val persistedUploadSizes = mutableMapOf<String, Long>()
-    private var persistedUploadBytes = 0L
-    @Volatile
+    private val maxRetryQueueSize = 20
     private var active = true
 
     // Tracks coroutines with in-flight uploads so awaitPendingUploads() can block
     // until all network calls complete before the shutdown drain finishes.
     private val pendingUploadsCount = AtomicInteger(0)
 
-    fun configurePersistence(context: Context) {
-        persistenceLock.withLock {
-            if (retryDirectory != null) return
-            retryDirectory = File(context.filesDir, "rejourney_upload_retry").also { it.mkdirs() }
-            loadPersistedRetriesLocked()
-        }
-    }
-
-    @Synchronized
     fun configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Boolean = true) {
         currentReplayId = replayId
         this.apiToken = apiToken
@@ -180,21 +160,23 @@ class SegmentDispatcher private constructor() {
         circuitOpen = false
         circuitOpenTime = 0
         active = true
+        val droppedRetries = retryLock.withLock {
+            val dropped = retryQueue.size
+            retryQueue.clear()
+            dropped
+        }
+        if (droppedRetries > 0) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropped $droppedRetries stale retries while configuring session ${replayId.take(20)}")
+        }
         resetSessionTelemetry()
-        // Each pending upload carries its original session ID. Preserve and
-        // drain it across an in-process session rollover instead of discarding
-        // valid offline work when the next session starts.
-        shipPending()
     }
 
-    @Synchronized
     fun activate() {
         active = true
         consecutiveFailures = 0
         circuitOpen = false
     }
 
-    @Synchronized
     fun halt() {
         active = false
     }
@@ -211,10 +193,6 @@ class SegmentDispatcher private constructor() {
      * shutdown to ensure frames are delivered before the process is killed.
      */
     fun awaitPendingUploads(timeoutMs: Long = 10_000): Boolean {
-        // Pull queued retries into tracked coroutines before checking the
-        // counter; otherwise a fire-and-forget shipPending() can race this
-        // method and make shutdown believe there is nothing left to upload.
-        drainRetryQueue()
         val deadline = System.currentTimeMillis() + timeoutMs
         while (pendingUploadsCount.get() > 0 && System.currentTimeMillis() < deadline) {
             Thread.sleep(100)
@@ -241,14 +219,15 @@ class SegmentDispatcher private constructor() {
         completion: ((Boolean) -> Unit)? = null
     ) {
         val sid = sessionId
-        DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: sid=${sid?.take(12) ?: "null"}, frames=$frameCount, bytes=${payload.size}")
+        val canUpload = canUploadNow()
+        DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: sid=${sid?.take(12) ?: "null"}, canUpload=$canUpload, frames=$frameCount, bytes=${payload.size}")
 
         if (sid != null) {
             DiagnosticLog.debugPresignRequest(endpoint, sid, "screenshots", payload.size)
         }
 
-        if (sid == null) {
-            DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: rejected - missing session")
+        if (sid == null || !canUpload) {
+            DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: rejected - sid=${sid != null}, canUpload=$canUpload")
             completion?.invoke(false)
             return
         }
@@ -272,6 +251,11 @@ class SegmentDispatcher private constructor() {
         timestampMs: Long,
         completion: ((Boolean) -> Unit)? = null
     ) {
+        if (!canUploadNow()) {
+            completion?.invoke(false)
+            return
+        }
+
         val upload = PendingUpload(
             sessionId = replayId,
             contentType = "hierarchy",
@@ -292,25 +276,20 @@ class SegmentDispatcher private constructor() {
         completion: ((Boolean) -> Unit)? = null
     ) {
         val sid = currentReplayId
-        if (sid == null) {
+        if (sid == null || !canUploadNow()) {
             completion?.invoke(false)
             return
         }
 
-        scheduleUpload(
-            PendingUpload(
-                sessionId = sid,
-                contentType = "events",
-                payload = payload,
-                rangeStart = 0,
-                rangeEnd = 0,
-                itemCount = eventCount,
-                attempt = 0,
-                batchNumber = batchNumber,
-                isSampledIn = isSampledIn
-            ),
-            completion
-        )
+        val sampledIn = isSampledIn
+        pendingUploadsCount.incrementAndGet()
+        scope.launch {
+            try {
+                executeEventBatchUpload(sid, payload, batchNumber, eventCount, sampledIn, completion)
+            } finally {
+                pendingUploadsCount.decrementAndGet()
+            }
+        }
     }
 
     fun transmitEventBatchAlternate(
@@ -319,23 +298,23 @@ class SegmentDispatcher private constructor() {
         eventCount: Int,
         completion: ((Boolean) -> Unit)? = null
     ) {
+        if (!canUploadNow()) {
+            completion?.invoke(false)
+            return
+        }
+
         batchSeqNumber++
         val seq = batchSeqNumber
 
-        scheduleUpload(
-            PendingUpload(
-                sessionId = replayId,
-                contentType = "events",
-                payload = eventPayload,
-                rangeStart = 0,
-                rangeEnd = 0,
-                itemCount = eventCount,
-                attempt = 0,
-                batchNumber = seq,
-                isSampledIn = isSampledIn
-            ),
-            completion
-        )
+        val sampledIn = isSampledIn
+        pendingUploadsCount.incrementAndGet()
+        scope.launch {
+            try {
+                executeEventBatchUpload(replayId, eventPayload, seq, eventCount, sampledIn, completion)
+            } finally {
+                pendingUploadsCount.decrementAndGet()
+            }
+        }
     }
 
     fun concludeReplay(
@@ -422,11 +401,6 @@ class SegmentDispatcher private constructor() {
         }
     }
 
-    @Synchronized
-    private fun markBillingBlocked() {
-        billingBlocked = true
-    }
-
     private fun scheduleUpload(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
         DiagnosticLog.trace("[SegmentDispatcher] scheduleUpload: active=$active, type=${upload.contentType}, items=${upload.itemCount}")
         if (!active) {
@@ -437,7 +411,6 @@ class SegmentDispatcher private constructor() {
         pendingUploadsCount.incrementAndGet()
         scope.launch {
             try {
-                persistUpload(upload)
                 executeSegmentUpload(upload, completion)
             } finally {
                 pendingUploadsCount.decrementAndGet()
@@ -446,10 +419,16 @@ class SegmentDispatcher private constructor() {
     }
 
     private suspend fun executeSegmentUpload(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
-        if (!canUploadNow()) {
-            deferUploadWithoutAttempt(upload, completion)
+        if (!active) {
+            completion?.invoke(false)
             return
         }
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale ${upload.contentType} upload for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
+
         val presignResponse = requestPresignedUrl(upload)
         if (presignResponse == null) {
             DiagnosticLog.caution("[SegmentDispatcher] requestPresignedUrl FAILED for ${upload.contentType}")
@@ -460,7 +439,6 @@ class SegmentDispatcher private constructor() {
 
         if (presignResponse.skipUpload) {
             registerSuccess()
-            removePersistedUpload(upload)
             completion?.invoke(true)
             return
         }
@@ -476,68 +454,33 @@ class SegmentDispatcher private constructor() {
         val confirmOk = confirmBatchComplete(presignResponse.batchId, upload)
         if (confirmOk) {
             registerSuccess()
-            removePersistedUpload(upload)
         } else {
             DiagnosticLog.caution("[SegmentDispatcher] confirmBatchComplete FAILED for ${upload.contentType}")
             registerFailure()
-            scheduleRetryIfNeeded(upload, completion)
-            return
         }
         completion?.invoke(confirmOk)
     }
 
     private fun scheduleRetryIfNeeded(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Discarding retry for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
         if (upload.attempt < 3) {
             val retry = upload.copy(attempt = upload.attempt + 1)
-            val persisted = persistUpload(retry)
-            var evicted: PendingUpload? = null
             retryLock.withLock {
                 if (retryQueue.size >= maxRetryQueueSize) {
-                    evicted = retryQueue.removeAt(0)
+                    retryQueue.removeAt(0)
                 }
                 retryQueue.add(retry)
             }
-            evicted?.let {
-                removePersistedUpload(it)
-                metricsLock.withLock {
-                    _memoryEvictionCount++
-                    _totalBytesEvicted += it.payload.size
-                }
-            }
             metricsLock.withLock {
                 _retryAttemptCount++
-                if (persisted) _offlinePersistCount++
                 _lastRetryTime = System.currentTimeMillis()
             }
-            // Ownership transfers to the bounded retry queue; callers should
-            // not retain a duplicate in their own in-memory buffers.
-            completion?.invoke(true)
-            return
         }
-        removePersistedUpload(upload)
         completion?.invoke(false)
-    }
-
-    private fun deferUploadWithoutAttempt(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
-        val persisted = persistUpload(upload)
-        var evicted: PendingUpload? = null
-        val acceptedInMemory = retryLock.withLock {
-            if (retryQueue.none { it.persistenceKey == upload.persistenceKey }) {
-                if (retryQueue.size >= maxRetryQueueSize) {
-                    evicted = retryQueue.removeAt(0)
-                }
-                retryQueue.add(upload)
-            }
-            retryQueue.any { it.persistenceKey == upload.persistenceKey }
-        }
-        evicted?.let {
-            removePersistedUpload(it)
-            metricsLock.withLock {
-                _memoryEvictionCount++
-                _totalBytesEvicted += it.payload.size
-            }
-        }
-        completion?.invoke(persisted || acceptedInMemory)
     }
 
     private fun drainRetryQueue() {
@@ -557,152 +500,6 @@ class SegmentDispatcher private constructor() {
             }
         }
     }
-
-    private fun persistUpload(upload: PendingUpload): Boolean = persistenceLock.withLock {
-        val directory = retryDirectory ?: return false
-        val file = File(directory, "${upload.persistenceKey}.json")
-        val payload = JSONObject().apply {
-            put("persistenceKey", upload.persistenceKey)
-            put("sessionId", upload.sessionId)
-            put("contentType", upload.contentType)
-            put("payload", Base64.encodeToString(upload.payload, Base64.NO_WRAP))
-            put("rangeStart", upload.rangeStart)
-            put("rangeEnd", upload.rangeEnd)
-            put("itemCount", upload.itemCount)
-            put("attempt", upload.attempt)
-            put("batchNumber", upload.batchNumber)
-            put("isSampledIn", upload.isSampledIn)
-        }.toString().toByteArray(Charsets.UTF_8)
-
-        return try {
-            val atomicFile = AtomicFile(file)
-            val stream = atomicFile.startWrite()
-            try {
-                stream.write(payload)
-                atomicFile.finishWrite(stream)
-            } catch (error: Exception) {
-                atomicFile.failWrite(stream)
-                throw error
-            }
-            persistedUploadKeys.add(upload.persistenceKey)
-            val previousSize = persistedUploadSizes.put(upload.persistenceKey, file.length()) ?: 0L
-            persistedUploadBytes = (persistedUploadBytes - previousSize + file.length()).coerceAtLeast(0L)
-            if (persistedUploadKeys.size > maxRetryQueueSize || persistedUploadBytes > maxPersistedRetryBytes) {
-                trimPersistedRetriesLocked(directory)
-            }
-            true
-        } catch (error: Exception) {
-            DiagnosticLog.caution("[SegmentDispatcher] Could not persist upload retry: ${error.message}")
-            false
-        }
-    }
-
-    private fun removePersistedUpload(upload: PendingUpload) {
-        persistenceLock.withLock {
-            val directory = retryDirectory ?: return@withLock
-            val file = File(directory, "${upload.persistenceKey}.json")
-            val removedSize = persistedUploadSizes.remove(upload.persistenceKey) ?: file.length()
-            try { AtomicFile(file).delete() } catch (_: Exception) { }
-            persistedUploadKeys.remove(upload.persistenceKey)
-            persistedUploadBytes = (persistedUploadBytes - removedSize).coerceAtLeast(0L)
-        }
-    }
-
-    private fun loadPersistedRetriesLocked() {
-        val directory = retryDirectory ?: return
-        val uploads = retryBaseFiles(directory)
-            ?.asSequence()
-            ?.sortedBy { it.lastModified() }
-            ?.mapNotNull { file ->
-                try {
-                    val json = JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() })
-                    val upload = PendingUpload(
-                        persistenceKey = json.getString("persistenceKey"),
-                        sessionId = json.getString("sessionId"),
-                        contentType = json.getString("contentType"),
-                        payload = Base64.decode(json.getString("payload"), Base64.DEFAULT),
-                        rangeStart = json.getLong("rangeStart"),
-                        rangeEnd = json.getLong("rangeEnd"),
-                        itemCount = json.getInt("itemCount"),
-                        attempt = json.getInt("attempt"),
-                        batchNumber = json.optInt("batchNumber", 0),
-                        isSampledIn = json.optBoolean("isSampledIn", true)
-                    )
-                    val recoveredFile = File(directory, "${upload.persistenceKey}.json")
-                    upload to (recoveredFile.length().takeIf { it > 0L } ?: file.length())
-                } catch (_: Exception) {
-                    try { AtomicFile(file).delete() } catch (_: Exception) { }
-                    null
-                }
-            }
-            ?.toList()
-            .orEmpty()
-
-        val retained = uploads.takeLast(maxRetryQueueSize)
-        retryLock.withLock {
-            retryQueue.clear()
-            retryQueue.addAll(retained.map { it.first })
-        }
-        persistedUploadKeys.clear()
-        persistedUploadKeys.addAll(retained.map { it.first.persistenceKey })
-        persistedUploadSizes.clear()
-        retained.forEach { (upload, size) -> persistedUploadSizes[upload.persistenceKey] = size }
-        persistedUploadBytes = retained.sumOf { it.second }
-        if (uploads.size > maxRetryQueueSize || persistedUploadBytes > maxPersistedRetryBytes) {
-            trimPersistedRetriesLocked(directory)
-            val retainedKeys = persistedUploadKeys.toSet()
-            retryLock.withLock {
-                retryQueue.removeAll { it.persistenceKey !in retainedKeys }
-            }
-        }
-    }
-
-    private fun trimPersistedRetriesLocked(directory: File) {
-        val files = retryBaseFiles(directory)
-            ?.sortedBy { it.lastModified() }
-            .orEmpty()
-        var retainedCount = files.size
-        var retainedBytes = files.sumOf { it.length() }
-        val removedKeys = mutableSetOf<String>()
-        for (file in files) {
-            if (retainedCount <= maxRetryQueueSize && retainedBytes <= maxPersistedRetryBytes) break
-            val size = file.length()
-            try { AtomicFile(file).delete() } catch (_: Exception) { }
-            val key = file.nameWithoutExtension
-            removedKeys.add(key)
-            persistedUploadKeys.remove(key)
-            persistedUploadSizes.remove(key)
-            retainedCount -= 1
-            retainedBytes = (retainedBytes - size).coerceAtLeast(0L)
-        }
-        persistedUploadBytes = retainedBytes
-        if (removedKeys.isNotEmpty()) {
-            val evicted = retryLock.withLock {
-                val removed = retryQueue.filter { it.persistenceKey in removedKeys }
-                retryQueue.removeAll(removed.toSet())
-                removed
-            }
-            if (evicted.isNotEmpty()) {
-                metricsLock.withLock {
-                    _memoryEvictionCount += evicted.size
-                    _totalBytesEvicted += evicted.sumOf { it.payload.size.toLong() }
-                }
-            }
-        }
-    }
-
-    /**
-     * AtomicFile may leave only the .bak side of a transaction after process
-     * death. Feed the base path back to AtomicFile so openRead() can recover it.
-     */
-    private fun retryBaseFiles(directory: File): List<File>? = directory.listFiles()
-        ?.asSequence()
-        ?.filter { it.isFile && (it.name.endsWith(".json") || it.name.endsWith(".json.bak")) }
-        ?.map { file ->
-            if (file.name.endsWith(".bak")) File(directory, file.name.removeSuffix(".bak")) else file
-        }
-        ?.distinctBy { it.absolutePath }
-        ?.toList()
 
     private suspend fun requestPresignedUrl(upload: PendingUpload): PresignResponse? {
         val urlPath = if (upload.contentType == "events") "/api/ingest/presign" else "/api/ingest/segment/presign"
@@ -738,7 +535,7 @@ class SegmentDispatcher private constructor() {
 
                 if (response.code == 402) {
                     DiagnosticLog.caution("[SegmentDispatcher] presign: 402 Payment Required - billing blocked")
-                    markBillingBlocked()
+                    billingBlocked = true
                     return null
                 }
 
@@ -832,6 +629,57 @@ class SegmentDispatcher private constructor() {
         }
     }
 
+    private suspend fun executeEventBatchUpload(
+        sessionId: String,
+        payload: ByteArray,
+        batchNum: Int,
+        eventCount: Int,
+        isSampledIn: Boolean,
+        completion: ((Boolean) -> Unit)?
+    ) {
+        val upload = PendingUpload(
+            sessionId = sessionId,
+            contentType = "events",
+            payload = payload,
+            rangeStart = 0,
+            rangeEnd = 0,
+            itemCount = eventCount,
+            attempt = 0,
+            batchNumber = batchNum,
+            isSampledIn = isSampledIn
+        )
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale events upload for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
+
+        val presignResponse = requestPresignedUrl(upload)
+        if (presignResponse == null) {
+            DiagnosticLog.caution("[SegmentDispatcher] requestPresignedUrl FAILED for ${upload.contentType}")
+            registerFailure()
+            scheduleRetryIfNeeded(upload, completion)
+            return
+        }
+
+        val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
+        if (!s3ok) {
+            DiagnosticLog.caution("[SegmentDispatcher] uploadToS3 FAILED for ${upload.contentType}")
+            registerFailure()
+            scheduleRetryIfNeeded(upload, completion)
+            return
+        }
+
+        val confirmOk = confirmBatchComplete(presignResponse.batchId, upload)
+        if (confirmOk) {
+            registerSuccess()
+        } else {
+            DiagnosticLog.caution("[SegmentDispatcher] confirmBatchComplete FAILED for ${upload.contentType}")
+            registerFailure()
+        }
+        completion?.invoke(confirmOk)
+    }
+
     private fun buildRequest(url: String, body: JSONObject, sessionId: String? = null): Request {
         val requestSessionId = sessionId?.takeIf { it.isNotBlank() } ?: currentReplayId
         // Log auth state before building request
@@ -856,6 +704,11 @@ class SegmentDispatcher private constructor() {
 
         DiagnosticLog.debugNetworkRequest("POST", url, request.headers.toMultimap().mapValues { it.value.first() })
         return request
+    }
+
+    private fun isUploadForClosedSession(sessionId: String): Boolean {
+        val activeSessionId = currentReplayId
+        return !activeSessionId.isNullOrBlank() && sessionId != activeSessionId
     }
 
     private fun ingestFinalizeMetrics(metrics: Map<String, Any>?) {
@@ -979,7 +832,6 @@ class SegmentDispatcher private constructor() {
 }
 
 private data class PendingUpload(
-    val persistenceKey: String = UUID.randomUUID().toString(),
     val sessionId: String,
     val contentType: String,
     val payload: ByteArray,

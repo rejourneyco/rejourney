@@ -47,7 +47,6 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const FLUSH_INTERVAL = 500;
 
 const endpointCounts = new Map<string, { count: number; lastReset: number }>();
-const MAX_TRACKED_ENDPOINTS = 1000;
 const SAMPLE_WINDOW = 10000;
 const MAX_PER_ENDPOINT = 20;
 
@@ -280,18 +279,6 @@ function shouldSampleRequest(urlPath: string): boolean {
   let entry = endpointCounts.get(urlPath);
 
   if (!entry || now - entry.lastReset > SAMPLE_WINDOW) {
-    if (!entry && endpointCounts.size >= MAX_TRACKED_ENDPOINTS) {
-      // Drop expired entries first, then the oldest insertion. Dynamic route
-      // segments must not turn the sampling map into session-length growth.
-      for (const [key, value] of endpointCounts) {
-        if (now - value.lastReset > SAMPLE_WINDOW) endpointCounts.delete(key);
-      }
-      while (endpointCounts.size >= MAX_TRACKED_ENDPOINTS) {
-        const oldest = endpointCounts.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        endpointCounts.delete(oldest);
-      }
-    }
     entry = { count: 0, lastReset: now };
     endpointCounts.set(urlPath, entry);
   }
@@ -589,10 +576,6 @@ export function flushNetworkRequests(): void {
  * Restore original fetch and XHR
  */
 export function restoreNetworkInterceptor(): void {
-  // Preserve the final sub-interval batch before removing its callback, and
-  // cancel the pending timer so no interceptor work survives SDK teardown.
-  disableNetworkInterceptor();
-
   if (originalFetch) {
     globalThis.fetch = originalFetch;
     originalFetch = null;
@@ -606,7 +589,7 @@ export function restoreNetworkInterceptor(): void {
   }
 
   logCallback = null;
-  config.enabled = false;
+  config.enabled = true;
   config.apiUrl = undefined;
   config.ignorePatterns = [];
   config.captureSizes = false;
@@ -618,6 +601,11 @@ export function restoreNetworkInterceptor(): void {
   endpointCounts.clear();
   registeredInternalUrls.clear();
   registeredInternalUrlOrder.length = 0;
+
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
 }
 
 /**

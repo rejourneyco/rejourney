@@ -66,24 +66,6 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun pauseSession(promise: Promise) {
-        try {
-            impl.pauseSession(promise)
-        } catch (e: Exception) {
-            promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
-        }
-    }
-
-    @ReactMethod
-    fun resumeSession(promise: Promise) {
-        try {
-            impl.resumeSession(promise)
-        } catch (e: Exception) {
-            promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
-        }
-    }
-
-    @ReactMethod
     fun logEvent(eventType: String, details: ReadableMap, promise: Promise) {
         try {
             impl.logEvent(eventType, details, promise)

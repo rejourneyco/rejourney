@@ -143,7 +143,6 @@ export interface AutoTrackingConfig {
 }
 
 let isInitialized = false;
-let isPaused = false;
 let config: AutoTrackingConfig = {};
 
 const recentTaps: TapEvent[] = [];
@@ -175,15 +174,11 @@ export function markTapHandled(): void {
 // ========== End Dead Tap Detection ==========
 
 let originalErrorHandler: ((error: Error, isFatal: boolean) => void) | undefined;
-let installedErrorHandler: ((error: Error, isFatal: boolean) => void) | undefined;
-let errorHandlerChainedExternally = false;
 let originalOnError: OnErrorEventHandler | null = null;
-let installedOnError: OnErrorEventHandler | null = null;
-let onErrorChainedExternally = false;
 let originalOnUnhandledRejection: ((event: PromiseRejectionEvent) => void) | null = null;
 let originalConsoleError: ((...args: any[]) => void) | null = null;
-let installedConsoleError: ((...args: any[]) => void) | null = null;
 let _promiseRejectionTrackingDisable: (() => void) | null = null;
+const FATAL_ERROR_FLUSH_DELAY_MS = 1200;
 
 /**
  * Initialize auto tracking features
@@ -198,7 +193,6 @@ export function initAutoTracking(
   } = {}
 ): void {
   if (isInitialized) return;
-  isPaused = false;
 
   config = {
     rageTapThreshold: 3,
@@ -235,40 +229,13 @@ export function initAutoTracking(
   });
 
   isInitialized = true;
-  if (config.autoTrackExpoRouter !== false) {
-    externalExpoRouterSetup?.();
-  }
-}
-
-/** Temporarily remove JS hooks and timers while retaining session metrics (Beta). */
-export function pauseAutoTracking(): void {
-  if (!isInitialized || isPaused) return;
-  isPaused = true;
-  restoreErrorHandlers();
-  restoreConsoleHandlers();
-  cleanupNavigationTracking();
-}
-
-/** Restore JS hooks and timers after a Beta pause. */
-export function resumeAutoTracking(): void {
-  if (!isInitialized || !isPaused) return;
-  isPaused = false;
-  setupErrorTracking();
-  if (config.trackConsoleLogs) setupConsoleTracking();
-  setupNavigationTracking();
-  if (config.autoTrackExpoRouter !== false) externalExpoRouterSetup?.();
 }
 
 /**
  * Cleanup auto tracking features
  */
 export function cleanupAutoTracking(): void {
-  if (!isInitialized) {
-    // The optional Expo Router entry can be imported before SDK startup. Its
-    // setup work is still ours to cancel if startup is stopped or rejected.
-    cleanupNavigationTracking();
-    return;
-  }
+  if (!isInitialized) return;
 
   restoreErrorHandlers();
   restoreConsoleHandlers();
@@ -283,7 +250,6 @@ export function cleanupAutoTracking(): void {
   currentScreen = '';
   sessionStartTime = 0;
   maxSessionDurationMs = 10 * 60 * 1000;
-  isPaused = false;
   isInitialized = false;
 }
 
@@ -292,7 +258,7 @@ export function cleanupAutoTracking(): void {
  * Called automatically from touch interceptor
  */
 export function trackTap(tap: TapEvent): void {
-  if (!isInitialized || isPaused) return;
+  if (!isInitialized) return;
 
   const now = Date.now();
 
@@ -397,23 +363,21 @@ function setupErrorTracking(): void {
 /**
  * Setup React Native ErrorUtils handler
  *
- * Fatal forwarding is best-effort. The pre-existing handler is invoked immediately
- * so Rejourney never delays React Native termination or another crash reporter.
+ * CRITICAL FIX: For fatal errors, we delay calling the original handler briefly
+ * to give the React Native bridge time to flush the logEvent('error') call to the
+ * native TelemetryPipeline. Without this delay, the error event is queued on the
+ * JS→native bridge but the app crashes (via originalErrorHandler) before the bridge
+ * flushes, so the error is lost. Crashes are captured separately by native crash
+ * handlers, but the corresponding JS error record was never making it to the backend.
  */
 function setupReactNativeErrorHandler(): void {
   try {
     const ErrorUtils = _globalThis.ErrorUtils;
     if (!ErrorUtils) return;
 
-    const currentHandler = ErrorUtils.getGlobalHandler();
-    if (
-      installedErrorHandler &&
-      (currentHandler === installedErrorHandler || errorHandlerChainedExternally)
-    ) return;
+    originalErrorHandler = ErrorUtils.getGlobalHandler();
 
-    originalErrorHandler = currentHandler;
-
-    installedErrorHandler = (error: Error, isFatal: boolean) => {
+    ErrorUtils.setGlobalHandler((error: Error, isFatal: boolean) => {
       trackError({
         type: 'error',
         timestamp: Date.now(),
@@ -426,10 +390,18 @@ function setupReactNativeErrorHandler(): void {
       });
 
       if (originalErrorHandler) {
-        originalErrorHandler(error, isFatal);
+        if (isFatal) {
+          // For fatal errors, delay the original handler so the native bridge
+          // has time to deliver the error event to TelemetryPipeline before
+          // the app terminates.
+          setTimeout(() => {
+            originalErrorHandler!(error, isFatal);
+          }, FATAL_ERROR_FLUSH_DELAY_MS);
+        } else {
+          originalErrorHandler(error, isFatal);
+        }
       }
-    };
-    ErrorUtils.setGlobalHandler(installedErrorHandler);
+    });
   } catch {
     // Ignore
   }
@@ -440,13 +412,9 @@ function setupReactNativeErrorHandler(): void {
  */
 function setupJSErrorHandler(): void {
   if (typeof _globalThis.onerror !== 'undefined') {
-    if (
-      installedOnError &&
-      (_globalThis.onerror === installedOnError || onErrorChainedExternally)
-    ) return;
     originalOnError = _globalThis.onerror;
 
-    installedOnError = (
+    _globalThis.onerror = (
       message: string | Event,
       source?: string,
       lineno?: number,
@@ -469,7 +437,6 @@ function setupJSErrorHandler(): void {
       }
       return false;
     };
-    _globalThis.onerror = installedOnError;
   }
 }
 
@@ -525,9 +492,8 @@ function setupPromiseRejectionHandler(): void {
   // Strategy 2: Intercept console.error for promise rejection messages
   // Newer RN versions log "Possible Unhandled Promise Rejection" via console.error
   if (!rnTrackingSetUp && typeof console !== 'undefined' && console.error) {
-    const priorConsoleError = console.error;
-    originalConsoleError = priorConsoleError;
-    installedConsoleError = (...args: any[]) => {
+    originalConsoleError = console.error;
+    console.error = (...args: any[]) => {
       // Detect RN-style promise rejection messages
       const firstArg = args[0];
       if (
@@ -547,9 +513,10 @@ function setupPromiseRejectionHandler(): void {
         });
       }
       // Always call through to original console.error
-      priorConsoleError.apply(console, args);
+      if (originalConsoleError) {
+        originalConsoleError.apply(console, args);
+      }
     };
-    console.error = installedConsoleError;
   }
 
   // Strategy 3: Web API fallback (works in browser-based testing, not in RN Hermes)
@@ -577,37 +544,21 @@ function setupPromiseRejectionHandler(): void {
  * Restore original error handlers
  */
 function restoreErrorHandlers(): void {
-  if (installedErrorHandler) {
+  if (originalErrorHandler) {
     try {
       const ErrorUtils = _globalThis.ErrorUtils;
       if (ErrorUtils) {
-        if (originalErrorHandler && ErrorUtils.getGlobalHandler() === installedErrorHandler) {
-          ErrorUtils.setGlobalHandler(originalErrorHandler);
-          originalErrorHandler = undefined;
-          installedErrorHandler = undefined;
-          errorHandlerChainedExternally = false;
-        } else if (ErrorUtils.getGlobalHandler() !== installedErrorHandler) {
-          // A later crash reporter may retain our handler as its predecessor.
-          // Keep that predecessor chain alive; trackError's lifecycle gate
-          // disables Rejourney capture while paused or stopped.
-          errorHandlerChainedExternally = true;
-        }
+        ErrorUtils.setGlobalHandler(originalErrorHandler);
       }
     } catch {
       // Ignore
     }
+    originalErrorHandler = undefined;
   }
 
-  if (installedOnError !== null) {
-    if (_globalThis.onerror === installedOnError) {
-      _globalThis.onerror = originalOnError;
-      originalOnError = null;
-      installedOnError = null;
-      onErrorChainedExternally = false;
-    } else {
-      // Preserve the prior onerror reference for a wrapper installed after us.
-      onErrorChainedExternally = true;
-    }
+  if (originalOnError !== null) {
+    _globalThis.onerror = originalOnError;
+    originalOnError = null;
   }
 
   // Restore promise rejection tracking
@@ -616,12 +567,9 @@ function restoreErrorHandlers(): void {
     _promiseRejectionTrackingDisable = null;
   }
 
-  if (installedConsoleError) {
-    if (console.error === installedConsoleError && originalConsoleError) {
-      console.error = originalConsoleError;
-    }
+  if (originalConsoleError) {
+    console.error = originalConsoleError;
     originalConsoleError = null;
-    installedConsoleError = null;
   }
 
   if (originalOnUnhandledRejection && typeof _globalThis.removeEventListener !== 'undefined') {
@@ -634,7 +582,6 @@ function restoreErrorHandlers(): void {
  * Track an error
  */
 function trackError(error: ErrorEvent): void {
-  if (!isInitialized || isPaused) return;
   metrics.errorCount++;
   metrics.totalEvents++;
 
@@ -691,9 +638,6 @@ export function captureError(
 let originalConsoleLog: ((...args: any[]) => void) | null = null;
 let originalConsoleInfo: ((...args: any[]) => void) | null = null;
 let originalConsoleWarn: ((...args: any[]) => void) | null = null;
-let installedConsoleLog: ((...args: any[]) => void) | null = null;
-let installedConsoleInfo: ((...args: any[]) => void) | null = null;
-let installedConsoleWarn: ((...args: any[]) => void) | null = null;
 
 // Cap console logs to prevent flooding the event pipeline
 const MAX_CONSOLE_LOGS_PER_SESSION = 1000;
@@ -712,33 +656,31 @@ function setupConsoleTracking(): void {
   const createConsoleInterceptor = (level: 'log' | 'info' | 'warn' | 'error', originalFn: (...args: any[]) => void) => {
     return (...args: any[]) => {
       try {
-        if (isInitialized && !isPaused) {
-          const message = args.map(arg => {
-            if (typeof arg === 'string') return arg;
-            if (arg instanceof Error) return `${arg.name}: ${arg.message}${arg.stack ? `\n...` : ''}`;
-            try {
-              return JSON.stringify(arg);
-            } catch {
-              return String(arg);
-            }
-          }).join(' ');
+        const message = args.map(arg => {
+          if (typeof arg === 'string') return arg;
+          if (arg instanceof Error) return `${arg.name}: ${arg.message}${arg.stack ? `\n...` : ''}`;
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        }).join(' ');
 
-          // Enforce per-session cap and skip React Native unhandled-rejection noise.
-          if (
-            consoleLogCount < MAX_CONSOLE_LOGS_PER_SESSION &&
-            !message.includes('Possible Unhandled Promise Rejection')
-          ) {
-            consoleLogCount++;
-            const nativeModule = getRejourneyNativeModule();
-            if (nativeModule) {
-              const logEvent = {
-                type: 'log',
-                timestamp: Date.now(),
-                level,
-                message: message.length > 2000 ? message.substring(0, 2000) + '...' : message,
-              };
-              nativeModule.logEvent('log', logEvent).catch(() => { });
-            }
+        // Enforce per-session cap and skip React Native unhandled-rejection noise.
+        if (
+          consoleLogCount < MAX_CONSOLE_LOGS_PER_SESSION &&
+          !message.includes('Possible Unhandled Promise Rejection')
+        ) {
+          consoleLogCount++;
+          const nativeModule = getRejourneyNativeModule();
+          if (nativeModule) {
+            const logEvent = {
+              type: 'log',
+              timestamp: Date.now(),
+              level,
+              message: message.length > 2000 ? message.substring(0, 2000) + '...' : message,
+            };
+            nativeModule.logEvent('log', logEvent).catch(() => { });
           }
         }
       } catch {
@@ -751,17 +693,13 @@ function setupConsoleTracking(): void {
     };
   };
 
-  installedConsoleLog = createConsoleInterceptor('log', originalConsoleLog!);
-  installedConsoleInfo = createConsoleInterceptor('info', originalConsoleInfo!);
-  installedConsoleWarn = createConsoleInterceptor('warn', originalConsoleWarn!);
-  console.log = installedConsoleLog;
-  console.info = installedConsoleInfo;
-  console.warn = installedConsoleWarn;
+  console.log = createConsoleInterceptor('log', originalConsoleLog!);
+  console.info = createConsoleInterceptor('info', originalConsoleInfo!);
+  console.warn = createConsoleInterceptor('warn', originalConsoleWarn!);
 
   const currentConsoleError = console.error;
   if (!originalConsoleError) originalConsoleError = currentConsoleError;
-  installedConsoleError = createConsoleInterceptor('error', currentConsoleError);
-  console.error = installedConsoleError;
+  console.error = createConsoleInterceptor('error', currentConsoleError);
 }
 
 /**
@@ -769,19 +707,16 @@ function setupConsoleTracking(): void {
  */
 function restoreConsoleHandlers(): void {
   if (originalConsoleLog) {
-    if (console.log === installedConsoleLog) console.log = originalConsoleLog;
+    console.log = originalConsoleLog;
     originalConsoleLog = null;
-    installedConsoleLog = null;
   }
   if (originalConsoleInfo) {
-    if (console.info === installedConsoleInfo) console.info = originalConsoleInfo;
+    console.info = originalConsoleInfo;
     originalConsoleInfo = null;
-    installedConsoleInfo = null;
   }
   if (originalConsoleWarn) {
-    if (console.warn === installedConsoleWarn) console.warn = originalConsoleWarn;
+    console.warn = originalConsoleWarn;
     originalConsoleWarn = null;
-    installedConsoleWarn = null;
   }
   // Note: console.error is restored in restoreErrorHandlers via originalConsoleError
 }
@@ -789,8 +724,6 @@ function restoreConsoleHandlers(): void {
 let navigationPollingInterval: ReturnType<typeof setInterval> | null = null;
 /** Interval ID from optional expo-router entry; cleared in cleanupNavigationTracking */
 let expoRouterPollingIntervalId: ReturnType<typeof setInterval> | null = null;
-const expoRouterSetupTimeouts = new Set<ReturnType<typeof setTimeout>>();
-let externalExpoRouterSetup: (() => void) | null = null;
 let lastDetectedScreen = '';
 let navigationSetupDone = false;
 
@@ -799,25 +732,7 @@ let navigationSetupDone = false;
  * Used by src/expoRouterTracking.ts (only loaded when app imports '@rejourneyco/react-native/expo-router').
  */
 export function setExpoRouterPollingInterval(id: ReturnType<typeof setInterval> | null): void {
-  if (id != null && expoRouterPollingIntervalId != null && expoRouterPollingIntervalId !== id) {
-    clearInterval(id);
-    return;
-  }
   expoRouterPollingIntervalId = id;
-}
-
-export function registerExpoRouterSetupTimeout(id: ReturnType<typeof setTimeout>): void {
-  expoRouterSetupTimeouts.add(id);
-}
-
-/**
- * Defer the optional expo-router entry until the SDK has an active tracking
- * lifecycle. This avoids a process-lifetime 2 Hz timer when the entry is
- * imported but Rejourney never starts, while retaining zero-config startup.
- */
-export function registerExpoRouterSetup(callback: () => void): void {
-  externalExpoRouterSetup = callback;
-  if (isInitialized && !isPaused && config.autoTrackExpoRouter !== false) callback();
 }
 
 /**
@@ -825,7 +740,7 @@ export function registerExpoRouterSetup(callback: () => void): void {
  * Used by src/expoRouterTracking.ts.
  */
 export function isExpoRouterTrackingEnabled(): boolean {
-  return isInitialized && !isPaused && config.autoTrackExpoRouter !== false;
+  return config.autoTrackExpoRouter !== false;
 }
 
 /**
@@ -965,9 +880,7 @@ function setupNavigationTracking(): void {
 function tryAutoSetupExpoRouter(attempt: number = 0, maxAttempts: number = 5): void {
   const delay = 200 * (attempt + 1); // 200, 400, 600, 800, 1000ms
 
-  const timeoutId = setTimeout(() => {
-    expoRouterSetupTimeouts.delete(timeoutId);
-    if (!isInitialized || !navigationSetupDone || config.autoTrackExpoRouter === false) return;
+  setTimeout(() => {
     try {
       // Dynamic require wrapped in a variable to prevent Metro from statically resolving it
       const EXPO_ROUTER = 'expo-router';
@@ -991,7 +904,6 @@ function tryAutoSetupExpoRouter(attempt: number = 0, maxAttempts: number = 5): v
       }
     }
   }, delay);
-  expoRouterSetupTimeouts.add(timeoutId);
 }
 
 /**
@@ -1126,8 +1038,6 @@ function extractScreenNameFromRouterState(
  * Cleanup navigation tracking
  */
 function cleanupNavigationTracking(): void {
-  for (const timeoutId of expoRouterSetupTimeouts) clearTimeout(timeoutId);
-  expoRouterSetupTimeouts.clear();
   if (navigationPollingInterval) {
     clearInterval(navigationPollingInterval);
     navigationPollingInterval = null;
@@ -1145,7 +1055,7 @@ function cleanupNavigationTracking(): void {
  * This updates JS metrics AND notifies the native module to send to backend
  */
 export function trackScreen(screenName: string): void {
-  if (!isInitialized || isPaused) {
+  if (!isInitialized) {
     if (__DEV__) {
       logger.debug('trackScreen called but not initialized, screen:', screenName);
     }
@@ -1202,7 +1112,7 @@ export function trackAPIRequest(
   durationMs: number = 0,
   responseBytes: number = 0
 ): void {
-  if (!isInitialized || isPaused) return;
+  if (!isInitialized) return;
 
   metrics.apiTotalCount++;
 
@@ -1252,7 +1162,7 @@ function createEmptyMetrics(): SessionMetrics {
  * Track a scroll event
  */
 export function trackScroll(): void {
-  if (!isInitialized || isPaused) return;
+  if (!isInitialized) return;
   metrics.scrollCount++;
   metrics.totalEvents++;
 }
@@ -1261,7 +1171,7 @@ export function trackScroll(): void {
  * Track a gesture event
  */
 export function trackGesture(): void {
-  if (!isInitialized || isPaused) return;
+  if (!isInitialized) return;
   metrics.gestureCount++;
   metrics.totalEvents++;
 }
@@ -1270,7 +1180,7 @@ export function trackGesture(): void {
  * Track an input event (keyboard)
  */
 export function trackInput(): void {
-  if (!isInitialized || isPaused) return;
+  if (!isInitialized) return;
   metrics.inputCount++;
   metrics.totalEvents++;
 }
@@ -1413,9 +1323,6 @@ export async function collectDeviceInfo(): Promise<DeviceInfo> {
     appId: nativeInfo.bundleId,
     locale: locale,
     timezone: timezone,
-    batteryLevelPercent: nativeInfo.batteryLevelPercent,
-    batteryState: nativeInfo.batteryState,
-    lowPowerModeEnabled: nativeInfo.lowPowerModeEnabled,
   };
 }
 
@@ -1530,8 +1437,6 @@ export function setAnonymousId(id: string): void {
 export default {
   init: initAutoTracking,
   cleanup: cleanupAutoTracking,
-  pause: pauseAutoTracking,
-  resume: resumeAutoTracking,
   trackTap,
   trackScroll,
   trackGesture,

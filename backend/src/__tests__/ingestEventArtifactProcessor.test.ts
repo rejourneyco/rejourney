@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-    buildBatteryMetricUpdates,
     buildWebAttributionMetadata,
     computeMobileFrustrationCountsForIngest,
     getFrustrationTapKindForIngest,
@@ -32,37 +31,6 @@ describe('event artifact summary', () => {
             sizeBytes: 8,
             startTime: 1_770_000_000_000,
         });
-    });
-});
-
-describe('mobile battery telemetry normalization', () => {
-    it('accepts percent and legacy fractional levels with bounded normalized state', () => {
-        expect(buildBatteryMetricUpdates({
-            batteryLevelPercent: 57.4,
-            batteryState: 'Charging',
-            lowPowerModeEnabled: true,
-        })).toEqual({
-            batteryLevelPercent: 57,
-            batteryState: 'charging',
-            lowPowerModeEnabled: true,
-        });
-        expect(buildBatteryMetricUpdates({ batteryLevel: 0.42 })).toEqual({
-            batteryLevelPercent: 42,
-        });
-        expect(buildBatteryMetricUpdates({ batteryLevelPercent: 1 })).toEqual({
-            batteryLevelPercent: 1,
-        });
-        expect(buildBatteryMetricUpdates({ batteryLevel: 1 })).toEqual({
-            batteryLevelPercent: 100,
-        });
-    });
-
-    it('omits unsupported, out-of-range, and malformed values', () => {
-        expect(buildBatteryMetricUpdates({
-            batteryLevelPercent: 101,
-            batteryState: 'overheated',
-            lowPowerModeEnabled: 'true',
-        })).toEqual({});
     });
 });
 
@@ -279,79 +247,6 @@ describe('ingest mobile frustration event compatibility', () => {
             { rageTapCount: 3 },
             { trustClientFrustrationCounts: true }
         )).toMatchObject({ rageTapCount: 3 });
-    });
-
-    it('persists mobile capture quality counters from session finalization', () => {
-        const metrics = {
-            framesCaptured: 12,
-            framesSkippedDuplicate: 3,
-            framesSkippedThrottle: 4,
-            framesSkippedBacklog: 5,
-            framesSkippedMapMoving: 6,
-        };
-
-        expect(buildSessionEndMetricsMergeSet(metrics)).toMatchObject(metrics);
-        expect(summarizeSessionEndMetrics(metrics)).toEqual(metrics);
-    });
-
-    it('normalizes additive device-quality summaries without trusting arbitrary values', () => {
-        expect(buildSessionEndMetricsMergeSet({
-            thermalStateStart: 'nominal',
-            thermalStatePeak: 'critical',
-            thermalStateEnd: 'fair',
-            thermalThrottledDurationMs: 400,
-            memoryPressurePeak: 'warning',
-            memoryPressureEventCount: 2,
-            memoryHeadroomMbBucketStart: 2048,
-            memoryHeadroomMbBucketMin: 512,
-            memoryHeadroomMbBucketEnd: 1024,
-            fontScaleBucket: 'large',
-            uiStyle: 'dark',
-            layoutDirection: 'rtl',
-            orientationStart: 'portrait',
-            orientationEnd: 'landscape',
-            orientationChangeCount: 1,
-            displayMaxRefreshRateHz: 120,
-            batteryLevelStartPercent: 90,
-            batteryLevelEndPercent: 82,
-            batteryDeltaPercent: -8,
-            batteryStateStart: 'unplugged',
-            batteryStateEnd: 'charging',
-            chargingStateChanged: true,
-            lowPowerModeObserved: true,
-            ignored: 'not persisted',
-        })).toEqual({
-            thermalStateStart: 'nominal',
-            thermalStatePeak: 'critical',
-            thermalStateEnd: 'fair',
-            thermalThrottledDurationMs: 400,
-            memoryPressurePeak: 'warning',
-            memoryPressureEventCount: 2,
-            memoryHeadroomMbBucketStart: 2048,
-            memoryHeadroomMbBucketMin: 512,
-            memoryHeadroomMbBucketEnd: 1024,
-            fontScaleBucket: 'large',
-            uiStyle: 'dark',
-            layoutDirection: 'rtl',
-            orientationStart: 'portrait',
-            orientationEnd: 'landscape',
-            orientationChangeCount: 1,
-            displayMaxRefreshRateHz: 120,
-            batteryLevelStartPercent: 90,
-            batteryLevelEndPercent: 82,
-            batteryDeltaPercent: -8,
-            batteryStateStart: 'unplugged',
-            batteryStateEnd: 'charging',
-            chargingStateChanged: true,
-            lowPowerModeObserved: true,
-        });
-
-        expect(buildSessionEndMetricsMergeSet({
-            thermalStatePeak: 'boiling',
-            memoryHeadroomMbBucketMin: 99999,
-            batteryDeltaPercent: -101,
-            chargingStateChanged: 'yes',
-        })).toEqual({});
     });
 
     it('computes canonical mobile frustration counts from raw events and ignores keyboard typing clusters', () => {

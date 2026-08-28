@@ -11,13 +11,7 @@
  *   import '@rejourneyco/react-native/expo-router';
  */
 
-import {
-  trackScreen,
-  setExpoRouterPollingInterval,
-  isExpoRouterTrackingEnabled,
-  registerExpoRouterSetup,
-  registerExpoRouterSetupTimeout,
-} from './sdk/autoTracking';
+import { trackScreen, setExpoRouterPollingInterval, isExpoRouterTrackingEnabled } from './sdk/autoTracking';
 import { normalizeScreenName, getScreenNameFromPath } from './sdk/navigation';
 
 const MAX_POLLING_ERRORS = 10;
@@ -166,13 +160,8 @@ function trySetup(): void {
     // Not ready or not installed
   }
   if (attempts < maxAttempts) {
-    const timeoutId = setTimeout(trySetup, 200 * attempts);
-    registerExpoRouterSetupTimeout(timeoutId);
+    setTimeout(trySetup, 200 * attempts);
   }
 }
 
-registerExpoRouterSetup(() => {
-  attempts = 0;
-  const initialSetupTimeout = setTimeout(trySetup, 200);
-  registerExpoRouterSetupTimeout(initialSetupTimeout);
-});
+setTimeout(trySetup, 200);

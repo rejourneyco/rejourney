@@ -643,37 +643,6 @@ export const sessionMetrics = pgTable('session_metrics', {
     cellularGeneration: varchar('cellular_generation', { length: 10 }), // 2G, 3G, 4G, 5G, unknown
     isConstrained: boolean('is_constrained').default(false), // Low data mode
     isExpensive: boolean('is_expensive').default(false), // Metered connection
-    // Latest normalized mobile battery snapshot. Research exports bucket the
-    // percentage; exact values remain internal operational telemetry.
-    batteryLevelPercent: integer('battery_level_percent'),
-    batteryState: varchar('battery_state', { length: 20 }), // charging, full, unplugged, unknown
-    lowPowerModeEnabled: boolean('low_power_mode_enabled'),
-    batteryLevelStartPercent: integer('battery_level_start_percent'),
-    batteryLevelEndPercent: integer('battery_level_end_percent'),
-    batteryDeltaPercent: integer('battery_delta_percent'),
-    batteryStateStart: varchar('battery_state_start', { length: 20 }),
-    batteryStateEnd: varchar('battery_state_end', { length: 20 }),
-    chargingStateChanged: boolean('charging_state_changed'),
-    lowPowerModeObserved: boolean('low_power_mode_observed'),
-
-    // Permissionless, low-cardinality device quality context. SDKs sample at
-    // lifecycle boundaries and OS callbacks only; there is no telemetry poll.
-    thermalStateStart: varchar('thermal_state_start', { length: 20 }),
-    thermalStatePeak: varchar('thermal_state_peak', { length: 20 }),
-    thermalStateEnd: varchar('thermal_state_end', { length: 20 }),
-    thermalThrottledDurationMs: bigint('thermal_throttled_duration_ms', { mode: 'number' }),
-    memoryPressurePeak: varchar('memory_pressure_peak', { length: 20 }),
-    memoryPressureEventCount: integer('memory_pressure_event_count'),
-    memoryHeadroomMbBucketStart: integer('memory_headroom_mb_bucket_start'),
-    memoryHeadroomMbBucketMin: integer('memory_headroom_mb_bucket_min'),
-    memoryHeadroomMbBucketEnd: integer('memory_headroom_mb_bucket_end'),
-    fontScaleBucket: varchar('font_scale_bucket', { length: 20 }),
-    uiStyle: varchar('ui_style', { length: 20 }),
-    layoutDirection: varchar('layout_direction', { length: 10 }),
-    orientationStart: varchar('orientation_start', { length: 20 }),
-    orientationEnd: varchar('orientation_end', { length: 20 }),
-    orientationChangeCount: integer('orientation_change_count'),
-    displayMaxRefreshRateHz: integer('display_max_refresh_rate_hz'),
 
     // SDK Telemetry / Health Metrics
     sdkUploadSuccessCount: integer('sdk_upload_success_count').default(0),
@@ -686,13 +655,6 @@ export const sessionMetrics = pgTable('session_metrics', {
     sdkAvgUploadDurationMs: doublePrecision('sdk_avg_upload_duration_ms'),
     sdkTotalBytesUploaded: bigint('sdk_total_bytes_uploaded', { mode: 'bigint' }),
     sdkTotalBytesEvicted: bigint('sdk_total_bytes_evicted', { mode: 'bigint' }),
-
-    // Capture quality telemetry reported by mobile SDK finalization.
-    framesCaptured: integer('frames_captured').default(0),
-    framesSkippedDuplicate: integer('frames_skipped_duplicate').default(0),
-    framesSkippedThrottle: integer('frames_skipped_throttle').default(0),
-    framesSkippedBacklog: integer('frames_skipped_backlog').default(0),
-    framesSkippedMapMoving: integer('frames_skipped_map_moving').default(0),
 
     // Replay artifact metrics
     hierarchySnapshotCount: integer('hierarchy_snapshot_count').default(0),

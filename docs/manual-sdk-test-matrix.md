@@ -1,244 +1,216 @@
-# Manual SDK release matrix
+# Manual SDK test matrix
 
-Use this matrix after automated checks pass and before publishing an affected
-mobile SDK. It validates the packages inside representative applications
-against the real local stack, then records dashboard replay links for review.
+What to exercise by hand on a simulator before shipping an SDK, what each case
+should produce, and how to confirm it actually arrived.
 
-Do not use the old bare React Native or minimal native iOS fixtures as the
-manual release gate. They remain useful compile fixtures, but they do not cover
-enough real UI behavior. The manual gate uses these applications:
+Automated tests cover units and compilation. They do not cover what this
+document does: whether a real app on a real simulator produces a replay whose
+events are complete, correctly shaped, and correctly attributed to a session.
 
-| Fixture | SDK coverage | Why it owns this coverage |
+## Setup
+
+Run the local stack and point the example app at it, so replays land somewhere
+you can inspect:
+
+```bash
+npm run dev:resume
+```
+
+| Piece | Where | Used for |
 | --- | --- | --- |
-| `examples/react-native-boilerplate` | React Native on iOS and Android | Expo Router, New Architecture, Replay Lab, Google Maps, Mapbox, nested video, masks, long image list, and dense view tree |
-| `examples/brew-coffee-labs` | React Native compatibility on iOS and Android | Older Expo/React Native integration and realistic tabs, forms, images, camera/media, authentication, and network activity |
-| `examples/swift-clean-arch` | Native Swift SDK on iOS | SwiftUI list/search/detail flow, URLSession, MapKit, image/video masking, sheets, and dense native UI |
-| `packages/rejourney/example` | Flutter on iOS and Android | Plugin controls, checkout masking, errors, ANR/crash recovery, video, image scroll, dense widgets, and GPU/Impeller capture |
+| API | `http://127.0.0.1:3000` | ingest, presign, session conclude |
+| Dashboard | `http://127.0.0.1:8080` | watching the replay back |
+| MinIO | NodePort `30900` | the stored segment and frame objects |
+| Postgres | `127.0.0.1:5432` | `sessions`, `events`, `replay_available` |
 
-## Run rules
+The iOS Simulator shares the host network, so `127.0.0.1:3000` works directly.
+A physical device needs the LAN address in `PUBLIC_API_URL` instead.
 
-1. Test the local SDK source that will be released, not the last published
-   package. Do not use Expo Go; native changes require a development or Release
-   build.
-2. Run the smoke flow for every affected package and supported platform.
-3. Run a targeted row only when the change can affect that behavior or shared
-   native core. Do not repeat the same engine-level test in every app.
-4. Use synthetic values in inputs. Never enter real credentials, payment data,
-   or personal information.
-5. A run passes only when its replay is playable in the dashboard and its
-   session row is concluded correctly. Console output alone is not evidence.
-6. Record one row and replay link per app/platform run in the results table at
-   the end of this document. Add extra links for rollover and recovery sessions.
-
-### Change-aware selection
-
-| Changed area | Required manual runs |
-| --- | --- |
-| React Native TypeScript, Expo Router, or RN bridge | Expo Boilerplate on iOS and Android; Brew on iOS and Android |
-| Shared Swift core or native iOS SDK | Swift Countries; one Expo iOS smoke; one Flutter iOS smoke if its synced core changed |
-| Shared Kotlin core or RN Android native code | Expo Android; Flutter Android if its synced core changed |
-| Flutter Dart/plugin code | Flutter example on iOS and Android |
-| Capture, masking, hierarchy, maps, or media | Relevant capture rows for each affected native renderer |
-| Lifecycle, upload, retry, offline persistence, or recovery | Lifecycle and delivery rows for every affected wrapper |
-| Documentation-only change | No simulator run unless behavior or expected payload changed |
-
-## Local setup
-
-Bring up the real local stack once:
+Useful checks while testing:
 
 ```bash
-npm run ci:local
+psql "postgresql://rejourney:rejourney@127.0.0.1:5432/rejourney" -c "select id, started_at, ended_at, end_reason, replay_available from sessions order by started_at desc limit 5;"
 ```
 
-For an already prepared stack, `npm run dev:resume` is sufficient. Confirm the
-API, dashboard, object storage, and database are healthy before launching an
-app.
+## Session lifecycle
 
-| Service | Local address |
-| --- | --- |
-| API | `http://127.0.0.1:3000` |
-| Dashboard | `http://127.0.0.1:8080` |
-| MinIO | NodePort `30900` |
-| Postgres | `127.0.0.1:5432` |
+Worth stating plainly, because it is easy to assume otherwise: **backgrounding
+does not end a session.** The SDK records the background entry, accumulates the
+time in `_bgTimeMs`, and continues the same session on return. There is no
+inactivity timer.
 
-The iOS Simulator can use `127.0.0.1:3000`. An Android Emulator normally uses
-the endpoint already configured by the example; verify it reaches the same
-local API rather than production. A physical device must use the host LAN
-address.
+There *is* a maximum recording duration, and it comes from remote config
+(`maxRecordingMinutes`, 10 minutes by default). When it elapses the session ends
+on its own with reason `duration_limit`. So a session ends on: explicit stop,
+the duration limit, or next-launch finalization after a crash.
 
-Point the compatibility fixtures at this checkout before building:
-
-```bash
-(cd examples/brew-coffee-labs && npm run sdk:new)
-npm run example:swift:sdk:new
-```
-
-Expo Boilerplate and the Flutter example already use local package paths.
-Native edits require rebuilding the application.
-
-Launch the requested target from the repository root:
-
-```bash
-npm run example:boilerplate:ios
-npm run example:boilerplate:android
-npm run example:brew:ios
-npm run example:brew:android
-npm run example:swift
-# Flutter iOS Simulator
-(cd packages/rejourney/example && flutter run --dart-define=REJOURNEY_API_URL=http://127.0.0.1:3000)
-# Flutter Android Emulator
-(cd packages/rejourney/example && flutter run --dart-define=REJOURNEY_API_URL=http://10.0.2.2:3000)
-```
-
-Useful database confirmation:
-
-```bash
-psql "postgresql://rejourney:rejourney@127.0.0.1:5432/rejourney" -c "select id, started_at, ended_at, end_reason, replay_available from sessions order by started_at desc limit 10;"
-```
-
-## Required smoke flows
-
-Each row should produce one primary replay. Expo Boilerplate, Brew, and Swift
-Countries auto-start and have no manual Stop control, so finish their primary
-flow with L2's intentional background rollover. That both concludes the replay
-and validates lifecycle ownership without modifying the fixture. Flutter owns
-the explicit stop/restart controls. Run process-death recovery separately.
-
-| Run | App and platform | One-pass flow | Required evidence |
+| # | Case | Steps | Expected |
 | --- | --- | --- | --- |
-| RN-IOS | Expo Boilerplate · iOS | Launch; use Home and Details; open Replay Lab; type synthetic public and secret values; exercise the explicit mask and nested video; scroll Stress images; open and settle a map; background for 5s and return; finish with a 70s background and return | Expo Router navigation is attributed once; input and mask privacy pass; media/map frames are usable; the short background keeps the session; the rollover concludes a playable primary replay and starts exactly one new session |
-| RN-AND | Expo Boilerplate · Android | Repeat RN-IOS in the Android development build; exercise both Google Maps and Mapbox when its token is configured | Same functional result with Android coordinates; map listeners remain owned by the host app; no blank frames, growing backlog, or leaked callbacks |
-| BREW-IOS | Brew Coffee Labs · iOS | Open every available tab; scroll the community/feed content; open Add Post; type synthetic form values; exercise image selection if configured; background for 5s and return; finish with a 70s background and return | Real-world Expo Router, forms, images, and network traffic remain usable; no startup or navigation duplication; the primary replay concludes at rollover and exactly one replacement session starts |
-| BREW-AND | Brew Coffee Labs · Android | Repeat the Brew flow in its Android development build | Compatibility with the older Expo/RN stack; replay is visually faithful and the app retains normal behavior |
-| SWIFT-IOS | Swift Countries · iOS | Search countries; open a detail and flag sheet; return; use Map Test; use Media Masking/Nested Video; scroll Stress Test; background for 5s and return; finish with a 70s background and return | SwiftUI navigation and URLSession events are present; MapKit/media settle correctly; declared masks hide content; the short background keeps the session and rollover concludes its replay |
-| FLUTTER-IOS | Flutter example · iOS | Start; record a custom event; open Checkout; exercise the mask; run video, image scroll, dense tree, and animated/settled 3D screens; background for 5s; return; stop and flush | Navigator events, Dart-to-native metadata, masks, and frames are present; no torn transitions; replay plays from start to finish |
-| FLUTTER-AND | Flutter example · Android | Repeat FLUTTER-IOS on the default Impeller renderer | JPEGs contain real UI rather than black frames; compatibility masking works; retained capture does not replace or stall the live Flutter surface |
+| L1 | Cold start | Launch app fresh | One `app_startup` event; new session id; `started_at` set |
+| L2 | Background and return quickly | Home, wait 5s, reopen | **Same session id.** `app_background` then `app_foreground`. No second `app_startup` |
+| L3 | Background and return after a long gap | Home, wait 10 min, reopen | **Still the same session id** — there is no resume window. Background duration accumulates |
+| L4 | Explicit stop | Call stop from the example app | Session concluded, `end_reason` set, `replay_available` becomes true |
+| L5 | Kill from app switcher | Swipe away while recording | Session left open; finalized on next launch |
+| L6 | Relaunch after kill | Reopen the app | Log line `Crash recovery finalize: success=true`; prior session gets `end_reason=recovery_finalize`; a **new** session starts |
+| L7 | Two sessions in one launch | stop, then start again | Two distinct session ids; the first is complete and playable |
+| L8 | Duration limit | Leave a session running past `maxRecordingMinutes` | Session ends by itself, reason `duration_limit`, replay complete and playable |
+| L9 | Double start | Call start twice without stopping | One session, not two. No duplicate timers or observers |
+| L10 | Stop with no session | Call stop while idle | No-op, no crash |
+| L11 | Start before configure | Call start first | Fails cleanly with a clear message; no half-started state |
+| L12 | Rapid start/stop | 10 cycles as fast as the UI allows | 10 clean sessions; no orphans; allocations flat |
+| L13 | Sampled out | Set `sampleRate` low enough to exclude | No replay uploaded, and the app still behaves normally |
+| L14 | Remote kill switch | `rejourneyEnabled=false` | Recording never starts; no network traffic beyond config |
+| L15 | Observe-only | `observeOnly=true` | Events observed, nothing uploaded |
 
-If an external service in Brew is unavailable, record that limitation and use
-the reachable tabs/forms. A Rejourney regression is not excused by an unrelated
-Supabase, Gemini, camera, or media-service failure.
+## Capture correctness
 
-## Lifecycle and session ownership
+| # | Case | Steps | Expected event |
+| --- | --- | --- | --- |
+| C1 | Tap | Tap a button | `touch`, `isInteractive: true`, plausible `x`/`y` |
+| C2 | Dead tap | Tap a non-responsive area | `touch` followed by a dead-tap event ~400ms later |
+| C3 | Rage tap | Tap the same spot 3+ times inside 500ms | One rage-tap event with `count >= 3`. **The window is 500ms** — slower taps correctly produce none |
+| C4 | Scroll / swipe / pan | Scroll a long list | `gesture` events, throttled rather than one per pixel |
+| C5 | Pinch and rotate | Two-finger gestures | `gesture` with `scale` / `angle` |
+| C6 | Text input | Type into a field | `input` event; **the typed value must be masked** |
+| C7 | Password field | Type into a secure field | Masked, always, regardless of remote config |
+| C8 | Navigation | Push and pop a screen | `navigation` events with entering/leaving |
+| C9 | Screenshots | Move through several screens | Frames present and in order; timestamps monotonic |
+| C10 | Manual redaction | Mark a view `rj_occlude` | The region is masked in the played-back frame |
+| C11 | Duplicate frames dropped | Start a session, leave the screen untouched for 60s | **Frames stored should be ~1, not ~60.** Identical screenshots are not uploaded |
+| C12 | Change after a static stretch | Sit idle, then navigate | The new screen is captured promptly — dedup must not suppress a real change |
+| C13 | Static session still flushes | Start, stay on one screen, stop | The single frame reaches storage. Dedup must skip only the append, never the flush |
+| C14 | Dedup resets per session | Stop, start again on the same screen | The new session stores its own first frame rather than treating it as a duplicate of the last |
+| C15 | Playback of a deduped session | Play back C11 in the dashboard | The screen is shown for the whole duration, not blank between sparse frames |
 
-Run L1, L2, L4, and L6 once per affected SDK wrapper, using its owner fixture above.
-The required auto-start smoke flows already include L1 and L2. L3 and L5 belong
-to the Flutter control fixture unless another fixture gains equivalent controls.
+## Stress screens
 
-| ID | Action | Pass condition |
-| --- | --- | --- |
-| L1 · short background | Background for 5 seconds, then foreground | Same session id; one `app_background`, then one `app_foreground`; no second `app_startup` |
-| L2 · intentional rollover | Background for at least 70 seconds, then foreground | On foreground, the original session ends with `background_timeout` because it crossed the intentional 60-second boundary; a new session starts with identity and metadata restored; no new events append to the old session |
-| L3 · explicit restart | In the Flutter example, stop and start again without relaunching | Two distinct playable sessions; first is complete before the second begins |
-| L4 · process death recovery | Kill from the app switcher while recording, then relaunch | Prior session finalizes as `recovery_finalize`; durable segments arrive; a clean new session starts |
-| L5 · idempotence | In the Flutter example, start twice, stop twice, then perform 10 quick start/stop cycles | No duplicate session, timer, listener, observer, orphan row, crash, or upward allocation trend |
-| L6 · Beta pause/resume | On each owner fixture, enter a camera/media/heavy screen; note the session id; pause twice; interact for 30s; resume twice; then repeat with a 5s background and a separate 70s background while paused | During the foreground pause there are no new frames, hierarchy, interaction, network, or ordinary telemetry records and no periodic SDK work; `sdk_paused` is the final pre-gap event and exactly one paired `sdk_resumed` carries the same `pauseId` and a credible `gapDurationMs`; duplicate calls add no marker; the first resume frame arrives promptly; a 5s background keeps the session id; a 70s background performs the intentional rollover and the replacement remains paused until resume |
+The capture path is cheap on a plain form and expensive on the screens users
+actually complain about. These are the ones that have historically driven both
+the throttle and the map heuristic, so they are where a regression shows up
+first — and where a change that looks harmless on a settings screen stops being
+harmless.
 
-The maximum session duration is still controlled by `maxRecordingMinutes` and
-ends with `duration_limit`; test it only when duration configuration or timer
-ownership changed.
+Every case here needs three things checked together, because they trade against
+each other: **the replay is still faithful**, **the main thread is not blocked**,
+and **memory does not climb**. A screen that captures perfectly while hitching is
+a fail, and so is one that stays smooth by recording nothing.
 
-## Capture and privacy
+> These screens do not exist in the example apps yet. Adding a stress section to
+> each example (map, media, long image list, dense layout) is a prerequisite for
+> running S1-S8 as written.
 
-| ID | Owner fixture and action | Pass condition |
-| --- | --- | --- |
-| C1 · interaction semantics | Expo Replay Lab: tap, rage-tap the same spot three times inside 500ms, tap a genuinely non-interactive blank area, scroll, and use nested gestures | Touch/gesture events have plausible coordinates; one rage-tap is produced; ordinary slow taps do not become rage taps; dead-tap classification is not duplicated |
-| C2 · input privacy | Expo Replay Lab and Brew Add Post: type synthetic plain, numeric, secure, and multiline values | Input interaction is visible but typed values, secure values, private placeholders, and accessibility text do not leak |
-| C3 · explicit masks | Expo Replay Lab, the Swift Countries list privacy demo, and Flutter Checkout | Every affected wrapper's explicit mask hides the full descendant region in stored frames, including nested text |
-| C4 · static dedup | Leave an unchanged screen for 60s; navigate; conclude with Flutter Stop or L2 rollover; begin the next session on the same screen | Initial frame is stored; duplicates are sparse; the changed screen appears promptly; conclusion flushes the last frame; the next session stores its own first frame |
-| C5 · maps | Expo Google Maps and Mapbox; Swift Map Test: idle, tap a control outside the map, pan/zoom for 30s, fling and release, then trigger one programmatic camera animation | An outside control tap does not mark the map moving; capture is suppressed while the camera moves and resumes only after a stable camera sample/SDK idle callback; the first settled Mapbox frame is nonblank; Android performs no synchronous Mapbox snapshot readback and recovers from a delayed/failed callback without retrying every frame; host callbacks still fire; leaving the screen releases cache/observers; repeatedly entering/leaving does not grow memory |
-| C6 · media | Expo nested video, Swift nested/media video, and Flutter Video: play, pause, navigate away, return | Media is masked or represented according to config; controls remain responsive; no runaway frame growth, stale player observer, or blank replay |
-| C7 · image/dense stress | Use the Stress image list and dense tree in the affected fixture for 10 minutes | Main thread remains responsive; queues stay bounded; memory settles; hierarchy emits truncation/bailout rather than blocking when its budget is exceeded |
-| C8 · final playback | Watch each recorded session in the dashboard from beginning to end | Frames are ordered and nonblank, sparse-frame playback holds the prior frame, interactions align with the UI, and masked content never flashes |
+| # | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| S1 | Map idle | Open a map, leave it still | Captured normally at the configured interval |
+| S2 | Map panning | Pan and zoom continuously for 30s | Capture suppressed while the camera moves — this is the capture-when-idle heuristic, not a bug. `framesSkippedMapMoving` reflects the cost |
+| S3 | Map settle | Stop panning | Capture resumes promptly once the SDK reports idle; the settled map is in the replay |
+| S4 | Embedded video | Play an inline video | Video surface masked or captured per config. **No stall**, and no runaway frame growth from a constantly-changing surface |
+| S5 | Embedded image | Screen with a large image | Captured; masking rules still applied |
+| S6 | Long image scroll | Fling through a list of many images | Frames throttle rather than queue without bound. `framesSkippedBacklog` should stay at or near zero — if it climbs, encoding is not keeping up |
+| S7 | Dense screen | Hundreds of elements, deep nesting | Hierarchy scan stays inside its 16ms budget. Expect `truncated` or `bailout` markers rather than a blocked main thread |
+| S8 | Sustained stress | Cycle S1-S7 for 10 minutes | Memory flat, no thread growth, session still concludes cleanly and plays back |
 
-## Network, offline delivery, and faults
+Watch during all of these: `framesCaptured` against the frames actually stored.
+A large gap is the throttle or the backlog gate working, and the counters say
+which. On a simulator the numbers are pessimistic — software rendering makes
+capture far more expensive than on device — so treat them as an upper bound.
 
-| ID | Action | Pass condition |
-| --- | --- | --- |
-| D1 · app network | Use Swift Countries search/detail and a normal RN/Flutter network action | App requests contain URL, status/error, and realistic duration; Authorization and configured sensitive headers are redacted |
-| D2 · SDK exclusion | Inspect network events during any upload | Rejourney configuration, presign, segment, and conclude requests never appear as captured app traffic |
-| D3 · offline recovery | Go offline, interact, stop or kill, restore connectivity, relaunch | Persisted events and frames upload exactly once and the replay remains complete |
-| D4 · background flush | Generate activity and immediately background the app | The app does not freeze; the upload finishes within the allowed background window or remains durably queued |
-| D5 · handled and fatal faults | Use the Flutter example's built-in handled-error, ANR, and native-crash controls when stability code changed; on Android 11+ also trigger a system ANR/process termination and relaunch; on iOS validate one NSException/Swift fatal path and inspect MetricKit delivery when available | Handled/framework/platform/current-isolate errors have the expected source and are not duplicated; the live ANR duration is credible; Android historical exits include `source=application_exit_info` and the OS reason without inventing a stack; the iOS signal record has `source=async_signal_safe_marker` and does not claim frames; a native crash is delivered on relaunch; any pre-existing Crashlytics/error handler still runs; recovery produces a playable prior session |
+## Errors, crashes and hangs
 
-Use network throttling only when timeout, retry, or transport code changed. A
-slow-link pass must show realistic duration without blocking the UI.
+| # | Case | How to trigger | Expected |
+| --- | --- | --- | --- |
+| E1 | Handled error | Report one from the example app | `error` event with `name`, `message`, `stack` |
+| E2 | Unhandled JS error (RN) | Throw in a component | `error` with `handled: false` and a `source` |
+| E3 | Native uncaught exception | Force an NSException | Incident stored; delivered on next launch with the **original** exception stack, not the signal handler's |
+| E4 | Signal crash | Force a segfault | Incident recorded; session finalized with `recovery_finalize` on relaunch |
+| E5 | ANR / main-thread hang | Block main for 5s+ | `anr` event with `durationMs`. The watchdog must **not** publish its own stack as app evidence |
+| E6 | MetricKit hang report | Background the app after a hang | Diagnostics attach on a later launch |
+| E7 | Crash during upload | Crash mid-flush | Segments already on disk survive and upload on relaunch — no lost replay |
 
-## Performance gate
+## Network and API capture
 
-Use a Release build. Run Instruments on iOS or the Android profiler only for
-changes that touch capture, buffers, timers, lifecycle, maps, media, networking,
-or upload ownership.
+| # | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| N1 | Successful request | Trigger a GET | Network event with URL, status, duration |
+| N2 | Failing request | Point at a dead host | Recorded with the error, no crash |
+| N3 | Slow request | Throttle the network | Duration reflects reality; no main-thread stall |
+| N4 | SDK's own uploads | Watch during any activity | **Rejourney's own requests must not appear** — `RejourneyURLProtocol` is stripped from the upload session |
+| N5 | Header redaction | Send an Authorization header | Value not stored in plain text |
+| N6 | Native API call | Use a native module | Recorded distinctly from JS-originated calls |
 
-| ID | Exercise | Pass condition |
-| --- | --- | --- |
-| P1 · sustained capture | Cycle map/media/image/dense/animated screens for 10 minutes | UI remains responsive; memory and thread counts settle; upload and frame queues remain bounded; replay stays faithful |
-| P2 · lifecycle leaks | Run L5 in Flutter; in an auto-start fixture cross L2 twice; then leave the app idle for 2 minutes | No accumulating timers, URLSession/OkHttp calls, map subscriptions, callbacks, or observers |
-| P3 · background pressure | Repeatedly background during capture and upload | No main-thread wait or freeze; data is uploaded or durably owned by the retry queue |
-| P4 · extended session | Record for 30 minutes | Required only after buffer, persistence, capture scheduling, or duration changes; memory remains flat enough to avoid sustained growth and the final replay concludes cleanly |
+## Offline and delivery
 
-For Flutter Android also inspect stored JPEGs directly. A replay row and object
-count are insufficient: an Impeller readback can arrive as a syntactically valid
-black image. Run one release/minified Android build when renderer discovery,
-masking, or native capture changed.
+| # | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| D1 | Offline capture | Airplane mode, use app, restore network | Nothing lost; segments persisted then uploaded |
+| D2 | Offline then killed | Airplane mode, use app, force quit, restore, relaunch | Replay still arrives. **This is the case `waitsForConnectivity=false` fixed** — parked requests used to die with the process |
+| D3 | Slow link | Network Link Conditioner, "Edge" | Large segments still complete — the 60s resource timeout matters here |
+| D4 | Backgrounded upload | Background immediately after activity | Upload finishes in the background window; app does **not** freeze on backgrounding |
 
-## Payload and storage acceptance
+## Performance and leaks
 
-With `collectDeviceInfo` enabled, confirm the batch contains the applicable
-platform, SDK/app version, app id, model/OS, logical and physical screen size,
-scale/density, coordinate space, network type, constrained/expensive flags, and
-battery snapshot fields:
+Instruments, on a Release build. These are the cases the SDK has actually
+regressed on before.
 
-- `batteryLevelPercent`, when the OS reports a valid value from 0 through 100;
-- normalized `batteryState` (`charging`, `full`, `unplugged`, or `unknown`);
-- `lowPowerModeEnabled`.
+| # | Case | Method | Expected |
+| --- | --- | --- | --- |
+| P1 | Backgrounding freeze | Background repeatedly during heavy activity | No hitch. The retry drain is fire-and-forget; the main thread is never parked on a utility queue |
+| P2 | Heavy screen | Blur, glass, large lists, maps | Adaptive throttle stretches the capture interval instead of dropping frames on the floor |
+| P3 | Map screens | Pan and zoom a map continuously | Hierarchy capture throttles while the map moves |
+| P4 | Repeated start/stop | 20 cycles | **Allocations flat.** Regression guard: each `activate()` used to leak a repeating 5s timer |
+| P5 | Long session | 30+ minutes of use | Memory flat; disk queue bounded; no unbounded event growth |
+| P6 | Deep view tree | A screen with hundreds of views | Scan stays inside its 16ms budget and bails out rather than blocking |
+| P7 | Leak check | Instruments Leaks over a full session | No growth in `URLSession` tasks, timers, or observers |
+| P8 | Connection leak (Android counterpart) | Many uploads | Connections returned to the pool; no OkHttp "leaked connection" warnings |
 
-With `collectDeviceInfo` disabled, identifying device fields and battery fields
-must be absent; only the minimal operational envelope may remain.
+## Android: Flutter rendering (Impeller)
 
-The same envelope may contain permissionless, low-cardinality current context:
-`thermalState`, `memoryPressure`, `memoryHeadroomMbBucket`, `fontScaleBucket`,
-`uiStyle`, `layoutDirection`, `orientation`, and `displayMaxRefreshRateHz`.
-Verify it changes only at lifecycle boundaries or after an OS callback; an idle
-two-minute profile must show no Rejourney polling timer or display link.
+Flutter on Android is the hardest capture target in the product, and the
+machinery that makes it work is Android-and-Flutter-only:
+`FlutterFrameCapture`, `RetainedCapturePolicy`, `FrameContentAnalyzer`. None of
+it is shared, and none of it is exercised by any iOS test.
 
-At session end, confirm `session_metrics` receives the additive start/peak/end
-summary: thermal state and throttled duration; memory pressure/event count and
-128 MiB headroom buckets; font scale, UI style, layout direction, orientation
-start/end/change count, and maximum refresh rate; plus battery start/end/delta,
-start/end state, charging-state change, and low-power-mode observed. Research
-Lake V1/V2 must expose the documented coarse battery buckets and the remaining
-low-cardinality values. Missing OS values stay null/unknown and must never be
-turned into a real zero-percent or zero-headroom observation.
+The failure it exists to prevent is **black frames**: a whole-window readback of
+an Impeller-backed surface can come back blank, and a small native toast or
+overlay could make that blank readback look valid. So a replay that "arrives"
+proves nothing here — the frames have to be looked at.
 
-These fields require no Android manifest permission and no iOS usage-description
-key. With `collectDeviceInfo` disabled, both the current context and session-end
-device-quality summary must be absent.
+| # | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| A1 | Impeller frames are not black | Record on a default (Impeller) build, then open the stored frames | Real UI in the JPEG, not a black or blank rectangle |
+| A2 | Black-frame analyzer | Same run | A failed readback is rejected rather than uploaded as a valid frame |
+| A3 | Retained layer capture | Record a complex/animated scene | Captured via the retained layer tree, without replacing the live `FlutterSurfaceView` |
+| A4 | Retained heartbeat | Leave a scene idle | Roughly a 15s heartbeat on affected renderers, not a heavy readback every 5s |
+| A5 | Masking on compatibility frames | Open the checkout demo | **Card number still masked** on the compatibility path, not just the normal one |
+| A6 | Minified build | Run a release/minified build | Surface found by typed view hierarchy, not by obfuscated class name |
+| A7 | Navigator transitions | Push and pop routes | Transitions settle before capture; no torn frames |
+| A8 | Software renderer | Emulator with software rendering | Reduced readback resolution; no stalls |
 
-Every recorded run must satisfy all of the following:
+## Expected payload shape
 
-- the session has the expected `end_reason` and `replay_available=true`;
-- expected event and frame objects exist in storage;
-- the dashboard replay is playable and visually inspected;
-- capture/SDK counters agree with what was retained or explain intentional
-  skips;
-- no private input or masked region is visible in events, hierarchy, or frames.
+`deviceInfo` on a batch, with `collectDeviceInfo` at its default:
 
-## Release run record
+`platform`, `time`, `sdkVersion`, `model`, `osVersion`, `vendorId`,
+`networkType`, `isConstrained`, `isExpensive`, `appVersion`, `appId`,
+`screenWidth`, `screenHeight`, `screenWidthPixels`, `screenHeightPixels`,
+`screenScale`, `pixelRatio`, `coordinateSpace`, `systemName`, `name`.
 
-Add one row per required app/platform run. Paste the dashboard replay URL, not
-only a session id, so another person can inspect it. For L2 and L4, put both the
-old and new/recovered replay links in Notes.
+With `collectDeviceInfo` disabled only `platform`, `time` and `sdkVersion`
+remain — that is the assertion for the privacy control.
 
-| Date | Commit | Package/version | Fixture | Platform/device | Build | Cases | Session id(s) | Replay URL(s) | Result | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-|  |  |  | Expo Boilerplate | iOS |  |  |  |  |  |  |
-|  |  |  | Expo Boilerplate | Android |  |  |  |  |  |  |
-|  |  |  | Brew Coffee Labs | iOS |  |  |  |  |  |  |
-|  |  |  | Brew Coffee Labs | Android |  |  |  |  |  |  |
-|  |  |  | Swift Countries | iOS |  |  |  |  |  |  |
-|  |  |  | Flutter example | iOS |  |  |  |  |  |  |
-|  |  |  | Flutter example | Android |  |  |  |  |  |  |
+Event `type` values the core emits: `app_startup`, `app_background`,
+`app_foreground`, `touch`, `gesture`, `input`, `navigation`, `error`, `anr`,
+`log`, `custom`, `user_identity_changed`.
 
-Do not publish while a required row is missing, has no inspectable replay link,
-or is marked failed. After a fix, rerun the failed flow and any later flow whose
-result depended on it; a full restart of unrelated rows is unnecessary.
+## Per-SDK notes
+
+| | Native iOS | React Native | Flutter |
+| --- | --- | --- | --- |
+| Example app | `examples/ios-native` | `examples/react-native-bare` | `packages/rejourney/example` |
+| View tree | Real UIViews | Real UIViews | Single rendering surface |
+| Redaction | View scan | View scan | **Rects pushed from Dart** — test `RejourneyMask` explicitly |
+| Errors | Native only | JS + native | Dart + native |
+
+Flutter's masking is the one case where the other two SDKs' coverage tells you
+nothing: there are no native views to find, so a mask that works on iOS native
+proves nothing about Flutter. Test C10 separately there.

@@ -91,20 +91,6 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     @DoNotStrip
-    override fun pauseSession(promise: Promise) {
-           val instance = getImplOrReject(promise) ?: return
-           instance.pauseSession(promise)
-    }
-
-    @ReactMethod
-    @DoNotStrip
-    override fun resumeSession(promise: Promise) {
-           val instance = getImplOrReject(promise) ?: return
-           instance.resumeSession(promise)
-    }
-
-    @ReactMethod
-    @DoNotStrip
     override fun logEvent(eventType: String, details: ReadableMap, promise: Promise) {
            val instance = getImplOrReject(promise) ?: return
            instance.logEvent(eventType, details, promise)

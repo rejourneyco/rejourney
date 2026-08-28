@@ -27,18 +27,6 @@ public enum Rejourney {
         }
     }
 
-    /// Beta: suspends capture and telemetry without ending the active session.
-    @discardableResult
-    public static func pause() -> Bool {
-        RejourneyNativeController.shared.pause()
-    }
-
-    /// Beta: resumes a session suspended by `pause()`.
-    @discardableResult
-    public static func resume() -> Bool {
-        RejourneyNativeController.shared.resume()
-    }
-
     public static var currentSessionId: String? {
         RejourneyNativeController.shared.currentSessionId
     }
@@ -307,17 +295,11 @@ final class RejourneyNativeController: NSObject {
     }
 
     private var state: SessionState = .idle
-    private var startGeneration: UInt64 = 0
     private var publicKey: String?
     private var options = RejourneyOptions()
     private var activeRemoteConfig = RejourneyRemoteConfig.defaultConfig
     private var currentUserIdentity: String?
     private var sessionContext = RejourneySessionContext()
-    private struct UserPause {
-        let id: String
-        let startedAt: TimeInterval
-    }
-    private var userPause: UserPause?
     private let identityKey = "com.rejourney.native.user.identity"
     private let remoteConfigClient: RejourneyRemoteConfigClient
     var eventHandler: (([String: Any]) -> Void)?
@@ -389,14 +371,7 @@ final class RejourneyNativeController: NSObject {
             break
         }
 
-        startGeneration &+= 1
-        let generation = startGeneration
-        state = .starting(sessionId: "pending_\(Int(Date().timeIntervalSince1970 * 1000))")
-
         let configResult = await remoteConfigClient.fetch(apiURL: options.apiURL, publicKey: publicKey)
-        guard generation == startGeneration, case .starting = state else {
-            return RejourneyStartResult(success: false, sessionId: nil, error: "start_cancelled")
-        }
         let remoteConfig: RejourneyRemoteConfig?
 
         switch configResult {
@@ -405,7 +380,6 @@ final class RejourneyNativeController: NSObject {
         case .networkError:
             remoteConfig = nil
         case .accessDenied(let statusCode):
-            state = .idle
             return RejourneyStartResult(
                 success: false,
                 sessionId: nil,
@@ -415,12 +389,10 @@ final class RejourneyNativeController: NSObject {
 
         let startState = RejourneySessionPolicy.derive(remoteConfig: remoteConfig)
         if let blockedReason = startState.blockedReason {
-            state = .idle
             return RejourneyStartResult(success: false, sessionId: nil, error: blockedReason.rawValue)
         }
 
         if startState.sessionSampledOut {
-            state = .idle
             return RejourneyStartResult(success: false, sessionId: nil, error: "sampled_out")
         }
 
@@ -450,6 +422,9 @@ final class RejourneyNativeController: NSObject {
             RejourneyURLProtocol.disable()
         }
 
+        let pendingSessionId = "pending_\(Int(Date().timeIntervalSince1970 * 1000))"
+        state = .starting(sessionId: pendingSessionId)
+
         let captureSettings = RejourneyCaptureSettings(
             options: options,
             recordingEnabled: recordingEnabled,
@@ -474,15 +449,9 @@ final class RejourneyNativeController: NSObject {
             )
         }
 
-        guard let sessionId = await waitForSessionReady(
-            userId: currentUserIdentity ?? options.userId,
-            generation: generation
-        ) else {
-            if generation == startGeneration {
-                state = .idle
-                ReplayOrchestrator.shared.cancelPendingReplayStart()
-                RejourneyURLProtocol.disable()
-            }
+        guard let sessionId = await waitForSessionReady(userId: currentUserIdentity ?? options.userId) else {
+            state = .idle
+            RejourneyURLProtocol.disable()
             return RejourneyStartResult(
                 success: false,
                 sessionId: nil,
@@ -496,10 +465,7 @@ final class RejourneyNativeController: NSObject {
 
     func stop() async -> RejourneyStopResult {
         let targetSessionId = currentSessionId ?? ""
-        startGeneration &+= 1
         state = .idle
-        userPause = nil
-        ReplayOrchestrator.shared.cancelPendingReplayStart()
         RejourneyURLProtocol.disable()
 
         guard !targetSessionId.isEmpty else {
@@ -518,53 +484,6 @@ final class RejourneyNativeController: NSObject {
                 )
             }
         }
-    }
-
-    func pause() -> Bool {
-        if userPause != nil { return hasActiveReplaySession }
-        guard case .active(let sessionId) = state,
-              ReplayOrchestrator.shared.replayId == sessionId else { return false }
-
-        let pause = UserPause(id: UUID().uuidString, startedAt: Date().timeIntervalSince1970)
-        userPause = pause
-        ReplayOrchestrator.shared.recordCustomEvent(
-            name: "sdk_paused",
-            payload: RejourneyEventSerializer.jsonString(from: [
-                "pauseId": pause.id,
-                "sdkVersion": RejourneySDKInfo.version,
-                "apiStatus": "beta"
-            ])
-        )
-        TelemetryPipeline.shared.dispatchNow()
-        SegmentDispatcher.shared.shipPending()
-        RejourneyURLProtocol.disable()
-        VisualCapture.shared.pauseForUser()
-        ReplayOrchestrator.shared.pauseForUser()
-        TelemetryPipeline.shared.pause()
-        return true
-    }
-
-    func resume() -> Bool {
-        guard let pause = userPause else { return hasActiveReplaySession }
-        guard case .active(let sessionId) = state,
-              ReplayOrchestrator.shared.replayId == sessionId else { return false }
-
-        userPause = nil
-        TelemetryPipeline.shared.resume()
-        let gapMs = max(0, Int((Date().timeIntervalSince1970 - pause.startedAt) * 1_000))
-        ReplayOrchestrator.shared.recordCustomEvent(
-            name: "sdk_resumed",
-            payload: RejourneyEventSerializer.jsonString(from: [
-                "pauseId": pause.id,
-                "gapDurationMs": gapMs,
-                "sdkVersion": RejourneySDKInfo.version,
-                "apiStatus": "beta"
-            ])
-        )
-        ReplayOrchestrator.shared.resumeFromUser()
-        VisualCapture.shared.resumeFromUser()
-        if options.autoTrackNetwork { RejourneyURLProtocol.enable() }
-        return true
     }
 
     func identify(_ userId: String) {
@@ -663,33 +582,16 @@ final class RejourneyNativeController: NSObject {
         return true
     }
 
-    private func waitForSessionReady(userId: String?, generation: UInt64) async -> String? {
+    private func waitForSessionReady(userId: String?) async -> String? {
         for _ in 0..<50 {
-            guard generation == startGeneration, case .starting = state else { return nil }
             try? await Task.sleep(nanoseconds: 100_000_000)
-            guard generation == startGeneration, case .starting = state else { return nil }
             if let sessionId = ReplayOrchestrator.shared.replayId, !sessionId.isEmpty {
                 state = .active(sessionId: sessionId)
                 ReplayOrchestrator.shared.activateGestureRecording()
                 if sessionContext.currentUserId == nil, let userId {
                     sessionContext.setUserId(userId)
                 }
-                if let pause = userPause {
-                    ReplayOrchestrator.shared.recordCustomEvent(
-                        name: "sdk_paused",
-                        payload: RejourneyEventSerializer.jsonString(from: [
-                            "pauseId": pause.id,
-                            "reason": "session_rollover_while_paused",
-                            "sdkVersion": RejourneySDKInfo.version,
-                            "apiStatus": "beta"
-                        ])
-                    )
-                    VisualCapture.shared.pauseForUser()
-                    ReplayOrchestrator.shared.pauseForUser()
-                    TelemetryPipeline.shared.pause()
-                } else {
-                    applySessionContextToActiveReplay()
-                }
+                applySessionContextToActiveReplay()
                 DiagnosticLog.replayBegan(sessionId)
                 return sessionId
             }
@@ -742,34 +644,24 @@ final class RejourneyNativeController: NSObject {
         let backgroundDuration = Date().timeIntervalSince1970 - backgroundedAt
         DiagnosticLog.notice("[Rejourney] App foregrounded after \(Int(backgroundDuration))s (timeout: \(Int(sessionTimeoutSeconds))s)")
 
-        if userPause == nil {
-            TelemetryPipeline.shared.resume()
-        }
+        TelemetryPipeline.shared.resume()
 
         if backgroundDuration > sessionTimeoutSeconds {
-            startGeneration &+= 1
-            let rolloverGeneration = startGeneration
             state = .idle
             DiagnosticLog.notice("[Rejourney] 🔄 Session timeout! Ending session '\(sessionId)' and creating new one")
 
-            let restartLock = NSLock()
             var restartStarted = false
             let triggerRestart: (String) -> Void = { [weak self] source in
-                restartLock.lock()
-                defer { restartLock.unlock() }
                 guard !restartStarted else { return }
                 restartStarted = true
                 DiagnosticLog.notice("[Rejourney] Session rollover trigger source=\(source), oldSession=\(sessionId)")
                 Task { @MainActor [weak self] in
-                    await self?.startNewSessionAfterTimeout(expectedGeneration: rolloverGeneration)
+                    await self?.startNewSessionAfterTimeout()
                 }
             }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + sessionRolloverGraceSeconds) {
-                restartLock.lock()
-                let shouldWarn = !restartStarted
-                restartLock.unlock()
-                if shouldWarn {
+                if !restartStarted {
                     DiagnosticLog.caution("[Rejourney] Session rollover grace timeout reached, forcing new session start")
                 }
                 triggerRestart("grace_timeout")
@@ -784,12 +676,10 @@ final class RejourneyNativeController: NSObject {
         } else {
             let orchestratorSessionId = ReplayOrchestrator.shared.replayId
             if orchestratorSessionId?.isEmpty ?? true {
-                startGeneration &+= 1
-                let rolloverGeneration = startGeneration
                 state = .idle
                 DiagnosticLog.notice("[Rejourney] Session ended while backgrounded, starting fresh session on foreground")
                 Task { @MainActor [weak self] in
-                    await self?.startNewSessionAfterTimeout(expectedGeneration: rolloverGeneration)
+                    await self?.startNewSessionAfterTimeout()
                 }
                 return
             }
@@ -802,18 +692,15 @@ final class RejourneyNativeController: NSObject {
                 DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '\(sessionId)'")
             }
 
-            if userPause == nil {
-                let bgMs = UInt64(backgroundDuration * 1000)
-                TelemetryPipeline.shared.recordAppForeground(totalBackgroundTimeMs: bgMs)
-                applySessionContextToActiveReplay(includeLastKnownScreen: false)
-            }
+            let bgMs = UInt64(backgroundDuration * 1000)
+            TelemetryPipeline.shared.recordAppForeground(totalBackgroundTimeMs: bgMs)
+            applySessionContextToActiveReplay(includeLastKnownScreen: false)
             StabilityMonitor.shared.transmitStoredReport()
         }
     }
 
     @MainActor
-    private func startNewSessionAfterTimeout(expectedGeneration: UInt64) async {
-        guard expectedGeneration == startGeneration, case .idle = state else { return }
+    private func startNewSessionAfterTimeout() async {
         guard let publicKey, !publicKey.isEmpty else {
             DiagnosticLog.caution("[Rejourney] Cannot restart session - missing API config")
             return
@@ -821,8 +708,6 @@ final class RejourneyNativeController: NSObject {
 
         let savedUserId = currentUserIdentity
         DiagnosticLog.notice("[Rejourney] Starting new session after timeout (user: \(savedUserId ?? "nil"))")
-        let generation = expectedGeneration
-        state = .starting(sessionId: "pending_\(Int(Date().timeIntervalSince1970 * 1000))")
 
         let captureSettings = RejourneyCaptureSettings(
             options: options,
@@ -850,12 +735,7 @@ final class RejourneyNativeController: NSObject {
             )
         }
 
-        guard let newSessionId = await waitForSessionReady(userId: savedUserId, generation: generation) else {
-            if generation == startGeneration, case .starting = state {
-                state = .idle
-                ReplayOrchestrator.shared.cancelPendingReplayStart()
-                RejourneyURLProtocol.disable()
-            }
+        guard let newSessionId = await waitForSessionReady(userId: savedUserId) else {
             DiagnosticLog.caution("[Rejourney] ⚠️ Timeout waiting for new session to initialize after rollover")
             return
         }

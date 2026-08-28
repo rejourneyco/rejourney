@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -35,49 +34,22 @@ final class RejourneyErrorCapture {
   RejourneyErrorCapture._(
     this._previousFlutterHandler,
     this._previousPlatformHandler,
-    this._isolateErrorPort,
   );
 
   final FlutterExceptionHandler? _previousFlutterHandler;
   final ErrorCallback? _previousPlatformHandler;
-  final RawReceivePort _isolateErrorPort;
-  FlutterExceptionHandler? _installedFlutterHandler;
-  ErrorCallback? _installedPlatformHandler;
   bool _disposed = false;
 
   static RejourneyErrorCapture install() {
     final previousFlutterHandler = FlutterError.onError;
     final previousPlatformHandler = PlatformDispatcher.instance.onError;
-    final isolateErrorPort = RawReceivePort();
 
     final capture = RejourneyErrorCapture._(
       previousFlutterHandler,
       previousPlatformHandler,
-      isolateErrorPort,
     );
 
-    isolateErrorPort.handler = (Object? payload) {
-      if (payload is! List<Object?> || payload.isEmpty) return;
-      final error = payload.first ?? 'Unknown isolate error';
-      final rawStack = payload.length > 1 ? payload[1] : null;
-      final stack = rawStack is StackTrace
-          ? rawStack
-          : StackTrace.fromString(rawStack?.toString() ?? '');
-      unawaited(
-        Rejourney.logEvent('error', <String, Object?>{
-          'incidentId': _newIncidentId(),
-          'name': _exceptionCategory(error),
-          'exceptionCategory': _exceptionCategory(error),
-          'message': error.toString(),
-          'stack': stack.toString(),
-          'source': 'dart_isolate',
-          'handled': false,
-        }),
-      );
-    };
-    Isolate.current.addErrorListener(isolateErrorPort.sendPort);
-
-    capture._installedFlutterHandler = (FlutterErrorDetails details) {
+    FlutterError.onError = (FlutterErrorDetails details) {
       final incidentId = _newIncidentId();
       unawaited(
         Rejourney.logEvent('error', <String, Object?>{
@@ -97,9 +69,8 @@ final class RejourneyErrorCapture {
         FlutterError.presentError(details);
       }
     };
-    FlutterError.onError = capture._installedFlutterHandler;
 
-    capture._installedPlatformHandler = (Object error, StackTrace stack) {
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       final incidentId = _newIncidentId();
       unawaited(
         Rejourney.logEvent('error', <String, Object?>{
@@ -114,7 +85,6 @@ final class RejourneyErrorCapture {
       );
       return previousPlatformHandler?.call(error, stack) ?? false;
     };
-    PlatformDispatcher.instance.onError = capture._installedPlatformHandler;
 
     return capture;
   }
@@ -123,19 +93,8 @@ final class RejourneyErrorCapture {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    Isolate.current.removeErrorListener(_isolateErrorPort.sendPort);
-    _isolateErrorPort.close();
-    if (identical(FlutterError.onError, _installedFlutterHandler)) {
-      FlutterError.onError = _previousFlutterHandler;
-    }
-    if (identical(
-      PlatformDispatcher.instance.onError,
-      _installedPlatformHandler,
-    )) {
-      PlatformDispatcher.instance.onError = _previousPlatformHandler;
-    }
-    _installedFlutterHandler = null;
-    _installedPlatformHandler = null;
+    FlutterError.onError = _previousFlutterHandler;
+    PlatformDispatcher.instance.onError = _previousPlatformHandler;
   }
 
   /// Runs an app entrypoint in a guarded zone and records uncaught Dart errors.

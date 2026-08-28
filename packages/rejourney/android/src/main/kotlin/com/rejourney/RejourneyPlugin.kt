@@ -74,8 +74,6 @@ class RejourneyPlugin :
             }
             "start" -> native.start(result::success)
             "stop" -> native.stop(result::success)
-            "pause" -> result.success(native.pause())
-            "resume" -> result.success(native.resume())
             "getSessionId" -> result.success(native.currentSessionId())
             "setUserIdentity" -> {
                 native.setUserIdentity(arguments.string("userId"))

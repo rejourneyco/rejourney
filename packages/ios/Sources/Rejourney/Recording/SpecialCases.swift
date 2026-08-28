@@ -68,11 +68,6 @@ final class SpecialCases: NSObject {
     private var _originalRegionWillChange: IMP?
     private var _originalIdleAtCamera: IMP?
     private var _originalWillMove: IMP?
-    private var _replacementRegionDidChange: IMP?
-    private var _replacementRegionWillChange: IMP?
-    private var _replacementIdleAtCamera: IMP?
-    private var _replacementWillMove: IMP?
-    private var _delegateIdleHooked = false
 
     /// When true, idle detection is driven by gesture recognizer observation
     /// rather than SDK delegate callbacks.  Used for Mapbox v10+/v11 whose
@@ -152,8 +147,7 @@ final class SpecialCases: NSObject {
             }
         } else {
             // Print diagnostic view tree dump on first 3 scans and every 10th
-            if DiagnosticLog.minimumLevel <= 0,
-               (_diagScanCount <= 3 || _diagScanCount % 10 == 0) {
+            if _diagScanCount <= 3 || _diagScanCount % 10 == 0 {
                 _logViewTreeDiagnostic(window)
             }
             _clearMapState()
@@ -287,13 +281,8 @@ final class SpecialCases: NSObject {
             _hookMapbox(mapView)
         }
 
-        // Official delegate completion callbacks are more precise than a
-        // time-based gesture debounce. Only install the fallback when the host
-        // delegate does not implement both sides of the motion lifecycle.
-        if !_delegateIdleHooked {
-            _observeContinuousGestures(in: mapView)
-        }
-        if !_delegateIdleHooked && _observedGestureRecognizers.isEmpty {
+        _observeContinuousGestures(in: mapView)
+        if _observedGestureRecognizers.isEmpty {
             // If delegate hooks are unavailable and the SDK exposes no
             // recognizers we can observe, fall back to raw touch idle gating.
             _usesGestureBasedIdle = true
@@ -521,8 +510,6 @@ final class SpecialCases: NSObject {
     ///   mapView:regionWillChangeAnimated:
     private func _swizzleDelegateForAppleOrMapbox(delegate: NSObject, isMapbox: Bool) {
         let delegateClass: AnyClass = type(of: delegate)
-        var hookedDidChange = false
-        var hookedWillChange = false
 
         // regionDidChangeAnimated -> idle
         let didChangeSel = NSSelectorFromString("mapView:regionDidChangeAnimated:")
@@ -540,9 +527,7 @@ final class SpecialCases: NSObject {
                 fn(obj, didChangeSel, mapView, animated)
             }
             let newIMP = imp_implementationWithBlock(block)
-            _replacementRegionDidChange = newIMP
             method_setImplementation(original, newIMP)
-            hookedDidChange = true
         }
 
         // regionWillChangeAnimated -> not idle
@@ -558,12 +543,8 @@ final class SpecialCases: NSObject {
                 fn(obj, willChangeSel, mapView, animated)
             }
             let newIMP = imp_implementationWithBlock(block)
-            _replacementRegionWillChange = newIMP
             method_setImplementation(original, newIMP)
-            hookedWillChange = true
         }
-
-        _delegateIdleHooked = hookedDidChange && hookedWillChange
 
         DiagnosticLog.trace("[SpecialCases] Hooked \(isMapbox ? "Mapbox" : "Apple") delegate on \(delegateClass)")
     }
@@ -573,8 +554,6 @@ final class SpecialCases: NSObject {
     /// Google Maps uses `mapView:idleAtCameraPosition:` and `mapView:willMove:`.
     private func _swizzleGoogleDelegate(_ delegate: NSObject) {
         let delegateClass: AnyClass = type(of: delegate)
-        var hookedIdle = false
-        var hookedWillMove = false
 
         // idleAtCameraPosition -> idle
         let idleSel = NSSelectorFromString("mapView:idleAtCameraPosition:")
@@ -590,9 +569,7 @@ final class SpecialCases: NSObject {
                 fn(obj, idleSel, mapView, cameraPos)
             }
             let newIMP = imp_implementationWithBlock(block)
-            _replacementIdleAtCamera = newIMP
             method_setImplementation(original, newIMP)
-            hookedIdle = true
         }
 
         // willMove -> not idle
@@ -608,60 +585,32 @@ final class SpecialCases: NSObject {
                 fn(obj, willMoveSel, mapView, gesture)
             }
             let newIMP = imp_implementationWithBlock(block)
-            _replacementWillMove = newIMP
             method_setImplementation(original, newIMP)
-            hookedWillMove = true
         }
-
-        _delegateIdleHooked = hookedIdle && hookedWillMove
 
         DiagnosticLog.trace("[SpecialCases] Hooked Google Maps delegate on \(delegateClass)")
     }
 
     // MARK: - Unhook / cleanup
 
-    /// Release process-lifetime delegate/gesture hooks when recording stops,
-    /// even if the map remains mounted and no later hierarchy scan occurs.
-    @objc func reset() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in self?.reset() }
-            return
-        }
-        _clearMapState()
-    }
-
     private func _unhookPreviousDelegate() {
-        // Restore only when our implementation is still installed. Another
-        // library may have legitimately chained/swizzled the delegate after
-        // Rejourney; overwriting that newer implementation would break the app.
+        // Restore original IMPs if we have them
         if let cls = _hookedDelegateClass {
             if let imp = _originalRegionDidChange,
-               let replacement = _replacementRegionDidChange,
-               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:regionDidChangeAnimated:")),
-               method_getImplementation(m) == replacement {
+               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:regionDidChangeAnimated:")) {
                 method_setImplementation(m, imp)
-                imp_removeBlock(replacement)
             }
             if let imp = _originalRegionWillChange,
-               let replacement = _replacementRegionWillChange,
-               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:regionWillChangeAnimated:")),
-               method_getImplementation(m) == replacement {
+               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:regionWillChangeAnimated:")) {
                 method_setImplementation(m, imp)
-                imp_removeBlock(replacement)
             }
             if let imp = _originalIdleAtCamera,
-               let replacement = _replacementIdleAtCamera,
-               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:idleAtCameraPosition:")),
-               method_getImplementation(m) == replacement {
+               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:idleAtCameraPosition:")) {
                 method_setImplementation(m, imp)
-                imp_removeBlock(replacement)
             }
             if let imp = _originalWillMove,
-               let replacement = _replacementWillMove,
-               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:willMove:")),
-               method_getImplementation(m) == replacement {
+               let m = class_getInstanceMethod(cls, NSSelectorFromString("mapView:willMove:")) {
                 method_setImplementation(m, imp)
-                imp_removeBlock(replacement)
             }
         }
         _hookedDelegateClass = nil
@@ -670,11 +619,6 @@ final class SpecialCases: NSObject {
         _originalRegionWillChange = nil
         _originalIdleAtCamera = nil
         _originalWillMove = nil
-        _replacementRegionDidChange = nil
-        _replacementRegionWillChange = nil
-        _replacementIdleAtCamera = nil
-        _replacementWillMove = nil
-        _delegateIdleHooked = false
 
         // Remove gesture recognizer targets
         for gr in _observedGestureRecognizers {
@@ -685,12 +629,10 @@ final class SpecialCases: NSObject {
     }
 
     private func _clearMapState() {
-        let wasVisible = mapVisible
-        // Prevent mapIdle's transition hook from scheduling a teardown frame.
-        mapVisible = false
-        if wasVisible {
+        if mapVisible {
             _unhookPreviousDelegate()
         }
+        mapVisible = false
         mapIdle = true
         detectedSDK = nil
         _usesGestureBasedIdle = false

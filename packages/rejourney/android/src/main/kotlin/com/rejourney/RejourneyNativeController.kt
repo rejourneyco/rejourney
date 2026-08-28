@@ -16,7 +16,6 @@ import com.rejourney.recording.EventBuffer
 import com.rejourney.recording.FlutterFrameProvider
 import com.rejourney.recording.InteractionRecorder
 import com.rejourney.recording.RejourneyNetworkEventFilter
-import com.rejourney.recording.RejourneyNetworkInterceptor
 import com.rejourney.recording.ReplayOrchestrator
 import com.rejourney.recording.SegmentDispatcher
 import com.rejourney.recording.StabilityMonitor
@@ -35,7 +34,6 @@ import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -53,7 +51,6 @@ internal class RejourneyNativeController(
     private var publicKey = ""
     private var options: Map<String, Any?> = emptyMap()
     private var state: SessionState = SessionState.Idle
-    private val startGeneration = AtomicLong(0)
     private var backgroundedAt: Long? = null
     private var currentUserId: String? = preferences.getString(USER_ID_KEY, null)
     private val pendingScreens = ArrayDeque<String>()
@@ -61,8 +58,6 @@ internal class RejourneyNativeController(
     private val backgroundRunnable = Runnable(::handleBackground)
     private var lifecycleRegistered = false
     private var flutterFrameProvider: FlutterFrameProvider? = null
-    private data class UserPause(val id: String, val startedAtMs: Long)
-    private var userPause: UserPause? = null
 
     fun setFlutterFrameProvider(provider: FlutterFrameProvider?) {
         val ownedProvider = flutterFrameProvider
@@ -103,13 +98,6 @@ internal class RejourneyNativeController(
         VisualCapture.shared?.forceFlutterImageViewCaptureForTesting(enabled) == true
 
     fun start(completion: (Map<String, Any?>) -> Unit) {
-        startInternal(expectedGeneration = null, completion)
-    }
-
-    private fun startInternal(
-        expectedGeneration: Long?,
-        completion: (Map<String, Any?>) -> Unit
-    ) {
         ensureInitialized()
         if (publicKey.isBlank()) {
             completion(result(false, error = "publicKey is required"))
@@ -136,28 +124,17 @@ internal class RejourneyNativeController(
             SessionState.Idle -> Unit
         }
 
-        if (expectedGeneration != null && startGeneration.get() != expectedGeneration) return
-
-        val generation = startGeneration.incrementAndGet()
-        state = SessionState.Starting("pending_" + UUID.randomUUID().toString())
-
         scope.launch {
             val apiUrl = options.string("apiUrl", DEFAULT_API_URL)
-            val fetched = withContext(Dispatchers.IO) { fetchRemoteConfig(apiUrl, publicKey) }
-            if (startGeneration.get() != generation || state !is SessionState.Starting) {
-                completion(result(false, error = "start_cancelled"))
-                return@launch
-            }
-            when (fetched) {
+            when (val fetched = withContext(Dispatchers.IO) { fetchRemoteConfig(apiUrl, publicKey) }) {
                 is ConfigFetchResult.AccessDenied -> {
-                    state = SessionState.Idle
                     preferences.edit().remove(remoteConfigKey(publicKey)).apply()
                     completion(result(false, error = "access_denied_" + fetched.statusCode))
                 }
-                is ConfigFetchResult.Success -> beginSession(fetched.config, true, generation, completion)
+                is ConfigFetchResult.Success -> beginSession(fetched.config, true, completion)
                 ConfigFetchResult.NetworkError -> {
                     val cached = parseRemoteConfig(preferences.getString(remoteConfigKey(publicKey), null))
-                    beginSession(cached ?: RemoteConfig(), cached != null, generation, completion)
+                    beginSession(cached ?: RemoteConfig(), cached != null, completion)
                 }
             }
         }
@@ -165,11 +142,7 @@ internal class RejourneyNativeController(
 
     fun stop(completion: (Map<String, Any?>) -> Unit) {
         val sessionId = currentSessionId()
-        startGeneration.incrementAndGet()
         state = SessionState.Idle
-        userPause = null
-        RejourneyNetworkInterceptor.setEnabled(false)
-        ReplayOrchestrator.shared?.cancelPendingReplayStart()
         stopLifecycleService()
 
         if (sessionId == null) {
@@ -182,56 +155,6 @@ internal class RejourneyNativeController(
                 completion(result(success, sessionId, uploadSuccess = uploaded))
             }
         } ?: completion(result(true, sessionId, uploadSuccess = true))
-    }
-
-    fun pause(): Boolean {
-        if (userPause != null) return state is SessionState.Active
-        val active = state as? SessionState.Active ?: return false
-        if (ReplayOrchestrator.shared?.replayId != active.sessionId) return false
-
-        val pause = UserPause(UUID.randomUUID().toString(), System.currentTimeMillis())
-        userPause = pause
-        ReplayOrchestrator.shared?.recordCustomEvent(
-            "sdk_paused",
-            JSONObject(
-                mapOf(
-                    "pauseId" to pause.id,
-                    "sdkVersion" to SDK_VERSION,
-                    "apiStatus" to "beta"
-                )
-            ).toString()
-        )
-        TelemetryPipeline.shared?.dispatchNow()
-        SegmentDispatcher.shared.shipPending()
-        VisualCapture.shared?.pauseForUser()
-        ReplayOrchestrator.shared?.pauseForUser()
-        TelemetryPipeline.shared?.pause()
-        RejourneyNetworkInterceptor.setEnabled(false)
-        return true
-    }
-
-    fun resume(): Boolean {
-        val pause = userPause ?: return state is SessionState.Active
-        val active = state as? SessionState.Active ?: return false
-        if (ReplayOrchestrator.shared?.replayId != active.sessionId) return false
-
-        userPause = null
-        TelemetryPipeline.shared?.resume()
-        ReplayOrchestrator.shared?.recordCustomEvent(
-            "sdk_resumed",
-            JSONObject(
-                mapOf(
-                    "pauseId" to pause.id,
-                    "gapDurationMs" to (System.currentTimeMillis() - pause.startedAtMs).coerceAtLeast(0),
-                    "sdkVersion" to SDK_VERSION,
-                    "apiStatus" to "beta"
-                )
-            ).toString()
-        )
-        ReplayOrchestrator.shared?.resumeFromUser()
-        VisualCapture.shared?.resumeFromUser()
-        RejourneyNetworkInterceptor.setEnabled(options.bool("autoTrackNetwork", true))
-        return true
     }
 
     fun currentSessionId(): String? {
@@ -337,8 +260,6 @@ internal class RejourneyNativeController(
     }
 
     fun destroy() {
-        startGeneration.incrementAndGet()
-        ReplayOrchestrator.shared?.cancelPendingReplayStart()
         mainHandler.removeCallbacks(backgroundRunnable)
         if (lifecycleRegistered) {
             (applicationContext as? Application)?.unregisterActivityLifecycleCallbacks(this)
@@ -378,7 +299,6 @@ internal class RejourneyNativeController(
         TelemetryPipeline.shared?.dispatchNow()
         SegmentDispatcher.shared.shipPending()
         TelemetryPipeline.shared?.pause()
-        RejourneyNetworkInterceptor.setEnabled(false)
     }
 
     private fun handleForeground() {
@@ -386,18 +306,14 @@ internal class RejourneyNativeController(
         val duration = System.currentTimeMillis() - (backgroundedAt ?: System.currentTimeMillis())
         backgroundedAt = null
         DiagnosticLog.trace("[Rejourney] App foregrounded after ${duration}ms")
-        if (userPause == null) TelemetryPipeline.shared?.resume()
-        if (userPause == null) {
-            RejourneyNetworkInterceptor.setEnabled(options.bool("autoTrackNetwork", true))
-        }
+        TelemetryPipeline.shared?.resume()
 
         if (duration > SESSION_TIMEOUT_MS) {
-            val rolloverGeneration = startGeneration.incrementAndGet()
             state = SessionState.Idle
             val restarted = AtomicBoolean(false)
             val restart = {
                 if (restarted.compareAndSet(false, true)) {
-                    startInternal(rolloverGeneration) { startResult ->
+                    start { startResult ->
                         emitEvent("sessionRolledOver", startResult + mapOf("previousSessionId" to paused.sessionId))
                     }
                 }
@@ -409,17 +325,14 @@ internal class RejourneyNativeController(
         } else {
             val actualSession = ReplayOrchestrator.shared?.replayId
             if (actualSession.isNullOrBlank()) {
-                val rolloverGeneration = startGeneration.incrementAndGet()
                 state = SessionState.Idle
-                startInternal(rolloverGeneration) { startResult -> emitEvent("sessionRolledOver", startResult) }
+                start { startResult -> emitEvent("sessionRolledOver", startResult) }
                 return
             }
             state = SessionState.Active(actualSession)
-            if (userPause == null) {
-                VisualCapture.shared?.resumeFromBackground()
-                ReplayOrchestrator.shared?.resumeFromBackground()
-                TelemetryPipeline.shared?.recordAppForeground(duration)
-            }
+            VisualCapture.shared?.resumeFromBackground()
+            ReplayOrchestrator.shared?.resumeFromBackground()
+            TelemetryPipeline.shared?.recordAppForeground(duration)
             StabilityMonitor.shared?.transmitStoredReport()
         }
     }
@@ -453,17 +366,13 @@ internal class RejourneyNativeController(
     private fun beginSession(
         remote: RemoteConfig,
         hasRemoteConfig: Boolean,
-        generation: Long,
         completion: (Map<String, Any?>) -> Unit
     ) {
-        if (startGeneration.get() != generation || state !is SessionState.Starting) return
         if (!remote.rejourneyEnabled) {
-            state = SessionState.Idle
             completion(result(false, error = "disabled"))
             return
         }
         if (remote.billingBlocked) {
-            state = SessionState.Idle
             completion(result(false, error = remote.billingReason ?: "billing_blocked"))
             return
         }
@@ -471,7 +380,6 @@ internal class RejourneyNativeController(
             ReplayOrchestrator.shared?.setRemoteConfig(
                 true, false, remote.sampleRate, false, effectiveMaxRecordingMinutes(remote.maxRecordingMinutes)
             )
-            state = SessionState.Idle
             completion(result(false, error = "sampled_out"))
             return
         }
@@ -496,7 +404,6 @@ internal class RejourneyNativeController(
         SegmentDispatcher.shared.endpoint = apiUrl
         DeviceRegistrar.shared?.endpoint = apiUrl
         RejourneyNetworkEventFilter.configure(apiUrl)
-        RejourneyNetworkInterceptor.setEnabled(options.bool("autoTrackNetwork", true))
 
         val captureSettings = mutableMapOf<String, Any>(
             "captureScreen" to recordingEnabled,
@@ -525,6 +432,8 @@ internal class RejourneyNativeController(
         }
 
         setActivity(activity)
+        val pending = "pending_" + UUID.randomUUID().toString()
+        state = SessionState.Starting(pending)
         val credential = DeviceRegistrar.shared?.uploadCredential
         if (credential != null && DeviceRegistrar.shared?.credentialValid == true) {
             ReplayOrchestrator.shared?.beginReplayFast(publicKey, apiUrl, credential, captureSettings)
@@ -532,58 +441,32 @@ internal class RejourneyNativeController(
             ReplayOrchestrator.shared?.beginReplay(publicKey, apiUrl, captureSettings)
         }
         startLifecycleService()
-        waitForReady(0, recordingEnabled, generation, completion)
+        waitForReady(0, recordingEnabled, completion)
     }
 
     private fun waitForReady(
         attempt: Int,
         recordingEnabled: Boolean,
-        generation: Long,
         completion: (Map<String, Any?>) -> Unit
     ) {
         mainHandler.postDelayed({
-            if (startGeneration.get() != generation || state !is SessionState.Starting) {
-                completion(result(false, error = "start_cancelled"))
-                return@postDelayed
-            }
             val sessionId = ReplayOrchestrator.shared?.replayId
             if (!sessionId.isNullOrBlank()) {
                 state = SessionState.Active(sessionId)
                 ReplayOrchestrator.shared?.activateGestureRecording()
-                val pause = userPause
-                if (pause != null) {
-                    ReplayOrchestrator.shared?.recordCustomEvent(
-                        "sdk_paused",
-                        JSONObject(
-                            mapOf(
-                                "pauseId" to pause.id,
-                                "reason" to "session_rollover_while_paused",
-                                "sdkVersion" to SDK_VERSION,
-                                "apiStatus" to "beta"
-                            )
-                        ).toString()
-                    )
-                    VisualCapture.shared?.pauseForUser()
-                    ReplayOrchestrator.shared?.pauseForUser()
-                    TelemetryPipeline.shared?.pause()
-                } else {
-                    currentUserId?.let { ReplayOrchestrator.shared?.associateUser(it) }
-                    metadata.forEach { (key, value) ->
-                        ReplayOrchestrator.shared?.attachAttribute(key, attributeString(value))
-                    }
-                    pendingScreens.forEach(::recordScreen)
-                    pendingScreens.clear()
+                currentUserId?.let { ReplayOrchestrator.shared?.associateUser(it) }
+                metadata.forEach { (key, value) ->
+                    ReplayOrchestrator.shared?.attachAttribute(key, attributeString(value))
                 }
+                pendingScreens.forEach(::recordScreen)
+                pendingScreens.clear()
                 DiagnosticLog.replayBegan(sessionId)
                 completion(result(true, sessionId, telemetryOnly = !recordingEnabled))
             } else if (attempt < 50) {
-                waitForReady(attempt + 1, recordingEnabled, generation, completion)
+                waitForReady(attempt + 1, recordingEnabled, completion)
             } else {
                 state = SessionState.Idle
-                startGeneration.incrementAndGet()
-                ReplayOrchestrator.shared?.cancelPendingReplayStart()
                 stopLifecycleService()
-                RejourneyNetworkInterceptor.setEnabled(false)
                 completion(result(false, error = "Timed out waiting for replay session to initialize"))
             }
         }, 100)
@@ -727,7 +610,7 @@ internal class RejourneyNativeController(
     }
 
     private companion object {
-        const val SDK_VERSION = "0.4.1"
+        const val SDK_VERSION = "0.4.0"
         const val DEFAULT_API_URL = "https://api.rejourney.co"
         const val PREFS_NAME = "com.rejourney.flutter.prefs"
         const val USER_ID_KEY = "user_identity"

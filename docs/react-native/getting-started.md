@@ -33,30 +33,6 @@ Rejourney.start();
 
 Requires no provider wrapping. Recording starts immediately.
 
-## Pause and Resume (Beta, 1.5.1+)
-
-Use the Beta pause API for a foreground camera, AR, or graphics-heavy route
-where you want the current session to remain open without capture overhead:
-
-```javascript
-const paused = await Rejourney.pause();
-// Present the high-cost route.
-const resumed = await Rejourney.resume();
-```
-
-`pauseRejourney()` and `resumeRejourney()` are equivalent standalone exports.
-Pause flushes pending work and emits `sdk_paused`, then removes JS tracking and
-network hooks and stops native visual, hierarchy, interaction, live-hang, and
-ordinary telemetry work. Resume continues the same foreground session and emits
-`sdk_resumed` with the matching `pauseId` and `gapDurationMs`. Both calls are
-idempotent.
-
-Fatal-process recovery remains armed during the gap. A background interval over
-the intentional 60-second lifecycle boundary still rolls over the session; the
-replacement remains paused until resume. Resume returns `false` while
-backgrounded. This API is Beta and requires React Native SDK 1.5.1 or newer. It
-requires no Android manifest or iOS Info.plist additions.
-
 ## Remote Recording Settings
 
 Project Settings can control React Native recording defaults without shipping a new app build. Supported SDK versions read remote settings each time `Rejourney.start()` is called. If the remote config is temporarily unavailable, the SDK uses the last cached config when available, otherwise it falls back to local/default capture behavior. Older SDK versions ignore unknown remote settings.
@@ -485,11 +461,3 @@ Rejourney.init('pk_live_your_public_key', {
 | `rageTapRadius` | `number` | `50` | Rage tap clustering radius in points/dp |
 | `disableInDev` | `boolean` | `false` | Disable recording in development builds |
 | `debug` | `boolean` | `false` | Print verbose SDK logs to the console |
-
-When `collectDeviceInfo` is enabled, Rejourney also records coarse session
-quality context: battery start/end/change, thermal state, memory pressure and
-headroom buckets, font scale, light/dark style, layout direction, orientation,
-and maximum display refresh rate. The native SDK reads these at session or
-lifecycle boundaries and listens to OS change callbacks; it does not poll.
-These fields require no Android manifest permission or iOS usage-description
-key. Disable `collectDeviceInfo` to omit them.

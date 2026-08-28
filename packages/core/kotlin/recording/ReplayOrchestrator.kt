@@ -28,7 +28,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.View
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
@@ -37,7 +36,6 @@ import com.rejourney.utility.gzipCompress
 import org.json.JSONObject
 import java.io.File
 import java.util.*
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Session orchestration and lifecycle management
@@ -144,18 +142,13 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     private var finalized = false
     private var hierarchyHandler: Handler? = null
     private var hierarchyRunnable: Runnable? = null
-    private var initialHierarchyRunnable: Runnable? = null
-    private var lastHierarchyCaptureMonotonicMs: Long = 0
-    private val minimumFrameHierarchyIntervalMs = 200L
     private var lastHierarchyHash: String? = null
     private var durationLimitRunnable: Runnable? = null
     private var recoveryCheckpointRunnable: Runnable? = null
     private var lastActiveCheckpointMs: Long = 0
     private var lastBackgroundEntryMs: Long? = null
-    @Volatile private var userCapturePaused = false
     private val lifecycleContractVersion = 3
     private val recoveryCheckpointIntervalMs = 5_000L
-    private val startGeneration = AtomicLong(0)
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -163,7 +156,6 @@ class ReplayOrchestrator private constructor(private val context: Context) {
      * Fast session start using existing credentials - skips credential fetch for faster restart
      */
     fun beginReplayFast(apiToken: String, serverEndpoint: String, credential: String, captureSettings: Map<String, Any>? = null) {
-        val generation = startGeneration.incrementAndGet()
         val perf = PerformanceSnapshot.capture()
         DiagnosticLog.debugSessionCreate("ORCHESTRATOR_FAST_INIT", "beginReplayFast with existing credential", perf)
 
@@ -181,14 +173,11 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
         // Skip network monitoring, assume network is available since we just came from background
         mainHandler.post {
-            if (startGeneration.get() == generation) {
-                beginRecording(apiToken, generation)
-            }
+            beginRecording(apiToken)
         }
     }
 
     fun beginReplay(apiToken: String, serverEndpoint: String, captureSettings: Map<String, Any>? = null) {
-        val generation = startGeneration.incrementAndGet()
         DiagnosticLog.trace("[ReplayOrchestrator] beginReplay v2")
         val perf = PerformanceSnapshot.capture()
         DiagnosticLog.debugSessionCreate("ORCHESTRATOR_INIT", "beginReplay", perf)
@@ -203,7 +192,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
         DeviceRegistrar.shared?.obtainCredential(apiToken) { ok, cred ->
             DiagnosticLog.trace("[ReplayOrchestrator] Credential callback: ok=$ok, cred=${cred?.take(20) ?: "null"}...")
-            if (!ok || startGeneration.get() != generation) {
+            if (!ok) {
                 DiagnosticLog.debugSessionCreate("CREDENTIAL_FAIL", "Failed")
                 DiagnosticLog.caution("[ReplayOrchestrator] Credential fetch FAILED - recording cannot start")
                 return@obtainCredential
@@ -215,13 +204,8 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             SegmentDispatcher.shared.credential = cred
 
             DiagnosticLog.trace("[ReplayOrchestrator] Credential OK, calling monitorNetwork")
-            monitorNetwork(apiToken, generation)
+            monitorNetwork(apiToken)
         }
-    }
-
-    fun cancelPendingReplayStart() {
-        startGeneration.incrementAndGet()
-        unregisterNetworkCallback()
     }
 
     fun endReplay(completion: ((Boolean, Boolean) -> Unit)? = null) {
@@ -233,7 +217,6 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     }
 
     private fun endReplayInternal(endReason: String, completion: ((Boolean, Boolean) -> Unit)? = null) {
-        cancelPendingReplayStart()
         if (!live) {
             completion?.invoke(false, false)
             return
@@ -269,7 +252,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             "framesSkippedMapMoving" to (VisualCapture.shared?.skippedFramesMapMoving?.get() ?: 0),
             "framesCaptured" to (VisualCapture.shared?.framesCaptured?.get() ?: 0),
             "framesSkippedDuplicate" to (VisualCapture.shared?.skippedFramesDuplicate?.get() ?: 0)
-        ) + (TelemetryPipeline.shared?.sessionDeviceMetrics() ?: emptyMap())
+        )
         val queueDepthAtFinalize = TelemetryPipeline.shared?.getQueueDepth() ?: 0
 
         // Capture the current generation so a stale halt posted here won't
@@ -312,9 +295,8 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             VisualCapture.shared?.halt(haltGeneration)
             TelemetryPipeline.shared?.shutdown(completion = finalizeSession, skipVisualFlush = true) ?: finalizeSession()
             InteractionRecorder.shared?.deactivate()
-            SpecialCases.shared.reset()
             StabilityMonitor.shared?.deactivate()
-            AnrSentinel.shared.deactivate()
+            AnrSentinel.shared?.deactivate()
         }
     }
 
@@ -377,39 +359,16 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         val now = System.currentTimeMillis()
         lastBackgroundEntryMs = now
         saveRecovery()
-        suspendCaptureWork()
+        stopHierarchyCapture()
     }
 
     fun resumeFromBackground() {
         lastBackgroundEntryMs = null
         lastActiveCheckpointMs = System.currentTimeMillis()
         saveRecovery()
-        resumeCaptureWorkIfAllowed()
-    }
-
-    fun pauseForUser() {
-        if (userCapturePaused) return
-        userCapturePaused = true
-        suspendCaptureWork()
-    }
-
-    fun resumeFromUser() {
-        if (!userCapturePaused) return
-        userCapturePaused = false
-        resumeCaptureWorkIfAllowed()
-    }
-
-    private fun suspendCaptureWork() {
-        stopHierarchyCapture()
-        InteractionRecorder.shared?.deactivate()
-        AnrSentinel.shared.deactivate()
-    }
-
-    private fun resumeCaptureWorkIfAllowed() {
-        if (!live || userCapturePaused || lastBackgroundEntryMs != null) return
-        if (interactionCaptureEnabled) InteractionRecorder.shared?.activate()
-        if (responsivenessCaptureEnabled) AnrSentinel.shared.activate()
-        if (hierarchyCaptureEnabled && hierarchyRunnable == null) startHierarchyCapture()
+        if (live && hierarchyCaptureEnabled && hierarchyRunnable == null) {
+            startHierarchyCapture()
+        }
     }
 
     fun currentReplayId(): String {
@@ -505,7 +464,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     }
 
     private fun hasStoredCrashIncidentForSession(sessionId: String): Boolean {
-        val incidentFile = File(context.filesDir, "rejourney/rj_incidents.json")
+        val incidentFile = File(context.cacheDir, "rj_incidents.json")
         if (!incidentFile.exists() && !File("${incidentFile.path}.bak").exists()) return false
 
         return try {
@@ -611,20 +570,18 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         SegmentDispatcher.shared.observeOnly = (cfg["observeOnly"] as? Boolean) ?: false
     }
 
-    private fun monitorNetwork(token: String, generation: Long) {
+    private fun monitorNetwork(token: String) {
         DiagnosticLog.trace("[ReplayOrchestrator] monitorNetwork called")
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         if (connectivityManager == null) {
             DiagnosticLog.trace("[ReplayOrchestrator] No ConnectivityManager, starting recording directly")
-            mainHandler.post {
-                if (startGeneration.get() == generation) beginRecording(token, generation)
-            }
+            beginRecording(token)
             return
         }
 
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                handleNetworkChange(capabilities, token, generation)
+                handleNetworkChange(capabilities, token)
             }
 
             override fun onLost(network: Network) {
@@ -645,23 +602,19 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             val capabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
             DiagnosticLog.trace("[ReplayOrchestrator] Network check: activeNetwork=${activeNetwork != null}, capabilities=${capabilities != null}")
             if (capabilities != null) {
-                handleNetworkChange(capabilities, token, generation)
+                handleNetworkChange(capabilities, token)
             } else {
                 // No active network - start recording anyway, uploads will retry when network available
                 DiagnosticLog.trace("[ReplayOrchestrator] No active network, starting recording anyway")
-                mainHandler.post {
-                    if (startGeneration.get() == generation) beginRecording(token, generation)
-                }
+                mainHandler.post { beginRecording(token) }
             }
         } catch (e: Exception) {
             // Fallback: start anyway
-            mainHandler.post {
-                if (startGeneration.get() == generation) beginRecording(token, generation)
-            }
+            beginRecording(token)
         }
     }
 
-    private fun handleNetworkChange(capabilities: NetworkCapabilities, token: String, generation: Long) {
+    private fun handleNetworkChange(capabilities: NetworkCapabilities, token: String) {
         val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
         val isCellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
         val isEthernet = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
@@ -686,22 +639,20 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         }
 
         mainHandler.post {
-            if (startGeneration.get() != generation) return@post
             netReady = canProceed
             if (canProceed && !live) {
-                beginRecording(token, generation)
+                beginRecording(token)
             }
         }
     }
 
-    private fun beginRecording(token: String, generation: Long) {
+    private fun beginRecording(token: String) {
         DiagnosticLog.trace("[ReplayOrchestrator] beginRecording called, live=$live")
-        if (startGeneration.get() != generation || live) {
+        if (live) {
             DiagnosticLog.trace("[ReplayOrchestrator] Already live, skipping")
             return
         }
         live = true
-        userCapturePaused = false
 
         this.apiToken = token
         initSession()
@@ -731,7 +682,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         }
         if (interactionCaptureEnabled) InteractionRecorder.shared?.activate()
         if (faultTrackingEnabled) StabilityMonitor.shared?.activate()
-        if (responsivenessCaptureEnabled) AnrSentinel.shared.activate()
+        if (responsivenessCaptureEnabled) AnrSentinel.shared?.activate()
         if (hierarchyCaptureEnabled) startHierarchyCapture()
 
         // Start duration limit timer based on remote config
@@ -790,15 +741,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         }
 
         try {
-            val atomicFile = AtomicFile(File(context.filesDir, "rejourney_recovery.json"))
-            val stream = atomicFile.startWrite()
-            try {
-                stream.write(checkpoint.toString().toByteArray(Charsets.UTF_8))
-                atomicFile.finishWrite(stream)
-            } catch (error: Exception) {
-                atomicFile.failWrite(stream)
-                throw error
-            }
+            File(context.filesDir, "rejourney_recovery.json").writeText(checkpoint.toString())
         } catch (_: Exception) { }
     }
 
@@ -893,25 +836,17 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         hierarchyHandler?.postDelayed(hierarchyRunnable!!, (hierarchyCaptureInterval * 1000).toLong())
 
         // Initial capture after 500ms
-        initialHierarchyRunnable = Runnable {
-            initialHierarchyRunnable = null
-            if (live) captureHierarchy(skipDuplicate = true, allowDuringMapMovement = false)
-        }
-        hierarchyHandler?.postDelayed(initialHierarchyRunnable!!, 500)
+        hierarchyHandler?.postDelayed({ captureHierarchy(skipDuplicate = true, allowDuringMapMovement = false) }, 500)
     }
 
     private fun stopHierarchyCapture() {
         hierarchyRunnable?.let { hierarchyHandler?.removeCallbacks(it) }
-        initialHierarchyRunnable?.let { hierarchyHandler?.removeCallbacks(it) }
-        initialHierarchyRunnable = null
         hierarchyHandler = null
         hierarchyRunnable = null
     }
 
     fun captureHierarchyForFrame(timestampMs: Long) {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastHierarchyCaptureMonotonicMs < minimumFrameHierarchyIntervalMs) return
-        captureHierarchy(timestampMs = timestampMs, skipDuplicate = true, allowDuringMapMovement = true)
+        captureHierarchy(timestampMs = timestampMs, skipDuplicate = false, allowDuringMapMovement = true)
     }
 
     private fun captureHierarchy(
@@ -940,8 +875,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             return
         }
 
-        val hierarchy = (ViewHierarchyScanner.shared.captureHierarchy() ?: return).toMutableMap()
-        lastHierarchyCaptureMonotonicMs = SystemClock.elapsedRealtime()
+        val hierarchy = (ViewHierarchyScanner.shared?.captureHierarchy() ?: return).toMutableMap()
         val ts = timestampMs ?: System.currentTimeMillis()
         hierarchy["timestamp"] = ts
 
@@ -955,33 +889,15 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         SegmentDispatcher.shared.transmitHierarchy(sid, compressed, ts, null)
     }
 
-    private fun hierarchyHash(hierarchy: Map<String, Any>): String {
-        var hash = -0x340d631b7bdddcdbL
-        fun mix(value: String) {
-            value.toByteArray(Charsets.UTF_8).forEach { byte ->
-                hash = hash xor (byte.toLong() and 0xff)
-                hash *= 0x100000001b3L
+    private fun hierarchyHash(h: Map<String, Any>): String {
+        val screen = currentScreenName ?: "unknown"
+        var childCount = 0
+        (h["root"] as? Map<*, *>)?.let { root ->
+            (root["children"] as? List<*>)?.let { children ->
+                childCount = children.size
             }
         }
-        fun visit(value: Any?) {
-            when (value) {
-                is Map<*, *> -> value.keys.filterIsInstance<String>().sorted().forEach { key ->
-                    if (key != "timestamp") {
-                        mix(key)
-                        visit(value[key])
-                    }
-                }
-                is Iterable<*> -> {
-                    mix("[")
-                    value.forEach(::visit)
-                    mix("]")
-                }
-                null -> mix("null")
-                else -> mix(value.toString())
-            }
-        }
-        visit(hierarchy)
-        return hash.toULong().toString(16)
+        return "$screen:$childCount"
     }
 }
 

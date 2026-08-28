@@ -28,18 +28,8 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
     private let pendingLock = NSLock()
 
     override init() {
-        let support = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!.appendingPathComponent("Rejourney", isDirectory: true)
-        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        pendingStore = support.appendingPathComponent("rj_pending_hangs.json")
-        let legacy = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            .first!.appendingPathComponent("rj_pending_hangs.json")
-        if FileManager.default.fileExists(atPath: legacy.path),
-           !FileManager.default.fileExists(atPath: pendingStore.path) {
-            try? FileManager.default.moveItem(at: legacy, to: pendingStore)
-        }
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        pendingStore = cache.appendingPathComponent("rj_pending_hangs.json")
         super.init()
     }
 

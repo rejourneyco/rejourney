@@ -17,63 +17,6 @@ const jpeg = require('jpeg-js') as {
 };
 
 describe('research lake anonymized payload shape', () => {
-    it('exports additive device context with coarse battery buckets', () => {
-        const metrics = __researchLakeTestInternals.buildSessionMetrics({
-            battery_level_percent: 57,
-            battery_state: 'unplugged',
-            low_power_mode_enabled: false,
-            battery_level_start_percent: 83,
-            battery_level_end_percent: 71,
-            battery_delta_percent: -12,
-            battery_state_start: 'unplugged',
-            battery_state_end: 'charging',
-            charging_state_changed: true,
-            low_power_mode_observed: true,
-            thermal_state_start: 'nominal',
-            thermal_state_peak: 'serious',
-            thermal_state_end: 'fair',
-            thermal_throttled_duration_ms: 2500,
-            memory_pressure_peak: 'warning',
-            memory_pressure_event_count: 2,
-            memory_headroom_mb_bucket_start: 2048,
-            memory_headroom_mb_bucket_min: 768,
-            memory_headroom_mb_bucket_end: 1536,
-            font_scale_bucket: 'large',
-            ui_style: 'dark',
-            layout_direction: 'rtl',
-            orientation_start: 'portrait',
-            orientation_end: 'landscape',
-            orientation_change_count: 1,
-            display_max_refresh_rate_hz: 120,
-        } as any);
-
-        expect(metrics).toMatchObject({
-            battery_level_percent_bucket: 60,
-            battery_level_start_bucket: 80,
-            battery_level_end_bucket: 70,
-            battery_delta_bucket: -10,
-            charging_state_changed: true,
-            low_power_mode_observed: true,
-            thermal_state_peak: 'serious',
-            memory_pressure_peak: 'warning',
-            memory_headroom_mb_bucket_min: 768,
-            font_scale_bucket: 'large',
-            ui_style: 'dark',
-            layout_direction: 'rtl',
-            display_max_refresh_rate_hz: 120,
-        });
-    });
-
-    it('keeps unsupported device summaries nullable for older SDK sessions', () => {
-        const metrics = __researchLakeTestInternals.buildSessionMetrics({} as any);
-
-        expect(metrics).toMatchObject({
-            thermal_throttled_duration_ms: null,
-            memory_pressure_event_count: null,
-            orientation_change_count: null,
-        });
-    });
-
     it('allows anonymized sample keys but rejects raw identity and location values', () => {
         const safePayload = {
             manifest: {
@@ -501,9 +444,6 @@ describe('research lake anonymized payload shape', () => {
             anr_count: 0,
             rage_tap_count: 0,
             dead_tap_count: 0,
-            battery_level_percent: 57,
-            battery_state: 'unplugged',
-            low_power_mode_enabled: true,
             geo_country: 'United States',
             geo_country_code: 'US',
             geo_city: 'San Francisco',
@@ -536,9 +476,6 @@ describe('research lake anonymized payload shape', () => {
             crash_count: 0,
             anr_count: 0,
             error_count: 1,
-            battery_level_percent_bucket: 60,
-            battery_state: 'unplugged',
-            low_power_mode_enabled: true,
         });
         expect(labels.has_stability_failure).toBe(true);
         expect(manifest.geo).toMatchObject({

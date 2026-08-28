@@ -318,43 +318,6 @@ function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | bo
     return updates;
 }
 
-const MOBILE_BATTERY_STATES = new Set(['charging', 'full', 'unplugged', 'unknown']);
-
-export function normalizeBatteryLevelPercent(value: unknown): number | null {
-    if (value === null || value === undefined || value === '') return null;
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
-    if (numeric < 0 || numeric > 100) return null;
-    return Math.round(numeric);
-}
-
-function normalizeLegacyBatteryLevel(value: unknown): number | null {
-    if (value === null || value === undefined || value === '') return null;
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
-    return normalizeBatteryLevelPercent(numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric);
-}
-
-export function buildBatteryMetricUpdates(deviceInfo: any): Record<string, string | boolean | number> {
-    const updates: Record<string, string | boolean | number> = {};
-    const hasPercentField = deviceInfo?.batteryLevelPercent !== null
-        && deviceInfo?.batteryLevelPercent !== undefined
-        && deviceInfo?.batteryLevelPercent !== '';
-    const level = hasPercentField
-        ? normalizeBatteryLevelPercent(deviceInfo.batteryLevelPercent)
-        : normalizeLegacyBatteryLevel(deviceInfo?.batteryLevel);
-    if (level !== null) updates.batteryLevelPercent = level;
-
-    if (typeof deviceInfo?.batteryState === 'string') {
-        const state = deviceInfo.batteryState.trim().toLowerCase();
-        if (MOBILE_BATTERY_STATES.has(state)) updates.batteryState = state;
-    }
-    if (typeof deviceInfo?.lowPowerModeEnabled === 'boolean') {
-        updates.lowPowerModeEnabled = deviceInfo.lowPowerModeEnabled;
-    }
-    return updates;
-}
-
 function maxDate(current: Date | null, candidate: Date | null): Date | null {
     if (!candidate) return current;
     return !current || candidate.getTime() > current.getTime() ? candidate : current;
@@ -420,18 +383,14 @@ export async function processEventsArtifact(
 
         await db.update(sessions).set(sessionUpdates).where(eq(sessions.id, job.sessionId));
 
-        const deviceMetricUpdates: Record<string, string | boolean | number> = buildBatteryMetricUpdates(deviceInfo);
         if (deviceInfo.networkType) {
-            Object.assign(deviceMetricUpdates, {
-                networkType: deviceInfo.networkType,
-                cellularGeneration: deviceInfo.cellularGeneration,
-                isConstrained: deviceInfo.isConstrained,
-                isExpensive: deviceInfo.isExpensive,
-            });
-        }
-        if (Object.keys(deviceMetricUpdates).length > 0) {
             await db.update(sessionMetrics)
-                .set(deviceMetricUpdates)
+                .set({
+                    networkType: deviceInfo.networkType,
+                    cellularGeneration: deviceInfo.cellularGeneration,
+                    isConstrained: deviceInfo.isConstrained,
+                    isExpensive: deviceInfo.isExpensive,
+                })
                 .where(eq(sessionMetrics.sessionId, job.sessionId));
         }
     }

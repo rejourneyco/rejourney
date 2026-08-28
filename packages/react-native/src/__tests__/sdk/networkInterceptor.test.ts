@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   disableNetworkInterceptor,
   getNetworkInterceptorStats,
@@ -22,50 +22,6 @@ describe('networkInterceptor lifecycle', () => {
 
     initNetworkInterceptor(() => {});
     expect(getNetworkInterceptorStats().enabled).toBe(true);
-  });
-
-  it('fully disables interception when restored', () => {
-    initNetworkInterceptor(() => {});
-    restoreNetworkInterceptor();
-
-    expect(getNetworkInterceptorStats().enabled).toBe(false);
-  });
-
-  it('flushes the final pending batch before restoring globals', async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 204 }) as typeof fetch;
-    const callback = vi.fn();
-
-    try {
-      initNetworkInterceptor(callback);
-      await globalThis.fetch('https://app.example.com/final-request');
-      expect(callback).not.toHaveBeenCalled();
-
-      restoreNetworkInterceptor();
-      expect(callback).toHaveBeenCalledTimes(1);
-    } finally {
-      restoreNetworkInterceptor();
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('bounds per-endpoint sampling state for dynamic routes', async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 }) as typeof fetch;
-
-    try {
-      initNetworkInterceptor(() => {});
-      await Promise.all(
-        Array.from({ length: 1_050 }, (_, index) =>
-          globalThis.fetch(`https://app.example.com/items/${index}`)
-        )
-      );
-
-      expect(getNetworkInterceptorStats().endpointCount).toBe(1_000);
-    } finally {
-      restoreNetworkInterceptor();
-      globalThis.fetch = originalFetch;
-    }
   });
 
   it('ignores Rejourney ingest and upload relay URLs across hosts', () => {

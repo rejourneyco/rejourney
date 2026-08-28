@@ -365,13 +365,8 @@ final class RejourneyTests: XCTestCase {
                 captureQuality: .high,
                 wifiOnly: true,
                 trackConsoleLogs: false,
-                collectDeviceInfo: false,
                 collectGeoLocation: false,
-                captureNativeSheets: false,
-                detectRageTaps: false,
-                rageTapThreshold: 5,
-                rageTapTimeWindow: 750,
-                rageTapRadius: 72.5
+                captureNativeSheets: false
             ),
             recordingEnabled: true,
             textInputMasking: "secure_only",
@@ -383,13 +378,8 @@ final class RejourneyTests: XCTestCase {
         XCTAssertEqual(settings["imgCompression"] as? Double, 0.7)
         XCTAssertEqual(settings["wifiOnly"] as? Bool, true)
         XCTAssertEqual(settings["captureLogs"] as? Bool, false)
-        XCTAssertEqual(settings["collectDeviceInfo"] as? Bool, false)
         XCTAssertEqual(settings["collectGeoLocation"] as? Bool, false)
         XCTAssertEqual(settings["captureNativeSheets"] as? Bool, false)
-        XCTAssertEqual(settings["detectRageTaps"] as? Bool, false)
-        XCTAssertEqual(settings["rageTapThreshold"] as? Int, 5)
-        XCTAssertEqual(settings["rageTapTimeWindow"] as? Int, 750)
-        XCTAssertEqual(settings["rageTapRadius"] as? Double, 72.5)
         XCTAssertEqual(settings["textInputMasking"] as? String, "secure_only")
         XCTAssertEqual(settings["imageVideoMasking"] as? String, "all")
         XCTAssertEqual(settings["observeOnly"] as? Bool, false)
@@ -537,57 +527,6 @@ final class RejourneyTests: XCTestCase {
         XCTAssertTrue(stop.success)
         XCTAssertNil(stop.sessionId)
         XCTAssertTrue(stop.uploadSuccess)
-    }
-
-    func testOpenCircuitDefersDurableUploadsWithoutBurningRetryAttempts() {
-        let dispatcher = SegmentDispatcher.shared
-        dispatcher.resetRetryStateForTesting()
-        defer { dispatcher.resetRetryStateForTesting() }
-
-        dispatcher.endpoint = "http://127.0.0.1:1"
-        dispatcher.configure(
-            replayId: "session_circuit_breaker_test",
-            apiToken: "rj_test",
-            credential: nil,
-            projectId: nil
-        )
-
-        let failuresQueued = expectation(description: "failed uploads enter durable retry queue")
-        failuresQueued.expectedFulfillmentCount = 6
-        for index in 0..<6 {
-            dispatcher.transmitHierarchy(
-                replayId: "session_circuit_breaker_test",
-                hierarchyPayload: Data("hierarchy-\(index)".utf8),
-                timestampMs: UInt64(index)
-            ) { _ in
-                failuresQueued.fulfill()
-            }
-        }
-        wait(for: [failuresQueued], timeout: 5)
-
-        let beforeDrain = dispatcher.sdkTelemetrySnapshot()
-        XCTAssertGreaterThanOrEqual(beforeDrain["uploadFailureCount"] as? Int ?? 0, 5)
-        XCTAssertGreaterThanOrEqual(beforeDrain["retryAttemptCount"] as? Int ?? 0, 5)
-
-        dispatcher.waitForPendingUploads(timeout: 2)
-
-        let afterDrain = dispatcher.sdkTelemetrySnapshot()
-        XCTAssertEqual(
-            afterDrain["retryAttemptCount"] as? Int,
-            beforeDrain["retryAttemptCount"] as? Int,
-            "a circuit-open drain must not consume retries without a network attempt"
-        )
-        XCTAssertEqual(afterDrain["memoryEvictionCount"] as? Int, 0)
-    }
-
-    func testBatterySnapshotUsesNormalizedAdditiveFields() {
-        let snapshot = TelemetryPipeline.shared.currentBatteryInfo()
-
-        XCTAssertNotNil(snapshot["batteryState"] as? String)
-        XCTAssertNotNil(snapshot["lowPowerModeEnabled"] as? Bool)
-        if let percent = snapshot["batteryLevelPercent"] as? Int {
-            XCTAssertTrue((0...100).contains(percent))
-        }
     }
 }
 

@@ -41,9 +41,6 @@ class RejourneyURLProtocol: URLProtocol {
     }()
 
     @objc static func enable() {
-        _stateLock.lock()
-        _enabled = true
-        _stateLock.unlock()
         URLProtocol.registerClass(RejourneyURLProtocol.self)
 
         // Swizzle URLSessionConfiguration.protocolClasses to automatically inject our protocol
@@ -52,14 +49,6 @@ class RejourneyURLProtocol: URLProtocol {
     }
 
     private static var isSwizzled = false
-    private static let _stateLock = NSLock()
-    private static var _enabled = false
-
-    private static var isEnabled: Bool {
-        _stateLock.lock()
-        defer { _stateLock.unlock() }
-        return _enabled
-    }
 
     /// Store the original IMP so we can call through to it safely.
     private static var originalProtocolClassesIMP: IMP?
@@ -105,15 +94,9 @@ class RejourneyURLProtocol: URLProtocol {
             classes = original(self, #selector(getter: URLSessionConfiguration.protocolClasses)) ?? []
         }
 
-        // The swizzle is intentionally process-lifetime: reversing Objective-C
-        // method exchanges while other frameworks are creating sessions is not
-        // safe. The enabled gate makes stop/consent opt-out effective without
-        // attempting to unswizzle global runtime state.
-        if RejourneyURLProtocol.isEnabled,
-           !classes.contains(where: { $0 == RejourneyURLProtocol.self }) {
+        // Inject our protocol at the beginning if not already present
+        if !classes.contains(where: { $0 == RejourneyURLProtocol.self }) {
             classes.insert(RejourneyURLProtocol.self, at: 0)
-        } else if !RejourneyURLProtocol.isEnabled {
-            classes.removeAll { $0 == RejourneyURLProtocol.self }
         }
 
         return classes
@@ -121,14 +104,10 @@ class RejourneyURLProtocol: URLProtocol {
 
 
     @objc static func disable() {
-        _stateLock.lock()
-        _enabled = false
-        _stateLock.unlock()
         URLProtocol.unregisterClass(RejourneyURLProtocol.self)
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
-        guard isEnabled else { return false }
         guard let url = request.url,
               let scheme = url.scheme,
               ["http", "https"].contains(scheme) else {

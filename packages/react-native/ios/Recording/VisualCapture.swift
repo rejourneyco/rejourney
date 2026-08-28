@@ -53,7 +53,6 @@ public final class VisualCapture: NSObject {
     @objc public private(set) var captureGeneration: Int = 0
     private var _keyboardPlaceholderRect: CGRect?
     private let _keyboardQuietDelaySec: CFAbsoluteTime = 0.45
-    private var _userPaused = false
     
     // Use OperationQueue like industry standard - serialized, utility QoS
     private let _encodeQueue: OperationQueue = {
@@ -133,25 +132,9 @@ public final class VisualCapture: NSObject {
     
     @objc private func _handleForeground() {
         // Resume capturing when app comes back to foreground
-        if !_userPaused && _stateMachine.currentState == .capturing {
+        if _stateMachine.currentState == .capturing {
             _startCaptureTimer()
         }
-    }
-
-    @objc public func pauseForUser() {
-        guard !_userPaused else { return }
-        _userPaused = true
-        _stopCaptureTimer()
-        _sendScreenshots()
-    }
-
-    @objc public func resumeFromUser() {
-        guard _userPaused else { return }
-        _userPaused = false
-        guard UIApplication.shared.applicationState == .active,
-              _stateMachine.currentState == .capturing else { return }
-        _startCaptureTimer()
-        snapshotNow()
     }
 
     @objc private func _handleKeyboardWillShow(_ notification: Notification) {
@@ -187,7 +170,6 @@ public final class VisualCapture: NSObject {
     }
     
     @objc public func beginCapture(sessionOrigin: UInt64) {
-        _userPaused = false
         // Per-session counters and dedup state. The first frame of a session
         // must always store, even if it matches the last frame of the previous.
         _lastFrameHash = nil
@@ -255,21 +237,14 @@ public final class VisualCapture: NSObject {
         _stateLock.unlock()
     }
     
-    /// Queue pending frames for disk persistence without blocking lifecycle callbacks.
+    /// Synchronously flush all pending frames to disk for crash safety
     @objc public func flushToDisk() {
         _flushBufferToDisk()
     }
-
-    /// Crash handlers cannot rely on queued work running before termination.
-    @objc public func flushToDiskForCrash() {
-        let (frames, path) = _diskFlushSnapshot()
-        guard !frames.isEmpty, let path else { return }
-        _writeFramesToDisk(frames, path: path)
-    }
     
     /// Submit any buffered frames to the upload pipeline immediately
-    /// (regardless of batch size threshold). Detaches the current batch and
-    /// queues packaging on the serial encoder before shutdown waits for it.
+    /// (regardless of batch size threshold). Packages synchronously to
+    /// avoid race conditions during backgrounding.
     @objc public func flushBufferToNetwork() {
         _flushBuffer()
     }
@@ -339,12 +314,11 @@ public final class VisualCapture: NSObject {
     /// blur-heavy screen throttled immediately and, because recovery required
     /// half that, never came back: measured runs sat at the 4x ceiling for
     /// 92-98% of their captures.
-    private static let _mainThreadBudgetMs: Double = 75.0
-    private static let _criticalMainThreadCostMs: Double = 150.0
+    private static let _mainThreadBudgetMs: Double = 150.0
     /// One expensive frame is not a slow screen. Cold start, a first capture, or
     /// a single hitch should not cost the session its capture rate, so a
     /// sustained run of over-budget captures is required before backing off.
-    private static let _overBudgetRunToBackOff = 2
+    private static let _overBudgetRunToBackOff = 3
     private static let _maxBackoffLevel = 3
     private static let _maxEncodeBacklog = 4
     private var _backoffLevel = 0
@@ -381,8 +355,7 @@ public final class VisualCapture: NSObject {
     private func _noteCaptureCost(mainMs: Double) {
         if mainMs > Self._mainThreadBudgetMs {
             _overBudgetRun += 1
-            if (mainMs >= Self._criticalMainThreadCostMs || _overBudgetRun >= Self._overBudgetRunToBackOff),
-               _backoffLevel < Self._maxBackoffLevel {
+            if _overBudgetRun >= Self._overBudgetRunToBackOff, _backoffLevel < Self._maxBackoffLevel {
                 _backoffLevel += 1
                 _overBudgetRun = 0
                 DiagnosticLog.notice("[VisualCapture] Capture cost \(String(format: "%.0f", mainMs))ms sustained over budget; backing off to every \(_backoffLevel + 1)s")
@@ -403,8 +376,9 @@ public final class VisualCapture: NSObject {
     }
 
     private func _captureFrame(forced: Bool = false) {
-        guard !_userPaused else { return }
         guard _stateMachine.currentState == .capturing else { return }
+        framesCaptured += 1
+
         if !forced {
             // Honor the adaptive back-off before doing any work at all.
             if _backoffTicksRemaining > 0 {
@@ -569,7 +543,6 @@ public final class VisualCapture: NSObject {
                 } else {
                     self._lastFrameHash = frameHash
                     self._screenshots.append((data, captureTs))
-                    self.framesCaptured += 1
                     self._enforceScreenshotCaps()
                 }
                 let count = self._screenshots.count
@@ -1205,24 +1178,17 @@ public final class VisualCapture: NSObject {
     }
     
     private func _flushBufferToDisk() {
-        let (frames, path) = _diskFlushSnapshot()
-        guard !frames.isEmpty, let path else { return }
-        _encodeQueue.addOperation { [weak self] in
-            self?._writeFramesToDisk(frames, path: path)
-        }
-    }
-
-    private func _diskFlushSnapshot() -> ([(Data, UInt64)], URL?) {
+        // Package any frames still in memory to disk
         _stateLock.lock()
-        defer { _stateLock.unlock() }
-        return (_screenshots, _framesDiskPath)
-    }
-
-    private func _writeFramesToDisk(_ frames: [(Data, UInt64)], path: URL) {
+        let frames = _screenshots
+        _stateLock.unlock()
+        
+        guard !frames.isEmpty, let path = _framesDiskPath else { return }
+        
         for (jpeg, timestamp) in frames {
             let framePath = path.appendingPathComponent("\(timestamp).jpeg")
             if !FileManager.default.fileExists(atPath: framePath.path) {
-                try? jpeg.write(to: framePath, options: .atomic)
+                try? jpeg.write(to: framePath)
             }
         }
     }
@@ -1291,22 +1257,33 @@ public final class VisualCapture: NSObject {
         let frames = _screenshots
         _screenshots.removeAll()
         let captureSessionId = _currentSessionId
-        let sessionEpoch = _sessionEpoch
-        let path = _framesDiskPath
         _stateLock.unlock()
         
         guard !frames.isEmpty else { return }
-        _encodeQueue.addOperation { [weak self] in
-            guard let self else { return }
-            self._packageAndShip(images: frames, sessionEpoch: sessionEpoch, sessionId: captureSessionId)
-            if let path {
-                for (_, timestamp) in frames {
-                    try? FileManager.default.removeItem(
-                        at: path.appendingPathComponent("\(timestamp).jpeg")
-                    )
-                }
+        
+        // Clear the disk copies since we're uploading
+        if let path = _framesDiskPath {
+            for (_, timestamp) in frames {
+                let framePath = path.appendingPathComponent("\(timestamp).jpeg")
+                try? FileManager.default.removeItem(at: framePath)
             }
         }
+        
+        guard let bundle = _packageFrameBundle(images: frames, sessionEpoch: _sessionEpoch) else { return }
+        
+        let rid = captureSessionId ?? "unknown"
+        let endTs = frames.last?.1 ?? _sessionEpoch
+        let fname = "\(rid)-\(endTs).tar.gz"
+        
+        // No main thread dispatch - submit directly (fixes stutter)
+        TelemetryPipeline.shared.submitFrameBundle(
+            payload: bundle,
+            filename: fname,
+            startMs: frames.first?.1 ?? _sessionEpoch,
+            endMs: endTs,
+            frameCount: frames.count,
+            sessionId: captureSessionId
+        )
     }
     
     /// Android-compatible binary format: [8-byte BE timestamp offset][4-byte BE size][jpeg] per frame. Backend auto-detects.
@@ -1644,12 +1621,6 @@ private final class RedactionMask {
         // chrome, not user content. A map the caller genuinely wants hidden is
         // still caught by _maskKind above, which honours rejourney_occlude.
         if SpecialCases.shared.isMapView(view) {
-            // Descendant annotation coordinates move independently from the
-            // map root. If one is explicitly marked, mask the stable map root
-            // so the requested privacy boundary cannot drift away from content.
-            if view.subviews.contains(where: { _containsExplicitMaskMarker(in: $0, depth: depth + 1) }) {
-                views.append(WeakRegionRef(view: view, kind: .generic))
-            }
             return
         }
 
@@ -1657,15 +1628,6 @@ private final class RedactionMask {
         for subview in view.subviews {
             _scanForSensitiveViews(in: subview, views: &views, depth: depth + 1)
         }
-    }
-
-    private func _containsExplicitMaskMarker(in view: UIView, depth: Int) -> Bool {
-        guard depth < _maxSensitiveScanDepth else { return false }
-        if view.accessibilityHint == "rejourney_occlude" ||
-           view.accessibilityIdentifier?.hasPrefix("rj_occlude") == true {
-            return true
-        }
-        return view.subviews.contains { _containsExplicitMaskMarker(in: $0, depth: depth + 1) }
     }
 
     private func _scanForMediaViews(in view: UIView, regions: inout [RedactionRegion], depth: Int = 0) {
