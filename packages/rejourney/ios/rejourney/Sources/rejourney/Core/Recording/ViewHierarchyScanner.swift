@@ -50,7 +50,7 @@ import UIKit
         let scale = window.screen.scale
         let bounds = window.bounds
         let start = DispatchTime.now().uptimeNanoseconds
-        let root = _serializeView(window, depth: 0, start: start)
+        let root = _serializeView(window, depth: 0, start: start, ancestorMasked: false)
 
         var result: [String: Any] = [
             "timestamp": ts,
@@ -72,7 +72,12 @@ import UIKit
         }
     }
 
-    private func _serializeView(_ view: UIView, depth: Int, start: UInt64) -> [String: Any]? {
+    private func _serializeView(
+        _ view: UIView,
+        depth: Int,
+        start: UInt64,
+        ancestorMasked: Bool
+    ) -> [String: Any]? {
         if depth > maxDepth { return nil }
         if (DispatchTime.now().uptimeNanoseconds - start) > _timeBudgetNs { return ["type": _typeName(view), "bailout": true] }
         if depth > 0 && (view.isHidden || view.alpha <= 0.01 || view.bounds.width <= 0 || view.bounds.height <= 0) { return nil }
@@ -100,10 +105,10 @@ import UIKit
 
         if view.isHidden { node["hidden"] = true }
         if view.alpha < 1.0 { node["alpha"] = view.alpha }
-        if let aid = view.accessibilityIdentifier, !aid.isEmpty { node["testID"] = aid }
-        if let lbl = view.accessibilityLabel, !lbl.isEmpty { node["label"] = lbl }
-        let sensitive = _isSensitive(view)
+        let sensitive = ancestorMasked || _isSensitive(view)
         if sensitive { node["masked"] = true }
+        if let aid = view.accessibilityIdentifier, !aid.isEmpty { node["testID"] = aid }
+        if let lbl = view.accessibilityLabel, !lbl.isEmpty { node["label"] = sensitive ? "***" : lbl }
 
         if includeVisualProperties, let bg = view.backgroundColor, bg != .clear { node["bg"] = _hexColor(bg) }
 
@@ -113,18 +118,29 @@ import UIKit
                 node["text"] = sensitive ? "***" : _mask(text)
                 node["textLength"] = text.count
             }
-            else if let lb = view as? UILabel { node["text"] = _mask(lb.text ?? ""); node["textLength"] = lb.text?.count ?? 0 }
+            else if let lb = view as? UILabel {
+                let text = lb.text ?? ""
+                node["text"] = sensitive ? "***" : _mask(text)
+                node["textLength"] = text.count
+            }
             else if let tf = view as? UITextField {
                 let text = tf.text ?? ""
                 node["text"] = sensitive ? "***" : _mask(text)
                 node["textLength"] = text.count
-                node["placeholder"] = tf.placeholder
+                if let placeholder = tf.placeholder {
+                    node["placeholder"] = sensitive ? "***" : placeholder
+                }
             }
         }
 
         if _isInteractive(view) {
             node["interactive"] = true
-            if let btn = view as? UIButton { if let t = btn.title(for: .normal) { node["buttonTitle"] = t }; node["enabled"] = btn.isEnabled }
+            if let btn = view as? UIButton {
+                if let title = btn.title(for: .normal) {
+                    node["buttonTitle"] = sensitive ? "***" : title
+                }
+                node["enabled"] = btn.isEnabled
+            }
             if let ctrl = view as? UIControl { node["enabled"] = ctrl.isEnabled }
         }
 
@@ -150,7 +166,12 @@ import UIKit
             }
             var children: [[String: Any]] = []
             for s in subs {
-                if let cn = _serializeView(s, depth: depth + 1, start: start) { children.append(cn) }
+                if let cn = _serializeView(
+                    s,
+                    depth: depth + 1,
+                    start: start,
+                    ancestorMasked: sensitive
+                ) { children.append(cn) }
             }
             if !children.isEmpty { node["children"] = children }
         }

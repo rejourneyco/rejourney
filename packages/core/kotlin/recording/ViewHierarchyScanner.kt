@@ -76,7 +76,7 @@ class ViewHierarchyScanner private constructor() {
         val bounds = Rect().also { window.getWindowVisibleDisplayFrame(it) }
         val startTime = SystemClock.elapsedRealtime()
 
-        val root = serializeView(window, 0, startTime, density) ?: emptyMap()
+        val root = serializeView(window, 0, startTime, density, ancestorMasked = false) ?: emptyMap()
 
         val result = mutableMapOf<String, Any>(
             "timestamp" to ts,
@@ -95,7 +95,13 @@ class ViewHierarchyScanner private constructor() {
         return result
     }
 
-    private fun serializeView(view: View, depth: Int, startTime: Long, density: Float): Map<String, Any>? {
+    private fun serializeView(
+        view: View,
+        depth: Int,
+        startTime: Long,
+        density: Float,
+        ancestorMasked: Boolean
+    ): Map<String, Any>? {
         if (depth > maxDepth) return null
         if (SystemClock.elapsedRealtime() - startTime > timeBudgetMs) {
             return mapOf("type" to simpleNameOf(view), "bailout" to true)
@@ -119,23 +125,23 @@ class ViewHierarchyScanner private constructor() {
         if (!view.isShown) node["hidden"] = true
         if (view.alpha < 1.0f) node["alpha"] = view.alpha
 
-        // Get accessibility identifier / test ID
-        view.contentDescription?.toString()?.takeIf { it.isNotEmpty() }?.let {
-            node["testID"] = it
-        }
+        // Resolved once: isSensitive does a resource-tag lookup and a string
+        // allocation, and it used to be asked twice for every view in the tree.
+        val sensitive = ancestorMasked || isSensitive(view)
+        if (sensitive) node["masked"] = true
 
-        // Check for React Native nativeID
+        // contentDescription is frequently user-visible accessibility text, so
+        // it must inherit an explicit ancestor mask. React Native nativeID is a
+        // stable developer identifier and can remain for replay node matching.
+        view.contentDescription?.toString()?.takeIf { it.isNotEmpty() }?.let {
+            node["testID"] = if (sensitive) "***" else it
+        }
         try {
             val nativeId = optionalResourceTag(view, "view_tag_native_id", "com.facebook.react") as? String
             if (!nativeId.isNullOrEmpty()) {
                 node["testID"] = nativeId
             }
         } catch (_: Exception) { }
-
-        // Resolved once: isSensitive does a resource-tag lookup and a string
-        // allocation, and it used to be asked twice for every view in the tree.
-        val sensitive = isSensitive(view)
-        if (sensitive) node["masked"] = true
 
         if (includeVisualProperties) {
             view.background?.let { bg ->
@@ -157,7 +163,7 @@ class ViewHierarchyScanner private constructor() {
                     node["textLength"] = text.length
 
                     if (view is EditText) {
-                        view.hint?.toString()?.let { node["placeholder"] = it }
+                        view.hint?.toString()?.let { node["placeholder"] = if (sensitive) "***" else it }
                     }
                 }
             }
@@ -168,7 +174,8 @@ class ViewHierarchyScanner private constructor() {
 
             when (view) {
                 is Button -> {
-                    node["buttonTitle"] = view.text?.toString() ?: ""
+                    val title = view.text?.toString() ?: ""
+                    node["buttonTitle"] = if (sensitive) "***" else title
                     node["enabled"] = view.isEnabled
                 }
                 is CompoundButton -> {
@@ -208,7 +215,7 @@ class ViewHierarchyScanner private constructor() {
             for (i in 0 until view.childCount) {
                 val child = view.getChildAt(i)
                 if (child.isShown && child.alpha > 0.01f) {
-                    serializeView(child, depth + 1, startTime, density)?.let {
+                    serializeView(child, depth + 1, startTime, density, ancestorMasked = sensitive)?.let {
                         children.add(it)
                     }
                 }

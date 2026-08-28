@@ -48,6 +48,10 @@ public final class RejourneyPlugin: NSObject, FlutterPlugin {
                     "uploadSuccess": stop.uploadSuccess
                 ])
             }
+        case "pause":
+            Task { @MainActor in result(Rejourney.pause()) }
+        case "resume":
+            Task { @MainActor in result(Rejourney.resume()) }
         case "getSessionId":
             Task { @MainActor in result(Rejourney.currentSessionId) }
         case "setUserIdentity":

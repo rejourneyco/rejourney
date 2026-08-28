@@ -88,9 +88,10 @@ class VisualCapture private constructor(private val context: Context) {
         get() = stateMachine.currentState == CaptureState.CAPTURING
 
     private val stateMachine = CaptureStateMachine()
-    private val screenshots = CopyOnWriteArrayList<Pair<ByteArray, Long>>()
+    private val screenshots = java.util.ArrayDeque<Pair<ByteArray, Long>>()
     private val stateLock = ReentrantLock()
     private var captureRunnable: Runnable? = null
+    @Volatile private var userPaused = false
     private val frameCounter = AtomicLong(0)
     private var sessionEpoch: Long = 0
     private val redactionMask = RedactionMask()
@@ -196,6 +197,8 @@ class VisualCapture private constructor(private val context: Context) {
     }
 
     fun beginCapture(sessionOrigin: Long) {
+        userPaused = false
+        MapboxSnapshotCache.clear()
         // Per-session counters and dedup state. The first frame of a session
         // must always store, even if it matches the last frame of the previous.
         lastFrameHash = null
@@ -262,6 +265,7 @@ class VisualCapture private constructor(private val context: Context) {
         }
         if (!stateMachine.transition(CaptureState.HALTED)) return
         stopCaptureTimer()
+        MapboxSnapshotCache.clear()
 
         // Flush any remaining frames to disk before halting
         flushBufferToDisk()
@@ -277,19 +281,28 @@ class VisualCapture private constructor(private val context: Context) {
         flushBufferToDisk()
     }
 
+    /** Crash handlers cannot rely on queued work running before termination. */
+    fun flushToDiskForCrash() {
+        val frames = stateLock.withLock { screenshots.toList() }
+        val path = framesDiskPath ?: return
+        writeFramesToDisk(frames, path)
+    }
+
     /** Submit any buffered frames to the upload pipeline immediately
-     *  (regardless of batch size threshold). Packages synchronously to
-     *  avoid race conditions during backgrounding. */
+     *  (regardless of batch size threshold). Detaches the current batch and
+     *  queues packaging on the serial encoder before shutdown waits for it. */
     fun flushBufferToNetwork() {
-        // Take frames from buffer synchronously (not via async sendScreenshots)
+        // Detach frames synchronously; packaging remains serialized off-main.
         val (images, captureSessionId) = stateLock.withLock {
             val copy = screenshots.toList()
             screenshots.clear()
             Pair(copy, currentSessionId)
         }
         if (images.isEmpty()) return
-        // Package and submit synchronously on this thread
-        packageAndShip(images, sessionEpoch, captureSessionId)
+        val captureEpoch = sessionEpoch
+        encodeExecutor.execute {
+            packageAndShip(images, captureEpoch, captureSessionId)
+        }
     }
 
     fun pauseForBackground() {
@@ -299,9 +312,22 @@ class VisualCapture private constructor(private val context: Context) {
     }
 
     fun resumeFromBackground() {
-        if (stateMachine.currentState == CaptureState.CAPTURING && captureRunnable == null) {
+        if (!userPaused && stateMachine.currentState == CaptureState.CAPTURING && captureRunnable == null) {
             startCaptureTimer()
         }
+    }
+
+    fun pauseForUser() {
+        if (userPaused) return
+        userPaused = true
+        pauseForBackground()
+    }
+
+    fun resumeFromUser() {
+        if (!userPaused) return
+        userPaused = false
+        resumeFromBackground()
+        snapshotNow()
     }
 
     fun registerRedaction(view: View) {
@@ -431,11 +457,12 @@ class VisualCapture private constructor(private val context: Context) {
     /// screen throttled immediately and, because recovery required half that,
     /// never came back: measured runs sat at the 4x ceiling for 92-98% of their
     /// captures.
-    private val mainThreadBudgetMs = 150L
+    private val mainThreadBudgetMs = 75L
+    private val criticalMainThreadCostMs = 150L
     /// One expensive frame is not a slow screen. Cold start, a first capture, or
     /// a single hitch should not cost the session its capture rate, so a
     /// sustained run of over-budget captures is required before backing off.
-    private val overBudgetRunToBackOff = 3
+    private val overBudgetRunToBackOff = 2
     private val maxBackoffLevel = 3
     private val maxEncodeBacklog = 4
     private var backoffLevel = 0
@@ -473,7 +500,7 @@ class VisualCapture private constructor(private val context: Context) {
     private fun noteCaptureCost(mainMs: Long) {
         if (mainMs > mainThreadBudgetMs) {
             overBudgetRun += 1
-            if (overBudgetRun >= overBudgetRunToBackOff && backoffLevel < maxBackoffLevel) {
+            if ((mainMs >= criticalMainThreadCostMs || overBudgetRun >= overBudgetRunToBackOff) && backoffLevel < maxBackoffLevel) {
                 backoffLevel += 1
                 overBudgetRun = 0
                 DiagnosticLog.notice("[VisualCapture] Capture cost ${mainMs}ms sustained over budget; backing off to every ${backoffLevel + 1}s")
@@ -494,12 +521,11 @@ class VisualCapture private constructor(private val context: Context) {
     }
 
     private fun captureFrame(force: Boolean = false) {
+        if (userPaused) return
         val currentFrameNum = frameCounter.get()
         if (currentFrameNum < 3) {
             DiagnosticLog.trace("[VisualCapture] captureFrame #$currentFrameNum, state=${stateMachine.currentState}, activity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
         }
-
-        framesCaptured.incrementAndGet()
 
         if (stateMachine.currentState != CaptureState.CAPTURING) {
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - state=${stateMachine.currentState}")
@@ -707,9 +733,16 @@ class VisualCapture private constructor(private val context: Context) {
             //    decorView.draw() renders these as black; we grab their pixels
             //    directly and paint them at the correct position.
             if (ReplayOrchestrator.shared?.maskImagesAndVideosByDefault != true) {
+                var gpuContentReady = true
                 for (root in captureRoots) {
                     val offset = rootOffsetFromDecor(decorView, root)
-                    compositeGpuSurfaces(root, canvas, bitmap, screenScale, offset.first, offset.second)
+                    gpuContentReady = compositeGpuSurfaces(
+                        root, canvas, bitmap, screenScale, offset.first, offset.second
+                    ) && gpuContentReady
+                }
+                if (!gpuContentReady) {
+                    bitmap.recycle()
+                    return
                 }
             }
 
@@ -1499,7 +1532,7 @@ class VisualCapture private constructor(private val context: Context) {
         screenScale: Float,
         offsetX: Int = 0,
         offsetY: Int = 0
-    ) {
+    ): Boolean {
         findTextureViews(root, action = { tv ->
             try {
                 val tvBitmap = tv.bitmap ?: return@findTextureViews
@@ -1532,24 +1565,28 @@ class VisualCapture private constructor(private val context: Context) {
                 // Safety: never crash if PixelCopy fails
             }
         })
-        compositeMapboxSnapshot(root, canvas, offsetX, offsetY)
+        return compositeMapboxSnapshot(root, canvas, offsetX, offsetY)
     }
 
     /**
      * Mapbox MapView uses SurfaceView; decorView.draw() renders it black.
-     * Use MapView.snapshot() (Mapbox SDK API) to capture the map and composite it.
+     * Use Mapbox's asynchronous snapshot callback. The first capture is
+     * deferred until the renderer returns; later captures reuse the idle cache.
      */
-    private fun compositeMapboxSnapshot(root: View, canvas: Canvas, offsetX: Int = 0, offsetY: Int = 0) {
-        val mapView = SpecialCases.shared.getMapboxMapViewForSnapshot(root) ?: return
+    private fun compositeMapboxSnapshot(root: View, canvas: Canvas, offsetX: Int = 0, offsetY: Int = 0): Boolean {
+        val mapView = SpecialCases.shared.getMapboxMapViewForSnapshot(root) ?: return true
         try {
-            val snapshot = mapView.javaClass.getMethod("snapshot").invoke(mapView)
-            val bitmap = snapshot as? Bitmap ?: return
             val loc = IntArray(2)
             mapView.getLocationInWindow(loc)
-            canvas.drawBitmap(bitmap, (offsetX + loc[0]).toFloat(), (offsetY + loc[1]).toFloat(), null)
-            bitmap.recycle()
+            return MapboxSnapshotCache.composite(
+                mapView,
+                canvas,
+                (offsetX + loc[0]).toFloat(),
+                (offsetY + loc[1]).toFloat()
+            )
         } catch (e: Exception) {
             DiagnosticLog.trace("[VisualCapture] Mapbox snapshot failed: ${e.message}")
+            return false
         }
     }
 
@@ -1729,7 +1766,6 @@ class VisualCapture private constructor(private val context: Context) {
                 // Compress to JPEG
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
-                bitmap.recycle()
 
                 val data = stream.toByteArray()
 
@@ -1754,7 +1790,8 @@ class VisualCapture private constructor(private val context: Context) {
                         skippedFramesDuplicate.incrementAndGet()
                     } else {
                         lastFrameHash = frameHash
-                        screenshots.add(Pair(data, captureTs))
+                        screenshots.addLast(Pair(data, captureTs))
+                        framesCaptured.incrementAndGet()
                         enforceScreenshotCaps()
                     }
                     val count = screenshots.size
@@ -1763,14 +1800,16 @@ class VisualCapture private constructor(private val context: Context) {
                     // batch interval, send regardless of count. This ensures sessions that end
                     // before reaching uploadBatchSize frames (very short sessions) still ship
                     // their frames promptly rather than waiting for shutdown.
+                    val oldestCaptureTs = screenshots.peekFirst()?.second ?: captureTs
                     val shouldFlushByTime = !shouldSend && count > 0 &&
-                        (captureTs - screenshots[0].second) >= (uploadBatchSize * snapshotInterval * 1_000).toLong()
+                        (captureTs - oldestCaptureTs) >= (uploadBatchSize * snapshotInterval * 1_000).toLong()
 
                     if (shouldSend || shouldFlushByTime) {
                         sendScreenshots()
                     }
                 }
             } finally {
+                if (!bitmap.isRecycled) bitmap.recycle()
                 pendingEncodes.decrementAndGet()
             }
         }
@@ -1978,7 +2017,7 @@ class VisualCapture private constructor(private val context: Context) {
 
     private fun enforceScreenshotCaps() {
         while (screenshots.size > maxBufferedScreenshots) {
-            screenshots.removeAt(0)
+            screenshots.removeFirst()
         }
     }
 
@@ -2052,9 +2091,14 @@ class VisualCapture private constructor(private val context: Context) {
 
     private fun flushBufferToDisk() {
         val frames = stateLock.withLock { screenshots.toList() }
-
         val path = framesDiskPath ?: return
+        if (frames.isEmpty()) return
+        encodeExecutor.execute {
+            writeFramesToDisk(frames, path)
+        }
+    }
 
+    private fun writeFramesToDisk(frames: List<Pair<ByteArray, Long>>, path: File) {
         for ((jpeg, timestamp) in frames) {
             val framePath = File(path, "$timestamp.jpeg")
             if (!framePath.exists()) {

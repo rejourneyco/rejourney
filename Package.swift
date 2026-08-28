@@ -16,6 +16,7 @@ let package = Package(
     targets: [
         .target(
             name: "Rejourney",
+            dependencies: ["RejourneySignalSupport"],
             path: "packages/ios/Sources/Rejourney",
             resources: [
                 .process("Resources/PrivacyInfo.xcprivacy")
@@ -23,6 +24,11 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("z")
             ]
+        ),
+        .target(
+            name: "RejourneySignalSupport",
+            path: "packages/ios/Sources/RejourneySignalSupport",
+            publicHeadersPath: "include"
         ),
         .testTarget(
             name: "RejourneyTests",

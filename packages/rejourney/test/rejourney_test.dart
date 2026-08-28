@@ -95,6 +95,38 @@ void main() {
     expect(Rejourney.isRecording, isFalse);
   });
 
+  test('Beta pause and resume are idempotent and suppress ordinary events',
+      () async {
+    fake.responses['start'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_pause',
+    };
+    fake.responses['pause'] = true;
+    fake.responses['resume'] = true;
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+
+    expect(await Rejourney.pause(), isTrue);
+    expect(await Rejourney.pause(), isTrue);
+    expect(Rejourney.isPaused, isTrue);
+    await Rejourney.logEvent('must_not_cross_pause');
+
+    expect(await Rejourney.resume(), isTrue);
+    expect(await Rejourney.resume(), isTrue);
+    expect(Rejourney.isPaused, isFalse);
+
+    expect(fake.calls.where((call) => call.$1 == 'pause'), hasLength(1));
+    expect(fake.calls.where((call) => call.$1 == 'resume'), hasLength(1));
+    expect(
+      fake.calls.where(
+        (call) =>
+            call.$1 == 'logEvent' && call.$2?['name'] == 'must_not_cross_pause',
+      ),
+      isEmpty,
+    );
+  });
+
   test('stop is bounded while native finalization continues', () async {
     fake.responses['start'] = <Object?, Object?>{
       'success': true,

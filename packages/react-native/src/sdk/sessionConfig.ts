@@ -17,6 +17,10 @@ export interface NativeStartOptions {
   captureLogs?: boolean;
   /** When false, suppresses IP geolocation lookup for this session */
   collectGeoLocation?: boolean;
+  /** When false, omits device-identifying hardware and OS metadata */
+  collectDeviceInfo?: boolean;
+  /** Enables native network instrumentation in addition to the JS interceptor. */
+  autoTrackNetwork?: boolean;
   /** Remote text input masking policy. Unknown native versions ignore this. */
   textInputMasking?: 'all' | 'secure_only';
   /** Remote image/video masking policy. Unknown native versions ignore this. */
@@ -139,6 +143,14 @@ export function buildNativeStartOptions(
 
   if (typeof config?.collectGeoLocation === 'boolean') {
     options.collectGeoLocation = config.collectGeoLocation;
+  }
+
+  if (typeof config?.collectDeviceInfo === 'boolean') {
+    options.collectDeviceInfo = config.collectDeviceInfo;
+  }
+
+  if (typeof config?.autoTrackNetwork === 'boolean') {
+    options.autoTrackNetwork = config.autoTrackNetwork;
   }
 
   if (config?.observeOnly === true) {

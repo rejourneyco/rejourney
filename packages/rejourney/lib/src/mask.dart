@@ -71,7 +71,6 @@ class _RenderRejourneyMask extends RenderProxyBox {
   bool _enabled;
   Rect? _lastRect;
   Rect? _reportedRect;
-  bool _measurementScheduled = false;
   int _attachmentGeneration = 0;
   int _settleGeneration = 0;
   Timer? _settleTimer;
@@ -97,10 +96,13 @@ class _RenderRejourneyMask extends RenderProxyBox {
     _enabled = value;
     _lastRect = null;
     if (!value) {
+      _MaskMeasurementScheduler.unregister(this);
       _cancelSettleTimer();
       _reportedRect = null;
       _initialPrimeActive = false;
       unawaited(Rejourney.removeMaskRegion(_id));
+    } else if (attached) {
+      _MaskMeasurementScheduler.register(this);
     }
     markNeedsPaint();
   }
@@ -125,20 +127,8 @@ class _RenderRejourneyMask extends RenderProxyBox {
   }
 
   void _scheduleMeasurement() {
-    if (!_enabled || _measurementScheduled || !attached || !hasSize) return;
-    _measurementScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _measurementScheduled = false;
-      if (!_enabled || !attached || !hasSize) return;
-      _measureAndReport();
-
-      // Route transitions, scrolling, and ancestor transforms can move a
-      // retained/repaint-boundary child without repainting this render object.
-      // Keep one callback pending so the mask follows the next produced frame
-      // even when [paint] itself is not called again. This does not schedule
-      // frames and therefore adds no idle animation or polling timer.
-      _scheduleMeasurement();
-    });
+    if (!_enabled || !attached || !hasSize) return;
+    _MaskMeasurementScheduler.register(this);
   }
 
   void _reportMovingRect(Rect rect) {
@@ -200,10 +190,12 @@ class _RenderRejourneyMask extends RenderProxyBox {
     // replay unusable during route transitions and can hide every non-sensitive
     // element for 750 ms.
     _initialPrimeActive = _enabled;
+    if (_enabled) _MaskMeasurementScheduler.register(this);
   }
 
   @override
   void detach() {
+    _MaskMeasurementScheduler.unregister(this);
     _cancelSettleTimer();
     final generation = ++_attachmentGeneration;
     final detachedId = _id;
@@ -220,5 +212,39 @@ class _RenderRejourneyMask extends RenderProxyBox {
     });
     _lastRect = null;
     super.detach();
+  }
+}
+
+/// One post-frame callback services every active mask. A callback remains
+/// pending so retained children still follow ancestor transforms, but the
+/// per-frame callback allocation is constant instead of one per mask.
+class _MaskMeasurementScheduler {
+  static final Set<_RenderRejourneyMask> _targets = <_RenderRejourneyMask>{};
+  static bool _scheduled = false;
+
+  static void register(_RenderRejourneyMask target) {
+    _targets.add(target);
+    _schedule();
+  }
+
+  static void unregister(_RenderRejourneyMask target) {
+    _targets.remove(target);
+  }
+
+  static void _schedule() {
+    if (_scheduled || _targets.isEmpty) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      for (final target in List<_RenderRejourneyMask>.of(_targets)) {
+        if (target._enabled && target.attached && target.hasSize) {
+          target._measureAndReport();
+        } else {
+          _targets.remove(target);
+        }
+      }
+      // This registers for the next produced frame but does not request one.
+      _schedule();
+    });
   }
 }

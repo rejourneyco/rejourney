@@ -22,14 +22,16 @@ export 'src/navigation.dart';
 /// await Rejourney.start();
 /// ```
 abstract final class Rejourney {
-  static const String version = '0.4.0';
+  static const String version = '0.4.1';
 
   static String? _publicKey;
   static RejourneyConfig? _config;
   static bool _recording = false;
+  static bool _paused = false;
 
   static bool get isInitialized => _publicKey != null;
   static bool get isRecording => _recording;
+  static bool get isPaused => _paused;
   static RejourneyConfig? get config => _config;
   static Stream<Map<String, Object?>> get nativeEvents =>
       RejourneyPlatform.instance.events;
@@ -72,7 +74,28 @@ abstract final class Rejourney {
         await RejourneyPlatform.instance.invoke<Map<Object?, Object?>>('start');
     final result = RejourneyStartResult.fromMap(response ?? const {});
     _recording = result.success;
+    if (result.success) _paused = false;
     return result;
+  }
+
+  /// Beta: pauses recording and ordinary telemetry without ending the session.
+  static Future<bool> pause() async {
+    if (!_recording) return false;
+    if (_paused) return true;
+    final paused =
+        await RejourneyPlatform.instance.invoke<bool>('pause') ?? false;
+    if (paused) _paused = true;
+    return paused;
+  }
+
+  /// Beta: resumes the same in-app session and emits a documented gap marker.
+  static Future<bool> resume() async {
+    if (!_recording) return false;
+    if (!_paused) return true;
+    final resumed =
+        await RejourneyPlatform.instance.invoke<bool>('resume') ?? false;
+    if (resumed) _paused = false;
+    return resumed;
   }
 
   /// Flushes and stops the current native session.
@@ -104,6 +127,7 @@ abstract final class Rejourney {
       );
     } finally {
       _recording = false;
+      _paused = false;
     }
   }
 
@@ -134,6 +158,7 @@ abstract final class Rejourney {
     if (name.trim().isEmpty) {
       throw ArgumentError.value(name, 'name', 'Must not be empty');
     }
+    if (_paused) return;
     await RejourneyPlatform.instance.invoke<void>(
       'logEvent',
       <String, Object?>{
@@ -175,6 +200,7 @@ abstract final class Rejourney {
     Map<String, Object?> parameters = const <String, Object?>{},
   ]) async {
     if (screenName.trim().isEmpty) return;
+    if (_paused) return;
     await RejourneyPlatform.instance.invoke<void>(
       'trackScreen',
       <String, Object?>{
@@ -192,6 +218,7 @@ abstract final class Rejourney {
     String reason, {
     RejourneyVisualImportance importance = RejourneyVisualImportance.medium,
   }) async {
+    if (_paused) return false;
     return await RejourneyPlatform.instance.invoke<bool>(
           'markVisualChange',
           <String, Object?>{
@@ -203,6 +230,7 @@ abstract final class Rejourney {
   }
 
   static Future<void> onScroll(double offset) {
+    if (_paused) return Future<void>.value();
     return RejourneyPlatform.instance.invoke<void>(
       'onScroll',
       <String, Object?>{'offset': offset},
@@ -210,6 +238,7 @@ abstract final class Rejourney {
   }
 
   static Future<bool> onOAuthStarted(String provider) {
+    if (_paused) return Future<bool>.value(false);
     return _booleanOperation('onOAuthStarted', <String, Object?>{
       'provider': provider,
     });
@@ -219,6 +248,7 @@ abstract final class Rejourney {
     String provider, {
     required bool success,
   }) {
+    if (_paused) return Future<bool>.value(false);
     return _booleanOperation('onOAuthCompleted', <String, Object?>{
       'provider': provider,
       'success': success,
@@ -226,6 +256,7 @@ abstract final class Rejourney {
   }
 
   static Future<bool> onExternalUrlOpened(String urlScheme) {
+    if (_paused) return Future<bool>.value(false);
     return _booleanOperation('onExternalUrlOpened', <String, Object?>{
       'urlScheme': urlScheme,
     });
@@ -275,6 +306,7 @@ abstract final class Rejourney {
     _publicKey = null;
     _config = null;
     _recording = false;
+    _paused = false;
   }
 
   static Future<bool> _booleanOperation(
