@@ -14,7 +14,7 @@ import {
   Alert,
   ActivityIndicator, // <-- Import ActivityIndicator
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRootNavigationState, useRouter } from 'expo-router';
 import { supabase } from '../../supabase.js'; // Ensure this path is correct
 import {
   GoogleSignin,
@@ -23,6 +23,7 @@ import {
 import { saveAuthToken } from '../../authUtils';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { FontAwesome } from '@expo/vector-icons';
+import { TEST_MATRIX_MODE } from '@/config';
 
 // Constants
 const words = [
@@ -74,6 +75,13 @@ const LoginPage = () => {
 
   // Navigation
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
+
+  useEffect(() => {
+    if (TEST_MATRIX_MODE && rootNavigationState?.key) {
+      router.replace('/(tabs)/home');
+    }
+  }, [rootNavigationState?.key, router]);
 
   // --- Effect for checking existing session on mount ---
 // --- Effect for checking existing session on mount ---
@@ -81,6 +89,10 @@ useEffect(() => {
   const checkSession = async () => {
     setCheckingAuth(true); // Show loading indicator
     try {
+      if (TEST_MATRIX_MODE) {
+        console.log('Matrix build detected. Bypassing external sign-in.');
+        return;
+      }
       console.log("Checking for existing session...");
       // THIS IS THE KEY CHECK:
       const { data: { session }, error } = await supabase.auth.getSession();

@@ -1,0 +1,16 @@
+appId: ${APP_ID}
+name: Human-speed interaction while Rejourney is paused
+---
+- repeat:
+    times: 15
+    commands:
+      - swipe:
+          start: 50%, 72%
+          end: 50%, 36%
+          duration: 500
+          waitToSettleTimeoutMs: 150
+      - swipe:
+          start: 50%, 36%
+          end: 50%, 72%
+          duration: 500
+          waitToSettleTimeoutMs: 150

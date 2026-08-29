@@ -1,0 +1,22 @@
+appId: ${APP_ID}
+name: Stop and flush Brew matrix SDK
+---
+- launchApp:
+    clearState: false
+    # Keep the current process alive: terminating here exercises crash recovery
+    # and closes the rollover session without its normal capture-health metrics.
+    stopApp: false
+- extendedWaitUntil:
+    visible: Home.*
+    timeout: 25000
+- tapOn:
+    id: brew-tab-profile
+- scrollUntilVisible:
+    element:
+      text: Stop and flush Rejourney SDK
+    direction: DOWN
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 20000
+- tapOn: Stop and flush Rejourney SDK
+- assertVisible: SDK stopping · awaiting final upload

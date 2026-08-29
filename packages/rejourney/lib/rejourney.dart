@@ -28,6 +28,9 @@ abstract final class Rejourney {
   static RejourneyConfig? _config;
   static bool _recording = false;
   static bool _paused = false;
+  static bool _starting = false;
+  static int _sessionOperationGeneration = 0;
+  static Future<bool>? _pauseTransition;
 
   static bool get isInitialized => _publicKey != null;
   static bool get isRecording => _recording;
@@ -69,66 +72,92 @@ abstract final class Rejourney {
         error: 'disabled_in_development',
       );
     }
+    if (_recording) {
+      return const RejourneyStartResult(
+        success: false,
+        error: 'already_recording',
+      );
+    }
+    if (_starting) {
+      return const RejourneyStartResult(
+        success: false,
+        error: 'already_starting',
+      );
+    }
 
-    final response =
-        await RejourneyPlatform.instance.invoke<Map<Object?, Object?>>('start');
-    final result = RejourneyStartResult.fromMap(response ?? const {});
-    _recording = result.success;
-    if (result.success) _paused = false;
-    return result;
+    final generation = ++_sessionOperationGeneration;
+    _starting = true;
+    try {
+      final response = await RejourneyPlatform.instance
+          .invoke<Map<Object?, Object?>>('start');
+      final result = RejourneyStartResult.fromMap(response ?? const {});
+      if (generation != _sessionOperationGeneration) {
+        return const RejourneyStartResult(
+          success: false,
+          error: 'start_superseded',
+        );
+      }
+      _recording = result.success;
+      if (result.success) _paused = false;
+      return result;
+    } finally {
+      if (generation == _sessionOperationGeneration) _starting = false;
+    }
   }
 
   /// Beta: pauses recording and ordinary telemetry without ending the session.
   static Future<bool> pause() async {
-    if (!_recording) return false;
-    if (_paused) return true;
-    final paused =
-        await RejourneyPlatform.instance.invoke<bool>('pause') ?? false;
-    if (paused) _paused = true;
-    return paused;
+    return _setPaused(true);
   }
 
   /// Beta: resumes the same in-app session and emits a documented gap marker.
   static Future<bool> resume() async {
-    if (!_recording) return false;
-    if (!_paused) return true;
-    final resumed =
-        await RejourneyPlatform.instance.invoke<bool>('resume') ?? false;
-    if (resumed) _paused = false;
-    return resumed;
+    return _setPaused(false);
   }
 
   /// Flushes and stops the current native session.
   static Future<RejourneyStopResult> stop() async {
     final timeout = _config?.stopTimeout ?? const Duration(seconds: 10);
-    String? activeSessionId;
-    try {
-      activeSessionId = await getSessionId().timeout(
-        timeout < const Duration(seconds: 1)
-            ? timeout
-            : const Duration(seconds: 1),
-      );
-    } on TimeoutException {
-      // The stop request below remains authoritative even if this optional
-      // preflight lookup cannot complete quickly.
-    }
+    ++_sessionOperationGeneration;
+    _starting = false;
+    _recording = false;
+    _paused = false;
 
-    try {
-      final response = await RejourneyPlatform.instance
-          .invoke<Map<Object?, Object?>>('stop')
-          .timeout(timeout);
-      return RejourneyStopResult.fromMap(response ?? const {});
-    } on TimeoutException {
+    // Start both platform calls before yielding. This preserves method-channel
+    // ordering (session lookup, then stop) while allowing native finalization to
+    // continue independently of the optional lookup timeout.
+    final sessionIdFuture = getSessionId()
+        .timeout(
+          timeout < const Duration(seconds: 1)
+              ? timeout
+              : const Duration(seconds: 1),
+        )
+        .then<String?>((value) => value, onError: (_, __) => null);
+    final stopFuture = RejourneyPlatform.instance
+        .invoke<Map<Object?, Object?>>('stop')
+        .timeout(timeout)
+        .then<Object?>(
+          (value) => value,
+          onError: (Object error, StackTrace stack) =>
+              _CapturedAsyncFailure(error, stack),
+        );
+    final activeSessionId = await sessionIdFuture;
+
+    final stopOutcome = await stopFuture;
+    if (stopOutcome is _CapturedAsyncFailure) {
+      if (stopOutcome.error is! TimeoutException) {
+        Error.throwWithStackTrace(stopOutcome.error, stopOutcome.stack);
+      }
       return RejourneyStopResult(
         success: true,
         sessionId: activeSessionId,
         uploadSuccess: false,
         warning: 'native_flush_timeout',
       );
-    } finally {
-      _recording = false;
-      _paused = false;
     }
+    return RejourneyStopResult.fromMap(
+      (stopOutcome as Map<Object?, Object?>?) ?? const {},
+    );
   }
 
   static Future<String?> getSessionId() {
@@ -303,10 +332,13 @@ abstract final class Rejourney {
 
   @visibleForTesting
   static void resetForTesting() {
+    ++_sessionOperationGeneration;
+    _pauseTransition = null;
     _publicKey = null;
     _config = null;
     _recording = false;
     _paused = false;
+    _starting = false;
   }
 
   static Future<bool> _booleanOperation(
@@ -315,6 +347,43 @@ abstract final class Rejourney {
   ) async {
     return await RejourneyPlatform.instance.invoke<bool>(method, arguments) ??
         false;
+  }
+
+  static Future<bool> _setPaused(bool shouldPause) async {
+    // Method-channel replies are asynchronous. Serialize opposing calls so a
+    // late pause response cannot overwrite a newer resume request (or vice
+    // versa); the resulting state follows API call order.
+    while (_pauseTransition != null) {
+      final pending = _pauseTransition!;
+      try {
+        await pending;
+      } catch (_) {
+        // The next operation still gets a chance to reconcile native state.
+      }
+    }
+
+    if (!_recording) return false;
+    if (_paused == shouldPause) return true;
+
+    final generation = _sessionOperationGeneration;
+    final transition = RejourneyPlatform.instance
+        .invoke<bool>(shouldPause ? 'pause' : 'resume')
+        .then((value) {
+      final succeeded = value ?? false;
+      if (!succeeded ||
+          generation != _sessionOperationGeneration ||
+          !_recording) {
+        return false;
+      }
+      _paused = shouldPause;
+      return true;
+    });
+    _pauseTransition = transition;
+    try {
+      return await transition;
+    } finally {
+      if (identical(_pauseTransition, transition)) _pauseTransition = null;
+    }
   }
 
   static bool _shouldIgnoreNetworkUrl(String value) {
@@ -376,4 +445,11 @@ abstract final class Rejourney {
       <String, Object?>{'id': id},
     );
   }
+}
+
+final class _CapturedAsyncFailure {
+  const _CapturedAsyncFailure(this.error, this.stack);
+
+  final Object error;
+  final StackTrace stack;
 }

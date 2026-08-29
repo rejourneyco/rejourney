@@ -1,0 +1,4 @@
+appId: ${APP_ID}
+name: Matrix lifecycle background
+---
+- pressKey: Home

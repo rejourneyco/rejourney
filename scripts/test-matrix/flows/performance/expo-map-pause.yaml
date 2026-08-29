@@ -1,0 +1,19 @@
+appId: ${APP_ID}
+name: Pause Expo SDK before Apple Maps performance sample
+---
+- tapOn:
+    text: Replay Lab
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Beta SDK Pause
+    timeout: 10000
+- tapOn: Pause Rejourney SDK
+- tapOn: Pause Rejourney SDK
+- assertVisible: SDK paused · interact now
+- tapOn:
+    id: tab-map
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible:
+      id: native-map
+    timeout: 10000

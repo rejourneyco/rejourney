@@ -15,6 +15,7 @@ export type SessionPresentationState = {
     hasPendingWork: boolean;
     hasPendingReplayWork: boolean;
     isIdle: boolean;
+    isSdkPaused: boolean;
     shouldFinalize: boolean;
 };
 
@@ -29,6 +30,8 @@ type DeriveSessionPresentationStateInput = {
     startedAt?: Date | string | null;
     /** Server-resolved session end; recording is closed even if workers keep bumping lastIngestActivityAt. */
     endedAt?: Date | string | null;
+    /** One-shot mobile pause state. Paused SDKs intentionally emit no heartbeat. */
+    sdkPausedAt?: Date | string | null;
     hasPendingWork?: boolean;
     /**
      * Work that should be shown as user-visible background processing. This is
@@ -85,14 +88,22 @@ export function deriveSessionPresentationState(
         startedAt
         && now.getTime() - startedAt.getTime() >= maxSessionDurationMs
     );
+    const isSdkPaused = Boolean(
+        toDateOrNull(input.sdkPausedAt)
+        && !recordingClosed
+        && !hardTerminal
+        && !superseded
+        && !maxSessionWindowElapsed
+    );
     const isLiveIngest =
         !superseded
+        && !isSdkPaused
         && !recordingClosed
         && !hardTerminal
         && status !== 'ready'
         && status !== 'completed'
         && liveClockMs > cutoffMs;
-    const isIngestQuiescent = superseded || recordingClosed || liveClockMs <= cutoffMs;
+    const isIngestQuiescent = !isSdkPaused && (superseded || recordingClosed || liveClockMs <= cutoffMs);
     const isIdle = isIngestQuiescent;
     const canFinalizeIdleSession =
         !isWebSession
@@ -110,7 +121,7 @@ export function deriveSessionPresentationState(
     if (effectiveStatus !== 'failed' && effectiveStatus !== 'deleted' && effectiveStatus !== 'completed') {
         if (shouldFinalize) {
             effectiveStatus = 'ready';
-        } else if (isLiveIngest || hasPendingReplayWork || effectiveStatus === 'processing') {
+        } else if (isLiveIngest || isSdkPaused || hasPendingReplayWork || effectiveStatus === 'processing') {
             effectiveStatus = 'processing';
         }
     }
@@ -123,6 +134,7 @@ export function deriveSessionPresentationState(
         hasPendingWork,
         hasPendingReplayWork,
         isIdle,
+        isSdkPaused,
         shouldFinalize,
     };
 }

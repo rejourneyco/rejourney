@@ -299,6 +299,8 @@ export interface FrustrationEvent {
 export interface ErrorEvent {
   type: 'error';
   timestamp: number;
+  /** Stable identifier used to deduplicate one incident seen by multiple hooks */
+  incidentId?: string;
   /** Error message */
   message: string;
   /** Error stack trace */

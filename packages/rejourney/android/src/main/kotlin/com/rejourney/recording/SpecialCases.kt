@@ -33,6 +33,26 @@ enum class MapSDKType {
 }
 
 /**
+ * Readback is skipped only while a map camera is actually moving -- that is the
+ * decorView.draw() call that stutters on SurfaceView/TextureView tiles. Once
+ * the camera settles, capture resumes at the normal cadence: a map screen is
+ * mostly not map (sheets, results, callouts, overlays), and suppressing the
+ * whole screen because a map is mounted loses all of it. An explicit request --
+ * session start, a high-importance visual change, resume -- is never skipped;
+ * those are rare and the caller knows it needs a frame.
+ *
+ * The settled frame still arrives promptly rather than up to a tick late: the
+ * idle/tap/verification schedulers below post it on the next main-loop turn.
+ * Repeated identical idle frames cost nothing to store, because frame
+ * deduplication drops them.
+ */
+internal fun shouldCaptureMapBackedContent(
+    mapVisible: Boolean,
+    mapIdle: Boolean,
+    eventDriven: Boolean
+): Boolean = eventDriven || !mapVisible || mapIdle
+
+/**
  * Centralised map-view detection and idle-state management for Android.
  *
  * All map class name checks and SDK-specific idle hooks live here so the
@@ -70,6 +90,12 @@ class SpecialCases private constructor() {
         // At 2s after a 500pt/s flick, residual velocity is ~9pt/s (barely visible).
         private const val TOUCH_DEBOUNCE_MS = 2000L
         private const val CAMERA_SETTLE_SAMPLE_MS = 500L
+        private const val INITIAL_MAP_CAPTURE_DELAY_MS = 350L
+        internal const val MAP_IDLE_CAPTURE_DELAY_MS = 0L
+        private const val MAP_TAP_CAPTURE_DELAY_MS = 200L
+        private const val MAP_IDLE_RETRY_DELAY_MS = 350L
+        private const val MAP_VERIFICATION_DELAY_MS = 2000L
+
     }
 
     // -- Public state --------------------------------------------------------
@@ -89,12 +115,20 @@ class SpecialCases private constructor() {
     private fun setMapIdle(idle: Boolean) {
         val wasIdle = mapIdle
         mapIdle = idle
+        if (!idle) {
+            mapCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
+            mapCaptureRunnable = null
+            mapIdleRetryRunnable?.let { mainHandler.removeCallbacks(it) }
+            mapIdleRetryRunnable = null
+        }
         if (!idle && wasIdle) MapboxSnapshotCache.invalidate()
         DiagnosticLog.trace("[SpecialCases] mapIdle=$idle (was $wasIdle)")
         if (idle && !wasIdle) {
-            // Map just settled — capture a frame immediately instead of
-            // waiting up to 1s for the next timer tick.
-            try { VisualCapture.shared?.snapshotNow() } catch (_: Exception) {}
+            // Native callbacks already mean fully idle; camera sampling and
+            // touch fallbacks reach this transition only after their settle
+            // checks. Post once without another second of avoidable latency.
+            scheduleMapCapture(MAP_IDLE_CAPTURE_DELAY_MS)
+            scheduleMapIdleRetry()
         }
     }
 
@@ -120,6 +154,12 @@ class SpecialCases private constructor() {
     /** Runnable posted with TOUCH_DEBOUNCE_MS delay for touch-based idle. */
     private var touchDebounceRunnable: Runnable? = null
     private var activeMapTouch = false
+    private var activeMapTouchStartX = 0f
+    private var activeMapTouchStartY = 0f
+    private var mapTouchSequenceMoved = false
+    private var mapCaptureRunnable: Runnable? = null
+    private var mapIdleRetryRunnable: Runnable? = null
+    private var mapVerificationRunnable: Runnable? = null
 
     // -- Map detection (shallow walk) ----------------------------------------
 
@@ -127,7 +167,7 @@ class SpecialCases private constructor() {
      * Scan the activity's decor view for a supported map view.
      * Call from the capture timer (~1 Hz, main thread).
      */
-    fun refreshMapState(activity: Activity?) {
+    fun refreshMapState(activity: Activity?, eventDrivenCaptureInProgress: Boolean = false) {
         if (activity == null) {
             clearMapState()
             return
@@ -137,10 +177,10 @@ class SpecialCases private constructor() {
             clearMapState()
             return
         }
-        refreshMapState(decorView)
+        refreshMapState(decorView, eventDrivenCaptureInProgress)
     }
 
-    fun refreshMapState(root: View) {
+    fun refreshMapState(root: View, eventDrivenCaptureInProgress: Boolean = false) {
         val result = findMapView(root, depth = 0)
         if (result != null) {
             val (mapView, sdk) = result
@@ -158,10 +198,8 @@ class SpecialCases private constructor() {
                 sampleCameraMotion()
             }
 
-            if (!wasVisible) {
-                // Capture an initial frame the moment we detect the map so
-                // the replay always has a starting frame of the map screen.
-                try { VisualCapture.shared?.snapshotNow() } catch (_: Exception) {}
+            if (!wasVisible && !eventDrivenCaptureInProgress) {
+                scheduleMapCapture(INITIAL_MAP_CAPTURE_DELAY_MS)
             }
         } else {
             clearMapState()
@@ -405,16 +443,25 @@ class SpecialCases private constructor() {
     // -- Touch-based idle detection (fallback) --------------------------------
 
     /**
-     * Called by InteractionRecorder when a touch begins while a map is visible.
-     * Sets mapIdle to false immediately.  Always used for "map moving" detection
-     * because SDK camera-change hooks (subscribeCameraChanged etc.) often fail
-     * or use different APIs across Mapbox v10/v11.
+     * Called by InteractionRecorder when a touch begins inside any supported
+     * map. Every integration uses this to arm the settled verification; only
+     * integrations without reliable callbacks also use it as their idle gate.
      */
     fun notifyTouchBegan(rawX: Float, rawY: Float) {
         activeMapTouch = false
         if (!mapVisible) return
         activeMapTouch = pointInsideHookedMap(rawX, rawY)
         if (!activeMapTouch) return
+        activeMapTouchStartX = rawX
+        activeMapTouchStartY = rawY
+        mapTouchSequenceMoved = false
+        mapCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapCaptureRunnable = null
+        mapIdleRetryRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapIdleRetryRunnable = null
+        mapVerificationRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapVerificationRunnable = null
+        if (!usesTouchBasedIdle) return
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         touchDebounceRunnable = null
         if (mapIdle) {
@@ -422,15 +469,54 @@ class SpecialCases private constructor() {
         }
     }
 
+    /** Observe the whole gesture so returning drags and pinches are not taps. */
+    fun notifyTouchMoved(rawX: Float, rawY: Float, multiTouch: Boolean) {
+        if (!activeMapTouch || !mapVisible) return
+        if (multiTouch) {
+            mapTouchSequenceMoved = true
+            return
+        }
+        val map = hookedMapView?.get() ?: return
+        val density = map.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val tapSlopPx = 12f * density
+        val dx = rawX - activeMapTouchStartX
+        val dy = rawY - activeMapTouchStartY
+        if (dx * dx + dy * dy > tapSlopPx * tapSlopPx) {
+            mapTouchSequenceMoved = true
+        }
+    }
+
     /**
      * Called by InteractionRecorder when a touch ends/cancels while a map is visible.
-     * Starts a debounce timer and then confirms a stable camera signature,
-     * accounting for momentum after the finger lifts.
+     * Movement arms the universal one-shot verification. Touch-idle fallbacks
+     * additionally confirm a stable camera signature after finger lift.
      */
-    fun notifyTouchEnded() {
+    fun notifyTouchEnded(rawX: Float, rawY: Float) {
         val endedMapTouch = activeMapTouch
         activeMapTouch = false
-        if (!endedMapTouch || !usesTouchBasedIdle || !mapVisible) return
+        if (!endedMapTouch || !mapVisible) return
+
+        val map = hookedMapView?.get() ?: return
+        val density = map.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val tapSlopPx = 12f * density
+        val dx = rawX - activeMapTouchStartX
+        val dy = rawY - activeMapTouchStartY
+        val touchMoved = mapTouchSequenceMoved || dx * dx + dy * dy > tapSlopPx * tapSlopPx
+        mapTouchSequenceMoved = false
+        if (touchMoved) {
+            scheduleMapVerification()
+        }
+
+        if (!usesTouchBasedIdle) {
+            if (!mapIdle || touchMoved) return
+
+            // A marker tap can change a callout without moving the camera, so
+            // no camera-idle callback fires. Capture once after presentation,
+            // coalescing rapid taps instead of resuming periodic readback.
+            scheduleMapCapture(MAP_TAP_CAPTURE_DELAY_MS)
+            return
+        }
+
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         val runnable = Runnable {
             touchDebounceRunnable = null
@@ -460,6 +546,52 @@ class SpecialCases private constructor() {
         }
     }
 
+    private fun scheduleMapCapture(delayMs: Long) {
+        mapCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            mapCaptureRunnable = null
+            if (mapVisible && mapIdle) {
+                try { VisualCapture.shared?.snapshotNow() } catch (_: Exception) {}
+            }
+        }
+        mapCaptureRunnable = runnable
+        mainHandler.postDelayed(runnable, delayMs)
+    }
+
+    /** Give GPU-backed maps one bounded chance to publish final idle pixels. */
+    private fun scheduleMapIdleRetry() {
+        mapIdleRetryRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            mapIdleRetryRunnable = null
+            if (!mapVisible || !mapIdle || activeMapTouch) return@Runnable
+            scheduleMapCapture(0L)
+        }
+        mapIdleRetryRunnable = runnable
+        mainHandler.postDelayed(runnable, MAP_IDLE_RETRY_DELAY_MS)
+    }
+
+    /**
+     * Performs one settled verification readback after a completed map
+     * pan/zoom/rotate. Some renderers can report camera idle before their final
+     * GPU-backed pixels are available to the hierarchy capture. A new map touch
+     * cancels and rearms this watchdog, so it never reads back while panning.
+     */
+    private fun scheduleMapVerification() {
+        mapVerificationRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            mapVerificationRunnable = null
+            if (!mapVisible || activeMapTouch) return@Runnable
+            if (!mapIdle) {
+                setMapIdle(true)
+            }
+            // Coalesce with an idle-transition capture posted on this same
+            // main-loop turn. Frame deduplication drops an unchanged result.
+            scheduleMapCapture(0L)
+        }
+        mapVerificationRunnable = runnable
+        mainHandler.postDelayed(runnable, MAP_VERIFICATION_DELAY_MS)
+    }
+
     // -- Cleanup -------------------------------------------------------------
 
     /** Release map references and timers when recording stops. */
@@ -487,7 +619,14 @@ class SpecialCases private constructor() {
         usesTouchBasedIdle = false
         touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         touchDebounceRunnable = null
+        mapCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapCaptureRunnable = null
+        mapIdleRetryRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapIdleRetryRunnable = null
+        mapVerificationRunnable?.let { mainHandler.removeCallbacks(it) }
+        mapVerificationRunnable = null
         activeMapTouch = false
+        mapTouchSequenceMoved = false
         MapboxSnapshotCache.clear()
     }
 }

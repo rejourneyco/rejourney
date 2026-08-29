@@ -162,6 +162,12 @@ type SessionContext = {
     orientation_end: string | null;
     orientation_change_count: number | null;
     display_max_refresh_rate_hz: number | null;
+    capture_health_reported: boolean | null;
+    frames_captured: number | null;
+    frames_skipped_duplicate: number | null;
+    frames_skipped_throttle: number | null;
+    frames_skipped_backlog: number | null;
+    frames_skipped_map_moving: number | null;
     sdk_upload_success_count: number | null;
     sdk_upload_failure_count: number | null;
     sdk_retry_attempt_count: number | null;
@@ -3300,6 +3306,12 @@ async function loadSessionContext(sessionId: string): Promise<{
             sm.orientation_end,
             sm.orientation_change_count,
             sm.display_max_refresh_rate_hz,
+            sm.capture_health_reported,
+            sm.frames_captured,
+            sm.frames_skipped_duplicate,
+            sm.frames_skipped_throttle,
+            sm.frames_skipped_backlog,
+            sm.frames_skipped_map_moving,
             sm.sdk_upload_success_count,
             sm.sdk_upload_failure_count,
             sm.sdk_retry_attempt_count,
@@ -4302,6 +4314,7 @@ function booleanValue(value: unknown): boolean | null {
 }
 
 function buildSessionMetrics(session: SessionContext): Record<string, unknown> {
+    const captureHealthReported = session.capture_health_reported === true;
     return {
         total_events: session.total_events || 0,
         custom_event_count: session.custom_event_count || 0,
@@ -4350,6 +4363,12 @@ function buildSessionMetrics(session: SessionContext): Record<string, unknown> {
         orientation_end: session.orientation_end || null,
         orientation_change_count: session.orientation_change_count ?? null,
         display_max_refresh_rate_hz: session.display_max_refresh_rate_hz ?? null,
+        capture_health_reported: captureHealthReported,
+        frames_captured: captureHealthReported ? (session.frames_captured ?? 0) : null,
+        frames_skipped_duplicate: captureHealthReported ? (session.frames_skipped_duplicate ?? 0) : null,
+        frames_skipped_throttle: captureHealthReported ? (session.frames_skipped_throttle ?? 0) : null,
+        frames_skipped_backlog: captureHealthReported ? (session.frames_skipped_backlog ?? 0) : null,
+        frames_skipped_map_moving: captureHealthReported ? (session.frames_skipped_map_moving ?? 0) : null,
         sdk_upload_success_count: session.sdk_upload_success_count || 0,
         sdk_upload_failure_count: session.sdk_upload_failure_count || 0,
         sdk_retry_attempt_count: session.sdk_retry_attempt_count || 0,

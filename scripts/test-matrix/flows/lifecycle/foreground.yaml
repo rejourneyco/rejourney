@@ -1,0 +1,9 @@
+appId: ${APP_ID}
+name: Matrix lifecycle foreground
+---
+- launchApp:
+    clearState: false
+    stopApp: false
+- extendedWaitUntil:
+    visible: ${READY_TEXT}
+    timeout: 20000

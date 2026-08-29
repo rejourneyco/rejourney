@@ -36,6 +36,14 @@ import {
     type MobileTapPoint,
 } from '../utils/mobileFrustration.js';
 import { shouldTrustClientFrustrationCountsForPlatform } from './ingestSessionEnd.js';
+import {
+    applySdkPauseTransition,
+    extractSdkPauseTransitionFromEvent,
+    normalizeSdkPauseTransition,
+    sessionAcceptsSdkPauseTransition,
+    shouldApplySdkPauseTransition,
+    type SdkPauseTransition,
+} from './sessionSdkPause.js';
 
 export {
     computeMobileFrustrationCounts as computeMobileFrustrationCountsForIngest,
@@ -446,6 +454,7 @@ export async function processEventsArtifact(
     let observedBackgroundTimeSeconds: number | null = null;
     let earliestClientEventAt: Date | null = null;
     let latestClientEventAt: Date | null = null;
+    let latestSdkPauseTransition: SdkPauseTransition | null = null;
     const recentTaps: MobileTapPoint[] = [];
     const screenPath: string[] = [];
     const clickHouseApiEndpointRows: ClickHouseApiEndpointEventRow[] = [];
@@ -657,6 +666,32 @@ export async function processEventsArtifact(
 
         const type = (event.type || '').toLowerCase();
         const gestureType = (event.gestureType || '').toLowerCase();
+
+        const rawPauseTransition = extractSdkPauseTransitionFromEvent(event);
+        const pauseTransition = rawPauseTransition
+            ? normalizeSdkPauseTransition({
+                occurredAt: rawPauseTransition.occurredAt.getTime(),
+                pauseId: rawPauseTransition.pauseId,
+                paused: rawPauseTransition.paused,
+                session,
+            })
+            : null;
+        if (
+            pauseTransition
+            && shouldApplySdkPauseTransition(
+                latestSdkPauseTransition?.occurredAt,
+                pauseTransition.occurredAt,
+                latestSdkPauseTransition
+                    ? {
+                        existingPaused: latestSdkPauseTransition.paused,
+                        incomingPaused: pauseTransition.paused,
+                        samePauseId: latestSdkPauseTransition.pauseId === pauseTransition.pauseId,
+                    }
+                    : undefined,
+            )
+        ) {
+            latestSdkPauseTransition = pauseTransition;
+        }
 
         if (type === 'navigation') {
             recordScreenSeen(normalizedScreenFromEvent(event), eventTimestampMs(event));
@@ -911,6 +946,15 @@ export async function processEventsArtifact(
                 log.info({ userId: identityChange.userDisplayId }, 'Session userId updated from user_identity_changed event');
             }
         }
+    }
+
+    if (latestSdkPauseTransition && sessionAcceptsSdkPauseTransition(session)) {
+        const applied = await applySdkPauseTransition(job.sessionId, latestSdkPauseTransition);
+        log.info({
+            applied,
+            pauseId: latestSdkPauseTransition.pauseId,
+            paused: latestSdkPauseTransition.paused,
+        }, 'Applied SDK pause state from durable events artifact');
     }
 
     // Update session metrics

@@ -8,6 +8,8 @@ export interface NativeStartOptions {
   userId: string;
   apiUrl: string;
   publicKey: string;
+  /** Non-secret backend project identifier used to bind durable native uploads. */
+  projectId?: string;
   debug?: boolean;
   fps?: number;
   /** Native image quality preset (RejourneyModule / RejourneyImpl `quality`) */
@@ -99,6 +101,7 @@ export function buildNativeStartOptions(
     textInputMasking?: 'all' | 'secure_only';
     imageVideoMasking?: 'none' | 'all';
     recordingFps?: number;
+    projectId?: string;
   } = {}
 ): NativeStartOptions {
   const options: NativeStartOptions = {
@@ -107,6 +110,10 @@ export function buildNativeStartOptions(
     publicKey,
     captureNativeSheets: config?.captureNativeSheets ?? true,
   };
+
+  if (effectiveOptions.projectId) {
+    options.projectId = effectiveOptions.projectId;
+  }
 
   if (typeof effectiveOptions.captureScreen === 'boolean') {
     options.captureScreen = effectiveOptions.captureScreen;

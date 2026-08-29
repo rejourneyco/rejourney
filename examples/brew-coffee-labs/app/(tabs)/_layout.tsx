@@ -81,6 +81,7 @@ export default function TabLayout() {
         name="home"
         options={{
           title: 'Home',
+          tabBarTestID: 'brew-tab-home',
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={24} 
@@ -96,6 +97,7 @@ export default function TabLayout() {
         name="community"
         options={{
           title: 'Community',
+          tabBarTestID: 'brew-tab-community',
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={24} 
@@ -135,6 +137,7 @@ export default function TabLayout() {
         name="my-recipes"
         options={{
           title: 'Recipes',
+          tabBarTestID: 'brew-tab-recipes',
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={24} 
@@ -150,6 +153,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
+          tabBarTestID: 'brew-tab-profile',
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={24} 

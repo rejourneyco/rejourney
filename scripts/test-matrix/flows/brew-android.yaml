@@ -1,0 +1,8 @@
+appId: com.example.brew
+name: Brew Coffee Labs Android matrix smoke
+tags:
+  - matrix
+  - react-native-compat
+  - android
+---
+- runFlow: shared/brew-smoke.yaml

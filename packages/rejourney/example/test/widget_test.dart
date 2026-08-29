@@ -10,6 +10,8 @@ void main() {
 
     expect(find.text('Rejourney Flutter'), findsOneWidget);
     expect(find.byKey(const Key('start-recording')), findsOneWidget);
+    expect(find.byKey(const Key('pause-sdk')), findsOneWidget);
+    expect(find.byKey(const Key('resume-sdk')), findsOneWidget);
     expect(find.byKey(const Key('track-event')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('open-checkout')));
@@ -20,5 +22,17 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('missing matrix key disables recording without an SDK call', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const RejourneyExampleApp());
+    await tester.pump();
+
+    expect(
+      find.text('Recording disabled: REJOURNEY_PUBLIC_KEY is not configured'),
+      findsOneWidget,
+    );
   });
 }

@@ -1,0 +1,12 @@
+appId: ${APP_ID}
+name: Resume Expo SDK after Apple Maps performance sample
+---
+- tapOn:
+    text: Replay Lab
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Beta SDK Pause
+    timeout: 10000
+- tapOn: Resume Rejourney SDK
+- tapOn: Resume Rejourney SDK
+- assertVisible: SDK resumed · same session

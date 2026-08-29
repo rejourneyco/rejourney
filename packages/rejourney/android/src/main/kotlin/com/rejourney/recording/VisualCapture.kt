@@ -26,7 +26,6 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Choreographer
@@ -47,12 +46,11 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.lang.ref.WeakReference
 import java.nio.ByteBuffer
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -102,9 +100,12 @@ class VisualCapture private constructor(private val context: Context) {
         private set
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val pixelCopyThread = HandlerThread("rejourney-pixel-copy").apply { start() }
-    private val pixelCopyHandler = Handler(pixelCopyThread.looper)
+    // PixelCopy performs the copy asynchronously; this Handler only selects the
+    // callback thread. Callbacks already need the main thread for view access,
+    // so avoid a permanent SDK-owned thread and an extra thread hop.
+    private val pixelCopyHandler = mainHandler
     private val windowCopyInFlight = AtomicBoolean(false)
+    private val inFlightCaptureGeneration = AtomicInteger(0)
     private val useFlutterImageViewCapture = AtomicBoolean(false)
     private val useFlutterRendererCapture = AtomicBoolean(false)
     private val allowUnfocusedCaptureForTesting = AtomicBoolean(false)
@@ -199,14 +200,7 @@ class VisualCapture private constructor(private val context: Context) {
     fun beginCapture(sessionOrigin: Long) {
         userPaused = false
         MapboxSnapshotCache.clear()
-        // Per-session counters and dedup state. The first frame of a session
-        // must always store, even if it matches the last frame of the previous.
-        lastFrameHash = null
-        framesCaptured.set(0)
-        skippedFramesThrottle.set(0)
-        skippedFramesBacklog.set(0)
-        skippedFramesMapMoving.set(0)
-        skippedFramesDuplicate.set(0)
+        SurfaceViewSnapshotCache.clear()
 
         DiagnosticLog.trace("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}, state=${stateMachine.currentState}")
 
@@ -224,13 +218,16 @@ class VisualCapture private constructor(private val context: Context) {
             return
         }
 
-        // Bump generation so any stale halt() posted by the previous session
-        // (via mainHandler.post) becomes a no-op and doesn't stop this capture.
-        captureGeneration++
-
-        // Discard any frames left over from a previous session to prevent
-        // cross-session frame leakage (frames from session A appearing in session B).
+        // Invalidate the old generation and reset its mutable capture state
+        // atomically with respect to background encodes.
         stateLock.withLock {
+            captureGeneration++
+            lastFrameHash = null
+            framesCaptured.set(0)
+            skippedFramesThrottle.set(0)
+            skippedFramesBacklog.set(0)
+            skippedFramesMapMoving.set(0)
+            skippedFramesDuplicate.set(0)
             val staleCount = screenshots.size
             if (staleCount > 0) {
                 DiagnosticLog.trace("[VisualCapture] Clearing $staleCount stale frames from previous session")
@@ -266,6 +263,7 @@ class VisualCapture private constructor(private val context: Context) {
         if (!stateMachine.transition(CaptureState.HALTED)) return
         stopCaptureTimer()
         MapboxSnapshotCache.clear()
+        SurfaceViewSnapshotCache.clear()
 
         // Flush any remaining frames to disk before halting
         flushBufferToDisk()
@@ -320,6 +318,12 @@ class VisualCapture private constructor(private val context: Context) {
     fun pauseForUser() {
         if (userPaused) return
         userPaused = true
+        // PixelCopy/encoding may already be in flight. Invalidate it before
+        // returning so pause is a hard capture boundary without dropping frames
+        // that were already buffered before the pause request.
+        stateLock.withLock { captureGeneration++ }
+        MapboxSnapshotCache.clear()
+        SurfaceViewSnapshotCache.clear()
         pauseForBackground()
     }
 
@@ -388,6 +392,10 @@ class VisualCapture private constructor(private val context: Context) {
         } else {
             mainHandler.post { captureFrame(force = true) }
         }
+    }
+
+    internal fun snapshotWhenSafe() {
+        mainHandler.post { captureFrame(force = false) }
     }
 
     fun forceFlutterLayerCaptureForTesting(enabled: Boolean) {
@@ -522,6 +530,7 @@ class VisualCapture private constructor(private val context: Context) {
 
     private fun captureFrame(force: Boolean = false) {
         if (userPaused) return
+        val frameGeneration = captureGeneration
         val currentFrameNum = frameCounter.get()
         if (currentFrameNum < 3) {
             DiagnosticLog.trace("[VisualCapture] captureFrame #$currentFrameNum, state=${stateMachine.currentState}, activity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
@@ -565,14 +574,19 @@ class VisualCapture private constructor(private val context: Context) {
         }
 
         // Refresh map detection state (very cheap shallow walk)
-        SpecialCases.shared.refreshMapState(activity)
+        SpecialCases.shared.refreshMapState(activity, eventDrivenCaptureInProgress = force)
 
-        // Map stutter prevention: when a map view is visible and its camera
-        // is still moving (user gesture or animation), skip decorView.draw()
-        // entirely — this call triggers GPU readback on SurfaceView/TextureView
-        // map tiles which causes visible stutter.  We resume capture at 1 FPS
-        // once the map SDK reports idle.
-        if (!force && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+        // Map stutter prevention: when a map view is visible and its camera is
+        // still moving (user gesture or animation), skip decorView.draw()
+        // entirely -- this call triggers GPU readback on SurfaceView/TextureView
+        // map tiles and causes visible stutter. Capture resumes at the normal
+        // cadence once the map SDK reports idle, and the map lifecycle also
+        // posts the settled frame on the next main-loop turn.
+        if (!shouldCaptureMapBackedContent(
+                mapVisible = SpecialCases.shared.mapVisible,
+                mapIdle = SpecialCases.shared.mapIdle,
+                eventDriven = force
+            )) {
             skippedFramesMapMoving.incrementAndGet()
             if (currentFrameNum < 3 || currentFrameNum % 30 == 0L) {
                 DiagnosticLog.trace("[VisualCapture] SKIPPING capture - map moving (mapIdle=false)")
@@ -582,6 +596,7 @@ class VisualCapture private constructor(private val context: Context) {
 
         val frameStart = SystemClock.elapsedRealtime()
 
+        var captureBitmap: Bitmap? = null
         try {
             val window = activity.window ?: return
             val decorView = window.decorView
@@ -619,6 +634,7 @@ class VisualCapture private constructor(private val context: Context) {
             // returning a black Flutter layer on some renderers/emulators.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 if (!windowCopyInFlight.compareAndSet(false, true)) return
+                inFlightCaptureGeneration.set(frameGeneration)
                 val flutterSurface = findFlutterSurfaceView(decorView)
                 if (flutterSurface != null) {
                     val flutterView = findFlutterView(decorView)
@@ -717,6 +733,7 @@ class VisualCapture private constructor(private val context: Context) {
 
             // 1. Draw the View tree (captures everything except GPU surfaces)
             val bitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
+            captureBitmap = bitmap
             val canvas = Canvas(bitmap)
             canvas.scale(1f / screenScale, 1f / screenScale)
             decorView.draw(canvas)
@@ -742,6 +759,7 @@ class VisualCapture private constructor(private val context: Context) {
                 }
                 if (!gpuContentReady) {
                     bitmap.recycle()
+                    captureBitmap = null
                     return
                 }
             }
@@ -752,10 +770,13 @@ class VisualCapture private constructor(private val context: Context) {
                 keyboardPlaceholderRect,
                 screenScale,
                 frameStart,
-                force
+                force,
+                frameGeneration
             )
+            captureBitmap = null
 
         } catch (e: Exception) {
+            captureBitmap?.let { if (!it.isRecycled) it.recycle() }
             DiagnosticLog.fault("Frame capture failed: ${e.message}")
         }
     }
@@ -808,7 +829,8 @@ class VisualCapture private constructor(private val context: Context) {
                                     keyboardPlaceholderRect,
                                     screenScale,
                                     frameStart,
-                                    force
+                                    force,
+                                    inFlightCaptureGeneration.get()
                                 )
                             } catch (e: Exception) {
                                 if (!bitmap.isRecycled) bitmap.recycle()
@@ -1320,7 +1342,8 @@ class VisualCapture private constructor(private val context: Context) {
                     keyboardPlaceholderRect,
                     screenScale,
                     frameStart,
-                    force
+                    force,
+                    inFlightCaptureGeneration.get()
                 )
             } catch (e: Exception) {
                 if (!bitmap.isRecycled) bitmap.recycle()
@@ -1534,8 +1557,9 @@ class VisualCapture private constructor(private val context: Context) {
         offsetY: Int = 0
     ): Boolean {
         findTextureViews(root, action = { tv ->
+            var tvBitmap: Bitmap? = null
             try {
-                val tvBitmap = tv.bitmap ?: return@findTextureViews
+                tvBitmap = tv.bitmap ?: return@findTextureViews
                 val loc = IntArray(2)
                 tv.getLocationInWindow(loc)
                 val left = offsetX + loc[0]
@@ -1543,11 +1567,13 @@ class VisualCapture private constructor(private val context: Context) {
                 if (regionLooksMostlyBlack(bitmap, left, top, tv.width, tv.height, screenScale)) {
                     canvas.drawBitmap(tvBitmap, left.toFloat(), top.toFloat(), null)
                 }
-                tvBitmap.recycle()
             } catch (_: Exception) {
                 // Safety: never crash if TextureView.getBitmap() fails
+            } finally {
+                tvBitmap?.let { if (!it.isRecycled) it.recycle() }
             }
         })
+        var surfaceContentReady = true
         findSurfaceViews(root, action = { sv ->
             if (!isVideoSurfaceView(sv)) return@findSurfaceViews
             try {
@@ -1558,14 +1584,20 @@ class VisualCapture private constructor(private val context: Context) {
                 if (!regionLooksMostlyBlack(bitmap, left, top, sv.width, sv.height, screenScale)) {
                     return@findSurfaceViews
                 }
-                val svBitmap = copySurfaceViewBitmap(sv) ?: return@findSurfaceViews
-                canvas.drawBitmap(svBitmap, left.toFloat(), top.toFloat(), null)
-                svBitmap.recycle()
+                surfaceContentReady = SurfaceViewSnapshotCache.composite(
+                    sv,
+                    canvas,
+                    left.toFloat(),
+                    top.toFloat(),
+                    screenScale,
+                ) && surfaceContentReady
             } catch (_: Exception) {
                 // Safety: never crash if PixelCopy fails
+                surfaceContentReady = false
             }
         })
-        return compositeMapboxSnapshot(root, canvas, offsetX, offsetY)
+        val mapContentReady = compositeMapboxSnapshot(root, canvas, offsetX, offsetY)
+        return surfaceContentReady && mapContentReady
     }
 
     /**
@@ -1628,29 +1660,6 @@ class VisualCapture private constructor(private val context: Context) {
         return false
     }
 
-    private fun copySurfaceViewBitmap(view: SurfaceView): Bitmap? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || view.width <= 0 || view.height <= 0) {
-            return null
-        }
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        val latch = CountDownLatch(1)
-        var success = false
-        try {
-            PixelCopy.request(view, bitmap, { result ->
-                success = result == PixelCopy.SUCCESS
-                latch.countDown()
-            }, pixelCopyHandler)
-            if (!latch.await(80, TimeUnit.MILLISECONDS) || !success) {
-                bitmap.recycle()
-                return null
-            }
-            return bitmap
-        } catch (_: Exception) {
-            bitmap.recycle()
-            return null
-        }
-    }
-
     private fun regionLooksMostlyBlack(
         bitmap: Bitmap,
         left: Int,
@@ -1704,8 +1713,13 @@ class VisualCapture private constructor(private val context: Context) {
         keyboardPlaceholderRect: Rect?,
         screenScale: Float,
         frameStart: Long,
-        force: Boolean
+        force: Boolean,
+        expectedGeneration: Int
     ) {
+        if (expectedGeneration != captureGeneration) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            return
+        }
         // Apply overlays while the bitmap is still mutable.
         if (redactionRegions.isNotEmpty() || keyboardPlaceholderRect != null) {
             val canvas = Canvas(bitmap)
@@ -1742,7 +1756,14 @@ class VisualCapture private constructor(private val context: Context) {
         }
 
         val captureTs = System.currentTimeMillis()
-        val frameNum = frameCounter.incrementAndGet()
+        val frameNum = stateLock.withLock {
+            if (expectedGeneration != captureGeneration) null
+            else frameCounter.incrementAndGet()
+        }
+        if (frameNum == null) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            return
+        }
         val captureMicros =
             (SystemClock.elapsedRealtime() - frameStart).coerceAtLeast(0L) * 1_000L
         captureSuccessCount.incrementAndGet()
@@ -1761,8 +1782,10 @@ class VisualCapture private constructor(private val context: Context) {
         // backgrounding and shutdown still flush every frame.
         noteCaptureCost(SystemClock.elapsedRealtime() - frameStart)
         pendingEncodes.incrementAndGet()
-        encodeExecutor.execute {
-            try {
+        try {
+            encodeExecutor.execute {
+                try {
+                    if (expectedGeneration != captureGeneration) return@execute
                 // Compress to JPEG
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
@@ -1780,6 +1803,7 @@ class VisualCapture private constructor(private val context: Context) {
 
                 // Store in buffer
                 stateLock.withLock {
+                    if (expectedGeneration != captureGeneration) return@withLock
                     val frameHash = data.contentHashCode()
                     // Skip only the append. Flushing must still be evaluated
                     // below: on a screen that never changes, returning here
@@ -1808,10 +1832,15 @@ class VisualCapture private constructor(private val context: Context) {
                         sendScreenshots()
                     }
                 }
-            } finally {
-                if (!bitmap.isRecycled) bitmap.recycle()
-                pendingEncodes.decrementAndGet()
+                } finally {
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                    pendingEncodes.decrementAndGet()
+                }
             }
+        } catch (error: RuntimeException) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            pendingEncodes.decrementAndGet()
+            throw error
         }
     }
 
@@ -2072,7 +2101,7 @@ class VisualCapture private constructor(private val context: Context) {
 
         for ((jpeg, timestamp) in images) {
             // Simple frame header: timestamp (8 bytes) + size (4 bytes) + data
-            val ts = timestamp - sessionEpoch
+            val ts = (timestamp - sessionEpoch).coerceAtLeast(0L)
             tarStream.write(longToBytes(ts))
             tarStream.write(intToBytes(jpeg.size))
             tarStream.write(jpeg)
@@ -2168,6 +2197,10 @@ class VisualCapture private constructor(private val context: Context) {
             }
             completion?.invoke(ok)
         }
+    }
+
+    fun clearPendingFrames(sessionId: String) {
+        File(context.cacheDir, "rj_pending/$sessionId/frames").deleteRecursively()
     }
 
     private fun averageMillis(totalMicros: Long, count: Long): Double {

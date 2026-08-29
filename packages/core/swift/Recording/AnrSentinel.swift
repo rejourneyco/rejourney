@@ -39,7 +39,7 @@ final class AnrSentinel: NSObject {
 
     @objc func activate() {
         if #available(iOS 14.0, *) {
-            RejourneyMetricKitDiagnostics.shared.activate()
+            RejourneyMetricKitDiagnostics.shared.activateHangDiagnostics()
         }
         os_unfair_lock_lock(_stateLock)
         guard _watchThread == nil else {
@@ -47,10 +47,14 @@ final class AnrSentinel: NSObject {
             return
         }
 
+        _volatile.generation &+= 1
+        let generation = _volatile.generation
         _volatile.running = true
+        _volatile.awaitingPong = false
+        _volatile.reportedCurrentStall = false
         _volatile.lastResponse = ProcessInfo.processInfo.systemUptime
 
-        let t = Thread { [weak self] in self?._watchLoop() }
+        let t = Thread { [weak self] in self?._watchLoop(generation: generation) }
         t.name = "co.rejourney.anr"
         t.qualityOfService = .utility
         _watchThread = t
@@ -61,30 +65,32 @@ final class AnrSentinel: NSObject {
 
     @objc func halt() {
         if #available(iOS 14.0, *) {
-            RejourneyMetricKitDiagnostics.shared.deactivate()
+            RejourneyMetricKitDiagnostics.shared.deactivateHangDiagnostics()
         }
         os_unfair_lock_lock(_stateLock)
         _volatile.running = false
+        _volatile.awaitingPong = false
+        _volatile.generation &+= 1
         _watchThread = nil
         os_unfair_lock_unlock(_stateLock)
     }
 
-    private func _watchLoop() {
+    private func _watchLoop(generation: UInt64) {
         while true {
             os_unfair_lock_lock(_stateLock)
-            let running = _volatile.running
+            let running = _volatile.running && _volatile.generation == generation
             os_unfair_lock_unlock(_stateLock)
             guard running else { break }
 
-            _sendPing()
+            _sendPing(generation: generation)
             Thread.sleep(forTimeInterval: _pollFrequency)
-            _checkPong()
+            _checkPong(generation: generation)
         }
     }
 
-    private func _sendPing() {
+    private func _sendPing(generation: UInt64) {
         os_unfair_lock_lock(_stateLock)
-        if _volatile.awaitingPong {
+        if !_volatile.running || _volatile.generation != generation || _volatile.awaitingPong {
             os_unfair_lock_unlock(_stateLock)
             return
         }
@@ -94,37 +100,61 @@ final class AnrSentinel: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             os_unfair_lock_lock(self._stateLock)
+            guard self._volatile.running, self._volatile.generation == generation else {
+                os_unfair_lock_unlock(self._stateLock)
+                return
+            }
             self._volatile.lastResponse = ProcessInfo.processInfo.systemUptime
             self._volatile.awaitingPong = false
+            self._volatile.reportedCurrentStall = false
             os_unfair_lock_unlock(self._stateLock)
         }
     }
 
-    private func _checkPong() {
+    private func _checkPong(generation: UInt64) {
         os_unfair_lock_lock(_stateLock)
+        guard _volatile.running, _volatile.generation == generation else {
+            os_unfair_lock_unlock(_stateLock)
+            return
+        }
         let awaiting = _volatile.awaitingPong
         let last = _volatile.lastResponse
-        let lastReportedAt = _volatile.lastAnrReport
+        let alreadyReported = _volatile.reportedCurrentStall
         os_unfair_lock_unlock(_stateLock)
-
-        guard awaiting else { return }
 
         let now = ProcessInfo.processInfo.systemUptime
         let delta = now - last
-        if delta >= _freezeThreshold {
-            // Avoid spamming duplicate ANRs while one long freeze persists.
-            if now - lastReportedAt < _freezeThreshold {
+        if Self.shouldReportFreeze(
+            awaitingPong: awaiting,
+            elapsed: delta,
+            threshold: _freezeThreshold,
+            alreadyReported: alreadyReported
+        ) {
+            os_unfair_lock_lock(_stateLock)
+            guard _volatile.running,
+                  _volatile.generation == generation,
+                  _volatile.awaitingPong,
+                  !_volatile.reportedCurrentStall else {
+                os_unfair_lock_unlock(_stateLock)
                 return
             }
-
-            os_unfair_lock_lock(_stateLock)
-            _volatile.lastAnrReport = now
-            _volatile.lastResponse = now
-            _volatile.awaitingPong = false
+            // Keep awaitingPong set until the main queue actually responds.
+            // Resetting it here caused one long freeze to look like a series
+            // of separate ANRs every threshold interval.
+            _volatile.reportedCurrentStall = true
             os_unfair_lock_unlock(_stateLock)
 
             _reportFreeze(duration: delta)
         }
+    }
+
+    static func shouldReportFreeze(
+        awaitingPong: Bool,
+        elapsed: TimeInterval,
+        threshold: TimeInterval,
+        alreadyReported: Bool
+    ) -> Bool {
+        awaitingPong && elapsed >= threshold && !alreadyReported
     }
 
     private func _reportFreeze(duration: TimeInterval) {
@@ -178,8 +208,9 @@ final class AnrSentinel: NSObject {
 private struct VolatileState {
     var running = false
     var awaitingPong = false
+    var generation: UInt64 = 0
     var lastResponse: TimeInterval = 0
-    var lastAnrReport: TimeInterval = 0
+    var reportedCurrentStall = false
 }
 
 @objc(RJNativeResponsivenessWatcher)

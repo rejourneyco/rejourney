@@ -34,8 +34,24 @@ import type { NetworkRequestParams } from '../types';
 let originalFetch: typeof fetch | null = null;
 let originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
 let originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
+let installedFetch: typeof fetch | null = null;
+let installedXHROpen: typeof XMLHttpRequest.prototype.open | null = null;
+let installedXHRSend: typeof XMLHttpRequest.prototype.send | null = null;
 
 let logCallback: ((request: NetworkRequestParams) => void) | null = null;
+let requestSequence = 0;
+let interceptionEpoch = 0;
+
+function monotonicNow(): number {
+  return typeof globalThis.performance?.now === 'function'
+    ? globalThis.performance.now()
+    : Date.now();
+}
+
+function nextRequestId(prefix: 'f' | 'x', wallTimeMs: number): string {
+  requestSequence = (requestSequence + 1) >>> 0;
+  return `${prefix}${wallTimeMs}_${requestSequence}`;
+}
 
 const MAX_PENDING_REQUESTS = 100;
 const pendingRequests: (NetworkRequestParams | null)[] = new Array(MAX_PENDING_REQUESTS).fill(null);
@@ -52,7 +68,7 @@ const SAMPLE_WINDOW = 10000;
 const MAX_PER_ENDPOINT = 20;
 
 const config = {
-  enabled: true,
+  enabled: false,
   apiUrl: undefined as string | undefined,
   ignorePatterns: [] as (string | RegExp)[],
   maxUrlLength: 300,
@@ -303,7 +319,12 @@ function shouldSampleRequest(urlPath: string): boolean {
 /**
  * Add request to pending buffer (non-blocking)
  */
-function queueRequest(request: NetworkRequestParams): void {
+function queueRequest(request: NetworkRequestParams, requestEpoch: number): void {
+  // A request can finish after pause/stop, or after a later session resumes.
+  // Never let a completion cross capture intervals and re-populate a queue
+  // that teardown deliberately cleared.
+  if (!config.enabled || !logCallback || requestEpoch !== interceptionEpoch) return;
+
   if (pendingCount >= MAX_PENDING_REQUESTS) {
     // Buffer full, drop oldest
     pendingHead = (pendingHead + 1) % MAX_PENDING_REQUESTS;
@@ -378,11 +399,21 @@ function parseUrlFast(url: string): { host: string; path: string } {
  */
 function interceptFetch(): void {
   if (typeof globalThis.fetch === 'undefined') return;
-  if (originalFetch) return;
+  if (installedFetch) {
+    // A host wrapper may temporarily own the global while retaining our
+    // interceptor underneath it. Do not clobber that wrapper. If the host later
+    // restores the exact transport we originally wrapped, however, a new SDK
+    // session must reattach the existing interceptor or network capture remains
+    // silently disabled after resume/restart.
+    if (originalFetch && globalThis.fetch === originalFetch) {
+      globalThis.fetch = installedFetch;
+    }
+    return;
+  }
 
   originalFetch = globalThis.fetch;
 
-  globalThis.fetch = function optimizedFetch(
+  installedFetch = function optimizedFetch(
     input: RequestInfo | URL,
     init?: RequestInit
   ): Promise<Response> {
@@ -407,7 +438,13 @@ function interceptFetch(): void {
     }
 
     const startTime = Date.now();
-    const method = ((init?.method || 'GET').toUpperCase()) as NetworkRequestParams['method'];
+    const startMonotonic = monotonicNow();
+    const requestId = nextRequestId('f', startTime);
+    const requestEpoch = interceptionEpoch;
+    const inputMethod = typeof input === 'object' && 'method' in input
+      ? String(input.method)
+      : undefined;
+    const method = ((init?.method || inputMethod || 'GET').toUpperCase()) as NetworkRequestParams['method'];
 
     const requestBodySize = config.captureSizes ? getBodySize(init?.body) : 0;
 
@@ -417,37 +454,40 @@ function interceptFetch(): void {
           ? await getFetchResponseSize(response)
           : 0;
 
+        const endTime = Date.now();
         queueRequest({
-          requestId: `f${startTime}`,
+          requestId,
           method,
           url: url.length > config.maxUrlLength ? url.substring(0, config.maxUrlLength) : url,
           statusCode: response.status,
-          duration: Date.now() - startTime,
+          duration: Math.max(0, monotonicNow() - startMonotonic),
           startTimestamp: startTime,
-          endTimestamp: Date.now(),
+          endTimestamp: endTime,
           success: response.ok,
           requestBodySize,
           responseBodySize,
-        });
+        }, requestEpoch);
         return response;
       },
       (error) => {
+        const endTime = Date.now();
         queueRequest({
-          requestId: `f${startTime}`,
+          requestId,
           method,
           url: url.length > config.maxUrlLength ? url.substring(0, config.maxUrlLength) : url,
           statusCode: 0,
-          duration: Date.now() - startTime,
+          duration: Math.max(0, monotonicNow() - startMonotonic),
           startTimestamp: startTime,
-          endTimestamp: Date.now(),
+          endTimestamp: endTime,
           success: false,
           errorMessage: error?.message || 'Network error',
           requestBodySize,
-        });
+        }, requestEpoch);
         throw error;
       }
     );
   };
+  globalThis.fetch = installedFetch;
 }
 
 /**
@@ -455,78 +495,93 @@ function interceptFetch(): void {
  */
 function interceptXHR(): void {
   if (typeof XMLHttpRequest === 'undefined') return;
-  if (originalXHROpen) return;
+  // open/send ownership is independent. A host instrumentor can wrap just one
+  // method, and stop must still remove whichever Rejourney wrapper it owns.
+  if (!installedXHROpen) {
+    originalXHROpen = XMLHttpRequest.prototype.open;
+    installedXHROpen = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async: boolean = true,
+      username?: string | null,
+      password?: string | null
+    ): void {
+      const urlString = typeof url === 'string' ? url : url.toString();
 
-  originalXHROpen = XMLHttpRequest.prototype.open;
-  originalXHRSend = XMLHttpRequest.prototype.send;
+      (this as any).__rj = {
+        m: method.toUpperCase(),
+        u: urlString,
+        t: 0,
+        mt: 0,
+        id: '',
+        epoch: 0,
+      };
 
-  XMLHttpRequest.prototype.open = function (
-    method: string,
-    url: string | URL,
-    async: boolean = true,
-    username?: string | null,
-    password?: string | null
-  ): void {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    (this as any).__rj = {
-      m: method.toUpperCase(),
-      u: urlString,
-      t: 0,
+      return originalXHROpen!.call(this, method, urlString, async, username, password);
     };
+    XMLHttpRequest.prototype.open = installedXHROpen;
+  } else if (originalXHROpen && XMLHttpRequest.prototype.open === originalXHROpen) {
+    XMLHttpRequest.prototype.open = installedXHROpen;
+  }
 
-    return originalXHROpen!.call(this, method, urlString, async, username, password);
-  };
+  if (!installedXHRSend) {
+    originalXHRSend = XMLHttpRequest.prototype.send;
+    installedXHRSend = function (this: XMLHttpRequest, body?: any): void {
+      const data = (this as any).__rj;
 
-  XMLHttpRequest.prototype.send = function (body?: any): void {
-    const data = (this as any).__rj;
+      if (!config.enabled || !logCallback || !data || shouldIgnoreNetworkUrl(data.u)) {
+        return originalXHRSend!.call(this, body);
+      }
+      const { path } = parseUrlFast(data.u);
+      if (!shouldSampleRequest(path)) {
+        return originalXHRSend!.call(this, body);
+      }
 
-    if (!config.enabled || !logCallback || !data || shouldIgnoreNetworkUrl(data.u)) {
+      if (config.captureSizes && body) {
+        data.reqSize = getBodySize(body);
+      } else {
+        data.reqSize = 0;
+      }
+
+      data.t = Date.now();
+      data.mt = monotonicNow();
+      data.id = nextRequestId('x', data.t);
+      data.epoch = interceptionEpoch;
+
+      const onComplete = () => {
+        this.removeEventListener('load', onComplete);
+        this.removeEventListener('error', onComplete);
+        this.removeEventListener('abort', onComplete);
+
+        const endTime = Date.now();
+        const responseBodySize = config.captureSizes ? getXhrResponseSize(this) : 0;
+
+        queueRequest({
+          requestId: data.id,
+          method: data.m as NetworkRequestParams['method'],
+          url: data.u.length > config.maxUrlLength ? data.u.substring(0, config.maxUrlLength) : data.u,
+          statusCode: this.status,
+          duration: Math.max(0, monotonicNow() - data.mt),
+          startTimestamp: data.t,
+          endTimestamp: endTime,
+          success: this.status >= 200 && this.status < 400,
+          errorMessage: this.status === 0 ? 'Network error' : undefined,
+          requestBodySize: data.reqSize,
+          responseBodySize,
+        }, data.epoch);
+      };
+
+      this.addEventListener('load', onComplete);
+      this.addEventListener('error', onComplete);
+      this.addEventListener('abort', onComplete);
+
       return originalXHRSend!.call(this, body);
-    }
-    const { path } = parseUrlFast(data.u);
-    if (!shouldSampleRequest(path)) {
-      return originalXHRSend!.call(this, body);
-    }
-
-    if (config.captureSizes && body) {
-      data.reqSize = getBodySize(body);
-    } else {
-      data.reqSize = 0;
-    }
-
-    data.t = Date.now();
-
-    const onComplete = () => {
-      this.removeEventListener('load', onComplete);
-      this.removeEventListener('error', onComplete);
-      this.removeEventListener('abort', onComplete);
-
-      const endTime = Date.now();
-
-      const responseBodySize = config.captureSizes ? getXhrResponseSize(this) : 0;
-
-      queueRequest({
-        requestId: `x${data.t}`,
-        method: data.m as NetworkRequestParams['method'],
-        url: data.u.length > config.maxUrlLength ? data.u.substring(0, config.maxUrlLength) : data.u,
-        statusCode: this.status,
-        duration: endTime - data.t,
-        startTimestamp: data.t,
-        endTimestamp: endTime,
-        success: this.status >= 200 && this.status < 400,
-        errorMessage: this.status === 0 ? 'Network error' : undefined,
-        requestBodySize: data.reqSize,
-        responseBodySize,
-      });
     };
-
-    this.addEventListener('load', onComplete);
-    this.addEventListener('error', onComplete);
-    this.addEventListener('abort', onComplete);
-
-    return originalXHRSend!.call(this, body);
-  };
+    XMLHttpRequest.prototype.send = installedXHRSend;
+  } else if (originalXHRSend && XMLHttpRequest.prototype.send === originalXHRSend) {
+    XMLHttpRequest.prototype.send = installedXHRSend;
+  }
 }
 
 /**
@@ -540,6 +595,8 @@ export function initNetworkInterceptor(
     captureSizes?: boolean;
   }
 ): void {
+  const wasActive = config.enabled && logCallback !== null;
+  if (!wasActive) interceptionEpoch = (interceptionEpoch + 1) >>> 0;
   logCallback = callback;
   config.enabled = true;
 
@@ -558,6 +615,9 @@ export function initNetworkInterceptor(
  * Disable network interception
  */
 export function disableNetworkInterceptor(): void {
+  if (config.enabled || logCallback !== null) {
+    interceptionEpoch = (interceptionEpoch + 1) >>> 0;
+  }
   config.enabled = false;
 
   if (flushTimer) {
@@ -593,16 +653,21 @@ export function restoreNetworkInterceptor(): void {
   // cancel the pending timer so no interceptor work survives SDK teardown.
   disableNetworkInterceptor();
 
-  if (originalFetch) {
+  if (originalFetch && globalThis.fetch === installedFetch) {
     globalThis.fetch = originalFetch;
     originalFetch = null;
+    installedFetch = null;
   }
 
-  if (originalXHROpen && originalXHRSend) {
+  if (originalXHROpen && XMLHttpRequest.prototype.open === installedXHROpen) {
     XMLHttpRequest.prototype.open = originalXHROpen;
-    XMLHttpRequest.prototype.send = originalXHRSend;
     originalXHROpen = null;
+    installedXHROpen = null;
+  }
+  if (originalXHRSend && XMLHttpRequest.prototype.send === installedXHRSend) {
+    XMLHttpRequest.prototype.send = originalXHRSend;
     originalXHRSend = null;
+    installedXHRSend = null;
   }
 
   logCallback = null;

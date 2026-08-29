@@ -1,0 +1,6 @@
+appId: ${APP_ID}
+name: Resume Flutter matrix SDK
+---
+- tapOn: Resume SDK
+- tapOn: Resume SDK
+- assertVisible: SDK resumed · same session

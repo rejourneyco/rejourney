@@ -1,0 +1,9 @@
+appId: ${APP_ID}
+name: Start Brew matrix session
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: Home.*
+    timeout: 25000

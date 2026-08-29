@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.platform.SessionLifecycleService
@@ -201,6 +202,12 @@ internal class RejourneyNativeController(
                 )
             ).toString()
         )
+        SegmentDispatcher.shared.updatePauseState(
+            active.sessionId,
+            pause.id,
+            true,
+            pause.startedAtMs
+        )
         TelemetryPipeline.shared?.dispatchNow()
         SegmentDispatcher.shared.shipPending()
         VisualCapture.shared?.pauseForUser()
@@ -216,17 +223,24 @@ internal class RejourneyNativeController(
         if (ReplayOrchestrator.shared?.replayId != active.sessionId) return false
 
         userPause = null
+        val resumedAtMs = System.currentTimeMillis()
         TelemetryPipeline.shared?.resume()
         ReplayOrchestrator.shared?.recordCustomEvent(
             "sdk_resumed",
             JSONObject(
                 mapOf(
                     "pauseId" to pause.id,
-                    "gapDurationMs" to (System.currentTimeMillis() - pause.startedAtMs).coerceAtLeast(0),
+                    "gapDurationMs" to (resumedAtMs - pause.startedAtMs).coerceAtLeast(0),
                     "sdkVersion" to SDK_VERSION,
                     "apiStatus" to "beta"
                 )
             ).toString()
+        )
+        SegmentDispatcher.shared.updatePauseState(
+            active.sessionId,
+            pause.id,
+            false,
+            resumedAtMs
         )
         ReplayOrchestrator.shared?.resumeFromUser()
         VisualCapture.shared?.resumeFromUser()
@@ -259,7 +273,7 @@ internal class RejourneyNativeController(
     }
 
     fun logEvent(name: String, properties: Map<String, Any?>) {
-        if (name.isBlank()) return
+        if (userPause != null || name.isBlank()) return
         when (name) {
             "network_request" -> TelemetryPipeline.shared?.recordNetworkEvent(properties.withoutNulls())
             "error" -> TelemetryPipeline.shared?.recordJSErrorEvent(
@@ -291,7 +305,7 @@ internal class RejourneyNativeController(
     }
 
     fun trackScreen(name: String) {
-        if (name.isBlank()) return
+        if (userPause != null || name.isBlank()) return
         if (state is SessionState.Active) {
             recordScreen(name)
         } else if (pendingScreens.lastOrNull() != name) {
@@ -301,6 +315,7 @@ internal class RejourneyNativeController(
     }
 
     fun markVisualChange(importance: String): Boolean {
+        if (userPause != null) return false
         if (importance == "high" || importance == "critical") {
             VisualCapture.shared?.snapshotNow()
         }
@@ -308,6 +323,7 @@ internal class RejourneyNativeController(
     }
 
     fun onScroll() {
+        if (userPause != null) return
         ReplayOrchestrator.shared?.logScrollAction()
     }
 
@@ -370,7 +386,7 @@ internal class RejourneyNativeController(
     private fun handleBackground() {
         val current = state as? SessionState.Active ?: return
         state = SessionState.Paused(current.sessionId)
-        backgroundedAt = System.currentTimeMillis()
+        backgroundedAt = SystemClock.elapsedRealtime()
         DiagnosticLog.trace("[Rejourney] App backgrounded; pausing ${current.sessionId}")
         VisualCapture.shared?.pauseForBackground()
         ReplayOrchestrator.shared?.pauseForBackground()
@@ -383,7 +399,8 @@ internal class RejourneyNativeController(
 
     private fun handleForeground() {
         val paused = state as? SessionState.Paused ?: return
-        val duration = System.currentTimeMillis() - (backgroundedAt ?: System.currentTimeMillis())
+        val duration = (SystemClock.elapsedRealtime() - (backgroundedAt ?: SystemClock.elapsedRealtime()))
+            .coerceAtLeast(0L)
         backgroundedAt = null
         DiagnosticLog.trace("[Rejourney] App foregrounded after ${duration}ms")
         if (userPause == null) TelemetryPipeline.shared?.resume()
@@ -415,9 +432,12 @@ internal class RejourneyNativeController(
                 return
             }
             state = SessionState.Active(actualSession)
+            // Clear background state even while user-paused. Both components
+            // retain their user-pause guard, so no capture work restarts until
+            // resume() is called; this only makes that later resume possible.
+            VisualCapture.shared?.resumeFromBackground()
+            ReplayOrchestrator.shared?.resumeFromBackground()
             if (userPause == null) {
-                VisualCapture.shared?.resumeFromBackground()
-                ReplayOrchestrator.shared?.resumeFromBackground()
                 TelemetryPipeline.shared?.recordAppForeground(duration)
             }
             StabilityMonitor.shared?.transmitStoredReport()
@@ -495,6 +515,10 @@ internal class RejourneyNativeController(
         TelemetryPipeline.shared?.apiToken = publicKey
         SegmentDispatcher.shared.endpoint = apiUrl
         DeviceRegistrar.shared?.endpoint = apiUrl
+        // A durable incident is bound to both its original project and host.
+        // Install the complete route before the worker snapshots it; otherwise
+        // a custom endpoint can race the queued upload on a fresh process.
+        StabilityMonitor.shared?.transmitStoredReport()
         RejourneyNetworkEventFilter.configure(apiUrl)
         RejourneyNetworkInterceptor.setEnabled(options.bool("autoTrackNetwork", true))
 
@@ -550,8 +574,15 @@ internal class RejourneyNativeController(
             if (!sessionId.isNullOrBlank()) {
                 state = SessionState.Active(sessionId)
                 ReplayOrchestrator.shared?.activateGestureRecording()
+                currentUserId?.let { ReplayOrchestrator.shared?.associateUser(it) }
+                metadata.forEach { (key, value) ->
+                    ReplayOrchestrator.shared?.attachAttribute(key, attributeString(value))
+                }
+                pendingScreens.forEach(::recordScreen)
+                pendingScreens.clear()
                 val pause = userPause
                 if (pause != null) {
+                    val inheritedPauseAtMs = System.currentTimeMillis()
                     ReplayOrchestrator.shared?.recordCustomEvent(
                         "sdk_paused",
                         JSONObject(
@@ -563,16 +594,15 @@ internal class RejourneyNativeController(
                             )
                         ).toString()
                     )
+                    SegmentDispatcher.shared.updatePauseState(
+                        sessionId,
+                        pause.id,
+                        true,
+                        inheritedPauseAtMs
+                    )
                     VisualCapture.shared?.pauseForUser()
                     ReplayOrchestrator.shared?.pauseForUser()
                     TelemetryPipeline.shared?.pause()
-                } else {
-                    currentUserId?.let { ReplayOrchestrator.shared?.associateUser(it) }
-                    metadata.forEach { (key, value) ->
-                        ReplayOrchestrator.shared?.attachAttribute(key, attributeString(value))
-                    }
-                    pendingScreens.forEach(::recordScreen)
-                    pendingScreens.clear()
                 }
                 DiagnosticLog.replayBegan(sessionId)
                 completion(result(true, sessionId, telemetryOnly = !recordingEnabled))

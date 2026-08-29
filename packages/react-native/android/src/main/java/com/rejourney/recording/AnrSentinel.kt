@@ -19,6 +19,7 @@ package com.rejourney.recording
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.core.os.HandlerCompat
 import com.rejourney.engine.DiagnosticLog
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -42,6 +43,13 @@ class AnrSentinel private constructor() {
             get() = instance ?: synchronized(this) {
                 instance ?: AnrSentinel().also { instance = it }
             }
+
+        internal fun shouldReportAnr(
+            elapsedMs: Long,
+            missedPongs: Int,
+            thresholdMs: Long,
+            alreadyReported: Boolean
+        ): Boolean = elapsedMs >= thresholdMs && missedPongs > 0 && !alreadyReported
     }
 
     var currentSessionId: String? = null
@@ -52,8 +60,12 @@ class AnrSentinel private constructor() {
     private val lastResponseTime = AtomicLong(SystemClock.uptimeMillis())
     private val pingSequence = AtomicInteger(0)
     private val pongSequence = AtomicInteger(0)
+    private val reportedCurrentStall = AtomicBoolean(false)
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // A synchronous Handler can sit behind a display-vsync synchronization
+    // barrier while the main Looper is otherwise responsive. The watchdog is
+    // an input-responsiveness signal, so its ping must bypass those barriers.
+    private val mainHandler: Handler = HandlerCompat.createAsync(Looper.getMainLooper())
 
     fun activate() {
         if (isActive.getAndSet(true)) return
@@ -62,6 +74,7 @@ class AnrSentinel private constructor() {
         // previous app background periods.
         lastResponseTime.set(SystemClock.uptimeMillis())
         pongSequence.set(pingSequence.get())
+        reportedCurrentStall.set(false)
 
         startWatchdog()
     }
@@ -86,6 +99,7 @@ class AnrSentinel private constructor() {
                         // Main thread is responsive, update pong
                         pongSequence.set(currentPing)
                         lastResponseTime.set(SystemClock.uptimeMillis())
+                        reportedCurrentStall.set(false)
                     }
 
                     Thread.sleep(checkInterval)
@@ -94,12 +108,14 @@ class AnrSentinel private constructor() {
                     val elapsed = SystemClock.uptimeMillis() - lastResponseTime.get()
                     val missedPongs = pingSequence.get() - pongSequence.get()
 
-                    if (elapsed >= anrThresholdMs && missedPongs > 0) {
+                    if (shouldReportAnr(
+                            elapsedMs = elapsed,
+                            missedPongs = missedPongs,
+                            thresholdMs = anrThresholdMs,
+                            alreadyReported = reportedCurrentStall.get()
+                        ) && reportedCurrentStall.compareAndSet(false, true)
+                    ) {
                         captureAnr(elapsed)
-
-                        // Reset to avoid duplicate reports
-                        lastResponseTime.set(SystemClock.uptimeMillis())
-                        pongSequence.set(pingSequence.get())
                     }
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
@@ -115,6 +131,7 @@ class AnrSentinel private constructor() {
         try {
             val mainThread = Looper.getMainLooper().thread
             val stackTrace = mainThread.stackTrace
+            val threadState = mainThread.state.name.lowercase()
 
             val frames = stackTrace.map { element ->
                 "${element.className}.${element.methodName}(${element.fileName}:${element.lineNumber})"
@@ -126,7 +143,12 @@ class AnrSentinel private constructor() {
             // batch and the backend ingest worker can insert it into the anrs table
             val stackStr = frames.joinToString("\n")
             val incidentId = UUID.randomUUID().toString()
-            TelemetryPipeline.shared?.recordAnrEvent(durationMs, stackStr, incidentId)
+            TelemetryPipeline.shared?.recordAnrEvent(
+                durationMs,
+                stackStr,
+                incidentId,
+                threadState
+            )
 
             // Persist ANR incident and send through /api/ingest/fault so ANRs survive
             // process termination/background upload loss, similar to crash recovery.
@@ -143,7 +165,7 @@ class AnrSentinel private constructor() {
                 frames = frames,
                 context = mapOf(
                     "durationMs" to durationMs.toString(),
-                    "threadState" to "blocked"
+                    "threadState" to threadState
                 )
             )
             StabilityMonitor.shared?.persistIncidentSync(incident)

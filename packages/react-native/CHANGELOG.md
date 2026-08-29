@@ -1,5 +1,26 @@
 ## 1.5.1
 
+- Capture Apple Maps, Google Maps, and Mapbox on the next main-loop turn after
+  confirmed idle instead of waiting an additional second. After a real map
+  gesture, retry once after a 350 ms renderer-settle window and perform one
+  final verification capture at two seconds of quiet time. Movement is tracked
+  throughout pans and pinches; renewed movement cancels pending retries, and
+  unchanged output is removed by frame deduplication.
+- Fix a narrow iOS timing race where a new map gesture could begin while an old
+  verification or retry capture timer was still queued, which could delay or
+  miss near-immediate post-move map frames. The new logic now always cancels
+  those pending map timers at gesture start/change before re-arming capture.
+- Keep suppressing map readback only while the camera is actually moving. A map
+  screen is mostly not map -- sheets, search results, callouts, overlays -- so
+  capture resumes at the normal cadence the moment the camera settles, and an
+  explicitly requested frame (session start, a high-importance visual change, a
+  screen change, resume) is never dropped, even mid-gesture.
+- Hook each map delegate callback independently instead of requiring a host
+  delegate to own both sides of the motion lifecycle. A Google Maps host that
+  implements `mapView:idleAtCameraPosition:` without `mapView:willMove:` keeps
+  its idle signal, and the gesture observer still covers the missing half. A
+  callback is no longer discarded when a second map view is mounted behind the
+  visible one.
 - Add permissionless, callback-driven battery start/end, thermal, memory
   pressure/headroom, UI environment, orientation, and display refresh context,
   with no new Android manifest permission or iOS usage-description key.
@@ -12,6 +33,10 @@
   Android manifest or iOS Info.plist requirements.
 - Use Android 11+ historical process-exit reasons to recover system-classified
   ANRs, Java crashes, and native crashes that an in-process watchdog cannot see.
+- Post Android watchdog probes through an asynchronous main-thread handler so
+  display-vsync synchronization barriers cannot be misreported as five-second
+  ANRs. Genuine stalls now include the main thread's observed state instead of
+  always being labeled `blocked`.
 - Replace unsafe iOS signal-handler work with a next-launch native marker and
   move pending fault records out of purgeable caches.
 - Stop delaying the pre-existing React Native fatal handler by 1.2 seconds,

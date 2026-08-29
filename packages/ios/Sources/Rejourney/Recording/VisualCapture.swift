@@ -46,6 +46,28 @@ private struct VideoLayerRegion {
     let clipRect: CGRect
 }
 
+private final class VideoOutputEntry {
+    weak var item: AVPlayerItem?
+    let output: AVPlayerItemVideoOutput
+
+    init(item: AVPlayerItem, output: AVPlayerItemVideoOutput) {
+        self.item = item
+        self.output = output
+    }
+}
+
+private final class GeneratedVideoFrameEntry {
+    weak var item: AVPlayerItem?
+    let generator: AVAssetImageGenerator
+    var frame: CGImage?
+    var inFlight = false
+
+    init(item: AVPlayerItem, generator: AVAssetImageGenerator) {
+        self.item = item
+        self.generator = generator
+    }
+}
+
 @objc(RJNativeVisualCapture)
 final class VisualCapture: NSObject {
     
@@ -70,8 +92,10 @@ final class VisualCapture: NSObject {
     private var _framesDiskPath: URL?
     private var _currentSessionId: String?
     private let _ciContext = CIContext(options: nil)
-    private var _videoOutputs: [ObjectIdentifier: AVPlayerItemVideoOutput] = [:]
-    private var _videoFrameGenerators: [ObjectIdentifier: AVAssetImageGenerator] = [:]
+    private var _videoOutputs: [ObjectIdentifier: VideoOutputEntry] = [:]
+    private var _generatedVideoFrames: [ObjectIdentifier: GeneratedVideoFrameEntry] = [:]
+    private let _generatedVideoFrameLock = NSLock()
+    private var _generatedVideoFrameGeneration: UInt64 = 0
     private let _placeholderFillColor = UIColor.white
     private let _placeholderForegroundColor = UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 0.86)
     private let _maxVideoLayerScanDepth = 120
@@ -216,6 +240,13 @@ final class VisualCapture: NSObject {
     @objc func pauseForUser() {
         guard !_userPaused else { return }
         _userPaused = true
+        // A timer can already have handed work to the encoder queue. Invalidate
+        // that work before returning so an explicit privacy/performance pause is
+        // a hard capture boundary, while preserving frames buffered beforehand.
+        _stateLock.lock()
+        captureGeneration += 1
+        _stateLock.unlock()
+        _resetVideoFrameCaches()
         _stopCaptureTimer()
         _sendScreenshots()
     }
@@ -231,14 +262,7 @@ final class VisualCapture: NSObject {
     
     @objc func beginCapture(sessionOrigin: UInt64) {
         _userPaused = false
-        // Per-session counters and dedup state. The first frame of a session
-        // must always store, even if it matches the last frame of the previous.
-        _lastFrameHash = nil
-        framesCaptured = 0
-        skippedFramesThrottle = 0
-        skippedFramesBacklog = 0
-        skippedFramesMapMoving = 0
-        skippedFramesDuplicate = 0
+        _resetVideoFrameCaches()
 
         // If still in CAPTURING state (halt() from previous session hasn't
         // run yet), force-halt first to prevent it from stopping the new session.
@@ -250,11 +274,16 @@ final class VisualCapture: NSObject {
 
         guard _stateMachine.transition(to: .capturing) else { return }
 
-        // Bump generation so any stale halt() becomes a no-op
-        captureGeneration += 1
-
-        // Discard leftover frames from the previous session
+        // Invalidate the old generation and reset its mutable capture state
+        // atomically with respect to background encodes.
         _stateLock.lock()
+        captureGeneration += 1
+        _lastFrameHash = nil
+        framesCaptured = 0
+        skippedFramesThrottle = 0
+        skippedFramesBacklog = 0
+        skippedFramesMapMoving = 0
+        skippedFramesDuplicate = 0
         let staleCount = _screenshots.count
         if staleCount > 0 {
             DiagnosticLog.trace("[VisualCapture] Clearing \(staleCount) stale frames from previous session")
@@ -285,6 +314,7 @@ final class VisualCapture: NSObject {
         }
         guard _stateMachine.transition(to: .halted) else { return }
         _stopCaptureTimer()
+        _resetVideoFrameCaches()
         
         // Flush any remaining frames to disk before halting
         _flushBufferToDisk()
@@ -467,7 +497,7 @@ final class VisualCapture: NSObject {
         let frameStart = CFAbsoluteTimeGetCurrent()
         
         // Refresh map detection state (very cheap shallow walk)
-        SpecialCases.shared.refreshMapState()
+        SpecialCases.shared.refreshMapState(eventDrivenCaptureInProgress: forced)
         
         if _frameCounter < 5 || _frameCounter % 30 == 0 {
             var info = mach_task_basic_info()
@@ -483,10 +513,15 @@ final class VisualCapture: NSObject {
         
         // Map stutter prevention: when a map view is visible and its camera
         // is still moving (user gesture or animation), skip drawHierarchy
-        // entirely — this is the call that causes GPU readback stutter on
-        // Metal/OpenGL-backed map tiles.  We resume capture at 1 FPS once
-        // the map SDK reports idle.
-        if !forced && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+        // entirely -- this is the call that causes GPU readback stutter on
+        // Metal/OpenGL-backed map tiles. Capture resumes at the normal cadence
+        // once the map SDK reports idle, and the map lifecycle also posts the
+        // settled frame on the next main-loop turn rather than waiting a tick.
+        if !SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: SpecialCases.shared.mapVisible,
+            mapIdle: SpecialCases.shared.mapIdle,
+            eventDriven: forced
+        ) {
             skippedFramesMapMoving += 1
             DiagnosticLog.trace("[VisualCapture] SKIPPING frame (map moving)")
             return
@@ -1263,7 +1298,6 @@ final class VisualCapture: NSObject {
 
     private func _assetVideoFrame(for item: AVPlayerItem, at time: CMTime) -> CGImage? {
         guard item.status == .readyToPlay else { return nil }
-        let generator = _videoFrameGenerator(for: item)
         var requestedTime = time
         if item.duration.isValid, !item.duration.isIndefinite, item.duration.seconds.isFinite, item.duration.seconds > 0 {
             let maxTime = CMTimeSubtract(item.duration, CMTime(seconds: 0.05, preferredTimescale: 600))
@@ -1272,44 +1306,113 @@ final class VisualCapture: NSObject {
             }
         }
         guard requestedTime.isValid, !requestedTime.isIndefinite else { return nil }
-        return try? generator.copyCGImage(at: requestedTime, actualTime: nil)
+        return _generatedVideoFrame(for: item, at: requestedTime)
     }
 
-    private func _videoFrameGenerator(for item: AVPlayerItem) -> AVAssetImageGenerator {
+    private func _generatedVideoFrame(for item: AVPlayerItem, at time: CMTime) -> CGImage? {
         let identifier = ObjectIdentifier(item)
-        if let generator = _videoFrameGenerators[identifier] {
-            return generator
-        }
+        var entry: GeneratedVideoFrameEntry!
+        var cachedFrame: CGImage?
+        var requestGeneration: UInt64 = 0
+        var shouldRequest = false
+        var requestImmediateCapture = false
 
-        if _videoFrameGenerators.count > 16 {
-            _videoFrameGenerators.removeAll()
+        _generatedVideoFrameLock.lock()
+        if let existing = _generatedVideoFrames[identifier], existing.item === item {
+            entry = existing
+        } else {
+            _generatedVideoFrames.removeValue(forKey: identifier)
+            if _generatedVideoFrames.count >= 16,
+               let staleKey = _generatedVideoFrames.first(where: { $0.value.item == nil })?.key {
+                _generatedVideoFrames.removeValue(forKey: staleKey)
+            }
+            if _generatedVideoFrames.count >= 16, let staleKey = _generatedVideoFrames.keys.first {
+                _generatedVideoFrames.removeValue(forKey: staleKey)
+            }
+            let generator = AVAssetImageGenerator(asset: item.asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
+            generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
+            entry = GeneratedVideoFrameEntry(item: item, generator: generator)
+            _generatedVideoFrames[identifier] = entry
         }
-        let generator = AVAssetImageGenerator(asset: item.asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
-        _videoFrameGenerators[identifier] = generator
-        return generator
+        cachedFrame = entry.frame
+        if !entry.inFlight {
+            entry.inFlight = true
+            requestGeneration = _generatedVideoFrameGeneration
+            shouldRequest = true
+            requestImmediateCapture = cachedFrame == nil
+        }
+        _generatedVideoFrameLock.unlock()
+
+        if shouldRequest {
+            entry.generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { [weak self, weak entry] _, image, _, result, _ in
+                guard let self, let entry else { return }
+                var accepted = false
+                self._generatedVideoFrameLock.lock()
+                if self._generatedVideoFrameGeneration == requestGeneration,
+                   self._generatedVideoFrames[identifier] === entry,
+                   entry.item === item {
+                    entry.inFlight = false
+                    if result == .succeeded, let image {
+                        entry.frame = image
+                        accepted = true
+                    }
+                }
+                self._generatedVideoFrameLock.unlock()
+                if accepted && requestImmediateCapture {
+                    // Obey normal map-motion and backlog gates if video pixels
+                    // become ready while the user is interacting.
+                    DispatchQueue.main.async { [weak self] in self?._captureFrame() }
+                }
+            }
+        }
+        return cachedFrame
     }
 
     private func _videoOutput(for item: AVPlayerItem) -> AVPlayerItemVideoOutput {
         let identifier = ObjectIdentifier(item)
-        if let output = _videoOutputs[identifier] {
-            if !item.outputs.contains(where: { $0 === output }) {
-                item.add(output)
+        if let entry = _videoOutputs[identifier], entry.item === item {
+            if !item.outputs.contains(where: { $0 === entry.output }) {
+                item.add(entry.output)
             }
-            return output
+            return entry.output
         }
 
-        if _videoOutputs.count > 16 {
-            _videoOutputs.removeAll()
+        if let stale = _videoOutputs.removeValue(forKey: identifier), let staleItem = stale.item {
+            staleItem.remove(stale.output)
+        }
+        if _videoOutputs.count >= 16,
+           let staleKey = _videoOutputs.first(where: { $0.value.item == nil })?.key {
+            _videoOutputs.removeValue(forKey: staleKey)
+        }
+        if _videoOutputs.count >= 16, let staleKey = _videoOutputs.keys.first,
+           let stale = _videoOutputs.removeValue(forKey: staleKey), let staleItem = stale.item {
+            staleItem.remove(stale.output)
         }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
         ])
         item.add(output)
-        _videoOutputs[identifier] = output
+        _videoOutputs[identifier] = VideoOutputEntry(item: item, output: output)
         return output
+    }
+
+    private func _resetVideoFrameCaches() {
+        _generatedVideoFrameLock.lock()
+        _generatedVideoFrameGeneration &+= 1
+        let generatedEntries = Array(_generatedVideoFrames.values)
+        _generatedVideoFrames.removeAll()
+        _generatedVideoFrameLock.unlock()
+        generatedEntries.forEach { $0.generator.cancelAllCGImageGeneration() }
+
+        let outputEntries = Array(_videoOutputs.values)
+        _videoOutputs.removeAll()
+        outputEntries.forEach { entry in
+            if let item = entry.item, item.outputs.contains(where: { $0 === entry.output }) {
+                item.remove(entry.output)
+            }
+        }
     }
 
     private func _regionLooksMostlyBlack(in image: CGImage, rect: CGRect, snapshotScale: CGFloat) -> Bool {
@@ -1508,20 +1611,12 @@ final class VisualCapture: NSObject {
         _screenshots.removeAll()
         let captureSessionId = _currentSessionId
         let sessionEpoch = _sessionEpoch
-        let path = _framesDiskPath
         _stateLock.unlock()
         
         guard !frames.isEmpty else { return }
         _encodeQueue.addOperation { [weak self] in
             guard let self else { return }
             self._packageAndShip(images: frames, sessionEpoch: sessionEpoch, sessionId: captureSessionId)
-            if let path {
-                for (_, timestamp) in frames {
-                    try? FileManager.default.removeItem(
-                        at: path.appendingPathComponent("\(timestamp).jpeg")
-                    )
-                }
-            }
         }
     }
     
@@ -1529,7 +1624,7 @@ final class VisualCapture: NSObject {
     private func _packageFrameBundle(images: [(Data, UInt64)], sessionEpoch: UInt64) -> Data? {
         var archive = Data()
         for (jpeg, timestamp) in images {
-            let tsOffset = timestamp - sessionEpoch
+            let tsOffset = timestamp >= sessionEpoch ? timestamp - sessionEpoch : 0
             archive.append(_uint64BigEndian(tsOffset))
             archive.append(_uint32BigEndian(UInt32(jpeg.count)))
             archive.append(jpeg)

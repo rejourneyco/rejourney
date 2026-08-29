@@ -1,0 +1,8 @@
+appId: com.swiftui.CountriesSwiftUI
+name: Swift Countries iOS matrix smoke
+tags:
+  - matrix
+  - swift
+  - ios
+---
+- runFlow: shared/swift-smoke.yaml

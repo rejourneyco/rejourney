@@ -5,7 +5,7 @@ import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler } from '../middleware/index.js';
 import { ingestLifecycleProjectRateLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validation.js';
-import { endSessionSchema } from '../validation/ingest.js';
+import { endSessionSchema, sdkPauseStateSchema } from '../validation/ingest.js';
 import { normalizeIngestSdkVersion, resolveLifecycleSession } from '../services/ingestSessionLifecycle.js';
 import { extractDeviceIdFromUploadToken } from '../services/ingestProtocol.js';
 import { buildSdkTelemetryMergeSet, normalizeSdkTelemetry } from '../services/ingestSdkTelemetry.js';
@@ -23,6 +23,11 @@ import { markSessionIngestActivity, reconcileSessionState } from '../services/se
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
 import { getRedisDiagnosticsForLog, invalidateSessionEndpointCache, invalidateSessionExistsCache } from '../db/redis.js';
 import { normalizeClientEpochMsForSession } from '../services/sessionClock.js';
+import {
+    applySdkPauseTransition,
+    closeSdkPauseState,
+    normalizeSdkPauseTransition,
+} from '../services/sessionSdkPause.js';
 
 const router = Router();
 
@@ -30,6 +35,62 @@ function invalidateIngestHotPathCaches(projectId: string, sessionId: string): vo
     invalidateSessionExistsCache(projectId, sessionId).catch(() => {});
     invalidateSessionEndpointCache(projectId, sessionId).catch(() => {});
 }
+
+router.post(
+    '/session/pause-state',
+    apiKeyAuth,
+    requireScope('ingest'),
+    ingestLifecycleProjectRateLimiter,
+    validate(sdkPauseStateSchema),
+    asyncHandler(async (req, res) => {
+        const data = req.body;
+        const projectId = req.project!.id;
+
+        if (data.isSampledIn === false) {
+            res.json({ success: true, ignored: true, reason: 'client_sampled_out' });
+            return;
+        }
+
+        const lifecycle = await resolveLifecycleSession(projectId, data.sessionId, req, {
+            deviceId: extractDeviceIdFromUploadToken(req) || undefined,
+            sdkVersion: data.sdkVersion,
+        });
+        if (!lifecycle.session) {
+            res.json({ success: true, ignored: true, reason: 'session_not_found' });
+            return;
+        }
+
+        const session = lifecycle.session;
+        if (isSessionIngestImmutable(session)) {
+            res.json({ success: true, ignored: true, reason: 'session_immutable' });
+            return;
+        }
+
+        const serverNow = new Date();
+        const transition = normalizeSdkPauseTransition({
+            occurredAt: data.occurredAt,
+            pauseId: data.pauseId,
+            paused: data.paused,
+            serverNow,
+            session,
+        });
+        const applied = transition
+            ? await applySdkPauseTransition(session.id, transition, serverNow)
+            : false;
+
+        invalidateIngestHotPathCaches(session.projectId, session.id);
+        logger.info({
+            route: '/api/ingest/session/pause-state',
+            projectId,
+            sessionId: session.id,
+            pauseId: transition?.pauseId,
+            paused: transition?.paused,
+            applied,
+        }, 'SDK pause state received');
+
+        res.json({ success: true, applied });
+    }),
+);
 
 
 router.post(
@@ -157,6 +218,7 @@ router.post(
         });
 
         if (preserveStoredCloseTiming) {
+            await closeSdkPauseState(session.id, session.endedAt, serverNow);
             invalidateIngestHotPathCaches(session.projectId, session.id);
             log.info({
                 preservedEndedAt: session.endedAt.toISOString(),
@@ -223,6 +285,7 @@ router.post(
             durationSeconds: resolvedClose.durationSeconds,
             backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
         });
+        await closeSdkPauseState(session.id, resolvedClose.endedAt, serverNow);
         await reconcileSessionState(session.id);
 
         invalidateIngestHotPathCaches(session.projectId, session.id);

@@ -4,6 +4,7 @@ import {
   deriveRemoteStartState,
   evaluateInitAttempt,
   normalizeRemoteConfig,
+  shouldForwardCaptureCall,
 } from '../../sdk/runtimeState';
 
 describe('runtimeState', () => {
@@ -159,6 +160,15 @@ describe('runtimeState', () => {
         initializationFailed: false,
         initialized: true,
       });
+    });
+  });
+
+  describe('shouldForwardCaptureCall', () => {
+    it('suppresses capture-only JS and bridge work unless a session is active and unpaused', () => {
+      expect(shouldForwardCaptureCall(true, false)).toBe(true);
+      expect(shouldForwardCaptureCall(true, true)).toBe(false);
+      expect(shouldForwardCaptureCall(false, false)).toBe(false);
+      expect(shouldForwardCaptureCall(false, true)).toBe(false);
     });
   });
 });

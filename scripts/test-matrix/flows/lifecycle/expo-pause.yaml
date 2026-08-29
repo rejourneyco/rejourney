@@ -1,0 +1,16 @@
+appId: ${APP_ID}
+name: Pause Expo matrix SDK
+---
+- tapOn:
+    text: Replay Lab.*
+    retryTapIfNoChange: true
+- scrollUntilVisible:
+    element:
+      text: Beta SDK Pause
+    direction: UP
+    speed: 90
+    visibilityPercentage: 80
+    timeout: 20000
+- tapOn: Pause Rejourney SDK
+- tapOn: Pause Rejourney SDK
+- assertVisible: SDK paused · interact now

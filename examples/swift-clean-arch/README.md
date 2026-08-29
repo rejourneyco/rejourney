@@ -39,7 +39,7 @@ Xcode will resolve the released Rejourney Swift package along with the two remot
 
 ```swift
 Rejourney.configure(
-    publicKey: "rj_94f602bb3ff12873008b16fb2f3389cc",
+    publicKey: ProcessInfo.processInfo.environment["REJOURNEY_PUBLIC_KEY"]!,
     options: RejourneyOptions(
         apiURL: resolvedAPIURL,
         autoTrackNetwork: true,
@@ -48,7 +48,10 @@ Rejourney.configure(
 )
 ```
 
-The example resolves the API URL the same way the other example apps do: set `API_URL` (or `PUBLIC_API_URL` / `REJOURNEY_API_URL`) for a custom backend, otherwise it uses the local development API at `http://127.0.0.1:3000`.
+The example requires `REJOURNEY_PUBLIC_KEY` at launch and resolves the API URL
+from `API_URL`, `PUBLIC_API_URL`, or `REJOURNEY_API_URL`; the endpoint defaults
+to Rejourney Cloud. The release matrix launcher loads both values from ignored
+environment files so public example source cannot accidentally submit replays.
 
 The example also calls `Rejourney.start()`, identifies a demo user with a non-PII ID, tracks the countries list/detail/flag modal screens, records navigation and search events, and leaves `autoTrackNetwork` enabled so the app's `URLSession` requests appear in replay telemetry.
 

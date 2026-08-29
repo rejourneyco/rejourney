@@ -1,0 +1,8 @@
+appId: co.rejourney.rejourneyExample
+name: Flutter iOS matrix smoke
+tags:
+  - matrix
+  - flutter
+  - ios
+---
+- runFlow: shared/flutter-smoke.yaml

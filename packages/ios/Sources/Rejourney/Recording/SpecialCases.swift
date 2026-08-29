@@ -48,11 +48,19 @@ final class SpecialCases: NSObject {
     /// Defaults to true so that if we fail to hook idle we still capture.
     @objc private(set) var mapIdle: Bool = true {
         didSet {
+            if !mapIdle {
+                _mapCaptureWorkItem?.cancel()
+                _mapCaptureWorkItem = nil
+                _mapIdleRetryWorkItem?.cancel()
+                _mapIdleRetryWorkItem = nil
+            }
             if mapIdle && !oldValue && mapVisible {
-                // Map just settled — capture a frame immediately instead of
-                // waiting up to 1s for the next timer tick.  This gives the
-                // replay an up-to-date frame the instant motion ends.
-                VisualCapture.shared.snapshotNow()
+                // Native callbacks already mean fully idle; the gesture
+                // fallback reaches this transition only after its momentum
+                // debounce. Coalesce onto the next main-loop turn without
+                // adding another second that can lose the final map state.
+                _scheduleMapCapture(after: SpecialCases.mapIdleCaptureDelay)
+                _scheduleMapIdleRetry()
             }
         }
     }
@@ -63,7 +71,12 @@ final class SpecialCases: NSObject {
     // MARK: - Internals
 
     private var _hookedDelegateClass: AnyClass?
-    private var _hookedMapView: AnyObject?
+    /// Weak, matching the Android side. A strong reference outlives the map on
+    /// every path where refreshMapState stops running but the session does not
+    /// end -- a user pause, or backgrounding while a map is on screen. Nothing
+    /// on those paths clears map state, so the map's whole subtree (tile caches
+    /// and Metal drawables, tens of MB) would stay alive until resume.
+    private weak var _hookedMapView: UIView?
     private var _originalRegionDidChange: IMP?
     private var _originalRegionWillChange: IMP?
     private var _originalIdleAtCamera: IMP?
@@ -73,11 +86,16 @@ final class SpecialCases: NSObject {
     private var _replacementIdleAtCamera: IMP?
     private var _replacementWillMove: IMP?
     private var _delegateIdleHooked = false
+    private var _delegateHookGeneration: UInt64 = 0
 
     /// When true, idle detection is driven by gesture recognizer observation
     /// rather than SDK delegate callbacks.  Used for Mapbox v10+/v11 whose
     /// Swift closure-based event API cannot be hooked from the ObjC runtime.
     private var _usesGestureBasedIdle = false
+
+    /// Raw window-touch fallback is only necessary when neither complete
+    /// delegate callbacks nor continuous map recognizers are available.
+    private var _usesRawTouchIdle = false
 
     /// Debounce timer for gesture-based idle detection.
     /// Fires after the last gesture end to account for momentum/deceleration.
@@ -91,6 +109,17 @@ final class SpecialCases: NSObject {
 
     /// Gesture recognizers we've added ourselves as targets to.
     private var _observedGestureRecognizers: [UIGestureRecognizer] = []
+    private var _activeMapTouches: [ObjectIdentifier: CGPoint] = [:]
+    private var _mapTouchSequenceMoved = false
+    private var _mapCaptureWorkItem: DispatchWorkItem?
+    private var _mapIdleRetryWorkItem: DispatchWorkItem?
+    private var _mapVerificationWorkItem: DispatchWorkItem?
+    private static let _initialMapCaptureDelay: TimeInterval = 0.35
+    static let mapIdleCaptureDelay: TimeInterval = 0
+    private static let _mapTapCaptureDelay: TimeInterval = 0.2
+    private static let _mapIdleRetryDelay: TimeInterval = 0.35
+    private static let _mapVerificationDelay: TimeInterval = 2.0
+    private static let _mapTapSlopPoints: CGFloat = 12
 
     private override init() {
         super.init()
@@ -106,9 +135,11 @@ final class SpecialCases: NSObject {
     /// Scan the key window for a known map view.
     /// Call this from the capture timer (main thread, ~1 Hz).
     /// Returns quickly on the first match; limited to depth 40.
-    @objc func refreshMapState() {
+    @objc func refreshMapState(eventDrivenCaptureInProgress: Bool = false) {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in self?.refreshMapState() }
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshMapState(eventDrivenCaptureInProgress: eventDrivenCaptureInProgress)
+            }
             return
         }
 
@@ -147,8 +178,8 @@ final class SpecialCases: NSObject {
                 _hookIdleCallbacks(mapView: mapView, sdk: sdk)
             }
 
-            if !wasAlreadyVisible {
-                VisualCapture.shared.snapshotNow()
+            if !wasAlreadyVisible && !eventDrivenCaptureInProgress {
+                _scheduleMapCapture(after: SpecialCases._initialMapCaptureDelay)
             }
         } else {
             // Print diagnostic view tree dump on first 3 scans and every 10th
@@ -293,7 +324,11 @@ final class SpecialCases: NSObject {
         if !_delegateIdleHooked {
             _observeContinuousGestures(in: mapView)
         }
-        if !_delegateIdleHooked && _observedGestureRecognizers.isEmpty {
+        _usesRawTouchIdle = SpecialCases.shouldUseRawTouchFallback(
+            delegateIdleHooked: _delegateIdleHooked,
+            observedGestureCount: _observedGestureRecognizers.count
+        )
+        if _usesRawTouchIdle {
             // If delegate hooks are unavailable and the SDK exposes no
             // recognizers we can observe, fall back to raw touch idle gating.
             _usesGestureBasedIdle = true
@@ -378,6 +413,7 @@ final class SpecialCases: NSObject {
         guard let recognizers = target.gestureRecognizers, !recognizers.isEmpty else {
             DiagnosticLog.trace("[SpecialCases] Mapbox v10+: no gesture recognizers on \(NSStringFromClass(type(of: target))), falling back to touch-based")
             _usesGestureBasedIdle = true
+            _usesRawTouchIdle = true
             return
         }
 
@@ -386,10 +422,12 @@ final class SpecialCases: NSObject {
         if _observedGestureRecognizers.isEmpty {
             DiagnosticLog.trace("[SpecialCases] Mapbox v10+: no continuous gesture recognizers found, falling back to touch-based")
             _usesGestureBasedIdle = true
+            _usesRawTouchIdle = true
             return
         }
 
         _usesGestureBasedIdle = true
+        _usesRawTouchIdle = false
         DiagnosticLog.trace("[SpecialCases] Mapbox v10+: observing \(_observedGestureRecognizers.count) gesture recognizers")
     }
 
@@ -428,6 +466,17 @@ final class SpecialCases: NSObject {
         case .began, .changed:
             if gr.state == .began {
                 _activeGestureCount += 1
+                // A new pan can begin on the exact run-loop turn when the
+                // previous pan's settled watchdog fires. Cancel every pending
+                // readback here as well as in the raw-touch path; Mapbox's
+                // gesture host is not always a descendant of its render view,
+                // so raw-touch containment alone cannot close this race.
+                _mapCaptureWorkItem?.cancel()
+                _mapCaptureWorkItem = nil
+                _mapIdleRetryWorkItem?.cancel()
+                _mapIdleRetryWorkItem = nil
+                _mapVerificationWorkItem?.cancel()
+                _mapVerificationWorkItem = nil
             }
             _gestureDebounceTimer?.invalidate()
             _gestureDebounceTimer = nil
@@ -486,9 +535,27 @@ final class SpecialCases: NSObject {
 
     // MARK: - Touch-based idle detection (fallback for when gesture observation fails)
 
-    /// Called by InteractionRecorder when a touch begins while a map is visible.
-    @objc func notifyTouchBegan() {
-        guard mapVisible else { return }
+    /// Called by InteractionRecorder when a touch begins inside any supported
+    /// map. Every integration uses this to arm the settled verification; only
+    /// integrations without reliable callbacks also use it as their idle gate.
+    func notifyTouchBegan(_ touch: UITouch, in window: UIWindow) {
+        guard mapVisible,
+              let mapView = _hookedMapView,
+              mapView.window === window else { return }
+        let point = mapView.convert(touch.location(in: window), from: window)
+        guard mapView.bounds.contains(point),
+              SpecialCases.isTouchView(touch.view, within: mapView) else { return }
+        if _activeMapTouches.isEmpty {
+            _mapTouchSequenceMoved = false
+        }
+        _activeMapTouches[ObjectIdentifier(touch)] = point
+        _mapCaptureWorkItem?.cancel()
+        _mapCaptureWorkItem = nil
+        _mapIdleRetryWorkItem?.cancel()
+        _mapIdleRetryWorkItem = nil
+        _mapVerificationWorkItem?.cancel()
+        _mapVerificationWorkItem = nil
+        guard _usesRawTouchIdle else { return }
         _gestureDebounceTimer?.invalidate()
         _gestureDebounceTimer = nil
         if mapIdle {
@@ -496,9 +563,46 @@ final class SpecialCases: NSObject {
         }
     }
 
-    /// Called by InteractionRecorder when a touch ends/cancels while a map is visible.
-    @objc func notifyTouchEnded() {
-        guard mapVisible else { return }
+    /// Records movement throughout the gesture instead of comparing only its
+    /// endpoints. This catches circular pans and pinches that finish near the
+    /// coordinate where they began.
+    func notifyTouchMoved(_ touch: UITouch) {
+        guard let start = _activeMapTouches[ObjectIdentifier(touch)],
+              let mapView = _hookedMapView,
+              mapVisible else { return }
+        let point = touch.location(in: mapView)
+        if hypot(point.x - start.x, point.y - start.y) > SpecialCases._mapTapSlopPoints {
+            _mapTouchSequenceMoved = true
+        }
+    }
+
+    /// Called by InteractionRecorder when a tracked map touch ends/cancels.
+    /// Movement arms the same one-shot verification for every supported map.
+    func notifyTouchEnded(_ touch: UITouch) {
+        guard let start = _activeMapTouches.removeValue(forKey: ObjectIdentifier(touch)),
+              let mapView = _hookedMapView,
+              mapVisible else { return }
+        let end = touch.location(in: mapView)
+        let moved = hypot(end.x - start.x, end.y - start.y)
+        _mapTouchSequenceMoved = _mapTouchSequenceMoved || moved > SpecialCases._mapTapSlopPoints
+        guard _activeMapTouches.isEmpty else { return }
+
+        let touchSequenceMoved = _mapTouchSequenceMoved
+        _mapTouchSequenceMoved = false
+        if touchSequenceMoved {
+            _scheduleMapVerification()
+        }
+
+        if !_usesRawTouchIdle {
+            guard mapIdle, !touchSequenceMoved else { return }
+            // A map-marker tap can change a callout without moving the camera,
+            // so no camera-idle callback will fire. Capture that state once,
+            // after the map SDK has had a frame to present it. Coalesce rapid
+            // taps rather than reintroducing periodic GPU readback.
+            _scheduleMapCapture(after: SpecialCases._mapTapCaptureDelay)
+            return
+        }
+
         _gestureDebounceTimer?.invalidate()
         _gestureDebounceTimer = Timer.scheduledTimer(
             withTimeInterval: SpecialCases._gestureDebounceDelay,
@@ -521,19 +625,39 @@ final class SpecialCases: NSObject {
     ///   mapView:regionWillChangeAnimated:
     private func _swizzleDelegateForAppleOrMapbox(delegate: NSObject, isMapbox: Bool) {
         let delegateClass: AnyClass = type(of: delegate)
+        let didChangeSel = NSSelectorFromString("mapView:regionDidChangeAnimated:")
+        let willChangeSel = NSSelectorFromString("mapView:regionWillChangeAnimated:")
+        // class_getInstanceMethod also returns inherited methods. Mutating that
+        // Method would swizzle the superclass globally and could alter unrelated
+        // delegates, so a selector is hooked only when this concrete class owns
+        // it. Ownership is decided per selector: a delegate that implements one
+        // side of the lifecycle and inherits the other still gets its half
+        // hooked, and the gesture observer covers the half that is missing.
+        let ownsDidChange = SpecialCases.classDirectlyImplementsInstanceMethod(delegateClass, selector: didChangeSel)
+        let ownsWillChange = SpecialCases.classDirectlyImplementsInstanceMethod(delegateClass, selector: willChangeSel)
+        guard ownsDidChange || ownsWillChange else {
+            DiagnosticLog.trace("[SpecialCases] \(isMapbox ? "Mapbox" : "Apple") delegate owns neither lifecycle callback; using gesture fallback")
+            return
+        }
+        _delegateHookGeneration &+= 1
+        let hookGeneration = _delegateHookGeneration
+        _hookedDelegateClass = delegateClass
         var hookedDidChange = false
         var hookedWillChange = false
 
         // regionDidChangeAnimated -> idle
-        let didChangeSel = NSSelectorFromString("mapView:regionDidChangeAnimated:")
-        if let original = class_getInstanceMethod(delegateClass, didChangeSel) {
+        if ownsDidChange, let original = class_getInstanceMethod(delegateClass, didChangeSel) {
             let originalIMP = method_getImplementation(original)
             _originalRegionDidChange = originalIMP
-            _hookedDelegateClass = delegateClass
 
             let block: @convention(block) (AnyObject, AnyObject, Bool) -> Void = { [weak self] obj, mapView, animated in
                 // Set idle FIRST, then call original
-                self?.mapIdle = true
+                if self?._delegateHookIsActive(
+                    hookGeneration,
+                    delegateClass: delegateClass
+                ) == true {
+                    self?.mapIdle = true
+                }
                 // Call original IMP safely
                 typealias FnType = @convention(c) (AnyObject, Selector, AnyObject, Bool) -> Void
                 let fn = unsafeBitCast(originalIMP, to: FnType.self)
@@ -546,13 +670,17 @@ final class SpecialCases: NSObject {
         }
 
         // regionWillChangeAnimated -> not idle
-        let willChangeSel = NSSelectorFromString("mapView:regionWillChangeAnimated:")
-        if let original = class_getInstanceMethod(delegateClass, willChangeSel) {
+        if ownsWillChange, let original = class_getInstanceMethod(delegateClass, willChangeSel) {
             let originalIMP = method_getImplementation(original)
             _originalRegionWillChange = originalIMP
 
             let block: @convention(block) (AnyObject, AnyObject, Bool) -> Void = { [weak self] obj, mapView, animated in
-                self?.mapIdle = false
+                if self?._delegateHookIsActive(
+                    hookGeneration,
+                    delegateClass: delegateClass
+                ) == true {
+                    self?.mapIdle = false
+                }
                 typealias FnType = @convention(c) (AnyObject, Selector, AnyObject, Bool) -> Void
                 let fn = unsafeBitCast(originalIMP, to: FnType.self)
                 fn(obj, willChangeSel, mapView, animated)
@@ -563,9 +691,11 @@ final class SpecialCases: NSObject {
             hookedWillChange = true
         }
 
+        // Only a complete pair can drive idle on its own. A partial hook leaves
+        // this false so _hookIdleCallbacks still installs the gesture observer.
         _delegateIdleHooked = hookedDidChange && hookedWillChange
 
-        DiagnosticLog.trace("[SpecialCases] Hooked \(isMapbox ? "Mapbox" : "Apple") delegate on \(delegateClass)")
+        DiagnosticLog.trace("[SpecialCases] Hooked \(isMapbox ? "Mapbox" : "Apple") delegate on \(delegateClass) (didChange=\(hookedDidChange) willChange=\(hookedWillChange))")
     }
 
     // MARK: - Google Maps delegate swizzle
@@ -573,18 +703,35 @@ final class SpecialCases: NSObject {
     /// Google Maps uses `mapView:idleAtCameraPosition:` and `mapView:willMove:`.
     private func _swizzleGoogleDelegate(_ delegate: NSObject) {
         let delegateClass: AnyClass = type(of: delegate)
+        let idleSel = NSSelectorFromString("mapView:idleAtCameraPosition:")
+        let willMoveSel = NSSelectorFromString("mapView:willMove:")
+        // Google hosts very often implement idleAtCameraPosition: without
+        // willMove:. Hooking per selector keeps that idle signal instead of
+        // discarding both; see the Apple/Mapbox swizzler for the reasoning.
+        let ownsIdle = SpecialCases.classDirectlyImplementsInstanceMethod(delegateClass, selector: idleSel)
+        let ownsWillMove = SpecialCases.classDirectlyImplementsInstanceMethod(delegateClass, selector: willMoveSel)
+        guard ownsIdle || ownsWillMove else {
+            DiagnosticLog.trace("[SpecialCases] Google delegate owns neither lifecycle callback; using gesture fallback")
+            return
+        }
+        _delegateHookGeneration &+= 1
+        let hookGeneration = _delegateHookGeneration
+        _hookedDelegateClass = delegateClass
         var hookedIdle = false
         var hookedWillMove = false
 
         // idleAtCameraPosition -> idle
-        let idleSel = NSSelectorFromString("mapView:idleAtCameraPosition:")
-        if let original = class_getInstanceMethod(delegateClass, idleSel) {
+        if ownsIdle, let original = class_getInstanceMethod(delegateClass, idleSel) {
             let originalIMP = method_getImplementation(original)
             _originalIdleAtCamera = originalIMP
-            _hookedDelegateClass = delegateClass
 
             let block: @convention(block) (AnyObject, AnyObject, AnyObject) -> Void = { [weak self] obj, mapView, cameraPos in
-                self?.mapIdle = true
+                if self?._delegateHookIsActive(
+                    hookGeneration,
+                    delegateClass: delegateClass
+                ) == true {
+                    self?.mapIdle = true
+                }
                 typealias FnType = @convention(c) (AnyObject, Selector, AnyObject, AnyObject) -> Void
                 let fn = unsafeBitCast(originalIMP, to: FnType.self)
                 fn(obj, idleSel, mapView, cameraPos)
@@ -596,13 +743,17 @@ final class SpecialCases: NSObject {
         }
 
         // willMove -> not idle
-        let willMoveSel = NSSelectorFromString("mapView:willMove:")
-        if let original = class_getInstanceMethod(delegateClass, willMoveSel) {
+        if ownsWillMove, let original = class_getInstanceMethod(delegateClass, willMoveSel) {
             let originalIMP = method_getImplementation(original)
             _originalWillMove = originalIMP
 
             let block: @convention(block) (AnyObject, AnyObject, Bool) -> Void = { [weak self] obj, mapView, gesture in
-                self?.mapIdle = false
+                if self?._delegateHookIsActive(
+                    hookGeneration,
+                    delegateClass: delegateClass
+                ) == true {
+                    self?.mapIdle = false
+                }
                 typealias FnType = @convention(c) (AnyObject, Selector, AnyObject, Bool) -> Void
                 let fn = unsafeBitCast(originalIMP, to: FnType.self)
                 fn(obj, willMoveSel, mapView, gesture)
@@ -615,7 +766,7 @@ final class SpecialCases: NSObject {
 
         _delegateIdleHooked = hookedIdle && hookedWillMove
 
-        DiagnosticLog.trace("[SpecialCases] Hooked Google Maps delegate on \(delegateClass)")
+        DiagnosticLog.trace("[SpecialCases] Hooked Google Maps delegate on \(delegateClass) (idle=\(hookedIdle) willMove=\(hookedWillMove))")
     }
 
     // MARK: - Unhook / cleanup
@@ -631,6 +782,10 @@ final class SpecialCases: NSObject {
     }
 
     private func _unhookPreviousDelegate() {
+        // Any replacement retained in a later swizzler's predecessor chain
+        // becomes a forwarding-only node. A future recording cycle can install
+        // one active wrapper without the retained node emitting duplicates.
+        _delegateHookGeneration &+= 1
         // Restore only when our implementation is still installed. Another
         // library may have legitimately chained/swizzled the delegate after
         // Rejourney; overwriting that newer implementation would break the app.
@@ -682,6 +837,122 @@ final class SpecialCases: NSObject {
         }
         _observedGestureRecognizers.removeAll()
         _activeGestureCount = 0
+        _activeMapTouches.removeAll()
+    }
+
+    /// The generation and class checks carry the staleness guarantee on their
+    /// own. The reported map view is deliberately not compared against
+    /// _hookedMapView: _findMapView returns the first map in a depth-first
+    /// walk, so with two maps mounted -- a cached RN screen behind the visible
+    /// one, or a preview map beside a full one -- the hooked instance and the
+    /// reporting instance differ, and comparing them discards every real
+    /// callback in silence.
+    private func _delegateHookIsActive(
+        _ generation: UInt64,
+        delegateClass: AnyClass
+    ) -> Bool {
+        generation == _delegateHookGeneration
+            && _hookedDelegateClass === delegateClass
+            && mapVisible
+    }
+
+    static func shouldUseRawTouchFallback(
+        delegateIdleHooked: Bool,
+        observedGestureCount: Int
+    ) -> Bool {
+        !delegateIdleHooked && observedGestureCount == 0
+    }
+
+    /// Readback is skipped only while a map camera is actually moving -- that
+    /// is the drawHierarchy call that stutters on Metal/OpenGL tiles. Once the
+    /// camera settles, capture resumes at the normal cadence: a map screen is
+    /// mostly not map (sheets, results, callouts, overlays), and suppressing
+    /// the whole screen because a map is mounted loses all of it. An explicit
+    /// request -- session start, a high-importance visual change, resume --
+    /// is never skipped; those are rare and the caller knows it needs a frame.
+    ///
+    /// The settled frame still arrives promptly rather than up to a tick late:
+    /// the idle/tap/verification schedulers below post it on the next
+    /// main-loop turn. Repeated identical idle frames cost nothing to store,
+    /// because frame deduplication drops them.
+    static func shouldCaptureMapBackedContent(
+        mapVisible: Bool,
+        mapIdle: Bool,
+        eventDriven: Bool
+    ) -> Bool {
+        eventDriven || !mapVisible || mapIdle
+    }
+
+    private func _scheduleMapCapture(after delay: TimeInterval) {
+        _mapCaptureWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.mapVisible, self.mapIdle else { return }
+            self._mapCaptureWorkItem = nil
+            VisualCapture.shared.snapshotNow()
+        }
+        _mapCaptureWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// A bounded retry gives a GPU-backed map time to publish its final pixels
+    /// without restoring the old permanent one-frame-per-second idle polling.
+    private func _scheduleMapIdleRetry() {
+        _mapIdleRetryWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.mapVisible, self.mapIdle,
+                  self._activeMapTouches.isEmpty else { return }
+            self._mapIdleRetryWorkItem = nil
+            self._scheduleMapCapture(after: 0)
+        }
+        _mapIdleRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + SpecialCases._mapIdleRetryDelay,
+            execute: work
+        )
+    }
+
+    /// One settled verification readback after a completed pan/zoom/rotate.
+    /// Native idle callbacks can arrive before a Metal-backed map has made its
+    /// final pixels available to drawHierarchy. A new map touch cancels and
+    /// rearms this one-shot watchdog, so it never reads back while panning.
+    private func _scheduleMapVerification() {
+        _mapVerificationWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.mapVisible, self._activeMapTouches.isEmpty else { return }
+            self._mapVerificationWorkItem = nil
+            if !self.mapIdle {
+                self.mapIdle = true
+            }
+            // Coalesce with an idle-transition capture scheduled on this same
+            // main-loop turn. Frame deduplication drops an unchanged result.
+            self._scheduleMapCapture(after: 0)
+        }
+        _mapVerificationWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + SpecialCases._mapVerificationDelay,
+            execute: work
+        )
+    }
+
+    static func isTouchView(_ touchedView: UIView?, within mapView: UIView) -> Bool {
+        guard let touchedView else { return false }
+        return touchedView === mapView || touchedView.isDescendant(of: mapView)
+    }
+
+    /// `class_getInstanceMethod` walks superclasses. Delegate swizzling must
+    /// only mutate methods owned by the concrete class so one map cannot alter
+    /// callbacks for every instance of a shared superclass.
+    static func classDirectlyImplementsInstanceMethod(
+        _ cls: AnyClass,
+        selector: Selector
+    ) -> Bool {
+        var count: UInt32 = 0
+        guard let methods = class_copyMethodList(cls, &count) else { return false }
+        defer { free(methods) }
+        for index in 0..<Int(count) where method_getName(methods[index]) == selector {
+            return true
+        }
+        return false
     }
 
     private func _clearMapState() {
@@ -694,8 +965,17 @@ final class SpecialCases: NSObject {
         mapIdle = true
         detectedSDK = nil
         _usesGestureBasedIdle = false
+        _usesRawTouchIdle = false
         _gestureDebounceTimer?.invalidate()
         _gestureDebounceTimer = nil
+        _mapCaptureWorkItem?.cancel()
+        _mapCaptureWorkItem = nil
+        _mapIdleRetryWorkItem?.cancel()
+        _mapIdleRetryWorkItem = nil
+        _mapVerificationWorkItem?.cancel()
+        _mapVerificationWorkItem = nil
+        _activeMapTouches.removeAll()
+        _mapTouchSequenceMoved = false
     }
 
     // MARK: - Helpers

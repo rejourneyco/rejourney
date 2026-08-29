@@ -27,10 +27,11 @@ final class DeviceEnvironmentMonitor: NSObject {
     private let lock = NSLock()
     private var active = false
     private var observers: [NSObjectProtocol] = []
+    private var observerGeneration: UInt64 = 0
     private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private var memoryPressureGeneration: UInt64 = 0
     private let memoryPressureQueue = DispatchQueue(label: "co.rejourney.device-memory-pressure", qos: .utility)
     private var batteryMonitoringWasEnabled = false
-    private var orientationNotificationsWereEnabled = false
 
     private var sessionObserved = false
     private var batteryObserved = false
@@ -74,11 +75,15 @@ final class DeviceEnvironmentMonitor: NSObject {
         if resetSession { resetSessionState() }
         lock.lock()
         sessionObserved = true
-        active = true
+        if !active {
+            active = true
+            observerGeneration &+= 1
+        }
+        let generation = observerGeneration
         lock.unlock()
 
         let startOnMain = { [weak self] in
-            guard let self, self.isActive else { return }
+            guard let self, self.isActive(generation: generation) else { return }
             self.installObserversOnMain()
             self.sampleBoundaryOnMain(countOrientationChange: false)
         }
@@ -116,14 +121,18 @@ final class DeviceEnvironmentMonitor: NSObject {
         accumulateThermalDurationLocked(now: now)
         thermalThrottledSince = nil
         active = false
+        observerGeneration &+= 1
+        let generation = observerGeneration
+        memoryPressureGeneration &+= 1
+        let sourceToCancel = memoryPressureSource
+        memoryPressureSource = nil
         lock.unlock()
 
         let stopOnMain: () -> Void = { [weak self] in
-            self?.removeObserversOnMain()
+            self?.removeObserversOnMain(generation: generation)
         }
         if Thread.isMainThread { stopOnMain() } else { DispatchQueue.main.async(execute: stopOnMain) }
-        memoryPressureSource?.cancel()
-        memoryPressureSource = nil
+        sourceToCancel?.cancel()
     }
 
     func currentSnapshot() -> [String: Any] {
@@ -148,7 +157,7 @@ final class DeviceEnvironmentMonitor: NSObject {
         let monitoring = active
         let cached = currentBattery
         lock.unlock()
-        if monitoring || !cached.isEmpty { return cached }
+        if monitoring { return cached }
         if Thread.isMainThread { return readBatteryOnMain(restoreMonitoring: true) }
         return DispatchQueue.main.sync { self.readBatteryOnMain(restoreMonitoring: true) }
     }
@@ -219,6 +228,12 @@ final class DeviceEnvironmentMonitor: NSObject {
         return active
     }
 
+    private func isActive(generation: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return active && observerGeneration == generation
+    }
+
     private func resetSessionState() {
         lock.lock()
         defer { lock.unlock() }
@@ -264,8 +279,10 @@ final class DeviceEnvironmentMonitor: NSObject {
         let device = UIDevice.current
         batteryMonitoringWasEnabled = device.isBatteryMonitoringEnabled
         if !batteryMonitoringWasEnabled { device.isBatteryMonitoringEnabled = true }
-        orientationNotificationsWereEnabled = device.isGeneratingDeviceOrientationNotifications
-        if !orientationNotificationsWereEnabled { device.beginGeneratingDeviceOrientationNotifications() }
+        // Apple documents begin/end orientation generation as nestable. Owning
+        // one balanced reference avoids disabling another library's listener and
+        // also survives another owner ending its own reference mid-session.
+        device.beginGeneratingDeviceOrientationNotifications()
 
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
@@ -316,32 +333,72 @@ final class DeviceEnvironmentMonitor: NSObject {
         })
     }
 
-    private func removeObserversOnMain() {
+    private func removeObserversOnMain(generation: UInt64) {
         dispatchPrecondition(condition: .onQueue(.main))
+        lock.lock()
+        let shouldRemove = !active && observerGeneration == generation
+        lock.unlock()
+        guard shouldRemove else { return }
         let center = NotificationCenter.default
         observers.forEach { center.removeObserver($0) }
         observers.removeAll()
         if !batteryMonitoringWasEnabled { UIDevice.current.isBatteryMonitoringEnabled = false }
-        if !orientationNotificationsWereEnabled { UIDevice.current.endGeneratingDeviceOrientationNotifications() }
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
         batteryMonitoringWasEnabled = false
-        orientationNotificationsWereEnabled = false
     }
 
     private func installMemoryPressureSource() {
-        guard memoryPressureSource == nil else { return }
+        lock.lock()
+        guard active, memoryPressureSource == nil else {
+            lock.unlock()
+            return
+        }
         let source = DispatchSource.makeMemoryPressureSource(eventMask: .all, queue: memoryPressureQueue)
+        memoryPressureGeneration &+= 1
+        let generation = memoryPressureGeneration
         memoryPressureSource = source
+        lock.unlock()
         source.setEventHandler { [weak self] in
-            guard let self, self.isActive, let event = self.memoryPressureSource?.data else { return }
-            if event.contains(.critical) {
-                self.updateMemoryPressure("critical")
-            } else if event.contains(.warning) {
-                self.updateMemoryPressure("warning")
-            } else if event.contains(.normal) {
-                self.updateMemoryPressure("normal")
-            }
+            self?.handleMemoryPressureEvent(generation: generation)
         }
         source.resume()
+    }
+
+    private func handleMemoryPressureEvent(generation: UInt64) {
+        lock.lock()
+        guard active,
+              generation == memoryPressureGeneration,
+              let event = memoryPressureSource?.data else {
+            lock.unlock()
+            return
+        }
+        let pressure: String
+        if event.contains(.critical) {
+            pressure = "critical"
+        } else if event.contains(.warning) {
+            pressure = "warning"
+        } else if event.contains(.normal) {
+            pressure = "normal"
+        } else {
+            lock.unlock()
+            return
+        }
+        memoryObserved = true
+        memoryPressureCurrent = pressure
+        if pressure != "normal" { memoryPressureEventCount += 1 }
+        if memoryPressureRank(pressure) > memoryPressureRank(memoryPressurePeak) {
+            memoryPressurePeak = pressure
+        }
+        lock.unlock()
+
+        let bucket = readMemoryHeadroomBucket()
+        lock.lock()
+        guard active, generation == memoryPressureGeneration else {
+            lock.unlock()
+            return
+        }
+        updateMemoryHeadroomLocked(bucket)
+        lock.unlock()
     }
 
     private func sampleBoundaryOnMain(countOrientationChange: Bool) {
@@ -428,18 +485,6 @@ final class DeviceEnvironmentMonitor: NSObject {
         thermalThrottledDurationMs += UInt64(max(0, (now - started) * 1000))
     }
 
-    private func updateMemoryPressure(_ pressure: String) {
-        lock.lock()
-        memoryObserved = true
-        memoryPressureCurrent = pressure
-        if pressure != "normal" { memoryPressureEventCount += 1 }
-        if memoryPressureRank(pressure) > memoryPressureRank(memoryPressurePeak) {
-            memoryPressurePeak = pressure
-        }
-        lock.unlock()
-        updateMemoryHeadroom(readMemoryHeadroomBucket())
-    }
-
     private func readMemoryHeadroomBucket() -> Int? {
         let bytes = os_proc_available_memory()
         guard bytes > 0 else { return nil }
@@ -448,9 +493,13 @@ final class DeviceEnvironmentMonitor: NSObject {
     }
 
     private func updateMemoryHeadroom(_ bucket: Int?) {
-        guard let bucket else { return }
         lock.lock()
         defer { lock.unlock() }
+        updateMemoryHeadroomLocked(bucket)
+    }
+
+    private func updateMemoryHeadroomLocked(_ bucket: Int?) {
+        guard let bucket else { return }
         memoryObserved = true
         if memoryHeadroomStart == nil { memoryHeadroomStart = bucket }
         memoryHeadroomEnd = bucket

@@ -1,0 +1,11 @@
+appId: ${APP_ID}
+name: Explicitly stop and flush Expo SDK
+---
+- tapOn:
+    text: Replay Lab
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Beta SDK Pause
+    timeout: 10000
+- tapOn: Stop and flush Rejourney SDK
+- assertVisible: SDK stopping · awaiting final upload

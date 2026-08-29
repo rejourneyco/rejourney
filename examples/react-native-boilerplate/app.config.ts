@@ -34,6 +34,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       eas: { projectId: expoProjectId },
       env: process.env.ENV ?? 'development',
       apiUrl: process.env.API_URL ?? 'https://example.com',
+      rejourneyPublicKey: process.env.REJOURNEY_PUBLIC_KEY ?? '',
+      rejourneyApiUrl: process.env.REJOURNEY_API_URL ?? 'https://api.rejourney.co',
       mapboxAccessToken: process.env.MAPBOX_ACCESS_TOKEN ?? '',
     },
     plugins: [

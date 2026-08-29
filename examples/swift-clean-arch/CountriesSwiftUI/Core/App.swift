@@ -9,6 +9,19 @@
 import SwiftUI
 import EnvironmentOverrides
 
+extension View {
+    @ViewBuilder
+    func attachEnvironmentOverridesUnlessMatrix(
+        onChange: ((EnvironmentValues.Diff) -> Void)? = nil
+    ) -> some View {
+        if ProcessInfo.processInfo.environment["ENV"]?.hasPrefix("test-matrix-") == true {
+            self
+        } else {
+            attachEnvironmentOverrides(onChange: onChange)
+        }
+    }
+}
+
 @main
 struct MainApp: App {
 
@@ -55,7 +68,10 @@ extension AppEnvironment {
                 }
                     .modifier(RootViewAppearance())
                     .modelContainer(modelContainer)
-                    .attachEnvironmentOverrides(onChange: onChangeHandler)
+                    // The developer overlay marks itself modal for accessibility,
+                    // which intentionally hides the underlying app from automation.
+                    // Keep it in normal builds but remove it from matrix launches.
+                    .attachEnvironmentOverridesUnlessMatrix(onChange: onChangeHandler)
                     .inject(diContainer)
                 if modelContainer.isStub {
                     Text("⚠️ There is an issue with local database")

@@ -87,7 +87,7 @@ if result.success, let sessionId = result.sessionId {
 }
 ```
 
-## Pause and Resume (Beta, 0.5.1+)
+## Pause and Resume (Beta, 0.5.2+)
 
 Use the Beta pause API for a foreground camera, AR, or graphics-heavy screen
 where you want the current session to remain open without capture overhead:
@@ -106,7 +106,7 @@ the matching `pauseId` and `gapDurationMs`. Both methods are idempotent.
 Fatal-process recovery remains armed during the gap. If the app backgrounds for
 more than the intentional 60-second session boundary, the replacement session
 also remains paused until resume. Resume returns `false` while backgrounded.
-This API is Beta and requires native iOS SDK 0.5.1 or newer. No Info.plist or
+This API is Beta and requires native iOS SDK 0.5.2 or newer. No Info.plist or
 entitlement additions are required.
 
 ## Remote Recording Settings

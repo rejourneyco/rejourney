@@ -22,6 +22,7 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const IMAGE_COUNT = 60;
 const DENSE_ROWS = 40;
@@ -113,24 +114,24 @@ export default function Stress() {
 
   if (mode === 'images') {
     return (
-      <View style={styles.fill}>
+      <SafeAreaView style={styles.fill} edges={['top']}>
         <Back onPress={() => setMode('menu')} label="S6 · Image scroll" />
         <ImageScroll />
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (mode === 'dense') {
     return (
-      <View style={styles.fill}>
+      <SafeAreaView style={styles.fill} edges={['top']}>
         <Back onPress={() => setMode('menu')} label="S7 · Dense tree" />
         <DenseTree />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.menu}>
+    <SafeAreaView style={styles.menu} edges={['top']}>
       <Text style={styles.heading}>Capture stress</Text>
       <Text style={styles.sub}>
         Maps, video and masking live in the Map, Mapbox and Replay Lab tabs.
@@ -150,13 +151,17 @@ export default function Stress() {
       >
         <Text style={styles.buttonText}>S7 · Dense view tree</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
 function Back({ onPress, label }: { onPress: () => void; label: string }) {
   return (
-    <TouchableOpacity style={styles.back} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.back}
+      onPress={onPress}
+      testID="stress-back"
+    >
       <Text style={styles.backText}>‹ {label}</Text>
     </TouchableOpacity>
   );

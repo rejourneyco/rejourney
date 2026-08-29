@@ -13,9 +13,15 @@ enum RejourneyExample {
     /// Demo identity for Rejourney `identify` / `RejourneyOptions.userId` (not real PII).
     static let demoUserId = "user_abc123"
 
-    private static let publicKey = "rj_94f602bb3ff12873008b16fb2f3389cc"
-    // Fallback URL (Set this to your Mac's local IP address like 192.168.x.x for physical device testing)
-    private static let fallbackAPIURL = URL(string: "http://10.2.132.7:3000")!
+    private static var publicKey: String? {
+        guard let value = ProcessInfo.processInfo.environment["REJOURNEY_PUBLIC_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+    private static let fallbackAPIURL = URL(string: "https://api.rejourney.co")!
     private static var didConfigure = false
     private static var didStart = false
     private static var pendingScreens: [String] = []
@@ -35,6 +41,10 @@ enum RejourneyExample {
 
     static func configureAndStart() {
         guard shouldRun, !didConfigure else { return }
+        guard let publicKey else {
+            print("[RejourneyExample] Recording disabled: REJOURNEY_PUBLIC_KEY is not configured.")
+            return
+        }
 
         let resolvedAPIURL = apiURL
         didConfigure = true

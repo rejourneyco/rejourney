@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -56,18 +56,26 @@ final class RejourneyErrorCapture {
       isolateErrorPort,
     );
 
+    // PlatformDispatcher.onError covers unhandled asynchronous errors in the
+    // root isolate, but it is not the general isolate error channel. Dart and
+    // Firebase both recommend an isolate listener for failures outside the
+    // Flutter framework context. Keep the listener installed while paused so
+    // disposing Rejourney cannot disturb another reporter, but do no formatting
+    // or bridge work unless this SDK is actively recording.
     isolateErrorPort.handler = (Object? payload) {
+      if (!Rejourney.isRecording || Rejourney.isPaused) return;
       if (payload is! List<Object?> || payload.isEmpty) return;
       final error = payload.first ?? 'Unknown isolate error';
       final rawStack = payload.length > 1 ? payload[1] : null;
       final stack = rawStack is StackTrace
           ? rawStack
           : StackTrace.fromString(rawStack?.toString() ?? '');
+      final category = _exceptionCategory(error);
       unawaited(
         Rejourney.logEvent('error', <String, Object?>{
           'incidentId': _newIncidentId(),
-          'name': _exceptionCategory(error),
-          'exceptionCategory': _exceptionCategory(error),
+          'name': category,
+          'exceptionCategory': category,
           'message': error.toString(),
           'stack': stack.toString(),
           'source': 'dart_isolate',
@@ -78,19 +86,22 @@ final class RejourneyErrorCapture {
     Isolate.current.addErrorListener(isolateErrorPort.sendPort);
 
     capture._installedFlutterHandler = (FlutterErrorDetails details) {
-      final incidentId = _newIncidentId();
-      unawaited(
-        Rejourney.logEvent('error', <String, Object?>{
-          'incidentId': incidentId,
-          'name': _exceptionCategory(details.exception),
-          'exceptionCategory': _exceptionCategory(details.exception),
-          'message': details.exceptionAsString(),
-          'stack': details.stack?.toString(),
-          if (details.context != null) 'context': details.context.toString(),
-          'source': 'flutter_framework',
-          'handled': false,
-        }),
-      );
+      if (Rejourney.isRecording && !Rejourney.isPaused) {
+        final category = _exceptionCategory(details.exception);
+        final incidentId = _newIncidentId();
+        unawaited(
+          Rejourney.logEvent('error', <String, Object?>{
+            'incidentId': incidentId,
+            'name': category,
+            'exceptionCategory': category,
+            'message': details.exceptionAsString(),
+            'stack': details.stack?.toString(),
+            if (details.context != null) 'context': details.context.toString(),
+            'source': 'flutter_framework',
+            'handled': false,
+          }),
+        );
+      }
       if (previousFlutterHandler != null) {
         previousFlutterHandler(details);
       } else {
@@ -100,18 +111,21 @@ final class RejourneyErrorCapture {
     FlutterError.onError = capture._installedFlutterHandler;
 
     capture._installedPlatformHandler = (Object error, StackTrace stack) {
-      final incidentId = _newIncidentId();
-      unawaited(
-        Rejourney.logEvent('error', <String, Object?>{
-          'incidentId': incidentId,
-          'name': _exceptionCategory(error),
-          'exceptionCategory': _exceptionCategory(error),
-          'message': error.toString(),
-          'stack': stack.toString(),
-          'source': 'platform_dispatcher',
-          'handled': false,
-        }),
-      );
+      if (Rejourney.isRecording && !Rejourney.isPaused) {
+        final category = _exceptionCategory(error);
+        final incidentId = _newIncidentId();
+        unawaited(
+          Rejourney.logEvent('error', <String, Object?>{
+            'incidentId': incidentId,
+            'name': category,
+            'exceptionCategory': category,
+            'message': error.toString(),
+            'stack': stack.toString(),
+            'source': 'platform_dispatcher',
+            'handled': false,
+          }),
+        );
+      }
       return previousPlatformHandler?.call(error, stack) ?? false;
     };
     PlatformDispatcher.instance.onError = capture._installedPlatformHandler;
@@ -143,18 +157,21 @@ final class RejourneyErrorCapture {
     return runZonedGuarded<R>(
       body,
       (Object error, StackTrace stack) {
-        final incidentId = _newIncidentId();
-        unawaited(
-          Rejourney.logEvent('error', <String, Object?>{
-            'incidentId': incidentId,
-            'name': _exceptionCategory(error),
-            'exceptionCategory': _exceptionCategory(error),
-            'message': error.toString(),
-            'stack': stack.toString(),
-            'source': 'dart_zone',
-            'handled': false,
-          }),
-        );
+        if (Rejourney.isRecording && !Rejourney.isPaused) {
+          final category = _exceptionCategory(error);
+          final incidentId = _newIncidentId();
+          unawaited(
+            Rejourney.logEvent('error', <String, Object?>{
+              'incidentId': incidentId,
+              'name': category,
+              'exceptionCategory': category,
+              'message': error.toString(),
+              'stack': stack.toString(),
+              'source': 'dart_zone',
+              'handled': false,
+            }),
+          );
+        }
       },
     );
   }

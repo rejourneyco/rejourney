@@ -110,6 +110,56 @@ describe('sessionPresentationState', () => {
         expect(state.isIdle).toBe(true);
     });
 
+    it('keeps a silent mobile session open while the SDK is intentionally paused', () => {
+        const now = new Date('2026-04-08T12:05:00.000Z');
+        const state = deriveSessionPresentationState({
+            status: 'ready',
+            platform: 'ios',
+            replayAvailable: true,
+            lastIngestActivityAt: new Date('2026-04-08T12:01:00.000Z'),
+            startedAt: new Date('2026-04-08T12:00:00.000Z'),
+            sdkPausedAt: new Date('2026-04-08T12:01:00.000Z'),
+            hasPendingWork: false,
+            hasPendingReplayWork: false,
+            maxSessionDurationMs: 10 * 60_000,
+            now,
+        });
+
+        expect(state.isLiveIngest).toBe(false);
+        expect(state.isSdkPaused).toBe(true);
+        expect(state.isIdle).toBe(false);
+        expect(state.shouldFinalize).toBe(false);
+        expect(state.effectiveStatus).toBe('processing');
+    });
+
+    it('lets a paused session finalize when it is ended, superseded, or reaches the recording cap', () => {
+        const now = new Date('2026-04-08T12:11:00.000Z');
+        const base = {
+            status: 'processing',
+            platform: 'ios',
+            replayAvailable: true,
+            lastIngestActivityAt: new Date('2026-04-08T12:01:00.000Z'),
+            startedAt: new Date('2026-04-08T12:00:00.000Z'),
+            sdkPausedAt: new Date('2026-04-08T12:01:00.000Z'),
+            hasPendingWork: false,
+            hasPendingReplayWork: false,
+            maxSessionDurationMs: 10 * 60_000,
+            now,
+        };
+
+        expect(deriveSessionPresentationState(base).shouldFinalize).toBe(true);
+        expect(deriveSessionPresentationState({
+            ...base,
+            now: new Date('2026-04-08T12:05:00.000Z'),
+            endedAt: new Date('2026-04-08T12:04:00.000Z'),
+        }).shouldFinalize).toBe(true);
+        expect(deriveSessionPresentationState({
+            ...base,
+            now: new Date('2026-04-08T12:05:00.000Z'),
+            supersededByNewerVisitorSession: true,
+        }).shouldFinalize).toBe(true);
+    });
+
     it('maps pending status to processing for presentation', () => {
         const now = new Date();
         const state = deriveSessionPresentationState({

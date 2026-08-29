@@ -290,8 +290,16 @@ describe('ingest mobile frustration event compatibility', () => {
             framesSkippedMapMoving: 6,
         };
 
-        expect(buildSessionEndMetricsMergeSet(metrics)).toMatchObject(metrics);
+        expect(buildSessionEndMetricsMergeSet(metrics)).toEqual({
+            ...metrics,
+            captureHealthReported: true,
+        });
         expect(summarizeSessionEndMetrics(metrics)).toEqual(metrics);
+
+        expect(buildSessionEndMetricsMergeSet({
+            framesCaptured: 'invalid',
+            framesSkippedDuplicate: 2_147_483_648,
+        })).not.toHaveProperty('captureHealthReported');
     });
 
     it('normalizes additive device-quality summaries without trusting arbitrary values', () => {

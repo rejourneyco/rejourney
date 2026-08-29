@@ -67,6 +67,13 @@ type WelcomeBottomSheetContentsProps = {
   onClose: () => void;
 };
 
+const displayConfigValue = (key: string, value: string): string => {
+  if (/key|token/i.test(key)) {
+    return value ? '[configured]' : '[not configured]';
+  }
+  return value;
+};
+
 export default function BottomSheetContents({ onClose }: WelcomeBottomSheetContentsProps) {
   const { isDark } = useColorScheme();
   return (
@@ -82,7 +89,9 @@ export default function BottomSheetContents({ onClose }: WelcomeBottomSheetConte
       {Object.entries(config).map(([key, value]) => (
         <View key={key} style={styles.envContainer}>
           <Text style={[styles.envTitle, isDark && { color: colors.gray }]}>{`✅ ${key}: `}</Text>
-          <Text style={[styles.envValue, isDark && { color: colors.gray }]}>{value}</Text>
+          <Text style={[styles.envValue, isDark && { color: colors.gray }]}>
+            {displayConfigValue(key, value)}
+          </Text>
         </View>
       ))}
       <Text style={[styles.subtitle, { marginVertical: 32 }, isDark && { color: colors.gray }]}>

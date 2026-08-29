@@ -2,6 +2,7 @@ package com.rejourney.recording
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import android.os.SystemClock
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -23,6 +24,9 @@ class RejourneyNetworkInterceptor : Interceptor {
         fun setEnabled(value: Boolean) {
             enabled.set(value)
         }
+
+        internal fun elapsedDurationMs(start: Long, end: Long): Long =
+            (end - start).coerceAtLeast(0L)
     }
 
     @Throws(IOException::class)
@@ -34,6 +38,7 @@ class RejourneyNetworkInterceptor : Interceptor {
         }
 
         val startMs = System.currentTimeMillis()
+        val startElapsedMs = SystemClock.elapsedRealtime()
 
         var response: Response? = null
         var error: Exception? = null
@@ -46,7 +51,7 @@ class RejourneyNetworkInterceptor : Interceptor {
         } finally {
             try {
                 val endMs = System.currentTimeMillis()
-                val duration = endMs - startMs
+                val duration = elapsedDurationMs(startElapsedMs, SystemClock.elapsedRealtime())
 
                 val isSuccess = response?.isSuccessful == true
                 val statusCode = response?.code ?: 0
@@ -102,6 +107,6 @@ class RejourneyNetworkInterceptor : Interceptor {
             }
         }
 
-        return response!!
+        return response
     }
 }

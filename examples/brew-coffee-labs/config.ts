@@ -17,6 +17,16 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || 
   "https://your-worker-name.your-subdomain.workers.dev"; // Replace with your worker URL
 
+export const REJOURNEY_PUBLIC_KEY =
+  (Constants.expoConfig?.extra as { rejourneyPublicKey?: string })?.rejourneyPublicKey ?? '';
+
+export const REJOURNEY_API_URL =
+  (Constants.expoConfig?.extra as { rejourneyApiUrl?: string })?.rejourneyApiUrl ??
+  'https://api.rejourney.co';
+
+export const TEST_MATRIX_MODE =
+  (Constants.expoConfig?.extra as { testMatrixMode?: boolean })?.testMatrixMode === true;
+
 // Validate API URL is configured
 if (API_URL === "https://your-worker-name.your-subdomain.workers.dev") {
   console.warn(

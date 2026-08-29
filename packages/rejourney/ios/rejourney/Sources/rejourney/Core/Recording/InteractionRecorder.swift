@@ -88,6 +88,7 @@ final class InteractionRecorder: NSObject {
     }
 
     private static var _sendEventSwizzled = false
+    private static let _sendEventSwizzleLock = NSLock()
 
     /// Install a UIWindow.sendEvent swizzle to passively observe all touch events.
     /// Unlike gesture recognizers, this does NOT participate in the iOS gesture
@@ -95,13 +96,15 @@ final class InteractionRecorder: NSObject {
     /// and never delays text input focus or keyboard appearance.
     /// This is a common passive-touch approach in mobile observability SDKs.
     private func _installSendEventHook() {
+        InteractionRecorder._sendEventSwizzleLock.lock()
+        defer { InteractionRecorder._sendEventSwizzleLock.unlock() }
         guard !InteractionRecorder._sendEventSwizzled else { return }
-        InteractionRecorder._sendEventSwizzled = true
         ObjCRuntimeUtils.hotswapSafely(
             cls: UIWindow.self,
             original: #selector(UIWindow.sendEvent(_:)),
             replacement: #selector(UIWindow.rj_sendEvent(_:))
         )
+        InteractionRecorder._sendEventSwizzled = true
     }
 
     /// Called from the swizzled UIWindow.sendEvent to process raw touch events.
@@ -116,9 +119,11 @@ final class InteractionRecorder: NSObject {
             switch touch.phase {
             case .began:
                 VisualCapture.shared.invalidateMaskCache()
-                SpecialCases.shared.notifyTouchBegan()
+                SpecialCases.shared.notifyTouchBegan(touch, in: window)
+            case .moved:
+                SpecialCases.shared.notifyTouchMoved(touch)
             case .ended, .cancelled:
-                SpecialCases.shared.notifyTouchEnded()
+                SpecialCases.shared.notifyTouchEnded(touch)
             default:
                 break
             }

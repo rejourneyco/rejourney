@@ -8,19 +8,20 @@ import 'react-native-reanimated';
 import { useURL } from 'expo-linking';
 import { URLSearchParams } from 'react-native-url-polyfill';
 import { View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { API_URL } from '@/config';
+import { REJOURNEY_API_URL, REJOURNEY_PUBLIC_KEY } from '@/config';
 import React from 'react';
 
 // Toggle Rejourney SDK on/off across the app
-const REJOURNEY_ENABLED = true;
+const REJOURNEY_ENABLED = REJOURNEY_PUBLIC_KEY.length > 0;
 
 // Conditionally initialize Rejourney without statically importing the package
 if (REJOURNEY_ENABLED) {
   const { Rejourney, initRejourney, startRejourney } = require('@rejourneyco/react-native');
-  initRejourney('rj_02dc583c8036d165cc855419688f14b3', {
-    apiUrl: API_URL,
+  initRejourney(REJOURNEY_PUBLIC_KEY, {
+    apiUrl: REJOURNEY_API_URL,
     debug: true,
   });
   Rejourney.setMetadata('plan', 'premium');
@@ -34,6 +35,8 @@ if (REJOURNEY_ENABLED) {
     theme: 'dark'
   });
   startRejourney();
+} else {
+  console.warn('[Rejourney] Recording disabled: REJOURNEY_PUBLIC_KEY is not configured.');
 }
 
 // Prevent the splash screen from auto-hiding
@@ -130,11 +133,13 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
-        <Slot />
-        <StatusBar style="auto" />
-      </View>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+          <Slot />
+          <StatusBar style="auto" />
+        </View>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

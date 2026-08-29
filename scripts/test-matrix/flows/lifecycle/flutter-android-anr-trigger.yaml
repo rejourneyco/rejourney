@@ -1,0 +1,11 @@
+appId: ${APP_ID}
+name: Flutter Android intentional ANR and flush
+---
+- tapOn: Freeze native main thread (7s)
+- extendedWaitUntil:
+    visible: ANR test recovered.*
+    timeout: 20000
+- tapOn: Stop and flush
+- extendedWaitUntil:
+    visible: Session stopped.*
+    timeout: 20000

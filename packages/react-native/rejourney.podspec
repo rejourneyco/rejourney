@@ -14,6 +14,9 @@ Pod::Spec.new do |s|
   s.source       = { :git => package["repository"]["url"], :tag => "#{s.version}" }
 
   s.source_files = "ios/**/*.{h,m,mm,swift}"
+  s.resource_bundles = {
+    "rejourney_privacy" => ["ios/Resources/PrivacyInfo.xcprivacy"]
+  }
   s.swift_version = "5.0"
   s.exclude_files = "ios/build/**/*"
   s.library      = "z"

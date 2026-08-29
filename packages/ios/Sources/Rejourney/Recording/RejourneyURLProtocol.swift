@@ -24,6 +24,7 @@ class RejourneyURLProtocol: URLProtocol {
 
     private var _dataTask: URLSessionDataTask?
     private var _startMs: Int64 = 0
+    private var _startUptimeMs: Int64 = 0
     private var _endMs: Int64 = 0
     private var _response: URLResponse?
     private var _error: Error?
@@ -53,6 +54,7 @@ class RejourneyURLProtocol: URLProtocol {
 
     private static var isSwizzled = false
     private static let _stateLock = NSLock()
+    private static let _swizzleLock = NSLock()
     private static var _enabled = false
 
     private static var isEnabled: Bool {
@@ -65,6 +67,8 @@ class RejourneyURLProtocol: URLProtocol {
     private static var originalProtocolClassesIMP: IMP?
 
     private static func swizzleProtocolClasses() {
+        _swizzleLock.lock()
+        defer { _swizzleLock.unlock() }
         guard !isSwizzled else { return }
 
         let configClass: AnyClass = URLSessionConfiguration.self
@@ -159,6 +163,7 @@ class RejourneyURLProtocol: URLProtocol {
         URLProtocol.setProperty(true, forKey: RejourneyURLProtocol._handledKey, in: request)
 
         _startMs = Int64(Date().timeIntervalSince1970 * 1000)
+        _startUptimeMs = Int64(ProcessInfo.processInfo.systemUptime * 1000)
         let task = Self._sharedSession.dataTask(with: request as URLRequest)
         Self._delegateAdapter.register(task: task, protocol: self)
         _dataTask = task
@@ -203,7 +208,8 @@ class RejourneyURLProtocol: URLProtocol {
         guard let req = task.originalRequest, let url = req.url else { return }
         guard !RejourneyNetworkEventFilter.shouldIgnore(url: url) else { return }
 
-        let duration = _endMs - _startMs
+        let endUptimeMs = Int64(ProcessInfo.processInfo.systemUptime * 1000)
+        let duration = Self.elapsedDurationMs(start: _startUptimeMs, end: endUptimeMs)
         let isSuccess = _error == nil && ((_response as? HTTPURLResponse)?.statusCode ?? 0) < 400
         let statusCode = (_response as? HTTPURLResponse)?.statusCode ?? 0
         let method = req.httpMethod ?? "GET"
@@ -247,6 +253,10 @@ class RejourneyURLProtocol: URLProtocol {
 
         TelemetryPipeline.shared.recordNetworkEvent(details: event)
     }
+
+    static func elapsedDurationMs(start: Int64, end: Int64) -> Int64 {
+        max(0, end - start)
+    }
 }
 
 /// Routes URLSession delegate callbacks to the correct RejourneyURLProtocol
@@ -284,7 +294,12 @@ private final class SessionDelegateAdapter: NSObject, URLSessionDataDelegate, UR
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let p = proto(for: task) else { return }
+        guard let p = proto(for: task) else {
+            // Weak value may disappear before the task callback. The map owns
+            // task keys strongly, so remove orphaned entries as well.
+            unregister(task: task)
+            return
+        }
         p.handleDidComplete(error: error)
         p.handleDidCompleteLogging(task: task)
         unregister(task: task)

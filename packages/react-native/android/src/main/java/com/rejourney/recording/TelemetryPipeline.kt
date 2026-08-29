@@ -30,6 +30,7 @@ import java.util.*
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.math.roundToInt
@@ -52,6 +53,16 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
         val shared: TelemetryPipeline?
             get() = instance
+
+        internal fun attributePayload(key: String, value: String): String =
+            JSONObject().put("key", key).put("value", value).toString()
+
+        internal fun shouldEmitDeadTap(
+            candidateGeneration: Long,
+            currentGeneration: Long,
+            lastResponseTimestamp: Long,
+            tapTimestamp: Long
+        ): Boolean = candidateGeneration == currentGeneration && lastResponseTimestamp <= tapTimestamp
     }
 
     var endpoint: String = "https://api.rejourney.co"
@@ -60,6 +71,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
             SegmentDispatcher.shared.endpoint = value
         }
 
+    @Volatile
     var currentReplayId: String? = null
         set(value) {
             field = value
@@ -117,10 +129,9 @@ class TelemetryPipeline private constructor(private val context: Context) {
     // Event ring buffer
     private val eventRing = EventRingBuffer(5000)
     private val frameQueue = FrameBundleQueue(200)
-    private var batchSeq = 0
-    private var draining = false
-    private val drainLock = ReentrantLock()
-    private val shutdownCompletions = mutableListOf<() -> Unit>()
+    private val batchSeqBySession = LinkedHashMap<String, Int>()
+    private val maxTrackedBatchSequences = 128
+    private val drainRegistry = DrainCompletionRegistry()
 
     private val serialWorker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -135,12 +146,9 @@ class TelemetryPipeline private constructor(private val context: Context) {
     // We do NOT cancel the timer proactively because gesture-recognizer scroll
     // events fire on nearly every tap due to micro-movement and would mask real dead taps.
     private var deadTapRunnable: Runnable? = null
-    private var lastTapLabel: String = ""
-    private var lastTapX: Long = 0
-    private var lastTapY: Long = 0
+    private val deadTapGeneration = AtomicLong(0)
     private val deadTapTimeoutMs: Long = 400
-    private var lastTapTs: Long = 0
-    private var lastResponseTs: Long = 0
+    private val lastResponseTs = AtomicLong(0)
 
     fun activate() {
         acceptingEvents.set(true)
@@ -154,6 +162,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
         // Start heartbeat timer on main thread
         mainHandler.post {
+            if (!acceptingEvents.get()) return@post
             // A Runnable that re-posts itself stays queued on the Handler after
             // its reference is overwritten. Re-activating for a new session
             // without removing the previous one would leave it calling
@@ -178,8 +187,11 @@ class TelemetryPipeline private constructor(private val context: Context) {
         acceptingEvents.set(false)
         cancelDeadTapTimer()
         deviceEnvironmentMonitor.pause()
-        heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
-        heartbeatRunnable = null
+        mainHandler.post {
+            if (acceptingEvents.get()) return@post
+            heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
+            heartbeatRunnable = null
+        }
     }
 
     /**
@@ -188,8 +200,8 @@ class TelemetryPipeline private constructor(private val context: Context) {
     fun resume() {
         acceptingEvents.set(true)
         if (collectDeviceInfo) deviceEnvironmentMonitor.start(resetSession = false)
-        if (heartbeatRunnable != null) return
         mainHandler.post {
+            if (!acceptingEvents.get() || heartbeatRunnable != null) return@post
             heartbeatRunnable = object : Runnable {
                 override fun run() {
                     dispatchNow()
@@ -204,8 +216,11 @@ class TelemetryPipeline private constructor(private val context: Context) {
         acceptingEvents.set(false)
         cancelDeadTapTimer()
         deviceEnvironmentMonitor.pause()
-        heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
-        heartbeatRunnable = null
+        mainHandler.post {
+            if (acceptingEvents.get()) return@post
+            heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
+            heartbeatRunnable = null
+        }
 
         drainPendingDataForShutdown(completion, skipVisualFlush)
     }
@@ -234,11 +249,18 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     fun prepareForNewSession(replayId: String) {
-        batchSeq = 0
-        val droppedEvents = eventRing.clear()
-        val droppedFrames = frameQueue.clear()
-        if (droppedEvents > 0 || droppedFrames > 0) {
-            DiagnosticLog.trace("[TelemetryPipeline] Dropped stale pending telemetry for new session ${replayId.take(20)} (events=$droppedEvents, frames=$droppedFrames)")
+        // Pending work is session-owned. A previous session drain may still be
+        // running here; its completion remains bound to its own generation and
+        // must not be fired merely because this replacement session starts.
+        serialWorker.execute {
+            batchSeqBySession.putIfAbsent(replayId, 0)
+            val protectedSessions = eventRing.sessionIds()
+            while (batchSeqBySession.size > maxTrackedBatchSequences) {
+                val staleSession = batchSeqBySession.keys.firstOrNull {
+                    it != replayId && it !in protectedSessions
+                } ?: break
+                batchSeqBySession.remove(staleSession)
+            }
         }
     }
 
@@ -257,7 +279,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
         completion: (() -> Unit)? = null,
         skipVisualFlush: Boolean = false
     ) {
-        if (!beginDrain(completion)) return
+        val drainToken = drainRegistry.begin(completion)
 
         if (!skipVisualFlush) {
             // Force any in-memory frames into the upload pipeline before session
@@ -283,19 +305,18 @@ class TelemetryPipeline private constructor(private val context: Context) {
             // Step B: ship events + frames, then wait for actual network uploads
             serialWorker.execute {
                 try {
-                    shipPendingEvents()
-                    shipPendingFrames()
+                    shipAllPendingForDrain()
                     // Step C: wait for all in-flight upload coroutines before finishing.
                     SegmentDispatcher.shared.awaitPendingUploads(10_000)
                 } finally {
-                    finishDrainIfNeeded()
+                    finishDrain(drainToken)
                 }
             }
         }.start()
     }
 
     private fun appSuspending() {
-        if (!beginDrain()) return
+        val drainToken = drainRegistry.begin()
 
         // Flush visual frames to disk for crash safety
         VisualCapture.shared?.flushToDisk()
@@ -311,41 +332,17 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
             serialWorker.execute {
                 try {
-                    shipPendingEvents()
-                    shipPendingFrames()
+                    shipAllPendingForDrain()
                     SegmentDispatcher.shared.awaitPendingUploads(10_000)
                 } finally {
-                    finishDrainIfNeeded()
+                    finishDrain(drainToken)
                 }
             }
         }.start()
     }
 
-    private fun beginDrain(completion: (() -> Unit)? = null): Boolean {
-        drainLock.withLock {
-            if (completion != null) {
-                shutdownCompletions.add(completion)
-            }
-
-            if (draining) {
-                return false
-            }
-
-            draining = true
-            return true
-        }
-    }
-
-    private fun finishDrainIfNeeded() {
-        val completions = drainLock.withLock {
-            if (!draining) {
-                return@withLock emptyList<() -> Unit>()
-            }
-
-            draining = false
-            shutdownCompletions.toList().also { shutdownCompletions.clear() }
-        }
-
+    private fun finishDrain(generation: Long) {
+        val completions = drainRegistry.finish(generation) ?: return
         if (completions.isEmpty()) return
 
         mainHandler.post {
@@ -359,6 +356,23 @@ class TelemetryPipeline private constructor(private val context: Context) {
         // Telemetry events remain best-effort and are not replayed from EventBuffer yet.
     }
 
+    /** Drain every immediately available batch before waiting on the network.
+     * Normal heartbeat dispatch sends one batch at a time for backpressure, but
+     * shutdown must enqueue the complete backlog or its completion can race the
+     * success callback that schedules the next batch. */
+    private fun shipAllPendingForDrain() {
+        while (eventRing.size() > 0) {
+            val before = eventRing.size()
+            shipPendingEvents()
+            if (eventRing.size() >= before) break
+        }
+        while (frameQueue.size() > 0) {
+            val before = frameQueue.size()
+            shipPendingFrames()
+            if (frameQueue.size() >= before) break
+        }
+    }
+
     private fun shipPendingFrames() {
         val next = frameQueue.dequeue()
         if (next == null) {
@@ -367,11 +381,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
         }
 
         val activeSession = currentReplayId
-        if (next.sessionId != null && activeSession != null && next.sessionId != activeSession) {
-            DiagnosticLog.trace("[TelemetryPipeline] Dropping stale frame bundle for closed session ${next.sessionId.take(20)} (current=${activeSession.take(20)})")
-            serialWorker.execute { shipPendingFrames() }
-            return
-        }
 
         // Determine which session these frames belong to. Prefer the session ID
         // captured at enqueue time; fall back to the current active session.
@@ -413,19 +422,31 @@ class TelemetryPipeline private constructor(private val context: Context) {
         val batch = eventRing.drain(batchSizeLimit)
         if (batch.isEmpty()) return
 
-        val payload = serializeBatch(batch)
-        val compressed = payload.gzipCompress()
-        if (compressed == null) {
-            batch.forEach { eventRing.push(it) }
+        val targetSession = batch.first().sessionId ?: currentReplayId
+        if (targetSession == null) {
+            eventRing.prepend(batch)
             return
         }
 
-        val seq = batchSeq++
+        val payload = serializeBatch(batch)
+        val compressed = payload.gzipCompress()
+        if (compressed == null) {
+            eventRing.prepend(batch)
+            return
+        }
 
-        SegmentDispatcher.shared.transmitEventBatch(compressed, seq, batch.size) { ok ->
-            if (!ok) {
-                batch.forEach { eventRing.push(it) }
+        val seq = batchSeqBySession[targetSession] ?: 0
+        batchSeqBySession[targetSession] = seq + 1
+
+        SegmentDispatcher.shared.transmitEventBatchForSession(targetSession, compressed, seq, batch.size) { ok ->
+            if (!ok && currentReplayId == targetSession) {
+                eventRing.prepend(batch)
+                return@transmitEventBatchForSession
             }
+            if (!ok) {
+                DiagnosticLog.trace("[TelemetryPipeline] Discarding exhausted event batch for closed session ${targetSession.take(20)}")
+            }
+            serialWorker.execute { shipPendingEvents() }
         }
     }
 
@@ -497,7 +518,9 @@ class TelemetryPipeline private constructor(private val context: Context) {
             "type" to "custom",
             "timestamp" to ts(),
             "name" to "attribute",
-            "payload" to "{\"key\":\"$key\",\"value\":\"$value\"}"
+            // Metadata is user-controlled. Interpolation produced malformed
+            // nested JSON for quotes, backslashes and newlines.
+            "payload" to attributePayload(key, value)
         ))
     }
 
@@ -554,12 +577,17 @@ class TelemetryPipeline private constructor(private val context: Context) {
         serialWorker.execute { shipPendingEvents() }
     }
 
-    fun recordAnrEvent(durationMs: Long, stack: String?, incidentId: String? = null) {
+    fun recordAnrEvent(
+        durationMs: Long,
+        stack: String?,
+        incidentId: String? = null,
+        threadState: String = "unknown"
+    ) {
         val event = mutableMapOf<String, Any>(
             "type" to "anr",
             "timestamp" to ts(),
             "durationMs" to durationMs,
-            "threadState" to "blocked"
+            "threadState" to threadState
         )
         if (incidentId != null) {
             event["incidentId"] = incidentId
@@ -601,15 +629,21 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
         // Start dead tap timer — when it fires, check if any response event
         // occurred after this tap.  If not → dead tap.
-        lastTapLabel = label
-        lastTapX = x
-        lastTapY = y
-        lastTapTs = tapTs
+        val candidateGeneration = deadTapGeneration.get()
+        val tapLabel = label
+        val tapX = x
+        val tapY = y
         val runnable = Runnable {
+            if (!shouldEmitDeadTap(
+                    candidateGeneration,
+                    deadTapGeneration.get(),
+                    lastResponseTs.get(),
+                    tapTs
+                )
+            ) return@Runnable
             deadTapRunnable = null
-            // Only fire dead tap if no response event occurred since this tap
-            if (!isKeyboardVisible() && lastResponseTs <= lastTapTs) {
-                recordDeadTapEvent(lastTapLabel, lastTapX, lastTapY)
+            if (!isKeyboardVisible()) {
+                recordDeadTapEvent(tapLabel, tapX, tapY)
                 ReplayOrchestrator.shared?.incrementDeadTapTally()
             }
         }
@@ -728,7 +762,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     fun recordInputEvent(value: String, redacted: Boolean, label: String) {
-        lastResponseTs = ts()   // keyboard input = definitive response
+        lastResponseTs.set(ts())   // keyboard input = definitive response
         enqueue(mapOf(
             "type" to "input",
             "timestamp" to ts(),
@@ -739,7 +773,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     fun recordViewTransition(viewId: String, viewLabel: String, entering: Boolean) {
-        lastResponseTs = ts()   // navigation = definitive response
+        lastResponseTs.set(ts())   // navigation = definitive response
         enqueue(mapOf(
             "type" to "navigation",
             "timestamp" to ts(),
@@ -783,6 +817,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
 
     private fun cancelDeadTapTimer() {
+        deadTapGeneration.incrementAndGet()
         deadTapRunnable?.let { mainHandler.removeCallbacks(it) }
         deadTapRunnable = null
     }
@@ -796,19 +831,52 @@ class TelemetryPipeline private constructor(private val context: Context) {
         try {
             val json = JSONObject(dict)
             val data = (json.toString() + "\n").toByteArray(Charsets.UTF_8)
-            eventRing.push(EventEntry(data, data.size))
+            if (data.size > batchSizeLimit) {
+                DiagnosticLog.caution("[TelemetryPipeline] Dropping oversized event (${data.size} bytes)")
+                return
+            }
+            eventRing.push(EventEntry(data, data.size, currentReplayId))
         } catch (_: Exception) { }
     }
 
     private fun ts(): Long = System.currentTimeMillis()
 }
 
-private data class EventEntry(
+/**
+ * Owns drain completion callbacks by generation. Encoding/upload drains run on
+ * one serial worker, but their waits can overlap with lifecycle rollover. A
+ * single shared "active drain" slot lets a replacement session complete the
+ * old session early, or lets the old worker complete the replacement. Keeping
+ * each token independent makes either ordering safe and is cheap off the hot
+ * capture path.
+ */
+internal class DrainCompletionRegistry {
+    private val lock = ReentrantLock()
+    private var nextGeneration = 0L
+    private val activeGenerations = mutableSetOf<Long>()
+    private val completionsByGeneration = mutableMapOf<Long, List<() -> Unit>>()
+
+    fun begin(completion: (() -> Unit)? = null): Long = lock.withLock {
+        nextGeneration += 1
+        val generation = nextGeneration
+        activeGenerations.add(generation)
+        if (completion != null) completionsByGeneration[generation] = listOf(completion)
+        generation
+    }
+
+    fun finish(generation: Long): List<() -> Unit>? = lock.withLock {
+        if (!activeGenerations.remove(generation)) return null
+        completionsByGeneration.remove(generation) ?: emptyList()
+    }
+}
+
+internal data class EventEntry(
     val data: ByteArray,
-    val size: Int
+    val size: Int,
+    val sessionId: String?
 )
 
-private class EventRingBuffer(private val capacity: Int) {
+internal class EventRingBuffer(private val capacity: Int) {
     // Mutations dominate this hot path. A CopyOnWriteArrayList copied up to
     // 5,000 entries on every enqueue/dequeue even though access was already
     // serialized by this lock.
@@ -824,13 +892,26 @@ private class EventRingBuffer(private val capacity: Int) {
         }
     }
 
+    fun prepend(entries: List<EventEntry>) {
+        if (entries.isEmpty()) return
+        lock.withLock {
+            for (entry in entries.asReversed()) {
+                if (storage.size >= capacity) storage.removeLast()
+                storage.addFirst(entry)
+            }
+        }
+    }
+
     fun drain(maxBytes: Int): List<EventEntry> {
         lock.withLock {
             val result = mutableListOf<EventEntry>()
             var total = 0
+            var targetSession: String? = null
             while (storage.isNotEmpty()) {
                 val next = storage.first()
+                if (result.isNotEmpty() && next.sessionId != targetSession) break
                 if (total + next.size > maxBytes) break
+                if (result.isEmpty()) targetSession = next.sessionId
                 result.add(next)
                 total += next.size
                 storage.removeFirst()
@@ -841,6 +922,10 @@ private class EventRingBuffer(private val capacity: Int) {
 
     fun size(): Int = lock.withLock { storage.size }
 
+    fun sessionIds(): Set<String> = lock.withLock {
+        storage.mapNotNullTo(mutableSetOf()) { it.sessionId }
+    }
+
     fun clear(): Int {
         lock.withLock {
             val cleared = storage.size
@@ -850,7 +935,7 @@ private class EventRingBuffer(private val capacity: Int) {
     }
 }
 
-private data class PendingFrameBundle(
+internal data class PendingFrameBundle(
     val tag: String,
     val payload: ByteArray,
     val rangeStart: Long,
@@ -859,7 +944,7 @@ private data class PendingFrameBundle(
     val sessionId: String? = null
 )
 
-private class FrameBundleQueue(private val maxPending: Int) {
+internal class FrameBundleQueue(private val maxPending: Int) {
     private val queue = ArrayDeque<PendingFrameBundle>(maxPending)
     private val lock = ReentrantLock()
 

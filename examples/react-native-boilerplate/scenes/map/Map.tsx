@@ -80,6 +80,7 @@ export default function Map() {
     <View style={styles.root}>
       <Mask style={styles.map}>
         <MapView
+          testID="native-map"
           style={StyleSheet.absoluteFillObject}
           initialRegion={{
             latitude: 37.7882,

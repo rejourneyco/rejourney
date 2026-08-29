@@ -21,9 +21,32 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
         let sessionId: String
         let timestampMs: UInt64
         let durationMs: Int
+        let routeEndpoint: String?
+        let routeProjectId: String?
+
+        init(
+            incidentId: String,
+            sessionId: String,
+            timestampMs: UInt64,
+            durationMs: Int,
+            routeEndpoint: String? = nil,
+            routeProjectId: String? = nil
+        ) {
+            self.incidentId = incidentId
+            self.sessionId = sessionId
+            self.timestampMs = timestampMs
+            self.durationMs = durationMs
+            self.routeEndpoint = routeEndpoint
+            self.routeProjectId = routeProjectId
+        }
     }
 
-    private var active = false
+    private let subscriptionLock = NSLock()
+    private let subscriptionQueue = DispatchQueue(label: "co.rejourney.metrickit-subscription")
+    private var subscriberInstalled = false
+    private var crashCollectionEnabled = false
+    private var hangCollectionEnabled = false
+    private var suppressCrashPayloadsEndingBefore: Date?
     private let pendingStore: URL
     private let pendingLock = NSLock()
 
@@ -43,16 +66,55 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
         super.init()
     }
 
-    func activate() {
-        guard !active else { return }
-        active = true
-        MXMetricManager.shared.add(self)
+    func activateCrashDiagnostics(suppressNextDelivery: Bool = false) {
+        updateSubscription(
+            crashes: true,
+            suppressNextCrashDelivery: suppressNextDelivery
+        )
     }
 
-    func deactivate() {
-        guard active else { return }
-        active = false
-        MXMetricManager.shared.remove(self)
+    func deactivateCrashDiagnostics() {
+        updateSubscription(crashes: false)
+    }
+
+    func activateHangDiagnostics() {
+        updateSubscription(hangs: true)
+    }
+
+    func deactivateHangDiagnostics() {
+        updateSubscription(hangs: false)
+    }
+
+    private func updateSubscription(
+        crashes: Bool? = nil,
+        hangs: Bool? = nil,
+        suppressNextCrashDelivery: Bool = false
+    ) {
+        subscriptionQueue.sync {
+            subscriptionLock.lock()
+            if let crashes { crashCollectionEnabled = crashes }
+            if let hangs { hangCollectionEnabled = hangs }
+            if suppressNextCrashDelivery {
+                // MetricKit can deliver previously undelivered reports after a
+                // subscriber is re-added. Bound suppression to reporting
+                // periods that ended before this activation; a one-shot flag
+                // could otherwise discard the first future in-session crash if
+                // no deferred payload happened to arrive first.
+                suppressCrashPayloadsEndingBefore = Date()
+            }
+            let shouldInstall = crashCollectionEnabled || hangCollectionEnabled
+            let shouldAdd = shouldInstall && !subscriberInstalled
+            let shouldRemove = !shouldInstall && subscriberInstalled
+            if shouldAdd { subscriberInstalled = true }
+            if shouldRemove { subscriberInstalled = false }
+            subscriptionLock.unlock()
+
+            if shouldAdd {
+                MXMetricManager.shared.add(self)
+            } else if shouldRemove {
+                MXMetricManager.shared.remove(self)
+            }
+        }
     }
 
     func didReceive(_ payloads: [MXMetricPayload]) {
@@ -60,15 +122,45 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
     }
 
     func didReceive(_ payloads: [MXDiagnosticPayload]) {
-        guard active else { return }
+        subscriptionLock.lock()
+        let collectCrashes = crashCollectionEnabled
+        let collectHangs = hangCollectionEnabled
+        let suppressionCutoff = suppressCrashPayloadsEndingBefore
+        subscriptionLock.unlock()
+        guard collectCrashes || collectHangs else { return }
+
         for payload in payloads {
-            for diagnostic in payload.hangDiagnostics ?? [] {
-                persist(diagnostic: diagnostic, payload: payload)
+            if collectHangs {
+                for diagnostic in payload.hangDiagnostics ?? [] {
+                    persist(diagnostic: diagnostic, payload: payload)
+                }
             }
-            for diagnostic in payload.crashDiagnostics ?? [] {
-                persist(crashDiagnostic: diagnostic, payload: payload)
+            if collectCrashes && !Self.shouldSuppressCrashPayload(
+                endingAt: payload.timeStampEnd,
+                activationCutoff: suppressionCutoff
+            ) {
+                for diagnostic in payload.crashDiagnostics ?? [] {
+                    persist(crashDiagnostic: diagnostic, payload: payload)
+                }
             }
         }
+
+        if let suppressionCutoff,
+           payloads.contains(where: { $0.timeStampEnd > suppressionCutoff }) {
+            subscriptionLock.lock()
+            if suppressCrashPayloadsEndingBefore == suppressionCutoff {
+                suppressCrashPayloadsEndingBefore = nil
+            }
+            subscriptionLock.unlock()
+        }
+    }
+
+    static func shouldSuppressCrashPayload(
+        endingAt payloadEnd: Date,
+        activationCutoff: Date?
+    ) -> Bool {
+        guard let activationCutoff else { return false }
+        return payloadEnd <= activationCutoff
     }
 
     func noteLiveHang(
@@ -85,11 +177,14 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
             : 0
         var pending = loadPendingHangs()
             .filter { $0.timestampMs >= retentionStart }
+        let route = SegmentDispatcher.shared.currentUploadRoute()
         pending.append(PendingLiveHang(
             incidentId: incidentId,
             sessionId: sessionId,
             timestampMs: timestampMs,
-            durationMs: durationMs
+            durationMs: durationMs,
+            routeEndpoint: route.endpoint,
+            routeProjectId: route.projectId
         ))
         savePendingHangs(Array(pending.suffix(100)))
     }
@@ -113,9 +208,10 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
                 .replacingOccurrences(of: " ", with: "-")
                 .prefix(128)
         )
+        let historical = StabilityMonitor.shared.historicalSessionContext()
         let incident = IncidentRecord(
             incidentId: matchedHang?.incidentId ?? stableId,
-            sessionId: matchedHang?.sessionId ?? "unknown",
+            sessionId: matchedHang?.sessionId ?? historical.sessionId ?? "unknown",
             timestampMs: timestampMs,
             category: "anr",
             identifier: "MetricKitHang",
@@ -125,9 +221,14 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
                 "durationMs": String(durationMs),
                 "threadState": "main_thread_hang",
                 "diagnosticSource": "metrickit",
-                "correlationState": matchedHang == nil ? "unmatched" : "matched_live_watchdog",
+                "correlationState": matchedHang == nil
+                    ? (historical.sessionId == nil ? "unmatched" : "matched_historical_session")
+                    : "matched_live_watchdog",
                 "symbolicationState": "raw"
-            ]
+            ],
+            routeEndpoint: matchedHang?.routeEndpoint ?? historical.endpoint,
+            routeProjectId: matchedHang?.routeProjectId ?? historical.projectId,
+            captureCurrentRoute: false
         )
 
         StabilityMonitor.shared.persistIncidentSync(incident)
@@ -146,9 +247,10 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
                 .replacingOccurrences(of: " ", with: "-")
                 .prefix(128)
         )
+        let historical = StabilityMonitor.shared.historicalSessionContext()
         let incident = IncidentRecord(
             incidentId: incidentId,
-            sessionId: "unknown",
+            sessionId: historical.sessionId ?? "unknown",
             timestampMs: timestampMs,
             category: "crash",
             identifier: "MetricKitCrash",
@@ -157,9 +259,12 @@ final class RejourneyMetricKitDiagnostics: NSObject, MXMetricManagerSubscriber {
             context: [
                 "diagnosticSource": "metrickit",
                 "diagnosticKind": "crash",
-                "correlationState": "unmatched",
+                "correlationState": historical.sessionId == nil ? "unmatched" : "matched_historical_session",
                 "symbolicationState": "raw"
-            ]
+            ],
+            routeEndpoint: historical.endpoint,
+            routeProjectId: historical.projectId,
+            captureCurrentRoute: false
         )
 
         StabilityMonitor.shared.persistIncidentSync(incident)

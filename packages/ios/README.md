@@ -45,7 +45,7 @@ struct AppMain: App {
 The native SDK fetches `/api/sdk/config` itself, then uses the existing production ingest routes under `https://api.rejourney.co`.
 Those Rejourney-owned config, ingest, and upload-relay calls are excluded from network monitoring automatically so they do not appear as application API traffic.
 
-## Pause and resume (Beta, iOS 0.5.1+)
+## Pause and resume (Beta, iOS 0.5.2+)
 
 Use the Beta pause API around a foreground experience where capture overhead is
 undesirable, such as a camera, AR, or graphics-heavy screen:
@@ -67,7 +67,7 @@ Fatal-process hooks remain installed during a pause so a crash can still be
 recovered without periodic capture work. The normal lifecycle contract still
 applies: a background interval longer than 60 seconds rolls over the session and
 the replacement session remains paused until `resume()` is called. Resuming while
-the app is backgrounded returns `false`. This Beta API requires SDK 0.5.1 or newer.
+the app is backgrounded returns `false`. This Beta API requires SDK 0.5.2 or newer.
 It does not require an Info.plist or entitlement change.
 
 When device-information collection is enabled by project policy, the SDK also

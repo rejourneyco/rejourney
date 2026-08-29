@@ -118,3 +118,8 @@ export function evaluateInitAttempt(publicRouteKey: unknown): {
     initialized: valid,
   };
 }
+
+/** Capture-only public calls must not allocate or cross the native bridge while paused. */
+export function shouldForwardCaptureCall(isRecording: boolean, isPaused: boolean): boolean {
+  return isRecording && !isPaused;
+}

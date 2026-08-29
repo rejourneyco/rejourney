@@ -1,0 +1,12 @@
+appId: ${APP_ID}
+name: Stop and flush Swift matrix SDK
+---
+- tapOn: Stress
+- extendedWaitUntil:
+    visible: Beta SDK Pause
+    timeout: 15000
+- tapOn:
+    id: stop-rejourney-sdk
+- extendedWaitUntil:
+    visible: SDK stopped · flushed
+    timeout: 20000

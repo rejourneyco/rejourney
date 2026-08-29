@@ -16,8 +16,11 @@
 
 import SwiftUI
 import UIKit
+import Rejourney
 
 struct StressTestView: View {
+    @State private var pauseStatus = "Recording active"
+
     var body: some View {
         NavigationStack {
             List {
@@ -38,6 +41,46 @@ struct StressTestView: View {
                 } footer: {
                     Text("Map, video and media masking have their own tabs. "
                          + "These cover scroll depth and hierarchy depth.")
+                }
+
+                Section {
+                    Text(pauseStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("rejourney-pause-status")
+
+                    Button {
+                        let succeeded = Rejourney.pause()
+                        pauseStatus = succeeded ? "SDK paused · interact now" : "Pause unavailable"
+                    } label: {
+                        Label("Pause SDK", systemImage: "pause.circle")
+                    }
+                    .accessibilityIdentifier("pause-rejourney-sdk")
+
+                    Button {
+                        let succeeded = Rejourney.resume()
+                        pauseStatus = succeeded ? "SDK resumed · same session" : "Resume unavailable"
+                    } label: {
+                        Label("Resume SDK", systemImage: "play.circle")
+                    }
+                    .accessibilityIdentifier("resume-rejourney-sdk")
+
+                    Button {
+                        pauseStatus = "SDK stopping · awaiting final upload"
+                        Task { @MainActor in
+                            let result = await Rejourney.stop()
+                            pauseStatus = result.success && result.uploadSuccess
+                                ? "SDK stopped · flushed"
+                                : "SDK stop completed · upload pending"
+                        }
+                    } label: {
+                        Label("Stop & Flush SDK", systemImage: "stop.circle")
+                    }
+                    .accessibilityIdentifier("stop-rejourney-sdk")
+                } header: {
+                    Text("Beta SDK Pause")
+                } footer: {
+                    Text("Repeat pause or resume to validate idempotence. Stop & Flush closes the matrix session cleanly.")
                 }
             }
             .navigationTitle("Stress")

@@ -98,6 +98,12 @@ temp_env.txt
 /ads_import/
 /google-ads-bulk/
 /marketing/
+/test-results/sdk-matrix/
+/scripts/test-matrix/environments/*.env
+!/scripts/test-matrix/environments/*.env.example
+/examples/react-native-boilerplate/android/app/debug.keystore
+/examples/brew-coffee-labs/android/app/debug.keystore
+**/.kotlin/
 
 # Local research-lake tooling and report drafts
 /research_lake_report.pdf

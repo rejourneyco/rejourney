@@ -27,6 +27,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.net.HttpURLConnection
 import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -42,9 +43,11 @@ data class IncidentRecord(
     val identifier: String,
     val detail: String,
     val frames: List<String>,
-    val context: Map<String, String>
+    val context: Map<String, String>,
+    val routeEndpoint: String? = SegmentDispatcher.shared.endpoint,
+    val routeProjectId: String? = SegmentDispatcher.shared.projectId
 ) {
-    fun toJson(): JSONObject {
+    fun toJson(includeRouting: Boolean = true): JSONObject {
         return JSONObject().apply {
             put("incidentId", incidentId)
             put("sessionId", sessionId)
@@ -57,6 +60,10 @@ data class IncidentRecord(
             // on the next launch, silently dropping every crash frame.
             put("frames", JSONArray(frames))
             put("context", JSONObject(context))
+            if (includeRouting) {
+                routeEndpoint?.let { put("routeEndpoint", it) }
+                routeProjectId?.let { put("routeProjectId", it) }
+            }
         }
     }
 
@@ -101,7 +108,9 @@ data class IncidentRecord(
                 identifier = identifier,
                 detail = json.optString("detail", ""),
                 frames = frames,
-                context = context
+                context = context,
+                routeEndpoint = json.optString("routeEndpoint", "").takeIf { it.isNotBlank() },
+                routeProjectId = json.optString("routeProjectId", "").takeIf { it.isNotBlank() }
             )
         }
 
@@ -159,6 +168,29 @@ data class IncidentRecord(
 class StabilityMonitor private constructor(private val context: Context) {
 
     companion object {
+        private const val MAX_STORED_INCIDENTS = 100
+
+        internal fun routeMatches(
+            incident: IncidentRecord,
+            endpoint: String,
+            projectId: String?
+        ): Boolean {
+            if (incident.routeEndpoint != null && incident.routeEndpoint != endpoint) return false
+            if (incident.routeProjectId != null && incident.routeProjectId != projectId) return false
+            return true
+        }
+
+        internal inline fun <T> withDisconnectedConnection(
+            connection: HttpURLConnection,
+            block: (HttpURLConnection) -> T
+        ): T {
+            return try {
+                block(connection)
+            } finally {
+                connection.disconnect()
+            }
+        }
+
         @Volatile
         private var instance: StabilityMonitor? = null
 
@@ -172,6 +204,7 @@ class StabilityMonitor private constructor(private val context: Context) {
             get() = instance
     }
 
+    @Volatile
     var isMonitoring = false
         private set
     private val statePreferences = context.getSharedPreferences(
@@ -180,14 +213,26 @@ class StabilityMonitor private constructor(private val context: Context) {
     )
     private val previousSessionId = statePreferences.getString("last_session_id", null)
     private val previousSessionStartedAtMs = statePreferences.getLong("last_session_started_at_ms", 0L)
+    private val previousSessionWasCapturing = statePreferences.getBoolean(
+        "last_session_capture_enabled",
+        previousSessionId != null
+    )
+    private val previousRouteEndpoint = statePreferences
+        .getString("last_session_route_endpoint", null)
+    private val previousRouteProjectId = statePreferences
+        .getString("last_session_route_project_id", null)
+    @Volatile
     var currentSessionId: String? = null
         set(value) {
             val changed = !value.isNullOrBlank() && value != field
             field = value
             if (changed) {
+                val route = SegmentDispatcher.shared.currentUploadRoute()
                 statePreferences.edit()
                     .putString("last_session_id", value)
                     .putLong("last_session_started_at_ms", System.currentTimeMillis())
+                    .putString("last_session_route_endpoint", route.endpoint)
+                    .putString("last_session_route_project_id", route.projectId)
                     .apply()
             }
         }
@@ -204,13 +249,20 @@ class StabilityMonitor private constructor(private val context: Context) {
 
     private val workerExecutor = Executors.newSingleThreadExecutor()
 
+    @Volatile
     private var chainedExceptionHandler: Thread.UncaughtExceptionHandler? = null
+    @Volatile
     private var installedExceptionHandler: Thread.UncaughtExceptionHandler? = null
+    @Volatile
     private var exceptionHandlerChainedExternally = false
 
     fun activate() {
         if (isMonitoring) return
         isMonitoring = true
+        // Commit this rare lifecycle transition synchronously. If the process
+        // dies immediately afterward, ApplicationExitInfo must know whether the
+        // SDK was actually collecting at the time of death.
+        statePreferences.edit().putBoolean("last_session_capture_enabled", true).commit()
 
         val currentHandler = Thread.getDefaultUncaughtExceptionHandler()
         if (currentHandler !== installedExceptionHandler && !exceptionHandlerChainedExternally) {
@@ -237,6 +289,9 @@ class StabilityMonitor private constructor(private val context: Context) {
     fun deactivate() {
         if (!isMonitoring) return
         isMonitoring = false
+        // Explicit user pause and full stop both end crash collection. Persist
+        // before returning so a crash while paused cannot be attributed later.
+        statePreferences.edit().putBoolean("last_session_capture_enabled", false).commit()
 
         // Do not overwrite a crash reporter installed after Rejourney.
         if (Thread.getDefaultUncaughtExceptionHandler() === installedExceptionHandler) {
@@ -311,7 +366,7 @@ class StabilityMonitor private constructor(private val context: Context) {
                 }
                 .sortedBy { it.timestamp }
             val attributableExit = relevantExits.lastOrNull { exit ->
-                previousSessionId != null &&
+                previousSessionWasCapturing && previousSessionId != null &&
                     (previousSessionStartedAtMs <= 0L || exit.timestamp >= previousSessionStartedAtMs)
             }
 
@@ -383,7 +438,9 @@ class StabilityMonitor private constructor(private val context: Context) {
                                     "rssKb" to exit.rss.toString(),
                                     "status" to exit.status.toString(),
                                     "reasonCode" to exit.reason.toString()
-                                )
+                                ),
+                                routeEndpoint = previousRouteEndpoint,
+                                routeProjectId = previousRouteProjectId
                             )
                         )
                     }
@@ -404,7 +461,7 @@ class StabilityMonitor private constructor(private val context: Context) {
                 val queued = IncidentRecord.mergeStoredIncidents(
                     readStoredIncidentsLocked(),
                     incident
-                )
+                ).takeLast(MAX_STORED_INCIDENTS)
                 writeStoredIncidentsLocked(queued)
             }
         } catch (e: Exception) {
@@ -445,8 +502,11 @@ class StabilityMonitor private constructor(private val context: Context) {
     private fun uploadStoredIncidents() {
         try {
             while (true) {
+                val route = SegmentDispatcher.shared.currentUploadRoute()
                 val incident = synchronized(incidentStoreLock) {
-                    readStoredIncidentsLocked().firstOrNull()
+                    readStoredIncidentsLocked().firstOrNull {
+                        routeMatches(it, route.endpoint, route.projectId)
+                    }
                 } ?: return
 
                 var uploaded = false
@@ -465,27 +525,36 @@ class StabilityMonitor private constructor(private val context: Context) {
     }
 
     private fun transmitIncident(incident: IncidentRecord, completion: (Boolean) -> Unit) {
+        if (!SegmentDispatcher.shared.matchesCurrentUploadRoute(
+                incident.routeEndpoint,
+                incident.routeProjectId
+            )
+        ) {
+            completion(false)
+            return
+        }
         val base = SegmentDispatcher.shared.endpoint
         val url = "$base/api/ingest/fault"
 
         try {
-            val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 5_000
-            connection.readTimeout = 10_000
-            connection.setRequestProperty("Content-Type", "application/json")
+            val connection = java.net.URL(url).openConnection() as HttpURLConnection
+            val body = incident.toJson(includeRouting = false).toString().toByteArray()
+            val uploaded = withDisconnectedConnection(connection) { managedConnection ->
+                managedConnection.requestMethod = "POST"
+                managedConnection.connectTimeout = 5_000
+                managedConnection.readTimeout = 10_000
+                managedConnection.setRequestProperty("Content-Type", "application/json")
 
-            SegmentDispatcher.shared.apiToken?.let {
-                connection.setRequestProperty("x-rejourney-key", it)
+                SegmentDispatcher.shared.apiToken?.let {
+                    managedConnection.setRequestProperty("x-rejourney-key", it)
+                }
+
+                managedConnection.doOutput = true
+                managedConnection.setFixedLengthStreamingMode(body.size)
+                managedConnection.outputStream.use { output -> output.write(body) }
+                managedConnection.responseCode in 200..299
             }
-
-            connection.doOutput = true
-            connection.outputStream.write(incident.toJson().toString().toByteArray())
-
-            val responseCode = connection.responseCode
-            completion(responseCode in 200..299)
-
-            connection.disconnect()
+            completion(uploaded)
         } catch (e: Exception) {
             DiagnosticLog.fault("Failed to transmit incident: ${e.message}")
             completion(false)

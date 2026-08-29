@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:rejourney/rejourney.dart';
@@ -11,7 +12,9 @@ final class FakeRejourneyPlatform extends RejourneyPlatform
   final List<(String, Map<String, Object?>?)> calls =
       <(String, Map<String, Object?>?)>[];
   final Map<String, Object?> responses = <String, Object?>{};
+  final Map<String, List<Object?>> responseQueues = <String, List<Object?>>{};
   final Map<String, Duration> delays = <String, Duration>{};
+  final Map<String, List<Duration>> delayQueues = <String, List<Duration>>{};
   final StreamController<Map<String, Object?>> eventController =
       StreamController<Map<String, Object?>>.broadcast();
 
@@ -24,9 +27,16 @@ final class FakeRejourneyPlatform extends RejourneyPlatform
     Map<String, Object?>? arguments,
   ]) async {
     calls.add((method, arguments));
-    final delay = delays[method];
+    final queuedResponses = responseQueues[method];
+    final response = queuedResponses != null && queuedResponses.isNotEmpty
+        ? queuedResponses.removeAt(0)
+        : responses[method];
+    final queuedDelays = delayQueues[method];
+    final delay = queuedDelays != null && queuedDelays.isNotEmpty
+        ? queuedDelays.removeAt(0)
+        : delays[method];
     if (delay != null) await Future<void>.delayed(delay);
-    return responses[method] as T?;
+    return response as T?;
   }
 }
 
@@ -127,6 +137,108 @@ void main() {
     );
   });
 
+  test(
+      'paused Flutter error hooks stay chained without formatting or forwarding',
+      () async {
+    fake.responses['start'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_paused_error_hook',
+    };
+    fake.responses['pause'] = true;
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+    await Rejourney.pause();
+
+    final previous = FlutterError.onError;
+    var chainedCalls = 0;
+    FlutterError.onError = (_) => chainedCalls++;
+    final capture = RejourneyErrorCapture.install();
+    final before = fake.calls.length;
+    try {
+      FlutterError.onError!(
+        FlutterErrorDetails(exception: StateError('paused failure')),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(chainedCalls, 1);
+      expect(fake.calls.length, before);
+    } finally {
+      capture.dispose();
+      FlutterError.onError = previous;
+    }
+  });
+
+  test('opposing pause transitions preserve API call order', () async {
+    fake.responses['start'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_serial_pause',
+    };
+    fake.responses['pause'] = true;
+    fake.responses['resume'] = true;
+    fake.delays['pause'] = const Duration(milliseconds: 20);
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+
+    final pause = Rejourney.pause();
+    final resume = Rejourney.resume();
+
+    expect(await pause, isTrue);
+    expect(await resume, isTrue);
+    expect(Rejourney.isPaused, isFalse);
+    expect(
+      fake.calls
+          .where((call) => call.$1 == 'pause' || call.$1 == 'resume')
+          .map((call) => call.$1),
+      <String>['pause', 'resume'],
+    );
+  });
+
+  test('a rejected native pause does not mutate Dart state', () async {
+    fake.responses['start'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_rejected_pause',
+    };
+    fake.responses['pause'] = false;
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+
+    expect(await Rejourney.pause(), isFalse);
+    expect(Rejourney.isPaused, isFalse);
+    // Resume is already satisfied locally and must not issue a native call.
+    expect(await Rejourney.resume(), isTrue);
+    expect(fake.calls.where((call) => call.$1 == 'resume'), isEmpty);
+  });
+
+  test('stop supersedes an in-flight pause without reviving paused state',
+      () async {
+    fake.responses['start'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_stop_during_pause',
+    };
+    fake.responses['getSessionId'] = 'session_stop_during_pause';
+    fake.responses['stop'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_stop_during_pause',
+      'uploadSuccess': true,
+    };
+    fake.responses['pause'] = true;
+    fake.delays['pause'] = const Duration(milliseconds: 20);
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+
+    final pause = Rejourney.pause();
+    final stop = Rejourney.stop();
+
+    expect(await pause, isFalse);
+    expect((await stop).success, isTrue);
+    expect(Rejourney.isRecording, isFalse);
+    expect(Rejourney.isPaused, isFalse);
+  });
+
   test('stop is bounded while native finalization continues', () async {
     fake.responses['start'] = <Object?, Object?>{
       'success': true,
@@ -149,6 +261,60 @@ void main() {
     expect(stop.uploadSuccess, isFalse);
     expect(stop.warning, 'native_flush_timeout');
     expect(Rejourney.isRecording, isFalse);
+  });
+
+  test('an older stop completion cannot clear a replacement session', () async {
+    fake.responseQueues['start'] = <Object?>[
+      <Object?, Object?>{'success': true, 'sessionId': 'session_old'},
+      <Object?, Object?>{'success': true, 'sessionId': 'session_new'},
+    ];
+    fake.responses['getSessionId'] = 'session_old';
+    fake.responses['stop'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_old',
+      'uploadSuccess': true,
+    };
+    fake.delays['stop'] = const Duration(milliseconds: 30);
+
+    await Rejourney.init('pk_live_test');
+    await Rejourney.start();
+    final oldStop = Rejourney.stop();
+    await Future<void>.delayed(Duration.zero);
+
+    final replacement = await Rejourney.start();
+    expect(replacement.sessionId, 'session_new');
+    expect(Rejourney.isRecording, isTrue);
+
+    await oldStop;
+    expect(Rejourney.isRecording, isTrue);
+  });
+
+  test('a superseded start cannot stop a replacement session', () async {
+    fake.responseQueues['start'] = <Object?>[
+      <Object?, Object?>{'success': true, 'sessionId': 'session_old'},
+      <Object?, Object?>{'success': true, 'sessionId': 'session_new'},
+    ];
+    fake.delayQueues['start'] = <Duration>[
+      const Duration(milliseconds: 30),
+      Duration.zero,
+    ];
+    fake.responses['stop'] = <Object?, Object?>{
+      'success': true,
+      'sessionId': 'session_old',
+      'uploadSuccess': true,
+    };
+
+    await Rejourney.init('pk_live_test');
+    final oldStart = Rejourney.start();
+    await Future<void>.delayed(Duration.zero);
+    await Rejourney.stop();
+    final replacement = await Rejourney.start();
+    final superseded = await oldStart;
+
+    expect(replacement.sessionId, 'session_new');
+    expect(superseded.error, 'start_superseded');
+    expect(Rejourney.isRecording, isTrue);
+    expect(fake.calls.where((call) => call.$1 == 'stop'), hasLength(1));
   });
 
   test('metadata and events serialize supported channel values', () async {

@@ -1,0 +1,67 @@
+appId: ${APP_ID}
+---
+- startRecording: expo-android-capture-continuation
+- tapOn:
+    point: 92%,89%
+- tapOn:
+    text: Stress.*
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Capture stress
+    timeout: 5000
+- tapOn:
+    id: stress-images
+- repeat:
+    times: 2
+    commands:
+      - swipe:
+          start: 50%,78%
+          end: 50%,24%
+          duration: 300
+          waitToSettleTimeoutMs: 300
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: stress-back
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Capture stress
+    timeout: 5000
+- tapOn:
+    id: tab-map
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible:
+      id: native-map
+    timeout: 10000
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 22%,62%
+          end: 78%,42%
+          duration: 500
+          waitToSettleTimeoutMs: 450
+      - swipe:
+          start: 75%,42%
+          end: 28%,68%
+          duration: 420
+          waitToSettleTimeoutMs: 350
+- tapOn:
+    id: tab-mapbox
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: Mapbox v11.*
+    timeout: 15000
+- tapOn: Mapbox toggle pitch
+- tapOn: Mapbox fly to marker
+- repeat:
+    times: 2
+    commands:
+      - swipe:
+          start: 20%,65%
+          end: 80%,38%
+          duration: 550
+          waitToSettleTimeoutMs: 450
+- tapOn: Mapbox reset view
+- stopRecording

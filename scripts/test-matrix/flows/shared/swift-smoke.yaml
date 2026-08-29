@@ -1,0 +1,64 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    # Keep the process launched by launch.sh so its test-matrix environment
+    # (including the non-modal developer overlay) is preserved.
+    clearState: false
+    stopApp: false
+- startRecording: swift-smoke
+- extendedWaitUntil:
+    visible: Countries
+    timeout: 20000
+- tapOn: Search
+- inputText: Canada
+- tapOn: "Canada, Population.*"
+- extendedWaitUntil:
+    visible: Ottawa
+    timeout: 15000
+- back
+- tapOn: Map
+- assertVisible: Map Test
+- tapOn: Pause
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 22%, 58%
+          end: 78%, 38%
+          duration: 520
+          waitToSettleTimeoutMs: 450
+      - swipe:
+          start: 76%, 40%
+          end: 30%, 66%
+          duration: 430
+          waitToSettleTimeoutMs: 350
+- tapOn: Move
+- tapOn: Recenter
+- tapOn: Stress
+- assertVisible: Beta SDK Pause
+- tapOn:
+    id: pause-rejourney-sdk
+- tapOn:
+    id: pause-rejourney-sdk
+- assertVisible: SDK paused · interact now
+- swipe:
+    start: 50%, 74%
+    end: 50%, 35%
+    duration: 350
+    waitToSettleTimeoutMs: 350
+- tapOn:
+    id: resume-rejourney-sdk
+- tapOn:
+    id: resume-rejourney-sdk
+- assertVisible: SDK resumed · same session
+- tapOn: S6 · Image scroll
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 50%, 78%
+          end: 50%, 24%
+          duration: 300
+          waitToSettleTimeoutMs: 300
+- back
+- stopRecording

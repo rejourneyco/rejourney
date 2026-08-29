@@ -41,7 +41,7 @@ struct ModalFlagView: View {
             ])
         }
         .onReceive(inspection.notice) { self.inspection.visit(self, $0) }
-        .attachEnvironmentOverrides()
+        .attachEnvironmentOverridesUnlessMatrix()
     }
     
     private var closeButton: some View {

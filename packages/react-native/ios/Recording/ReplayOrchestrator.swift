@@ -95,7 +95,6 @@ final class ReplayOrchestrator: NSObject {
     private var _visitedScreens: [String] = []
     private var _bgTimeMs: UInt64 = 0
     private var _bgStartMs: UInt64?
-    private var _finalized = false
     private var _hierarchyTimer: Timer?
     private var _initialHierarchyWorkItem: DispatchWorkItem?
     private var _lastHierarchyCaptureMonotonic: CFTimeInterval = 0
@@ -110,6 +109,10 @@ final class ReplayOrchestrator: NSObject {
     private let recoveryCheckpointIntervalMs: UInt64 = 5_000
     private let _startGenerationLock = NSLock()
     private var _startGeneration: UInt64 = 0
+    private let _recoveryStoreLock = NSLock()
+    private let _recoveryIOQueue = DispatchQueue(label: "co.rejourney.recovery-io", qos: .utility)
+    private let _recoveryWriteGenerationLock = NSLock()
+    private var _recoveryWriteGeneration: UInt64 = 0
 
     private override init() {
         super.init()
@@ -213,7 +216,7 @@ final class ReplayOrchestrator: NSObject {
 
         let sid = replayId ?? ""
         let termMs = UInt64(Date().timeIntervalSince1970 * 1000)
-        let elapsed = Int((termMs - replayStartMs) / 1000)
+        let elapsed = Int((termMs >= replayStartMs ? termMs - replayStartMs : 0) / 1000)
 
         _netMonitor?.cancel()
         _netMonitor = nil
@@ -246,39 +249,49 @@ final class ReplayOrchestrator: NSObject {
         ]
         metrics.merge(TelemetryPipeline.shared.sessionDeviceMetrics()) { _, deviceValue in deviceValue }
         let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
+        let backgroundDurationMs = _bgTimeMs
+        let closeAnchorAtMs = _currentCloseAnchorMs(for: endReason)
 
         // Capture the current generation so a stale halt posted here won't
         // stop a new session's capture that starts before this block runs.
         let haltGeneration = VisualCapture.shared.captureGeneration
 
+        let finalizeLock = NSLock()
+        var didFinalize = false
         let finalizeSession = {
-            SegmentDispatcher.shared.shipPending()
-
-            guard !self._finalized else {
-                self._clearRecovery()
-                completion?(true, true)
-                self.replayId = nil
-                self.replayStartMs = 0
+            finalizeLock.lock()
+            guard !didFinalize else {
+                finalizeLock.unlock()
                 return
             }
-            self._finalized = true
+            didFinalize = true
+            finalizeLock.unlock()
+
+            SegmentDispatcher.shared.shipPending()
 
             SegmentDispatcher.shared.concludeReplay(
                 replayId: sid,
                 concludedAt: termMs,
-                backgroundDurationMs: self._bgTimeMs,
+                backgroundDurationMs: backgroundDurationMs,
                 metrics: metrics,
                 currentQueueDepth: queueDepthAtFinalize,
                 endReason: endReason,
                 lifecycleVersion: self.lifecycleContractVersion,
-                closeAnchorAtMs: self._currentCloseAnchorMs(for: endReason)
+                closeAnchorAtMs: closeAnchorAtMs
             ) { [weak self] ok in
-                if ok { self?._clearRecovery() }
+                if ok {
+                    VisualCapture.shared.clearPendingFrames(sessionId: sid)
+                    self?._clearRecovery(expectedSessionId: sid)
+                }
                 completion?(true, ok)
             }
 
-            self.replayId = nil
-            self.replayStartMs = 0
+            // A forced rollover may already own these shared fields. Never let
+            // the old session's late finalizer erase the replacement session.
+            if self.replayId == sid {
+                self.replayId = nil
+                self.replayStartMs = 0
+            }
         }
 
         // Do local teardown immediately so lifecycle rollover never depends on network latency,
@@ -383,6 +396,9 @@ final class ReplayOrchestrator: NSObject {
         if let credential = checkpoint["credential"] as? String {
             SegmentDispatcher.shared.credential = credential
         }
+        if let projectId = checkpoint["projectId"] as? String, !projectId.isEmpty {
+            SegmentDispatcher.shared.projectId = projectId
+        }
         SegmentDispatcher.shared.currentReplayId = recId
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared.currentReplayId = recId
@@ -391,7 +407,7 @@ final class ReplayOrchestrator: NSObject {
         let finalizeRecoveredSession = { [weak self] in
             let crashMetrics: [String: Any] = [
                 "crashCount": hasCrashIncident ? 1 : 0,
-                "durationSeconds": Int((nowMs - origStart) / 1000)
+                "durationSeconds": Int((nowMs >= origStart ? nowMs - origStart : 0) / 1000)
             ]
             let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
 
@@ -408,7 +424,7 @@ final class ReplayOrchestrator: NSObject {
                     : nil
             ) { ok in
                 DiagnosticLog.notice("[ReplayOrchestrator] Crash recovery finalize: success=\(ok), sessionId=\(recId)")
-                if ok { self?._clearRecovery() }
+                if ok { self?._clearRecovery(expectedSessionId: recId) }
                 completion(ok ? recId : nil)
             }
         }
@@ -467,8 +483,6 @@ final class ReplayOrchestrator: NSObject {
         replayStartMs = UInt64(Date().timeIntervalSince1970 * 1000)
         let uuidPart = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         replayId = "session_\(replayStartMs)_\(uuidPart)"
-        _finalized = false
-
         _crashCount = 0
         _freezeCount = 0
         _errorCount = 0
@@ -486,7 +500,6 @@ final class ReplayOrchestrator: NSObject {
 
         TelemetryPipeline.shared.currentReplayId = replayId
         SegmentDispatcher.shared.currentReplayId = replayId
-        StabilityMonitor.shared.currentSessionId = replayId
 
         _attachLifecycle()
         _saveRecovery()
@@ -597,6 +610,10 @@ final class ReplayOrchestrator: NSObject {
                 projectId: TelemetryPipeline.shared.projectId,
                 isSampledIn: TelemetryPipeline.shared.isSampledIn
             )
+            // Configure the non-secret upload route before persisting the
+            // crash/ANR session binding. Otherwise a project switch can leave
+            // durable incidents associated with the previous project.
+            StabilityMonitor.shared.currentSessionId = sid
             TelemetryPipeline.shared.prepareForNewSession(sid)
         }
 
@@ -631,7 +648,7 @@ final class ReplayOrchestrator: NSObject {
 
         let maxMs = UInt64(maxMinutes) * 60 * 1000
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
-        let elapsed = now - replayStartMs
+        let elapsed = now >= replayStartMs ? now - replayStartMs : 0
         let remaining = maxMs > elapsed ? maxMs - elapsed : 0
 
         guard remaining > 0 else {
@@ -656,7 +673,7 @@ final class ReplayOrchestrator: NSObject {
         _durationLimitTimer = nil
     }
 
-    private func _saveRecovery() {
+    private func _saveRecovery(synchronously: Bool = true) {
         guard let sid = replayId, let token = apiToken else { return }
         var checkpoint: [String: Any] = [
             "timingVersion": lifecycleContractVersion,
@@ -672,7 +689,26 @@ final class ReplayOrchestrator: NSObject {
         if let cred = SegmentDispatcher.shared.credential {
             checkpoint["credential"] = cred
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: checkpoint),
+        if let projectId = SegmentDispatcher.shared.projectId {
+            checkpoint["projectId"] = projectId
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: checkpoint) else { return }
+        let generation = _nextRecoveryWriteGeneration()
+        let write = { [weak self] in
+            guard let self, self._isRecoveryWriteCurrent(generation) else { return }
+            self._writeRecovery(data, generation: generation)
+        }
+        if synchronously {
+            _recoveryIOQueue.sync(execute: write)
+        } else {
+            _recoveryIOQueue.async(execute: write)
+        }
+    }
+
+    private func _writeRecovery(_ data: Data, generation: UInt64) {
+        _recoveryStoreLock.lock()
+        defer { _recoveryStoreLock.unlock() }
+        guard _isRecoveryWriteCurrent(generation),
               let url = _recoveryURL(createDirectory: true) else { return }
         do {
             try data.write(to: url, options: .atomic)
@@ -685,12 +721,37 @@ final class ReplayOrchestrator: NSObject {
         }
     }
 
-    private func _clearRecovery() {
-        if let url = _recoveryURL(createDirectory: false) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        if let legacy = _legacyRecoveryURL() {
-            try? FileManager.default.removeItem(at: legacy)
+    private func _nextRecoveryWriteGeneration() -> UInt64 {
+        _recoveryWriteGenerationLock.lock()
+        _recoveryWriteGeneration &+= 1
+        let generation = _recoveryWriteGeneration
+        _recoveryWriteGenerationLock.unlock()
+        return generation
+    }
+
+    private func _isRecoveryWriteCurrent(_ generation: UInt64) -> Bool {
+        _recoveryWriteGenerationLock.lock()
+        defer { _recoveryWriteGenerationLock.unlock() }
+        return generation == _recoveryWriteGeneration
+    }
+
+    private func _clearRecovery(expectedSessionId: String? = nil) {
+        _ = _nextRecoveryWriteGeneration()
+        _recoveryIOQueue.sync {
+            _recoveryStoreLock.lock()
+            defer { _recoveryStoreLock.unlock() }
+
+            let urls = [_recoveryURL(createDirectory: false), _legacyRecoveryURL()].compactMap { $0 }
+            for url in urls {
+                if let expectedSessionId {
+                    guard let data = try? Data(contentsOf: url),
+                          let checkpoint = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          checkpoint["replayId"] as? String == expectedSessionId else {
+                        continue
+                    }
+                }
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 
@@ -722,14 +783,22 @@ final class ReplayOrchestrator: NSObject {
 
     private func _startRecoveryCheckpointTimer() {
         _stopRecoveryCheckpointTimer()
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        guard Self.shouldRunRecoveryCheckpointTimer(
+            live: _live,
+            userPaused: _userCapturePaused,
+            backgrounded: _bgStartMs != nil || _lastBackgroundEntryMs != nil
+        ) else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + .milliseconds(Int(recoveryCheckpointIntervalMs)), repeating: .milliseconds(Int(recoveryCheckpointIntervalMs)))
         timer.setEventHandler { [weak self] in
-            guard let self, self._live else { return }
-            if self._bgStartMs == nil {
-                self._lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
-                self._saveRecovery()
-            }
+            guard let self,
+                  Self.shouldRunRecoveryCheckpointTimer(
+                    live: self._live,
+                    userPaused: self._userCapturePaused,
+                    backgrounded: self._bgStartMs != nil || self._lastBackgroundEntryMs != nil
+                  ) else { return }
+            self._lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
+            self._saveRecovery(synchronously: false)
         }
         _recoveryCheckpointTimer = timer
         timer.resume()
@@ -738,6 +807,14 @@ final class ReplayOrchestrator: NSObject {
     private func _stopRecoveryCheckpointTimer() {
         _recoveryCheckpointTimer?.cancel()
         _recoveryCheckpointTimer = nil
+    }
+
+    static func shouldRunRecoveryCheckpointTimer(
+        live: Bool,
+        userPaused: Bool,
+        backgrounded: Bool
+    ) -> Bool {
+        live && !userPaused && !backgrounded
     }
 
     private func _attachLifecycle() {
@@ -755,17 +832,19 @@ final class ReplayOrchestrator: NSObject {
         _bgStartMs = now
         _lastBackgroundEntryMs = now
         _saveRecovery()
-        _suspendCaptureWork()
+        _stopRecoveryCheckpointTimer()
+        _suspendCaptureWork(pauseFaultTracking: false)
     }
 
     @objc private func _onForeground() {
         guard let start = _bgStartMs else { return }
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
-        _bgTimeMs += (now - start)
+        _bgTimeMs += now >= start ? now - start : 0
         _bgStartMs = nil
         _lastBackgroundEntryMs = nil
         _lastActiveCheckpointMs = now
         _saveRecovery()
+        _startRecoveryCheckpointTimer()
 
         _resumeCaptureWorkIfAllowed()
     }
@@ -773,27 +852,35 @@ final class ReplayOrchestrator: NSObject {
     @objc func pauseForUser() {
         guard _live, !_userCapturePaused else { return }
         _userCapturePaused = true
-        _suspendCaptureWork()
+        _lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        _saveRecovery(synchronously: false)
+        _stopRecoveryCheckpointTimer()
+        _suspendCaptureWork(pauseFaultTracking: true)
     }
 
     @objc func resumeFromUser() {
         guard _live, _userCapturePaused else { return }
         _userCapturePaused = false
+        _lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        _saveRecovery(synchronously: false)
+        _startRecoveryCheckpointTimer()
         _resumeCaptureWorkIfAllowed()
     }
 
-    private func _suspendCaptureWork() {
+    private func _suspendCaptureWork(pauseFaultTracking: Bool) {
         _hierarchyTimer?.invalidate()
         _hierarchyTimer = nil
         _initialHierarchyWorkItem?.cancel()
         _initialHierarchyWorkItem = nil
         InteractionRecorder.shared.deactivate()
         ResponsivenessWatcher.shared.halt()
+        if pauseFaultTracking { FaultTracker.shared.deactivate() }
     }
 
     private func _resumeCaptureWorkIfAllowed() {
         guard _live, !_userCapturePaused, _bgStartMs == nil else { return }
         if interactionCaptureEnabled { InteractionRecorder.shared.activate() }
+        if faultTrackingEnabled { FaultTracker.shared.activate() }
         if responsivenessCaptureEnabled { ResponsivenessWatcher.shared.activate() }
         if hierarchyCaptureEnabled, _hierarchyTimer == nil { _startHierarchyCapture() }
     }
@@ -814,12 +901,12 @@ final class ReplayOrchestrator: NSObject {
         // Industry standard: Use default run loop mode (NOT .common)
         // This lets the timer pause during scrolling which prevents stutter
         _hierarchyTimer = Timer.scheduledTimer(withTimeInterval: hierarchyCaptureInterval, repeats: true) { [weak self] _ in
-            self?._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
+            self?._captureHierarchy(skipDuplicate: true, eventDriven: false)
         }
 
         let work = DispatchWorkItem { [weak self] in
             guard let self, self._live else { return }
-            self._captureHierarchy(skipDuplicate: true, allowDuringMapMovement: false)
+            self._captureHierarchy(skipDuplicate: true, eventDriven: false)
         }
         _initialHierarchyWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
@@ -829,30 +916,35 @@ final class ReplayOrchestrator: NSObject {
         guard !_userCapturePaused else { return }
         let now = CACurrentMediaTime()
         guard now - _lastHierarchyCaptureMonotonic >= _minimumFrameHierarchyInterval else { return }
-        _captureHierarchy(timestampMs: timestampMs, skipDuplicate: true, allowDuringMapMovement: true)
+        _captureHierarchy(timestampMs: timestampMs, skipDuplicate: true, eventDriven: true)
     }
 
     private func _captureHierarchy(
         timestampMs: UInt64? = nil,
         skipDuplicate: Bool = true,
-        allowDuringMapMovement: Bool = false
+        eventDriven: Bool = false
     ) {
-        guard _live, let sid = replayId else { return }
+        guard _live, !_userCapturePaused, _bgStartMs == nil, let sid = replayId else { return }
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
                 self?._captureHierarchy(
                     timestampMs: timestampMs,
                     skipDuplicate: skipDuplicate,
-                    allowDuringMapMovement: allowDuringMapMovement
+                    eventDriven: eventDriven
                 )
             }
             return
         }
 
-        // Throttle hierarchy capture when map is visible and animating —
-        // hierarchy scanning traverses the full view tree including the
-        // map's deep Metal/GL subviews, adding main-thread pressure.
-        if !allowDuringMapMovement && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+        // Throttle hierarchy capture while a map camera is moving -- the scan
+        // traverses the full view tree including the map's deep Metal/GL
+        // subviews, adding main-thread pressure exactly when the frame is
+        // being dropped anyway. An event-driven scan is never throttled.
+        if !SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: SpecialCases.shared.mapVisible,
+            mapIdle: SpecialCases.shared.mapIdle,
+            eventDriven: eventDriven
+        ) {
             return
         }
 

@@ -1,0 +1,8 @@
+appId: ${APP_ID}
+name: Resume Swift matrix SDK
+---
+- tapOn:
+    id: resume-rejourney-sdk
+- tapOn:
+    id: resume-rejourney-sdk
+- assertVisible: SDK resumed · same session

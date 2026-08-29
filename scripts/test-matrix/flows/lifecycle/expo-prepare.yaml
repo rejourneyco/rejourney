@@ -1,0 +1,17 @@
+appId: ${APP_ID}
+name: Prepare a fresh Expo lifecycle session
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: Bottom sheet handle
+    timeout: 20000
+- swipe:
+    start: 50%,48%
+    end: 50%,95%
+    duration: 450
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible: Home
+    timeout: 20000

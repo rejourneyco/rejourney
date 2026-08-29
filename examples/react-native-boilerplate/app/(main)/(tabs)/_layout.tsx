@@ -35,14 +35,14 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="replay-lab"
+        name="replay-lab/index"
         options={{
           title: 'Replay Lab',
           tabBarIcon: ({ color }) => <AntDesign name="video-camera" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="stress"
+        name="stress/index"
         options={{
           title: 'Stress',
           tabBarIcon: ({ color }) => <AntDesign name="dashboard" size={24} color={color} />,
@@ -52,6 +52,7 @@ export default function TabLayout() {
         name="map"
         options={{
           title: 'Map',
+          tabBarButtonTestID: 'tab-map',
           tabBarIcon: ({ color }) => <AntDesign name="pushpin" size={24} color={color} />,
         }}
       />
@@ -59,6 +60,7 @@ export default function TabLayout() {
         name="mapbox"
         options={{
           title: 'Mapbox',
+          tabBarButtonTestID: 'tab-mapbox',
           tabBarIcon: ({ color }) => <AntDesign name="environment" size={24} color={color} />,
         }}
       />

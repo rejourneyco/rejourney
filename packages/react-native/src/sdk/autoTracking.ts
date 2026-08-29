@@ -87,6 +87,24 @@ interface PromiseRejectionEvent {
   promise?: Promise<any>;
 }
 
+interface ReactNativeExceptionStackFrame {
+  methodName?: string;
+  file?: string | null;
+  lineNumber?: number | null;
+  column?: number | null;
+}
+
+interface ReactNativeExceptionData {
+  id?: number;
+  message?: string;
+  originalMessage?: string | null;
+  name?: string | null;
+  isFatal?: boolean;
+  stack?: ReactNativeExceptionStackFrame[];
+  extraData?: { rawStack?: unknown };
+  preventDefault?: () => unknown;
+}
+
 const _globalThis = globalThis as typeof globalThis & {
   onerror?: OnErrorEventHandler;
   addEventListener?: (type: string, handler: (event: any) => void) => void;
@@ -95,6 +113,9 @@ const _globalThis = globalThis as typeof globalThis & {
     getGlobalHandler: () => ((error: Error, isFatal: boolean) => void) | undefined;
     setGlobalHandler: (handler: (error: Error, isFatal: boolean) => void) => void;
   };
+  RN$registerExceptionListener?: (
+    listener: (error: ReactNativeExceptionData) => void
+  ) => void;
 };
 
 export interface TapEvent {
@@ -181,9 +202,24 @@ let originalOnError: OnErrorEventHandler | null = null;
 let installedOnError: OnErrorEventHandler | null = null;
 let onErrorChainedExternally = false;
 let originalOnUnhandledRejection: ((event: PromiseRejectionEvent) => void) | null = null;
-let originalConsoleError: ((...args: any[]) => void) | null = null;
-let installedConsoleError: ((...args: any[]) => void) | null = null;
-let _promiseRejectionTrackingDisable: (() => void) | null = null;
+let originalPromiseConsoleError: ((...args: any[]) => void) | null = null;
+let installedPromiseConsoleError: ((...args: any[]) => void) | null = null;
+let nativeExceptionListenerRegistered = false;
+const incidentIdsByObject = new WeakMap<object, string>();
+const recentlyForwardedIncidents = new Map<string, number>();
+let incidentSequence = 0;
+
+function incidentIdFor(value: unknown): string {
+  if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+    const object = value as object;
+    const existing = incidentIdsByObject.get(object);
+    if (existing) return existing;
+    const created = `rn-${Date.now().toString(36)}-${(++incidentSequence).toString(36)}`;
+    incidentIdsByObject.set(object, created);
+    return created;
+  }
+  return `rn-${Date.now().toString(36)}-${(++incidentSequence).toString(36)}`;
+}
 
 /**
  * Initialize auto tracking features
@@ -244,8 +280,8 @@ export function initAutoTracking(
 export function pauseAutoTracking(): void {
   if (!isInitialized || isPaused) return;
   isPaused = true;
-  restoreErrorHandlers();
   restoreConsoleHandlers();
+  restoreErrorHandlers();
   cleanupNavigationTracking();
 }
 
@@ -270,14 +306,15 @@ export function cleanupAutoTracking(): void {
     return;
   }
 
-  restoreErrorHandlers();
   restoreConsoleHandlers();
+  restoreErrorHandlers();
   cleanupNavigationTracking();
 
   // Reset state
   tapHead = 0;
   tapCount = 0;
   consoleLogCount = 0;
+  recentlyForwardedIncidents.clear();
   metrics = createEmptyMetrics();
   screensVisited = [];
   currentScreen = '';
@@ -382,6 +419,7 @@ export function notifyStateChange(): void {
  */
 function setupErrorTracking(): void {
   if (config.trackReactNativeErrors !== false) {
+    setupNativeExceptionListener();
     setupReactNativeErrorHandler();
   }
 
@@ -391,6 +429,63 @@ function setupErrorTracking(): void {
 
   if (config.trackPromiseRejections !== false && typeof _globalThis !== 'undefined') {
     setupPromiseRejectionHandler();
+  }
+}
+
+function formatNativeExceptionStack(error: ReactNativeExceptionData): string | undefined {
+  const rawStack = error.extraData?.rawStack;
+  if (typeof rawStack === 'string' && rawStack.length > 0) return rawStack;
+  if (!Array.isArray(error.stack) || error.stack.length === 0) return undefined;
+
+  return error.stack.map((frame) => {
+    const method = frame.methodName || '<unknown>';
+    const location = frame.file
+      ? `${frame.file}${frame.lineNumber != null ? `:${frame.lineNumber}` : ''}${frame.column != null ? `:${frame.column}` : ''}`
+      : undefined;
+    return location ? `at ${method} (${location})` : `at ${method}`;
+  }).join('\n');
+}
+
+/**
+ * React Native's current runtime has a second error pipeline for failures that
+ * happen before the JS ErrorUtils handler is ready (and for the newer always-
+ * available C++ pipeline). Registration is additive and has no removal API, so
+ * install exactly once for the process and use the normal lifecycle gate.
+ */
+function setupNativeExceptionListener(): void {
+  if (nativeExceptionListenerRegistered) return;
+  const register = _globalThis.RN$registerExceptionListener;
+  if (typeof register !== 'function') return;
+
+  try {
+    register((error) => {
+      // This listener is process-lifetime and React Native exposes no removal
+      // API. Gate before stack formatting/ID allocation so a user pause is a
+      // genuinely cold path rather than merely suppressing the final bridge call.
+      if (!isInitialized || isPaused) return;
+      const name = typeof error.name === 'string' && error.name.length > 0
+        ? error.name
+        : 'Error';
+      trackError({
+        type: 'error',
+        timestamp: Date.now(),
+        incidentId: typeof error.id === 'number'
+          ? `rn-native-${error.id}`
+          : incidentIdFor(error),
+        message: error.message || error.originalMessage || 'Unknown React Native error',
+        stack: formatNativeExceptionStack(error),
+        name,
+        exceptionCategory: name,
+        source: 'react_native_runtime',
+        handled: false,
+      });
+      // Deliberately do not call preventDefault(): RN and other crash reporters
+      // must retain their normal reporting and termination behavior.
+    });
+    nativeExceptionListenerRegistered = true;
+  } catch {
+    // Older/custom runtimes can expose a partial global. ErrorUtils remains the
+    // compatible fallback and SDK startup must never fail because of tracking.
   }
 }
 
@@ -414,16 +509,19 @@ function setupReactNativeErrorHandler(): void {
     originalErrorHandler = currentHandler;
 
     installedErrorHandler = (error: Error, isFatal: boolean) => {
-      trackError({
-        type: 'error',
-        timestamp: Date.now(),
-        message: error.message || String(error),
-        stack: error.stack,
-        name: error.name || 'Error',
-        exceptionCategory: error.name || 'Error',
-        source: 'react_native',
-        handled: false,
-      });
+      if (isInitialized && !isPaused) {
+        trackError({
+          type: 'error',
+          timestamp: Date.now(),
+          incidentId: incidentIdFor(error),
+          message: error.message || String(error),
+          stack: error.stack,
+          name: error.name || 'Error',
+          exceptionCategory: error.name || 'Error',
+          source: 'react_native',
+          handled: false,
+        });
+      }
 
       if (originalErrorHandler) {
         originalErrorHandler(error, isFatal);
@@ -453,16 +551,19 @@ function setupJSErrorHandler(): void {
       colno?: number,
       error?: Error
     ) => {
-      trackError({
-        type: 'error',
-        timestamp: Date.now(),
-        message: typeof message === 'string' ? message : 'Unknown error',
-        stack: error?.stack || `${source}:${lineno}:${colno}`,
-        name: error?.name || 'Error',
-        exceptionCategory: error?.name || 'Error',
-        source: 'javascript',
-        handled: false,
-      });
+      if (isInitialized && !isPaused) {
+        trackError({
+          type: 'error',
+          timestamp: Date.now(),
+          incidentId: incidentIdFor(error || message),
+          message: typeof message === 'string' ? message : 'Unknown error',
+          stack: error?.stack || `${source}:${lineno}:${colno}`,
+          name: error?.name || 'Error',
+          exceptionCategory: error?.name || 'Error',
+          source: 'javascript',
+          handled: false,
+        });
+      }
 
       if (originalOnError) {
         return originalOnError(message, source, lineno, colno, error);
@@ -476,89 +577,22 @@ function setupJSErrorHandler(): void {
 /**
  * Setup unhandled promise rejection handler
  *
- * React Native's Hermes engine does NOT support the web-standard
- * globalThis.addEventListener('unhandledrejection', ...) API.
- * We use two complementary strategies:
- *
- * 1. React Native's built-in promise rejection tracking polyfill
- *    (promise/setimmediate/rejection-tracking) — fires for all
- *    unhandled rejections, including those that never hit ErrorUtils.
- *
- * 2. console.error interception — newer RN versions (0.73+) report
- *    unhandled promise rejections via console.error with a recognizable
- *    prefix. We intercept these as a fallback.
- *
- * 3. Web API fallback — for non-RN environments (e.g., testing in a browser).
+ * React Native owns its Promise rejection tracker. Its public module-level
+ * enable() API replaces the existing callbacks and disable() removes them, so
+ * an SDK must not call either: doing so suppresses RN or another crash SDK.
+ * Modern RN routes development-time rejections through ExceptionsManager and
+ * console.error; browsers expose the standard unhandledrejection event.
  */
 function setupPromiseRejectionHandler(): void {
-  let rnTrackingSetUp = false;
-
-  // Strategy 1: RN-specific promise rejection tracking polyfill
-  try {
-    const tracking = require('promise/setimmediate/rejection-tracking');
-    if (tracking && typeof tracking.enable === 'function') {
-      tracking.enable({
-        allRejections: true,
-        onUnhandled: (_id: number, error: any) => {
-          trackError({
-            type: 'error',
-            timestamp: Date.now(),
-            message: error?.message || String(error) || 'Unhandled Promise Rejection',
-            stack: error?.stack,
-            name: error?.name || 'UnhandledRejection',
-            exceptionCategory: error?.name || 'UnhandledRejection',
-            source: 'promise_rejection',
-            handled: false,
-          });
-        },
-        onHandled: () => { /* no-op */ },
-      });
-      _promiseRejectionTrackingDisable = () => {
-        try { tracking.disable(); } catch { /* ignore */ }
-      };
-      rnTrackingSetUp = true;
-    }
-  } catch {
-    // Polyfill not available — fall through to other strategies
-  }
-
-  // Strategy 2: Intercept console.error for promise rejection messages
-  // Newer RN versions log "Possible Unhandled Promise Rejection" via console.error
-  if (!rnTrackingSetUp && typeof console !== 'undefined' && console.error) {
-    const priorConsoleError = console.error;
-    originalConsoleError = priorConsoleError;
-    installedConsoleError = (...args: any[]) => {
-      // Detect RN-style promise rejection messages
-      const firstArg = args[0];
-      if (
-        typeof firstArg === 'string' &&
-        firstArg.includes('Possible Unhandled Promise Rejection')
-      ) {
-        const error = args[1];
-        trackError({
-          type: 'error',
-          timestamp: Date.now(),
-          message: error?.message || String(error) || firstArg,
-          stack: error?.stack,
-          name: error?.name || 'UnhandledRejection',
-          exceptionCategory: error?.name || 'UnhandledRejection',
-          source: 'promise_rejection',
-          handled: false,
-        });
-      }
-      // Always call through to original console.error
-      priorConsoleError.apply(console, args);
-    };
-    console.error = installedConsoleError;
-  }
-
-  // Strategy 3: Web API fallback (works in browser-based testing, not in RN Hermes)
-  if (!rnTrackingSetUp && typeof _globalThis.addEventListener !== 'undefined') {
+  // Web API path (browser tests and React Native Web).
+  if (typeof _globalThis.addEventListener !== 'undefined') {
+    if (originalOnUnhandledRejection) return;
     const handler = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
       trackError({
         type: 'error',
         timestamp: Date.now(),
+        incidentId: incidentIdFor(reason),
         message: reason?.message || String(reason) || 'Unhandled Promise Rejection',
         stack: reason?.stack,
         name: reason?.name || 'UnhandledRejection',
@@ -569,7 +603,48 @@ function setupPromiseRejectionHandler(): void {
     };
 
     originalOnUnhandledRejection = handler;
-    _globalThis.addEventListener!('unhandledrejection', handler);
+    _globalThis.addEventListener('unhandledrejection', handler);
+    return;
+  }
+
+  // Native RN path. Preserve a wrapper installed after us by leaving our
+  // dormant node in its predecessor chain and reusing it on resume.
+  if (typeof console !== 'undefined' && console.error) {
+    if (installedPromiseConsoleError) {
+      if (console.error === originalPromiseConsoleError) {
+        console.error = installedPromiseConsoleError;
+      }
+      return;
+    }
+    const priorConsoleError = console.error;
+    originalPromiseConsoleError = priorConsoleError;
+    installedPromiseConsoleError = (...args: any[]) => {
+      if (!isInitialized || isPaused) {
+        priorConsoleError.apply(console, args);
+        return;
+      }
+      const firstArg = args[0];
+      const error = args.find((value) => value instanceof Error) as Error | undefined;
+      const rendered = error?.message || (typeof firstArg === 'string' ? firstArg : '');
+      if (
+        rendered.includes('Possible Unhandled Promise Rejection') ||
+        rendered.includes('Uncaught (in promise')
+      ) {
+        trackError({
+          type: 'error',
+          timestamp: Date.now(),
+          incidentId: incidentIdFor(error || firstArg),
+          message: error?.message || rendered || 'Unhandled Promise Rejection',
+          stack: error?.stack,
+          name: error?.name || 'UnhandledRejection',
+          exceptionCategory: error?.name || 'UnhandledRejection',
+          source: 'promise_rejection',
+          handled: false,
+        });
+      }
+      priorConsoleError.apply(console, args);
+    };
+    console.error = installedPromiseConsoleError;
   }
 }
 
@@ -610,18 +685,12 @@ function restoreErrorHandlers(): void {
     }
   }
 
-  // Restore promise rejection tracking
-  if (_promiseRejectionTrackingDisable) {
-    _promiseRejectionTrackingDisable();
-    _promiseRejectionTrackingDisable = null;
-  }
-
-  if (installedConsoleError) {
-    if (console.error === installedConsoleError && originalConsoleError) {
-      console.error = originalConsoleError;
+  if (installedPromiseConsoleError) {
+    if (console.error === installedPromiseConsoleError && originalPromiseConsoleError) {
+      console.error = originalPromiseConsoleError;
+      originalPromiseConsoleError = null;
+      installedPromiseConsoleError = null;
     }
-    originalConsoleError = null;
-    installedConsoleError = null;
   }
 
   if (originalOnUnhandledRejection && typeof _globalThis.removeEventListener !== 'undefined') {
@@ -635,6 +704,19 @@ function restoreErrorHandlers(): void {
  */
 function trackError(error: ErrorEvent): void {
   if (!isInitialized || isPaused) return;
+  const incidentId = error.incidentId || incidentIdFor(error);
+  const now = Date.now();
+  const lastForwardedAt = recentlyForwardedIncidents.get(incidentId);
+  if (lastForwardedAt != null && now - lastForwardedAt < 10_000) return;
+  recentlyForwardedIncidents.set(incidentId, now);
+  if (recentlyForwardedIncidents.size > 128) {
+    for (const [id, timestamp] of recentlyForwardedIncidents) {
+      if (now - timestamp >= 10_000 || recentlyForwardedIncidents.size > 128) {
+        recentlyForwardedIncidents.delete(id);
+      }
+    }
+  }
+  error.incidentId = incidentId;
   metrics.errorCount++;
   metrics.totalEvents++;
 
@@ -655,6 +737,7 @@ function forwardErrorToNative(error: ErrorEvent): void {
     if (!nativeModule || typeof nativeModule.logEvent !== 'function') return;
 
     nativeModule.logEvent('error', {
+      incidentId: error.incidentId,
       message: error.message,
       stack: error.stack,
       name: error.name || 'Error',
@@ -676,9 +759,11 @@ export function captureError(
   stack?: string,
   name?: string
 ): void {
+  if (!isInitialized || isPaused) return;
   trackError({
     type: 'error',
     timestamp: Date.now(),
+    incidentId: incidentIdFor(message),
     message,
     stack,
     name: name || 'Error',
@@ -691,9 +776,11 @@ export function captureError(
 let originalConsoleLog: ((...args: any[]) => void) | null = null;
 let originalConsoleInfo: ((...args: any[]) => void) | null = null;
 let originalConsoleWarn: ((...args: any[]) => void) | null = null;
+let originalConsoleError: ((...args: any[]) => void) | null = null;
 let installedConsoleLog: ((...args: any[]) => void) | null = null;
 let installedConsoleInfo: ((...args: any[]) => void) | null = null;
 let installedConsoleWarn: ((...args: any[]) => void) | null = null;
+let installedConsoleError: ((...args: any[]) => void) | null = null;
 
 // Cap console logs to prevent flooding the event pipeline
 const MAX_CONSOLE_LOGS_PER_SESSION = 1000;
@@ -704,10 +791,6 @@ let consoleLogCount = 0;
  */
 function setupConsoleTracking(): void {
   if (typeof console === 'undefined') return;
-
-  if (!originalConsoleLog) originalConsoleLog = console.log;
-  if (!originalConsoleInfo) originalConsoleInfo = console.info;
-  if (!originalConsoleWarn) originalConsoleWarn = console.warn;
 
   const createConsoleInterceptor = (level: 'log' | 'info' | 'warn' | 'error', originalFn: (...args: any[]) => void) => {
     return (...args: any[]) => {
@@ -751,39 +834,60 @@ function setupConsoleTracking(): void {
     };
   };
 
-  installedConsoleLog = createConsoleInterceptor('log', originalConsoleLog!);
-  installedConsoleInfo = createConsoleInterceptor('info', originalConsoleInfo!);
-  installedConsoleWarn = createConsoleInterceptor('warn', originalConsoleWarn!);
-  console.log = installedConsoleLog;
-  console.info = installedConsoleInfo;
-  console.warn = installedConsoleWarn;
-
-  const currentConsoleError = console.error;
-  if (!originalConsoleError) originalConsoleError = currentConsoleError;
-  installedConsoleError = createConsoleInterceptor('error', currentConsoleError);
-  console.error = installedConsoleError;
+  if (!installedConsoleLog) {
+    originalConsoleLog = console.log;
+    installedConsoleLog = createConsoleInterceptor('log', originalConsoleLog);
+    console.log = installedConsoleLog;
+  } else if (console.log === originalConsoleLog) {
+    console.log = installedConsoleLog;
+  }
+  if (!installedConsoleInfo) {
+    originalConsoleInfo = console.info;
+    installedConsoleInfo = createConsoleInterceptor('info', originalConsoleInfo);
+    console.info = installedConsoleInfo;
+  } else if (console.info === originalConsoleInfo) {
+    console.info = installedConsoleInfo;
+  }
+  if (!installedConsoleWarn) {
+    originalConsoleWarn = console.warn;
+    installedConsoleWarn = createConsoleInterceptor('warn', originalConsoleWarn);
+    console.warn = installedConsoleWarn;
+  } else if (console.warn === originalConsoleWarn) {
+    console.warn = installedConsoleWarn;
+  }
+  if (!installedConsoleError) {
+    originalConsoleError = console.error;
+    installedConsoleError = createConsoleInterceptor('error', originalConsoleError);
+    console.error = installedConsoleError;
+  } else if (console.error === originalConsoleError) {
+    console.error = installedConsoleError;
+  }
 }
 
 /**
  * Restore console standard functions
  */
 function restoreConsoleHandlers(): void {
-  if (originalConsoleLog) {
-    if (console.log === installedConsoleLog) console.log = originalConsoleLog;
+  if (installedConsoleLog && originalConsoleLog && console.log === installedConsoleLog) {
+    console.log = originalConsoleLog;
     originalConsoleLog = null;
     installedConsoleLog = null;
   }
-  if (originalConsoleInfo) {
-    if (console.info === installedConsoleInfo) console.info = originalConsoleInfo;
+  if (installedConsoleInfo && originalConsoleInfo && console.info === installedConsoleInfo) {
+    console.info = originalConsoleInfo;
     originalConsoleInfo = null;
     installedConsoleInfo = null;
   }
-  if (originalConsoleWarn) {
-    if (console.warn === installedConsoleWarn) console.warn = originalConsoleWarn;
+  if (installedConsoleWarn && originalConsoleWarn && console.warn === installedConsoleWarn) {
+    console.warn = originalConsoleWarn;
     originalConsoleWarn = null;
     installedConsoleWarn = null;
   }
-  // Note: console.error is restored in restoreErrorHandlers via originalConsoleError
+  if (installedConsoleError && originalConsoleError && console.error === installedConsoleError) {
+    console.error = originalConsoleError;
+    originalConsoleError = null;
+    installedConsoleError = null;
+  }
 }
 
 let navigationPollingInterval: ReturnType<typeof setInterval> | null = null;

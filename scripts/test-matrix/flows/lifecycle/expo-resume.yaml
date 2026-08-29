@@ -1,0 +1,6 @@
+appId: ${APP_ID}
+name: Resume Expo matrix SDK
+---
+- tapOn: Resume Rejourney SDK
+- tapOn: Resume Rejourney SDK
+- assertVisible: SDK resumed · same session

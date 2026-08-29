@@ -45,6 +45,12 @@ describe('research lake anonymized payload shape', () => {
             orientation_end: 'landscape',
             orientation_change_count: 1,
             display_max_refresh_rate_hz: 120,
+            capture_health_reported: true,
+            frames_captured: 42,
+            frames_skipped_duplicate: 9,
+            frames_skipped_throttle: 3,
+            frames_skipped_backlog: 2,
+            frames_skipped_map_moving: 7,
         } as any);
 
         expect(metrics).toMatchObject({
@@ -61,6 +67,12 @@ describe('research lake anonymized payload shape', () => {
             ui_style: 'dark',
             layout_direction: 'rtl',
             display_max_refresh_rate_hz: 120,
+            capture_health_reported: true,
+            frames_captured: 42,
+            frames_skipped_duplicate: 9,
+            frames_skipped_throttle: 3,
+            frames_skipped_backlog: 2,
+            frames_skipped_map_moving: 7,
         });
     });
 
@@ -71,6 +83,12 @@ describe('research lake anonymized payload shape', () => {
             thermal_throttled_duration_ms: null,
             memory_pressure_event_count: null,
             orientation_change_count: null,
+            capture_health_reported: false,
+            frames_captured: null,
+            frames_skipped_duplicate: null,
+            frames_skipped_throttle: null,
+            frames_skipped_backlog: null,
+            frames_skipped_map_moving: null,
         });
     });
 

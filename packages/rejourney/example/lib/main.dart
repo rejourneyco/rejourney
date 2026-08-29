@@ -7,7 +7,7 @@ import 'stress.dart';
 
 const _publicKey = String.fromEnvironment(
   'REJOURNEY_PUBLIC_KEY',
-  defaultValue: 'rj_63bf781af9fc20fad303abaa4325eed0',
+  defaultValue: '',
 );
 const _apiUrl = String.fromEnvironment(
   'REJOURNEY_API_URL',
@@ -60,6 +60,7 @@ class _DemoHomeState extends State<DemoHome> {
   String _status = 'Ready';
   String? _sessionId;
   bool _busy = false;
+  bool _paused = false;
   StreamSubscription<Map<String, Object?>>? _nativeEventSubscription;
 
   @override
@@ -90,6 +91,15 @@ class _DemoHomeState extends State<DemoHome> {
   }
 
   Future<void> _initialize() async {
+    if (_publicKey.isEmpty) {
+      if (mounted) {
+        setState(
+          () => _status =
+              'Recording disabled: REJOURNEY_PUBLIC_KEY is not configured',
+        );
+      }
+      return;
+    }
     try {
       await Rejourney.init(
         _publicKey,
@@ -122,6 +132,7 @@ class _DemoHomeState extends State<DemoHome> {
       setState(() {
         _busy = false;
         _sessionId = started.sessionId;
+        _paused = false;
         _status = started.success
             ? started.telemetryOnly
                   ? 'Telemetry session active'
@@ -147,9 +158,28 @@ class _DemoHomeState extends State<DemoHome> {
     setState(() {
       _busy = false;
       _sessionId = null;
+      _paused = false;
       _status = stopped.uploadSuccess
           ? 'Session stopped and flushed'
           : 'Session stopped; upload queued';
+    });
+  }
+
+  Future<void> _pause() async {
+    final succeeded = await Rejourney.pause();
+    if (!mounted) return;
+    setState(() {
+      if (succeeded) _paused = true;
+      _status = succeeded ? 'SDK paused · interact now' : 'Pause unavailable';
+    });
+  }
+
+  Future<void> _resume() async {
+    final succeeded = await Rejourney.resume();
+    if (!mounted) return;
+    setState(() {
+      if (succeeded) _paused = false;
+      _status = succeeded ? 'SDK resumed · same session' : 'Resume unavailable';
     });
   }
 
@@ -262,6 +292,32 @@ class _DemoHomeState extends State<DemoHome> {
             onPressed: _busy ? null : _stop,
             icon: const Icon(Icons.stop_circle_outlined),
             label: const Text('Stop and flush'),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('pause-sdk'),
+                  onPressed: _busy ? null : _pause,
+                  icon: const Icon(Icons.pause_circle_outline),
+                  label: const Text('Pause SDK'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('resume-sdk'),
+                  onPressed: _busy ? null : _resume,
+                  icon: const Icon(Icons.play_circle_outline),
+                  label: const Text('Resume SDK'),
+                ),
+              ),
+            ],
+          ),
+          Semantics(
+            label: _paused ? 'Rejourney SDK paused' : 'Rejourney SDK active',
+            child: const SizedBox.shrink(),
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(

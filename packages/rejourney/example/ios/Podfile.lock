@@ -2,7 +2,7 @@ PODS:
   - Flutter (1.0.0)
   - integration_test (0.0.1):
     - Flutter
-  - rejourney (0.4.0):
+  - rejourney (0.4.1):
     - Flutter
   - video_player_avfoundation (0.0.1):
     - Flutter
@@ -27,7 +27,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  rejourney: e8519e374af726c64bc4a29740b2d5cac9d6f3c9
+  rejourney: ec667015b470405b8d0a2b831150f30e073023f2
   video_player_avfoundation: 3453f792138786248960ca029747fcd9f318ef52
 
 PODFILE CHECKSUM: ef408bf62401d49418af75b9276d53e23e5fadf7

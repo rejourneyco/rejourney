@@ -1,0 +1,6 @@
+appId: ${APP_ID}
+name: Pause Flutter matrix SDK
+---
+- tapOn: Pause SDK
+- tapOn: Pause SDK
+- assertVisible: SDK paused · interact now

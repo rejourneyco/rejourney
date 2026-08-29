@@ -1,0 +1,52 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- startRecording: flutter-smoke
+- extendedWaitUntil:
+    visible: SDK initialized.*
+    timeout: 20000
+- tapOn: Start recording
+- extendedWaitUntil:
+    visible: .*Recording active.*
+    timeout: 15000
+- tapOn: Pause SDK
+- tapOn: Pause SDK
+- assertVisible: SDK paused.*
+- swipe:
+    start: 50%, 76%
+    end: 50%, 34%
+    duration: 350
+    waitToSettleTimeoutMs: 350
+- tapOn: Resume SDK
+- tapOn: Resume SDK
+- assertVisible: SDK resumed.*
+- tapOn: Track custom event
+- tapOn: Open checkout demo
+- assertVisible: Payment details
+- tapOn: Complete purchase
+- tapOn: Back
+- tapOn: Stress screens
+- tapOn: S4 · Video.*
+- tapOn: Back
+- tapOn: S6 · Image scroll.*
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 50%, 78%
+          end: 50%, 24%
+          duration: 300
+          waitToSettleTimeoutMs: 300
+- tapOn: Back
+- tapOn: S1-S3 · 3D scene.*
+- tapOn: Settle (stop motion)
+- tapOn: Animate
+- tapOn: Back
+- tapOn: Back
+- tapOn: Stop and flush
+- extendedWaitUntil:
+    visible: Session stopped.*
+    timeout: 20000
+- stopRecording

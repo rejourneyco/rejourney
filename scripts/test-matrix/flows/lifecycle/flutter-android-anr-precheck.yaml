@@ -1,0 +1,37 @@
+appId: ${APP_ID}
+name: Flutter Android ANR false-positive regression
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: SDK initialized.*
+    timeout: 20000
+- tapOn: Start recording
+- extendedWaitUntil:
+    visible: .*Recording active.*
+    timeout: 15000
+- tapOn: Stress screens
+- tapOn: S6 · Image scroll.*
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 50%, 78%
+          end: 50%, 24%
+          duration: 300
+          waitToSettleTimeoutMs: 300
+- tapOn: Back
+- tapOn: S1-S3 · 3D scene.*
+- tapOn: Settle (stop motion)
+- tapOn: Animate
+- tapOn: Back
+- tapOn: Back
+- tapOn: Pause SDK
+- extendedWaitUntil:
+    visible: SDK paused.*
+    timeout: 15000
+- tapOn: Resume SDK
+- extendedWaitUntil:
+    visible: SDK resumed.*
+    timeout: 15000

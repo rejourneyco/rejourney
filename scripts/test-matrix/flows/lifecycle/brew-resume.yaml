@@ -1,0 +1,13 @@
+appId: ${APP_ID}
+name: Resume Brew matrix SDK
+---
+- scrollUntilVisible:
+    element:
+      text: Resume Rejourney SDK
+    direction: UP
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 15000
+- tapOn: Resume Rejourney SDK
+- tapOn: Resume Rejourney SDK
+- assertVisible: SDK resumed · same session

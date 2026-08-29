@@ -26,9 +26,20 @@ final class TelemetryPipeline: NSObject {
         didSet { SegmentDispatcher.shared.endpoint = endpoint }
     }
 
+    private let _sessionStateLock = NSLock()
+    private var _currentReplayId: String?
+
     @objc var currentReplayId: String? {
-        didSet {
-            SegmentDispatcher.shared.currentReplayId = currentReplayId
+        get {
+            _sessionStateLock.lock()
+            defer { _sessionStateLock.unlock() }
+            return _currentReplayId
+        }
+        set {
+            _sessionStateLock.lock()
+            _currentReplayId = newValue
+            _sessionStateLock.unlock()
+            SegmentDispatcher.shared.currentReplayId = newValue
         }
     }
 
@@ -69,14 +80,17 @@ final class TelemetryPipeline: NSObject {
 
     private let _eventRing = EventRingBuffer(capacity: 5000)
     private let _frameQueue = FrameBundleQueue(maxPending: 200)
-    private var _batchSeq = 0
-    private var _draining = false
-    private let _drainStateLock = NSLock()
-    private var _shutdownCompletions: [() -> Void] = []
-    private var _backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    private var _batchSeqBySession: [String: Int] = [:]
+    private var _batchSequenceOrder: [String] = []
+    private let _maxTrackedBatchSequences = 128
+    private let _drainRegistry = DrainCompletionRegistry()
+    private let _backgroundTaskLock = NSLock()
+    private var _backgroundTasksByGeneration: [UInt64: UIBackgroundTaskIdentifier] = [:]
 
     private let _serialWorker = DispatchQueue(label: "co.rejourney.telemetry", qos: .utility)
     private var _heartbeat: Timer?
+    private let _metadataLock = NSLock()
+    private var _staticMetadata: [String: Any] = [:]
     private var _acceptingEvents = false
     private var _captureStateLock = os_unfair_lock_s()
 
@@ -89,6 +103,7 @@ final class TelemetryPipeline: NSObject {
     // events fire on nearly every tap due to micro-movement and would mask real dead taps.
     private static let _deadTapTimeoutSec: Double = 0.4
     private var _deadTapTimer: DispatchWorkItem?
+    private var _deadTapGeneration: UInt64 = 0
     private var _lastResponseTs: Int64 = 0
     private let _keyboardStateLock = NSLock()
     private var _isKeyboardVisible = false
@@ -128,7 +143,7 @@ final class TelemetryPipeline: NSObject {
     /// Call this when haptic feedback, animations, or other UI responses occur.
     /// This prevents the current tap from being marked as a "dead tap".
     @objc func markResponseReceived() {
-        _lastResponseTs = _ts()
+        _setLastResponseTimestamp(_ts())
     }
 
     private override init() {
@@ -137,6 +152,11 @@ final class TelemetryPipeline: NSObject {
 
     @objc func activate() {
         _setAcceptingEvents(true)
+        if Thread.isMainThread {
+            _refreshStaticMetadataOnMain()
+        } else {
+            DispatchQueue.main.async { [weak self] in self?._refreshStaticMetadataOnMain() }
+        }
         if collectDeviceInfo {
             _deviceEnvironmentMonitor.start(resetSession: true)
         } else {
@@ -148,6 +168,7 @@ final class TelemetryPipeline: NSObject {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self._isAcceptingEvents() else { return }
             // A run loop keeps a strong reference to a scheduled timer, so
             // dropping the last reference does not stop it. Re-activating for a
             // new session without invalidating first would leave the previous
@@ -184,17 +205,20 @@ final class TelemetryPipeline: NSObject {
         _setAcceptingEvents(false)
         _cancelDeadTapTimer()
         _deviceEnvironmentMonitor.pause()
-        _heartbeat?.invalidate()
-        _heartbeat = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self._isAcceptingEvents() else { return }
+            self._heartbeat?.invalidate()
+            self._heartbeat = nil
+        }
     }
 
     /// Resume the heartbeat timer when the app returns to foreground.
     @objc func resume() {
         _setAcceptingEvents(true)
-        guard _heartbeat == nil else { return }
         if collectDeviceInfo { _deviceEnvironmentMonitor.start(resetSession: false) }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self._isAcceptingEvents(), self._heartbeat == nil else { return }
             self._heartbeat = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
                 self?.dispatchNow()
             }
@@ -239,11 +263,23 @@ final class TelemetryPipeline: NSObject {
     }
 
     @objc func prepareForNewSession(_ replayId: String) {
-        _batchSeq = 0
-        let droppedEvents = _eventRing.clear()
-        let droppedFrames = _frameQueue.clear()
-        if droppedEvents > 0 || droppedFrames > 0 {
-            DiagnosticLog.trace("[TelemetryPipeline] Dropped stale pending telemetry for new session \(replayId.prefix(20)) (events=\(droppedEvents), frames=\(droppedFrames))")
+        // Pending work is session-owned. A previous session drain may still be
+        // running here; its completion remains bound to its own generation and
+        // must not be fired merely because this replacement session starts.
+        _serialWorker.async { [weak self] in
+            guard let self else { return }
+            if self._batchSeqBySession[replayId] == nil {
+                self._batchSeqBySession[replayId] = 0
+                self._batchSequenceOrder.append(replayId)
+            }
+            let protectedSessions = self._eventRing.sessionIds()
+            while self._batchSequenceOrder.count > self._maxTrackedBatchSequences,
+                  let staleIndex = self._batchSequenceOrder.firstIndex(where: {
+                      $0 != replayId && !protectedSessions.contains($0)
+                  }) {
+                let staleSession = self._batchSequenceOrder.remove(at: staleIndex)
+                self._batchSeqBySession.removeValue(forKey: staleSession)
+            }
         }
     }
 
@@ -259,11 +295,8 @@ final class TelemetryPipeline: NSObject {
     }
 
     private func _drainPendingDataForShutdown(completion: (() -> Void)? = nil, skipVisualFlush: Bool = false) {
-        guard _beginDrain(completion: completion) else { return }
-
-        _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyShutdownFlush") { [weak self] in
-            self?._finishDrainIfNeeded()
-        }
+        let drainGeneration = _drainRegistry.begin(completion: completion)
+        _beginBackgroundTask(named: "RejourneyShutdownFlush", generation: drainGeneration)
 
         if !skipVisualFlush {
             // Force any in-memory frames into the upload pipeline before session
@@ -285,24 +318,21 @@ final class TelemetryPipeline: NSObject {
 
             // Step B: ship events + frames on the serial worker
             self?._serialWorker.async { [weak self] in
-                self?._shipPendingEvents()
-                self?._shipPendingFrames()
+                self?._shipAllPendingForDrain()
 
                 // Step C: wait for all in-flight uploads before ending the background task.
                 // Timeout is 25s — well within iOS's ~30s background budget.
                 SegmentDispatcher.shared.waitForPendingUploads(timeout: 25.0)
-                self?._finishDrainIfNeeded()
+                self?._finishDrain(drainGeneration)
             }
         }
     }
 
     @objc private func _appSuspending() {
-        guard _beginDrain() else { return }
+        let drainGeneration = _drainRegistry.begin()
 
         // Request background time to complete uploads
-        _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyFlush") { [weak self] in
-            self?._finishDrainIfNeeded()
-        }
+        _beginBackgroundTask(named: "RejourneyFlush", generation: drainGeneration)
 
         // Flush visual frames to disk for crash safety
         VisualCapture.shared.flushToDisk()
@@ -315,28 +345,27 @@ final class TelemetryPipeline: NSObject {
             VisualCapture.shared.waitForEncodingToComplete()
 
             self?._serialWorker.async { [weak self] in
-                self?._shipPendingEvents()
-                self?._shipPendingFrames()
+                self?._shipAllPendingForDrain()
                 SegmentDispatcher.shared.waitForPendingUploads(timeout: 25.0)
-                self?._finishDrainIfNeeded()
+                self?._finishDrain(drainGeneration)
             }
         }
     }
 
     @objc private func _keyboardWillShow(_ notification: Notification) {
-        _lastResponseTs = _ts()
+        _setLastResponseTimestamp(_ts())
         _setKeyboardVisible(true, frame: _keyboardScreenFrame(from: notification))
         _cancelDeadTapTimer()
     }
 
     @objc private func _keyboardDidShow(_ notification: Notification) {
-        _lastResponseTs = _ts()
+        _setLastResponseTimestamp(_ts())
         _setKeyboardVisible(true, frame: _keyboardScreenFrame(from: notification) ?? _visibleKeyboardScreenFrame())
         _cancelDeadTapTimer()
     }
 
     @objc private func _keyboardDidHide() {
-        _lastResponseTs = _ts()
+        _setLastResponseTimestamp(_ts())
         let frame = _visibleKeyboardScreenFrame()
         _setKeyboardVisible(frame != nil, frame: frame)
     }
@@ -398,44 +427,46 @@ final class TelemetryPipeline: NSObject {
         return clipped
     }
 
-    private func _endBackgroundTask() {
-        guard _backgroundTaskId != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(_backgroundTaskId)
-        _backgroundTaskId = .invalid
+    private func _beginBackgroundTask(named name: String, generation: UInt64) {
+        // Register a sentinel before asking UIKit for background time. The
+        // expiration handler is allowed to run as soon as the task is created;
+        // without this entry it could finish the drain before `taskId` is
+        // stored, leaving the real task identifier orphaned and never ended.
+        _backgroundTaskLock.lock()
+        _backgroundTasksByGeneration[generation] = .invalid
+        _backgroundTaskLock.unlock()
+
+        let taskId = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            self?._finishDrain(generation)
+        }
+
+        _backgroundTaskLock.lock()
+        let drainStillRegistered = _backgroundTasksByGeneration[generation] != nil
+        if drainStillRegistered {
+            _backgroundTasksByGeneration[generation] = taskId
+        }
+        _backgroundTaskLock.unlock()
+
+        // Expiration won the race and removed the sentinel while UIKit was
+        // returning the identifier. End that identifier immediately instead
+        // of putting it back into a completed drain.
+        if !drainStillRegistered, taskId != .invalid {
+            DispatchQueue.main.async {
+                UIApplication.shared.endBackgroundTask(taskId)
+            }
+        }
     }
 
-    private func _beginDrain(completion: (() -> Void)? = nil) -> Bool {
-        _drainStateLock.lock()
-        defer { _drainStateLock.unlock() }
+    private func _finishDrain(_ generation: UInt64) {
+        guard let completions = _drainRegistry.finish(generation) else { return }
+        _backgroundTaskLock.lock()
+        let backgroundTaskId = _backgroundTasksByGeneration.removeValue(forKey: generation)
+        _backgroundTaskLock.unlock()
 
-        if let completion {
-            _shutdownCompletions.append(completion)
-        }
-
-        if _draining {
-            return false
-        }
-
-        _draining = true
-        return true
-    }
-
-    private func _finishDrainIfNeeded() {
-        _drainStateLock.lock()
-        guard _draining else {
-            _drainStateLock.unlock()
-            return
-        }
-
-        _draining = false
-        let completions = _shutdownCompletions
-        _shutdownCompletions.removeAll()
-        _drainStateLock.unlock()
-
-        _endBackgroundTask()
-
-        guard !completions.isEmpty else { return }
         DispatchQueue.main.async {
+            if let backgroundTaskId, backgroundTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskId)
+            }
             completions.forEach { $0() }
         }
     }
@@ -462,26 +493,18 @@ final class TelemetryPipeline: NSObject {
     }
 
     private func _serializeBatchFromEvents(events: [[String: Any]]) -> Data {
-        let device = UIDevice.current
-
         let networkType = ReplayOrchestrator.shared.currentNetworkType
         let isConstrained = ReplayOrchestrator.shared.networkIsConstrained
         let isExpensive = ReplayOrchestrator.shared.networkIsExpensive
-
-        // Prefer detailed hardware model (e.g. "iPhone16,1") when available,
-        // falling back to the generic UIDevice.model ("iPhone", "iPad", etc.).
-        let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
 
         var meta: [String: Any] = [
             "platform": "ios",
             "time": Date().timeIntervalSince1970,
             "sdkVersion": RejourneySDKInfo.version
         ]
+        meta.merge(_staticMetadataSnapshot()) { _, new in new }
         if collectDeviceInfo {
             meta.merge([
-                "model": hardwareModel,
-                "osVersion": device.systemVersion,
-                "vendorId": device.identifierForVendor?.uuidString ?? "",
                 "networkType": networkType,
                 "isConstrained": isConstrained,
                 "isExpensive": isExpensive
@@ -493,18 +516,26 @@ final class TelemetryPipeline: NSObject {
         return (try? JSONSerialization.data(withJSONObject: wrapper)) ?? Data()
     }
 
+    /// Drain every immediately available batch before waiting on the network.
+    /// Normal heartbeat dispatch sends one batch at a time for backpressure,
+    /// but shutdown must enqueue the complete backlog before completing.
+    private func _shipAllPendingForDrain() {
+        while _eventRing.count > 0 {
+            let before = _eventRing.count
+            _shipPendingEvents()
+            if _eventRing.count >= before { break }
+        }
+        while _frameQueue.count > 0 {
+            let before = _frameQueue.count
+            _shipPendingFrames()
+            if _frameQueue.count >= before { break }
+        }
+    }
+
     private func _shipPendingFrames() {
         guard let next = _frameQueue.dequeue() else { return }
 
         let activeSession = currentReplayId
-        if let bundleSession = next.sessionId,
-           let activeSession,
-           bundleSession != activeSession {
-            DiagnosticLog.trace("[TelemetryPipeline] Dropping stale frame bundle for closed session \(bundleSession.prefix(20)) (current=\(activeSession.prefix(20)))")
-            _serialWorker.async { [weak self] in self?._shipPendingFrames() }
-            return
-        }
-
         let targetSession = next.sessionId ?? activeSession
         guard let targetSession else {
             _frameQueue.requeue(next)
@@ -541,18 +572,38 @@ final class TelemetryPipeline: NSObject {
         let batch = _eventRing.drain(maxBytes: _batchSizeLimit)
         guard !batch.isEmpty else { return }
 
-        let payload = _serializeBatch(events: batch)
-        guard let compressed = payload.gzipCompress() else {
-            batch.forEach { _eventRing.push($0) }
+        let targetSession = batch.first?.sessionId ?? currentReplayId
+        guard let targetSession else {
+            _eventRing.prepend(batch)
             return
         }
 
-        let seq = _batchSeq
-        _batchSeq += 1
+        let payload = _serializeBatch(events: batch)
+        guard let compressed = payload.gzipCompress() else {
+            _eventRing.prepend(batch)
+            return
+        }
 
-        SegmentDispatcher.shared.transmitEventBatch(payload: compressed, batchNumber: seq, eventCount: batch.count) { [weak self] ok in
-            if !ok { batch.forEach { self?._eventRing.push($0) } }
-            else if self?._draining == true { }
+        if _batchSeqBySession[targetSession] == nil {
+            _batchSequenceOrder.append(targetSession)
+        }
+        let seq = _batchSeqBySession[targetSession] ?? 0
+        _batchSeqBySession[targetSession] = seq + 1
+
+        SegmentDispatcher.shared.transmitEventBatch(
+            for: targetSession,
+            payload: compressed,
+            batchNumber: seq,
+            eventCount: batch.count
+        ) { [weak self] ok in
+            if !ok, self?.currentReplayId == targetSession {
+                self?._eventRing.prepend(batch)
+                return
+            }
+            if !ok {
+                DiagnosticLog.trace("[TelemetryPipeline] Discarding exhausted event batch for closed session \(targetSession.prefix(20))")
+            }
+            self?._serialWorker.async { self?._shipPendingEvents() }
         }
     }
 
@@ -564,49 +615,22 @@ final class TelemetryPipeline: NSObject {
             if let obj = try? JSONSerialization.jsonObject(with: clean) as? [String: Any] { jsonEvents.append(obj) }
         }
 
-        let device = UIDevice.current
-        let screen = UIScreen.main
-        let bounds = screen.bounds
-        let scale = screen.scale
-
         // Get current network state from orchestrator
         let networkType = ReplayOrchestrator.shared.currentNetworkType
         let isConstrained = ReplayOrchestrator.shared.networkIsConstrained
         let isExpensive = ReplayOrchestrator.shared.networkIsExpensive
 
-        // Get app version from bundle
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let appId = Bundle.main.bundleIdentifier ?? "unknown"
-
-        // Prefer detailed hardware model from DeviceRegistrar when available.
-        let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
-
         var meta: [String: Any] = [
             "platform": "ios",
             "time": Date().timeIntervalSince1970,
-            "sdkVersion": RejourneySDKInfo.version,
-            // Rendering geometry and app identity are required to interpret
-            // replay coordinates and releases; they do not identify a device.
-            "appVersion": appVersion,
-            "appId": appId,
-            "screenWidth": Int(bounds.width),
-            "screenHeight": Int(bounds.height),
-            "screenWidthPixels": Int(bounds.width * scale),
-            "screenHeightPixels": Int(bounds.height * scale),
-            "screenScale": scale,
-            "pixelRatio": scale,
-            "coordinateSpace": "pt"
+            "sdkVersion": RejourneySDKInfo.version
         ]
+        meta.merge(_staticMetadataSnapshot()) { _, new in new }
         if collectDeviceInfo {
             meta.merge([
-                "model": hardwareModel,
-                "osVersion": device.systemVersion,
-                "vendorId": device.identifierForVendor?.uuidString ?? "",
                 "networkType": networkType,
                 "isConstrained": isConstrained,
-                "isExpensive": isExpensive,
-                "systemName": device.systemName,
-                "name": device.name
+                "isExpensive": isExpensive
             ]) { _, new in new }
             meta.merge(_deviceEnvironmentMonitor.currentSnapshot()) { _, new in new }
         }
@@ -720,14 +744,18 @@ final class TelemetryPipeline: NSObject {
         let tapLabel = label
         let tapX = x
         let tapY = y
+        let deadTapGeneration = _currentDeadTapGeneration()
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
+            guard TelemetryPipeline.shouldEmitDeadTap(
+                candidateGeneration: deadTapGeneration,
+                currentGeneration: self._currentDeadTapGeneration(),
+                lastResponseTimestamp: self._lastResponseTimestamp(),
+                tapTimestamp: tapTs
+            ) else { return }
             self._deadTapTimer = nil
-            // Only fire dead tap if no response event occurred since this tap
-            if self._lastResponseTs <= tapTs {
-                self.recordDeadTapEvent(label: tapLabel, x: tapX, y: tapY)
-                ReplayOrchestrator.shared.incrementDeadTapTally()
-            }
+            self.recordDeadTapEvent(label: tapLabel, x: tapX, y: tapY)
+            ReplayOrchestrator.shared.incrementDeadTapTally()
         }
         _deadTapTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + TelemetryPipeline._deadTapTimeoutSec, execute: work)
@@ -800,12 +828,12 @@ final class TelemetryPipeline: NSObject {
     }
 
     @objc func recordInputEvent(value: String, redacted: Bool, label: String) {
-        _lastResponseTs = _ts()   // keyboard input = definitive response
+        _setLastResponseTimestamp(_ts())   // keyboard input = definitive response
         _enqueue(["type": "input", "timestamp": _ts(), "value": redacted ? "***" : value, "redacted": redacted, "label": label])
     }
 
     @objc func recordViewTransition(viewId: String, viewLabel: String, entering: Bool) {
-        _lastResponseTs = _ts()   // navigation = definitive response
+        _setLastResponseTimestamp(_ts())   // navigation = definitive response
         _enqueue(["type": "navigation", "timestamp": _ts(), "screen": viewLabel, "screenName": viewLabel, "viewId": viewId, "entering": entering])
     }
 
@@ -844,8 +872,84 @@ final class TelemetryPipeline: NSObject {
     // MARK: - Dead Tap Timer
 
     private func _cancelDeadTapTimer() {
+        os_unfair_lock_lock(&_captureStateLock)
+        _deadTapGeneration &+= 1
+        os_unfair_lock_unlock(&_captureStateLock)
         _deadTapTimer?.cancel()
         _deadTapTimer = nil
+    }
+
+    private func _currentDeadTapGeneration() -> UInt64 {
+        os_unfair_lock_lock(&_captureStateLock)
+        defer { os_unfair_lock_unlock(&_captureStateLock) }
+        return _deadTapGeneration
+    }
+
+    private func _setLastResponseTimestamp(_ timestamp: Int64) {
+        os_unfair_lock_lock(&_captureStateLock)
+        _lastResponseTs = timestamp
+        os_unfair_lock_unlock(&_captureStateLock)
+    }
+
+    private func _lastResponseTimestamp() -> Int64 {
+        os_unfair_lock_lock(&_captureStateLock)
+        defer { os_unfair_lock_unlock(&_captureStateLock) }
+        return _lastResponseTs
+    }
+
+    static func shouldEmitDeadTap(
+        candidateGeneration: UInt64,
+        currentGeneration: UInt64,
+        lastResponseTimestamp: Int64,
+        tapTimestamp: Int64
+    ) -> Bool {
+        candidateGeneration == currentGeneration && lastResponseTimestamp <= tapTimestamp
+    }
+
+    private func _refreshStaticMetadataOnMain() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let device = UIDevice.current
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: { $0.isKeyWindow })
+        let screen = window?.screen ?? UIScreen.main
+        let bounds = screen.bounds
+        let scale = screen.scale
+        let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
+
+        var metadata: [String: Any] = [
+            // Rendering geometry and app identity are required to interpret
+            // replay coordinates and releases; they do not identify a device.
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            "appId": Bundle.main.bundleIdentifier ?? "unknown",
+            "screenWidth": Int(bounds.width),
+            "screenHeight": Int(bounds.height),
+            "screenWidthPixels": Int(bounds.width * scale),
+            "screenHeightPixels": Int(bounds.height * scale),
+            "screenScale": scale,
+            "pixelRatio": scale,
+            "coordinateSpace": "pt"
+        ]
+        if collectDeviceInfo {
+            metadata.merge([
+                "model": hardwareModel,
+                "osVersion": device.systemVersion,
+                "vendorId": device.identifierForVendor?.uuidString ?? "",
+                "systemName": device.systemName,
+                "name": device.name
+            ]) { _, new in new }
+        }
+
+        _metadataLock.lock()
+        _staticMetadata = metadata
+        _metadataLock.unlock()
+    }
+
+    private func _staticMetadataSnapshot() -> [String: Any] {
+        _metadataLock.lock()
+        defer { _metadataLock.unlock() }
+        return _staticMetadata
     }
 
     private func _enqueue(_ dict: [String: Any]) {
@@ -858,7 +962,11 @@ final class TelemetryPipeline: NSObject {
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         var d = data
         d.append(0x0A)
-        _eventRing.push(EventEntry(data: d, size: d.count))
+        guard d.count <= _batchSizeLimit else {
+            DiagnosticLog.caution("[TelemetryPipeline] Dropping oversized event (\(d.count) bytes)")
+            return
+        }
+        _eventRing.push(EventEntry(data: d, size: d.count, sessionId: currentReplayId))
     }
 
     private func _ts() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -868,14 +976,49 @@ final class TelemetryPipeline: NSObject {
         _acceptingEvents = accepting
         os_unfair_lock_unlock(&_captureStateLock)
     }
+
+    private func _isAcceptingEvents() -> Bool {
+        os_unfair_lock_lock(&_captureStateLock)
+        let accepting = _acceptingEvents
+        os_unfair_lock_unlock(&_captureStateLock)
+        return accepting
+    }
 }
 
-private struct EventEntry {
+/// Owns drain callbacks by generation. Encoding/upload drains execute on one
+/// serial worker, but their waits can overlap a lifecycle rollover. Independent
+/// tokens prevent either drain from completing the other session early.
+final class DrainCompletionRegistry {
+    private let lock = NSLock()
+    private var nextGeneration: UInt64 = 0
+    private var activeGenerations: Set<UInt64> = []
+    private var completionsByGeneration: [UInt64: [() -> Void]] = [:]
+
+    func begin(completion: (() -> Void)? = nil) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        nextGeneration &+= 1
+        let generation = nextGeneration
+        activeGenerations.insert(generation)
+        if let completion { completionsByGeneration[generation] = [completion] }
+        return generation
+    }
+
+    func finish(_ generation: UInt64) -> [() -> Void]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeGenerations.remove(generation) != nil else { return nil }
+        return completionsByGeneration.removeValue(forKey: generation) ?? []
+    }
+}
+
+struct EventEntry {
     let data: Data
     let size: Int
+    let sessionId: String?
 }
 
-private final class EventRingBuffer {
+final class EventRingBuffer {
     private var _storage: ContiguousArray<EventEntry?>
     private let _capacity: Int
     private var _head = 0
@@ -893,6 +1036,12 @@ private final class EventRingBuffer {
         return _count
     }
 
+    func sessionIds() -> Set<String> {
+        _lock.lock()
+        defer { _lock.unlock() }
+        return Set(_storage.compactMap { $0?.sessionId })
+    }
+
     func push(_ entry: EventEntry) {
         _lock.lock()
         defer { _lock.unlock() }
@@ -906,13 +1055,32 @@ private final class EventRingBuffer {
         }
     }
 
+    func prepend(_ entries: [EventEntry]) {
+        guard !entries.isEmpty else { return }
+        _lock.lock()
+        defer { _lock.unlock() }
+        for entry in entries.reversed() {
+            if _count == _capacity {
+                let tail = (_head + _count - 1) % _capacity
+                _storage[tail] = nil
+                _count -= 1
+            }
+            _head = (_head - 1 + _capacity) % _capacity
+            _storage[_head] = entry
+            _count += 1
+        }
+    }
+
     func drain(maxBytes: Int) -> [EventEntry] {
         _lock.lock()
         defer { _lock.unlock() }
         var result: [EventEntry] = []
         var total = 0
+        var targetSession: String?
         while _count > 0, let next = _storage[_head] {
+            if !result.isEmpty, next.sessionId != targetSession { break }
             if total + next.size > maxBytes { break }
+            if result.isEmpty { targetSession = next.sessionId }
             result.append(next)
             total += next.size
             _storage[_head] = nil
@@ -933,7 +1101,7 @@ private final class EventRingBuffer {
     }
 }
 
-private struct PendingFrameBundle {
+struct PendingFrameBundle {
     let tag: String
     let payload: Data
     let rangeStart: UInt64
@@ -942,7 +1110,7 @@ private struct PendingFrameBundle {
     let sessionId: String?
 }
 
-private final class FrameBundleQueue {
+final class FrameBundleQueue {
     private var _queue: [PendingFrameBundle?]
     private let _maxPending: Int
     private var _head = 0

@@ -29,6 +29,9 @@ final class SegmentDispatcher {
     private var _isSampledIn: Bool = true
     private var _collectGeoLocation: Bool = true
     private var _observeOnly: Bool = false
+    private var _sessionUploadBindings: [String: SessionUploadBinding] = [:]
+    private var _sessionUploadBindingOrder: [String] = []
+    private let maxSessionUploadBindings = 128
 
     var endpoint: String {
         get { withState { _endpoint } }
@@ -165,6 +168,23 @@ final class SegmentDispatcher {
             circuitOpen = false
             circuitOpenTime = 0
             active = true
+
+            // Bind non-secret routing and privacy controls when the session is
+            // created. A queued old-session batch may not be materialized as a
+            // PendingUpload until after a later session has been configured.
+            _sessionUploadBindings[replayId] = SessionUploadBinding(
+                endpoint: _endpoint,
+                projectId: projectId,
+                isSampledIn: isSampledIn,
+                collectGeoLocation: _collectGeoLocation,
+                observeOnly: _observeOnly
+            )
+            _sessionUploadBindingOrder.removeAll { $0 == replayId }
+            _sessionUploadBindingOrder.append(replayId)
+            while _sessionUploadBindingOrder.count > maxSessionUploadBindings {
+                let stale = _sessionUploadBindingOrder.removeFirst()
+                _sessionUploadBindings.removeValue(forKey: stale)
+            }
         }
         resetSessionTelemetry()
         // Persisted uploads carry their original session ID, so they can be
@@ -207,6 +227,7 @@ final class SegmentDispatcher {
             completion?(false)
             return
         }
+        let binding = uploadBinding(for: sid)
 
         let upload = PendingUpload(
             sessionId: sid,
@@ -217,12 +238,17 @@ final class SegmentDispatcher {
             itemCount: frameCount,
             attempt: 0,
             batchNumber: 0,
-            isSampledIn: isSampledIn
+            isSampledIn: binding.isSampledIn,
+            routeEndpoint: binding.endpoint,
+            routeProjectId: binding.projectId,
+            collectGeoLocation: binding.collectGeoLocation,
+            observeOnly: binding.observeOnly
         )
         scheduleUpload(upload, completion: completion)
     }
 
     func transmitHierarchy(replayId: String, hierarchyPayload: Data, timestampMs: UInt64, completion: ((Bool) -> Void)? = nil) {
+        let binding = uploadBinding(for: replayId)
         let upload = PendingUpload(
             sessionId: replayId,
             contentType: "hierarchy",
@@ -232,7 +258,11 @@ final class SegmentDispatcher {
             itemCount: 1,
             attempt: 0,
             batchNumber: 0,
-            isSampledIn: isSampledIn
+            isSampledIn: binding.isSampledIn,
+            routeEndpoint: binding.endpoint,
+            routeProjectId: binding.projectId,
+            collectGeoLocation: binding.collectGeoLocation,
+            observeOnly: binding.observeOnly
         )
         scheduleUpload(upload, completion: completion)
     }
@@ -243,8 +273,19 @@ final class SegmentDispatcher {
             return
         }
 
+        transmitEventBatch(
+            for: sid,
+            payload: payload,
+            batchNumber: batchNumber,
+            eventCount: eventCount,
+            completion: completion
+        )
+    }
+
+    func transmitEventBatch(for sessionId: String, payload: Data, batchNumber: Int, eventCount: Int, completion: ((Bool) -> Void)? = nil) {
+        let binding = uploadBinding(for: sessionId)
         scheduleUpload(PendingUpload(
-            sessionId: sid,
+            sessionId: sessionId,
             contentType: "events",
             payload: payload,
             rangeStart: 0,
@@ -252,7 +293,11 @@ final class SegmentDispatcher {
             itemCount: eventCount,
             attempt: 0,
             batchNumber: batchNumber,
-            isSampledIn: isSampledIn
+            isSampledIn: binding.isSampledIn,
+            routeEndpoint: binding.endpoint,
+            routeProjectId: binding.projectId,
+            collectGeoLocation: binding.collectGeoLocation,
+            observeOnly: binding.observeOnly
         ), completion: completion)
     }
 
@@ -261,6 +306,7 @@ final class SegmentDispatcher {
             batchSeqNumber += 1
             return batchSeqNumber
         }
+        let binding = uploadBinding(for: replayId)
         scheduleUpload(PendingUpload(
             sessionId: replayId,
             contentType: "events",
@@ -270,7 +316,11 @@ final class SegmentDispatcher {
             itemCount: eventCount,
             attempt: 0,
             batchNumber: seq,
-            isSampledIn: isSampledIn
+            isSampledIn: binding.isSampledIn,
+            routeEndpoint: binding.endpoint,
+            routeProjectId: binding.projectId,
+            collectGeoLocation: binding.collectGeoLocation,
+            observeOnly: binding.observeOnly
         ), completion: completion)
     }
 
@@ -285,7 +335,9 @@ final class SegmentDispatcher {
         closeAnchorAtMs: UInt64? = nil,
         completion: @escaping (Bool) -> Void
     ) {
-        guard let url = URL(string: "\(endpoint)/api/ingest/session/end") else {
+        let binding = uploadBinding(for: replayId)
+        guard let requestContext = requestContext(for: binding),
+              let url = URL(string: "\(requestContext.endpoint)/api/ingest/session/end") else {
             completion(false)
             return
         }
@@ -294,13 +346,13 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req, sessionId: replayId)
+        applyAuthHeaders(&req, sessionId: replayId, context: requestContext)
 
         var body: [String: Any] = [
             "sessionId": replayId,
             "endedAt": concludedAt,
             "sdkVersion": RejourneySDKInfo.version,
-            "isSampledIn": isSampledIn
+            "isSampledIn": binding.isSampledIn
         ]
         if backgroundDurationMs > 0 { body["totalBackgroundTimeMs"] = backgroundDurationMs }
         if let m = metrics { body["metrics"] = m }
@@ -325,6 +377,47 @@ final class SegmentDispatcher {
         httpSession.dataTask(with: req) { _, resp, _ in
             completion((resp as? HTTPURLResponse)?.statusCode == 200)
         }.resume()
+    }
+
+    static func pauseStatePayload(
+        replayId: String,
+        pauseId: String,
+        paused: Bool,
+        occurredAt: UInt64,
+        isSampledIn: Bool
+    ) -> [String: Any] {
+        [
+            "sessionId": replayId,
+            "pauseId": pauseId,
+            "paused": paused,
+            "occurredAt": occurredAt,
+            "sdkVersion": RejourneySDKInfo.version,
+            "isSampledIn": isSampledIn
+        ]
+    }
+
+    /// One fire-and-forget transition prevents a deliberately silent paused
+    /// session from looking abandoned to the backend. Older backends return
+    /// 404 and are intentionally tolerated; the durable custom event remains
+    /// the compatibility fallback.
+    func updatePauseState(replayId: String, pauseId: String, paused: Bool, occurredAt: UInt64) {
+        let binding = uploadBinding(for: replayId)
+        guard let requestContext = requestContext(for: binding),
+              let url = URL(string: "\(requestContext.endpoint)/api/ingest/session/pause-state") else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuthHeaders(&req, sessionId: replayId, context: requestContext)
+        req.httpBody = try? JSONSerialization.data(withJSONObject: Self.pauseStatePayload(
+            replayId: replayId,
+            pauseId: pauseId,
+            paused: paused,
+            occurredAt: occurredAt,
+            isSampledIn: binding.isSampledIn
+        ))
+        guard req.httpBody != nil else { return }
+        httpSession.dataTask(with: req).resume()
     }
 
     private func canUploadNow() -> Bool {
@@ -396,6 +489,17 @@ final class SegmentDispatcher {
             finished.signal()
         }
 
+        // A retry may outlive its session and even an SDK reconfiguration. Never
+        // authenticate an old project's payload with the newly configured
+        // project's credentials. The route itself is persisted, but credentials
+        // are deliberately not; switching back to the original project makes the
+        // durable item eligible again.
+        guard let requestContext = requestContext(for: upload) else {
+            deferUploadWithoutAttempt(upload, completion: finish)
+            finished.wait()
+            return
+        }
+
         guard canUploadNow() else {
             // The circuit breaker rejected this before a network attempt was
             // made. Requeue the same durable item without consuming one of its
@@ -406,7 +510,7 @@ final class SegmentDispatcher {
             return
         }
 
-        requestPresignedUrl(upload: upload) { [weak self] presignResponse in
+        requestPresignedUrl(upload: upload, context: requestContext) { [weak self] presignResponse in
             guard let self else {
                 finish(false)
                 return
@@ -432,7 +536,11 @@ final class SegmentDispatcher {
                     return
                 }
 
-                self.confirmBatchComplete(batchId: presign.batchId, upload: upload) { confirmOk in
+                self.confirmBatchComplete(
+                    batchId: presign.batchId,
+                    upload: upload,
+                    context: requestContext
+                ) { confirmOk in
                     if confirmOk {
                         self.registerSuccess()
                         self.removePersistedUpload(upload)
@@ -445,6 +553,62 @@ final class SegmentDispatcher {
             }
         }
         finished.wait()
+    }
+
+    func currentUploadRoute() -> UploadRoute {
+        withState { UploadRoute(endpoint: _endpoint, projectId: _projectId) }
+    }
+
+    func uploadBinding(for sessionId: String) -> SessionUploadBinding {
+        withState {
+            _sessionUploadBindings[sessionId] ?? SessionUploadBinding(
+                endpoint: _endpoint,
+                projectId: _projectId,
+                isSampledIn: _isSampledIn,
+                collectGeoLocation: _collectGeoLocation,
+                observeOnly: _observeOnly
+            )
+        }
+    }
+
+    func matchesCurrentUploadRoute(endpoint: String?, projectId: String?) -> Bool {
+        withState {
+            if let endpoint, endpoint != _endpoint { return false }
+            if let projectId, projectId != _projectId { return false }
+            return true
+        }
+    }
+
+    private func requestContext(for upload: PendingUpload) -> UploadRequestContext? {
+        withState {
+            if let routeEndpoint = upload.routeEndpoint, routeEndpoint != _endpoint {
+                return nil
+            }
+            if let routeProjectId = upload.routeProjectId, routeProjectId != _projectId {
+                return nil
+            }
+            return UploadRequestContext(
+                endpoint: upload.routeEndpoint ?? _endpoint,
+                apiToken: _apiToken,
+                credential: _credential,
+                collectGeoLocation: upload.collectGeoLocation ?? _collectGeoLocation,
+                observeOnly: upload.observeOnly ?? _observeOnly
+            )
+        }
+    }
+
+    private func requestContext(for binding: SessionUploadBinding) -> UploadRequestContext? {
+        withState {
+            guard binding.endpoint == _endpoint,
+                  binding.projectId == _projectId else { return nil }
+            return UploadRequestContext(
+                endpoint: binding.endpoint,
+                apiToken: _apiToken,
+                credential: _credential,
+                collectGeoLocation: binding.collectGeoLocation,
+                observeOnly: binding.observeOnly
+            )
+        }
     }
 
     /// Blocks the calling thread until all in-flight upload chains complete, or
@@ -680,10 +844,14 @@ final class SegmentDispatcher {
         }
     }
 
-    private func requestPresignedUrl(upload: PendingUpload, completion: @escaping (PresignResponse?) -> Void) {
+    private func requestPresignedUrl(
+        upload: PendingUpload,
+        context: UploadRequestContext,
+        completion: @escaping (PresignResponse?) -> Void
+    ) {
         let urlPath = upload.contentType == "events" ? "/api/ingest/presign" : "/api/ingest/segment/presign"
 
-        guard let url = URL(string: "\(endpoint)\(urlPath)") else {
+        guard let url = URL(string: "\(context.endpoint)\(urlPath)") else {
             completion(nil)
             return
         }
@@ -691,7 +859,7 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req, sessionId: upload.sessionId)
+        applyAuthHeaders(&req, sessionId: upload.sessionId, context: context)
 
         var body: [String: Any] = [
             "sessionId": upload.sessionId,
@@ -787,10 +955,15 @@ final class SegmentDispatcher {
         }.resume()
     }
 
-    private func confirmBatchComplete(batchId: String, upload: PendingUpload, completion: @escaping (Bool) -> Void) {
+    private func confirmBatchComplete(
+        batchId: String,
+        upload: PendingUpload,
+        context: UploadRequestContext,
+        completion: @escaping (Bool) -> Void
+    ) {
         let urlPath = upload.contentType == "events" ? "/api/ingest/batch/complete" : "/api/ingest/segment/complete"
 
-        guard let url = URL(string: "\(endpoint)\(urlPath)") else {
+        guard let url = URL(string: "\(context.endpoint)\(urlPath)") else {
             completion(false)
             return
         }
@@ -798,7 +971,7 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req, sessionId: upload.sessionId)
+        applyAuthHeaders(&req, sessionId: upload.sessionId, context: context)
 
         var body: [String: Any] = [
             "actualSizeBytes": upload.payload.count,
@@ -840,6 +1013,26 @@ final class SegmentDispatcher {
             req.setValue("1", forHTTPHeaderField: "x-rj-no-geo")
         }
         if observeOnly {
+            req.setValue("1", forHTTPHeaderField: "x-rj-observe-only")
+        }
+    }
+
+    private func applyAuthHeaders(
+        _ req: inout URLRequest,
+        sessionId: String,
+        context: UploadRequestContext
+    ) {
+        if let token = context.apiToken {
+            req.setValue(token, forHTTPHeaderField: "x-rejourney-key")
+        }
+        if let credential = context.credential {
+            req.setValue(credential, forHTTPHeaderField: "x-upload-token")
+        }
+        req.setValue(sessionId, forHTTPHeaderField: "x-session-id")
+        if !context.collectGeoLocation {
+            req.setValue("1", forHTTPHeaderField: "x-rj-no-geo")
+        }
+        if context.observeOnly {
             req.setValue("1", forHTTPHeaderField: "x-rj-observe-only")
         }
     }
@@ -963,6 +1156,10 @@ private struct PendingUpload: Codable {
     var attempt: Int
     let batchNumber: Int
     let isSampledIn: Bool
+    let routeEndpoint: String?
+    let routeProjectId: String?
+    let collectGeoLocation: Bool?
+    let observeOnly: Bool?
 
     init(
         persistenceKey: String = UUID().uuidString,
@@ -974,7 +1171,11 @@ private struct PendingUpload: Codable {
         itemCount: Int,
         attempt: Int,
         batchNumber: Int,
-        isSampledIn: Bool
+        isSampledIn: Bool,
+        routeEndpoint: String? = nil,
+        routeProjectId: String? = nil,
+        collectGeoLocation: Bool? = nil,
+        observeOnly: Bool? = nil
     ) {
         self.persistenceKey = persistenceKey
         self.sessionId = sessionId
@@ -986,7 +1187,32 @@ private struct PendingUpload: Codable {
         self.attempt = attempt
         self.batchNumber = batchNumber
         self.isSampledIn = isSampledIn
+        self.routeEndpoint = routeEndpoint
+        self.routeProjectId = routeProjectId
+        self.collectGeoLocation = collectGeoLocation
+        self.observeOnly = observeOnly
     }
+}
+
+struct UploadRoute: Equatable {
+    let endpoint: String
+    let projectId: String?
+}
+
+struct SessionUploadBinding: Equatable {
+    let endpoint: String
+    let projectId: String?
+    let isSampledIn: Bool
+    let collectGeoLocation: Bool
+    let observeOnly: Bool
+}
+
+private struct UploadRequestContext {
+    let endpoint: String
+    let apiToken: String?
+    let credential: String?
+    let collectGeoLocation: Bool
+    let observeOnly: Bool
 }
 
 private struct PresignResponse {

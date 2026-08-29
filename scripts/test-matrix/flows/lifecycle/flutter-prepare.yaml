@@ -1,0 +1,13 @@
+appId: ${APP_ID}
+name: Start Flutter matrix session
+---
+- launchApp:
+    clearState: false
+    stopApp: false
+- extendedWaitUntil:
+    visible: Rejourney Flutter
+    timeout: 20000
+- tapOn: Start recording
+- extendedWaitUntil:
+    visible: Recording active
+    timeout: 15000

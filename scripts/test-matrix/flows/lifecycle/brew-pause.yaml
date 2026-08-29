@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+name: Pause Brew matrix SDK
+---
+- runFlow:
+    when:
+      visible: ^!$
+    commands:
+      - tapOn:
+          point: 92%,92%
+- tapOn:
+    id: brew-tab-profile
+- scrollUntilVisible:
+    element:
+      text: Beta SDK Pause
+    direction: DOWN
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 20000
+- tapOn: Pause Rejourney SDK
+- tapOn: Pause Rejourney SDK
+- assertVisible: SDK paused · interact now

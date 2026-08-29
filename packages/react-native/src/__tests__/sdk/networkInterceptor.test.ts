@@ -49,6 +49,156 @@ describe('networkInterceptor lifecycle', () => {
     }
   });
 
+  it('drops an in-flight completion that arrives while interception is paused', async () => {
+    const originalFetch = globalThis.fetch;
+    let resolveTransport!: (response: { ok: boolean; status: number }) => void;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => {
+      resolveTransport = resolve;
+    })) as typeof fetch;
+    const callback = vi.fn();
+
+    try {
+      initNetworkInterceptor(callback);
+      const request = globalThis.fetch('https://app.example.com/finishes-during-pause');
+
+      restoreNetworkInterceptor();
+      resolveTransport({ ok: true, status: 204 });
+      await request;
+
+      expect(callback).not.toHaveBeenCalled();
+      expect(getNetworkInterceptorStats().pendingCount).toBe(0);
+    } finally {
+      restoreNetworkInterceptor();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not attach a pre-pause request to a resumed capture interval', async () => {
+    const originalFetch = globalThis.fetch;
+    let resolveTransport!: (response: { ok: boolean; status: number }) => void;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => {
+      resolveTransport = resolve;
+    })) as typeof fetch;
+    const firstCallback = vi.fn();
+    const resumedCallback = vi.fn();
+
+    try {
+      initNetworkInterceptor(firstCallback);
+      const request = globalThis.fetch('https://app.example.com/spans-pause');
+
+      restoreNetworkInterceptor();
+      initNetworkInterceptor(resumedCallback);
+      resolveTransport({ ok: true, status: 204 });
+      await request;
+      restoreNetworkInterceptor();
+
+      expect(firstCallback).not.toHaveBeenCalled();
+      expect(resumedCallback).not.toHaveBeenCalled();
+    } finally {
+      restoreNetworkInterceptor();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not overwrite a fetch wrapper installed after Rejourney', async () => {
+    const originalFetch = globalThis.fetch;
+    const transport = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    globalThis.fetch = transport as typeof fetch;
+    const firstCallback = vi.fn();
+    let rejourneyFetch: typeof fetch | null = null;
+
+    try {
+      initNetworkInterceptor(firstCallback);
+      rejourneyFetch = globalThis.fetch;
+      const hostWrapper = vi.fn((...args: Parameters<typeof fetch>) => rejourneyFetch!(...args));
+      globalThis.fetch = hostWrapper as typeof fetch;
+
+      restoreNetworkInterceptor();
+      expect(globalThis.fetch).toBe(hostWrapper);
+
+      await globalThis.fetch('https://app.example.com/while-paused');
+      expect(firstCallback).not.toHaveBeenCalled();
+
+      const resumedCallback = vi.fn();
+      initNetworkInterceptor(resumedCallback);
+      await globalThis.fetch('https://app.example.com/after-resume');
+      restoreNetworkInterceptor();
+      expect(resumedCallback).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toBe(hostWrapper);
+    } finally {
+      // Temporarily restore ownership so the module can remove its wrapper and
+      // leave no cross-test interceptor state behind.
+      if (rejourneyFetch) globalThis.fetch = rejourneyFetch;
+      restoreNetworkInterceptor();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('reattaches after a later fetch owner restores the original transport', async () => {
+    const originalFetch = globalThis.fetch;
+    const transport = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    globalThis.fetch = transport as typeof fetch;
+    let rejourneyFetch: typeof fetch | null = null;
+
+    try {
+      initNetworkInterceptor(() => {});
+      rejourneyFetch = globalThis.fetch;
+
+      const hostWrapper = vi.fn((...args: Parameters<typeof fetch>) => rejourneyFetch!(...args));
+      globalThis.fetch = hostWrapper as typeof fetch;
+      restoreNetworkInterceptor();
+      expect(globalThis.fetch).toBe(hostWrapper);
+
+      // Simulate the later-installed owner disposing after Rejourney paused.
+      globalThis.fetch = transport as typeof fetch;
+
+      const resumedCallback = vi.fn();
+      initNetworkInterceptor(resumedCallback);
+      expect(globalThis.fetch).toBe(rejourneyFetch);
+      await globalThis.fetch('https://app.example.com/after-owner-disposal');
+      restoreNetworkInterceptor();
+
+      expect(resumedCallback).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toBe(transport);
+    } finally {
+      if (rejourneyFetch) globalThis.fetch = rejourneyFetch;
+      restoreNetworkInterceptor();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('restores and reinstalls independently owned XHR hooks', () => {
+    const originalXHR = globalThis.XMLHttpRequest;
+    const transportOpen = vi.fn();
+    const transportSend = vi.fn();
+    const FakeXHR = function () {} as unknown as typeof XMLHttpRequest;
+    FakeXHR.prototype.open = transportOpen as typeof XMLHttpRequest.prototype.open;
+    FakeXHR.prototype.send = transportSend as typeof XMLHttpRequest.prototype.send;
+    globalThis.XMLHttpRequest = FakeXHR;
+    let rejourneyOpen: typeof XMLHttpRequest.prototype.open | null = null;
+
+    try {
+      initNetworkInterceptor(() => {});
+      rejourneyOpen = XMLHttpRequest.prototype.open;
+      const hostOpen = vi.fn();
+      XMLHttpRequest.prototype.open = hostOpen as typeof XMLHttpRequest.prototype.open;
+
+      restoreNetworkInterceptor();
+      expect(XMLHttpRequest.prototype.open).toBe(hostOpen);
+      expect(XMLHttpRequest.prototype.send).toBe(transportSend);
+
+      initNetworkInterceptor(() => {});
+      expect(XMLHttpRequest.prototype.open).toBe(hostOpen);
+      expect(XMLHttpRequest.prototype.send).not.toBe(transportSend);
+    } finally {
+      // Return ownership of the retained open wrapper so module state can be
+      // fully reset without overwriting the later host wrapper during the test.
+      if (rejourneyOpen) XMLHttpRequest.prototype.open = rejourneyOpen;
+      restoreNetworkInterceptor();
+      globalThis.XMLHttpRequest = originalXHR;
+    }
+  });
+
   it('bounds per-endpoint sampling state for dynamic routes', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 }) as typeof fetch;
@@ -63,6 +213,40 @@ describe('networkInterceptor lifecycle', () => {
 
       expect(getNetworkInterceptorStats().endpointCount).toBe(1_000);
     } finally {
+      restoreNetworkInterceptor();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('preserves Request methods, uses monotonic durations, and assigns unique ids', async () => {
+    const originalFetch = globalThis.fetch;
+    const transport = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    globalThis.fetch = transport as typeof fetch;
+    const callback = vi.fn();
+    const performanceSpy = vi.spyOn(globalThis.performance, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(125)
+      .mockReturnValueOnce(200)
+      .mockReturnValueOnce(225);
+
+    try {
+      initNetworkInterceptor(callback);
+      await globalThis.fetch({
+        url: 'https://app.example.com/method-one',
+        method: 'PATCH',
+      } as Request);
+      await globalThis.fetch({
+        url: 'https://app.example.com/method-two',
+        method: 'DELETE',
+      } as Request);
+      restoreNetworkInterceptor();
+
+      const events = callback.mock.calls.map(([event]) => event);
+      expect(events.map((event) => event.method)).toEqual(['PATCH', 'DELETE']);
+      expect(events.map((event) => event.duration)).toEqual([25, 25]);
+      expect(new Set(events.map((event) => event.requestId)).size).toBe(2);
+    } finally {
+      performanceSpy.mockRestore();
       restoreNetworkInterceptor();
       globalThis.fetch = originalFetch;
     }

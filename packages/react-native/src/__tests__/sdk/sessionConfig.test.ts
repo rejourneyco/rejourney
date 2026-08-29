@@ -153,12 +153,14 @@ describe('sessionConfig', () => {
           textInputMasking: 'secure_only',
           imageVideoMasking: 'all',
           recordingFps: 3,
+          projectId: 'project_123',
         })
       ).toMatchObject({
         captureScreen: false,
         textInputMasking: 'secure_only',
         imageVideoMasking: 'all',
         fps: 3,
+        projectId: 'project_123',
       });
     });
 

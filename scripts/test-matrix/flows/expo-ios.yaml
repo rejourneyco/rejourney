@@ -1,0 +1,8 @@
+appId: com.watarumaeda.react-native-boilerplate
+name: Expo Boilerplate iOS matrix smoke
+tags:
+  - matrix
+  - react-native
+  - ios
+---
+- runFlow: shared/expo-smoke.yaml

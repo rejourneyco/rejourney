@@ -97,6 +97,9 @@ export default ({ config }) => {
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
+      rejourneyPublicKey: process.env.REJOURNEY_PUBLIC_KEY || "",
+      rejourneyApiUrl: process.env.REJOURNEY_API_URL || "https://api.rejourney.co",
+      testMatrixMode: process.env.ENV?.startsWith("test-matrix-") === true,
       useSupabaseEdgeFunctions: process.env.USE_SUPABASE_EDGE_FUNCTIONS_FOR_GEMINI
     },
 

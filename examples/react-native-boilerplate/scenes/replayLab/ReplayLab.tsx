@@ -31,6 +31,7 @@ export default function ReplayLab() {
   const [displayName, setDisplayName] = useState('Alex Morgan');
   const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
   const [privateNote, setPrivateNote] = useState('Quarterly plan upgrade notes');
+  const [sdkPauseStatus, setSdkPauseStatus] = useState('Recording active');
 
   const videoPlayer = useVideoPlayer(NESTED_VIDEO_SOURCE, player => {
     player.loop = true;
@@ -111,6 +112,21 @@ export default function ReplayLab() {
     Alert.alert('Event Logged', 'Replay Lab event sent.');
   }, [privateNote.length, searchText.length]);
 
+  const pauseSdk = useCallback(async () => {
+    const succeeded = await Rejourney.pause();
+    setSdkPauseStatus(succeeded ? 'SDK paused · interact now' : 'Pause unavailable');
+  }, []);
+
+  const resumeSdk = useCallback(async () => {
+    const succeeded = await Rejourney.resume();
+    setSdkPauseStatus(succeeded ? 'SDK resumed · same session' : 'Resume unavailable');
+  }, []);
+
+  const stopSdk = useCallback(() => {
+    setSdkPauseStatus('SDK stopping · awaiting final upload');
+    Rejourney.stop();
+  }, []);
+
   return (
     <KeyboardAvoidingView
       style={styles.root}
@@ -126,6 +142,47 @@ export default function ReplayLab() {
             <TouchableOpacity style={styles.headerButton} onPress={fireManualEvent}>
               <Feather name="zap" size={17} color={colors.white} />
               <Text style={styles.headerButtonText}>Log Event</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={styles.iconBadge}>
+                <Feather name="pause-circle" size={20} color={colors.darkPurple} />
+              </View>
+              <View style={styles.cardTitleGroup}>
+                <Text style={styles.cardTitle}>Beta SDK Pause</Text>
+                <Text style={styles.cardSubtitle}>{sdkPauseStatus}</Text>
+              </View>
+            </View>
+            <Text style={styles.pauseHint}>
+              Tap either action repeatedly to validate idempotence. The session must stay the same.
+            </Text>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Pause Rejourney SDK"
+                style={styles.primaryButton}
+                onPress={pauseSdk}>
+                <Feather name="pause" size={18} color={colors.white} />
+                <Text style={styles.primaryButtonText}>Pause SDK</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Resume Rejourney SDK"
+                style={styles.secondaryButton}
+                onPress={resumeSdk}>
+                <Feather name="play" size={17} color={colors.darkPurple} />
+                <Text style={styles.secondaryButtonText}>Resume SDK</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Stop and flush Rejourney SDK"
+              style={styles.stopButton}
+              onPress={stopSdk}>
+              <Feather name="square" size={17} color={colors.darkPurple} />
+              <Text style={styles.secondaryButtonText}>Stop &amp; Flush SDK</Text>
             </TouchableOpacity>
           </View>
 
@@ -412,6 +469,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  pauseHint: {
+    color: colors.gray,
+    fontFamily: fonts.openSan.regular,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   videoOuterShell: {
     padding: 10,
     borderRadius: 24,
@@ -541,6 +604,18 @@ const styles = StyleSheet.create({
     color: colors.darkPurple,
     fontFamily: fonts.openSan.bold,
     fontSize: 14,
+  },
+  stopButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#D6CFF0',
+    backgroundColor: '#F8F6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
   },
   tapZone: {
     minHeight: 140,

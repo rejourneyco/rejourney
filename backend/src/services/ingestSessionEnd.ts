@@ -47,6 +47,11 @@ function enumValue(value: unknown, allowed: readonly string[]): string | undefin
     return typeof value === 'string' && allowed.includes(value) ? value : undefined;
 }
 
+function postgresCounterValue(value: unknown): number | undefined {
+    const parsed = toNonNegativeInt(value);
+    return parsed !== undefined && parsed <= 2_147_483_647 ? parsed : undefined;
+}
+
 export function calculateSessionDurationBreakdown(
     startedAt: Date,
     endedAtInput: unknown,
@@ -95,16 +100,25 @@ export function buildSessionEndMetricsMergeSet(
     if (apiErrorCount !== undefined) updates.apiErrorCount = apiErrorCount;
     const apiTotalCount = toNonNegativeInt(metrics.apiTotalCount);
     if (apiTotalCount !== undefined) updates.apiTotalCount = apiTotalCount;
-    const framesCaptured = toNonNegativeInt(metrics.framesCaptured);
+    const framesCaptured = postgresCounterValue(metrics.framesCaptured);
     if (framesCaptured !== undefined) updates.framesCaptured = framesCaptured;
-    const framesSkippedDuplicate = toNonNegativeInt(metrics.framesSkippedDuplicate);
+    const framesSkippedDuplicate = postgresCounterValue(metrics.framesSkippedDuplicate);
     if (framesSkippedDuplicate !== undefined) updates.framesSkippedDuplicate = framesSkippedDuplicate;
-    const framesSkippedThrottle = toNonNegativeInt(metrics.framesSkippedThrottle);
+    const framesSkippedThrottle = postgresCounterValue(metrics.framesSkippedThrottle);
     if (framesSkippedThrottle !== undefined) updates.framesSkippedThrottle = framesSkippedThrottle;
-    const framesSkippedBacklog = toNonNegativeInt(metrics.framesSkippedBacklog);
+    const framesSkippedBacklog = postgresCounterValue(metrics.framesSkippedBacklog);
     if (framesSkippedBacklog !== undefined) updates.framesSkippedBacklog = framesSkippedBacklog;
-    const framesSkippedMapMoving = toNonNegativeInt(metrics.framesSkippedMapMoving);
+    const framesSkippedMapMoving = postgresCounterValue(metrics.framesSkippedMapMoving);
     if (framesSkippedMapMoving !== undefined) updates.framesSkippedMapMoving = framesSkippedMapMoving;
+    if (
+        framesCaptured !== undefined
+        || framesSkippedDuplicate !== undefined
+        || framesSkippedThrottle !== undefined
+        || framesSkippedBacklog !== undefined
+        || framesSkippedMapMoving !== undefined
+    ) {
+        updates.captureHealthReported = true;
+    }
 
     const thermalStates = ['nominal', 'fair', 'serious', 'critical', 'unknown'] as const;
     for (const key of ['thermalStateStart', 'thermalStatePeak', 'thermalStateEnd'] as const) {
@@ -115,7 +129,7 @@ export function buildSessionEndMetricsMergeSet(
     if (thermalThrottledDurationMs !== undefined) updates.thermalThrottledDurationMs = thermalThrottledDurationMs;
     const memoryPressurePeak = enumValue(metrics.memoryPressurePeak, ['normal', 'warning', 'critical']);
     if (memoryPressurePeak !== undefined) updates.memoryPressurePeak = memoryPressurePeak;
-    const memoryPressureEventCount = toNonNegativeInt(metrics.memoryPressureEventCount);
+    const memoryPressureEventCount = postgresCounterValue(metrics.memoryPressureEventCount);
     if (memoryPressureEventCount !== undefined) updates.memoryPressureEventCount = memoryPressureEventCount;
     for (const key of ['memoryHeadroomMbBucketStart', 'memoryHeadroomMbBucketMin', 'memoryHeadroomMbBucketEnd'] as const) {
         const value = toNonNegativeInt(metrics[key]);
@@ -131,7 +145,7 @@ export function buildSessionEndMetricsMergeSet(
         const value = enumValue(metrics[key], ['portrait', 'landscape', 'unknown']);
         if (value !== undefined) updates[key] = value;
     }
-    const orientationChangeCount = toNonNegativeInt(metrics.orientationChangeCount);
+    const orientationChangeCount = postgresCounterValue(metrics.orientationChangeCount);
     if (orientationChangeCount !== undefined) updates.orientationChangeCount = orientationChangeCount;
     const displayMaxRefreshRateHz = toNonNegativeInt(metrics.displayMaxRefreshRateHz);
     if (displayMaxRefreshRateHz !== undefined && displayMaxRefreshRateHz > 0 && displayMaxRefreshRateHz <= 1000) {

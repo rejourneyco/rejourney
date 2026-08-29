@@ -82,6 +82,10 @@ import SwiftUI
             try await sut.inspection.inspect { view in
                 let list = try view.find(ViewType.List.self)
                 try await list.callRefreshable()
+                let countries = try #require(
+                    container.interactors.countries as? MockedCountriesInteractor
+                )
+                await countries.fulfillment()
                 container.interactors.verify()
             }
         }

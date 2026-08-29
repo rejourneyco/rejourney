@@ -227,12 +227,14 @@ extension RejourneyMetadataValue: ExpressibleByNilLiteral {
 struct RejourneyReadySessionContext: Equatable {
     let userId: String?
     let screenNames: [String]
+    let metadata: [String: RejourneyMetadataValue]
 }
 
 struct RejourneySessionContext: Equatable {
     private(set) var currentUserId: String?
     private(set) var lastScreenName: String?
     private var queuedScreenNames: [String] = []
+    private var metadata: [String: RejourneyMetadataValue] = [:]
     private let maxQueuedScreens = 50
 
     mutating func setUserId(_ userId: String?) {
@@ -245,6 +247,11 @@ struct RejourneySessionContext: Equatable {
 
     mutating func clearUserId() {
         currentUserId = nil
+    }
+
+    mutating func setMetadata(_ key: String, _ value: RejourneyMetadataValue) {
+        guard !key.isEmpty else { return }
+        metadata[key] = value
     }
 
     mutating func trackScreen(_ screenName: String, sessionActive: Bool) -> Bool {
@@ -273,7 +280,8 @@ struct RejourneySessionContext: Equatable {
 
         return RejourneyReadySessionContext(
             userId: currentUserId,
-            screenNames: Self.deduplicatingConsecutive(screenNames)
+            screenNames: Self.deduplicatingConsecutive(screenNames),
+            metadata: metadata
         )
     }
 
@@ -437,6 +445,7 @@ final class RejourneyNativeController: NSObject {
 
         TelemetryPipeline.shared.projectId = effectiveRemoteConfig.projectId
         SegmentDispatcher.shared.projectId = effectiveRemoteConfig.projectId
+        StabilityMonitor.shared.transmitStoredReport()
         TelemetryPipeline.shared.endpoint = options.apiURL.rejourneyAbsoluteString
         SegmentDispatcher.shared.endpoint = options.apiURL.rejourneyAbsoluteString
         DeviceRegistrar.shared.endpoint = options.apiURL.rejourneyAbsoluteString
@@ -532,6 +541,12 @@ final class RejourneyNativeController: NSObject {
                 "apiStatus": "beta"
             ])
         )
+        SegmentDispatcher.shared.updatePauseState(
+            replayId: sessionId,
+            pauseId: pause.id,
+            paused: true,
+            occurredAt: UInt64(max(0, pause.startedAt * 1_000))
+        )
         TelemetryPipeline.shared.dispatchNow()
         SegmentDispatcher.shared.shipPending()
         RejourneyURLProtocol.disable()
@@ -548,7 +563,8 @@ final class RejourneyNativeController: NSObject {
 
         userPause = nil
         TelemetryPipeline.shared.resume()
-        let gapMs = max(0, Int((Date().timeIntervalSince1970 - pause.startedAt) * 1_000))
+        let resumedAt = Date().timeIntervalSince1970
+        let gapMs = max(0, Int((resumedAt - pause.startedAt) * 1_000))
         ReplayOrchestrator.shared.recordCustomEvent(
             name: "sdk_resumed",
             payload: RejourneyEventSerializer.jsonString(from: [
@@ -557,6 +573,12 @@ final class RejourneyNativeController: NSObject {
                 "sdkVersion": RejourneySDKInfo.version,
                 "apiStatus": "beta"
             ])
+        )
+        SegmentDispatcher.shared.updatePauseState(
+            replayId: sessionId,
+            pauseId: pause.id,
+            paused: false,
+            occurredAt: UInt64(max(0, resumedAt * 1_000))
         )
         ReplayOrchestrator.shared.resumeFromUser()
         VisualCapture.shared.resumeFromUser()
@@ -585,7 +607,7 @@ final class RejourneyNativeController: NSObject {
     }
 
     func trackScreen(_ screenName: String) {
-        guard !screenName.isEmpty else { return }
+        guard userPause == nil, !screenName.isEmpty else { return }
         guard sessionContext.trackScreen(screenName, sessionActive: hasActiveReplaySession) else {
             return
         }
@@ -602,7 +624,7 @@ final class RejourneyNativeController: NSObject {
     }
 
     func logEvent(_ name: String, properties: [String: RejourneyMetadataValue]) {
-        guard !name.isEmpty else { return }
+        guard userPause == nil, !name.isEmpty else { return }
         let object = RejourneyEventSerializer.jsonObject(from: properties)
 
         switch name {
@@ -627,7 +649,10 @@ final class RejourneyNativeController: NSObject {
 
     func setMetadata(_ key: String, _ value: RejourneyMetadataValue) {
         guard !key.isEmpty else { return }
-        ReplayOrchestrator.shared.attachAttribute(key: key, value: value.attributeString)
+        sessionContext.setMetadata(key, value)
+        if hasActiveReplaySession {
+            ReplayOrchestrator.shared.attachAttribute(key: key, value: value.attributeString)
+        }
     }
 
     func mask(_ view: UIView) {
@@ -663,7 +688,9 @@ final class RejourneyNativeController: NSObject {
                 if sessionContext.currentUserId == nil, let userId {
                     sessionContext.setUserId(userId)
                 }
+                applySessionContextToActiveReplay()
                 if let pause = userPause {
+                    let inheritedPauseAtMs = UInt64(Date().timeIntervalSince1970 * 1_000)
                     ReplayOrchestrator.shared.recordCustomEvent(
                         name: "sdk_paused",
                         payload: RejourneyEventSerializer.jsonString(from: [
@@ -673,11 +700,15 @@ final class RejourneyNativeController: NSObject {
                             "apiStatus": "beta"
                         ])
                     )
+                    SegmentDispatcher.shared.updatePauseState(
+                        replayId: sessionId,
+                        pauseId: pause.id,
+                        paused: true,
+                        occurredAt: inheritedPauseAtMs
+                    )
                     VisualCapture.shared.pauseForUser()
                     ReplayOrchestrator.shared.pauseForUser()
                     TelemetryPipeline.shared.pause()
-                } else {
-                    applySessionContextToActiveReplay()
                 }
                 DiagnosticLog.replayBegan(sessionId)
                 return sessionId
@@ -695,6 +726,9 @@ final class RejourneyNativeController: NSObject {
         for screenName in context.screenNames {
             recordScreenTransition(screenName)
         }
+        for (key, value) in context.metadata {
+            ReplayOrchestrator.shared.attachAttribute(key: key, value: value.attributeString)
+        }
     }
 
     private func setupLifecycleListeners() {
@@ -705,7 +739,12 @@ final class RejourneyNativeController: NSObject {
     }
 
     @objc private func handleTermination() {
-        guard case .active = state else { return }
+        switch state {
+        case .active, .paused:
+            break
+        case .idle, .starting, .terminated:
+            return
+        }
         state = .terminated
         if let sessionId = ReplayOrchestrator.shared.replayId, !sessionId.isEmpty {
             ReplayOrchestrator.shared.endReplayWithReason("termination") { _, _ in }
@@ -717,7 +756,7 @@ final class RejourneyNativeController: NSObject {
 
     @objc private func handleBackgrounding() {
         guard case .active(let sessionId) = state else { return }
-        state = .paused(sessionId: sessionId, backgroundedAt: Date().timeIntervalSince1970)
+        state = .paused(sessionId: sessionId, backgroundedAt: ProcessInfo.processInfo.systemUptime)
         DiagnosticLog.notice("[Rejourney] ⏸️ Session '\(sessionId)' paused (app backgrounded)")
         TelemetryPipeline.shared.recordAppBackground()
         TelemetryPipeline.shared.dispatchNow()
@@ -728,7 +767,7 @@ final class RejourneyNativeController: NSObject {
     @objc private func handleForegrounding() {
         guard case .paused(let sessionId, let backgroundedAt) = state else { return }
 
-        let backgroundDuration = Date().timeIntervalSince1970 - backgroundedAt
+        let backgroundDuration = max(0, ProcessInfo.processInfo.systemUptime - backgroundedAt)
         DiagnosticLog.notice("[Rejourney] App foregrounded after \(Int(backgroundDuration))s (timeout: \(Int(sessionTimeoutSeconds))s)")
 
         if userPause == nil {
@@ -764,11 +803,13 @@ final class RejourneyNativeController: NSObject {
                 triggerRestart("grace_timeout")
             }
 
-            DispatchQueue.global(qos: .utility).async {
-                ReplayOrchestrator.shared.endReplayWithReason("background_timeout") { success, uploaded in
-                    DiagnosticLog.notice("[Rejourney] Old session ended (success: \(success), uploaded: \(uploaded))")
-                    triggerRestart("end_replay_callback")
-                }
+            // Replay teardown only schedules its I/O work; its local state,
+            // timers, and UIKit-backed device snapshot belong to the main
+            // thread. Running this entry point on a utility queue introduced a
+            // real data race with the grace-period replacement session.
+            ReplayOrchestrator.shared.endReplayWithReason("background_timeout") { success, uploaded in
+                DiagnosticLog.notice("[Rejourney] Old session ended (success: \(success), uploaded: \(uploaded))")
+                triggerRestart("end_replay_callback")
             }
         } else {
             let orchestratorSessionId = ReplayOrchestrator.shared.replayId

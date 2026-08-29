@@ -98,7 +98,15 @@ class InteractionRecorder private constructor(private val context: Context) {
         // originalWindowCallback retains the destroyed Activity's Window.
         if (isTracking && activity !== oldActivity) {
             removeGlobalTouchListener()
-            if (activity != null) installGlobalTouchListener()
+            if (activity != null) {
+                installGlobalTouchListener()
+            } else {
+                // A destroyed Activity must never be retained merely to reuse a
+                // callback chain if that same Window later becomes current.
+                originalWindowCallback = null
+                installedWindowCallback = null
+                installedWindow = null
+            }
         }
     }
 
@@ -169,24 +177,32 @@ class InteractionRecorder private constructor(private val context: Context) {
     private var originalWindowCallback: Window.Callback? = null
     private var installedWindowCallback: Window.Callback? = null
     private var installedWindow: WeakReference<Window>? = null
+    private var installedWindowCallbackEnabled = false
 
     private fun installGlobalTouchListener() {
         val activity = currentActivity?.get() ?: return
         val window = activity.window ?: return
-        val original = window.callback ?: return
+        // If another SDK wrapped our callback and retained it in its chain,
+        // re-enable that existing node instead of installing a second recorder.
+        if (installedWindow?.get() === window && installedWindowCallback != null) {
+            installedWindowCallbackEnabled = true
+            return
+        }
 
-        // Don't double-install on the same window
-        if (installedWindow?.get() === window && originalWindowCallback != null) return
+        val original = window.callback ?: return
 
         originalWindowCallback = original
         installedWindow = WeakReference(window)
-        val agg = gestureAggregator ?: return
 
         val wrapper = object : Window.Callback by original {
             override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
-                if (event != null && isTracking) {
+                if (event != null &&
+                    isTracking &&
+                    installedWindowCallbackEnabled &&
+                    installedWindowCallback === this
+                ) {
                     markInteractionNow()
-                    agg.processTouchEvent(event)
+                    gestureAggregator?.processTouchEvent(event)
 
                     // Notify SpecialCases about touch phases for touch-based
                     // map idle detection (Mapbox v10+ fallback).
@@ -195,14 +211,21 @@ class InteractionRecorder private constructor(private val context: Context) {
                             VisualCapture.shared?.invalidateMaskCache()
                             SpecialCases.shared.notifyTouchBegan(event.rawX, event.rawY)
                         }
+                        MotionEvent.ACTION_MOVE, MotionEvent.ACTION_POINTER_DOWN ->
+                            SpecialCases.shared.notifyTouchMoved(
+                                event.rawX,
+                                event.rawY,
+                                event.pointerCount > 1
+                            )
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                            SpecialCases.shared.notifyTouchEnded()
+                            SpecialCases.shared.notifyTouchEnded(event.rawX, event.rawY)
                     }
                 }
                 return original.dispatchTouchEvent(event)
             }
         }
         installedWindowCallback = wrapper
+        installedWindowCallbackEnabled = true
         window.callback = wrapper
     }
 
@@ -211,15 +234,19 @@ class InteractionRecorder private constructor(private val context: Context) {
     }
 
     private fun removeGlobalTouchListener() {
+        installedWindowCallbackEnabled = false
         val window = installedWindow?.get()
         // Another library may have wrapped the callback after us. Restore only
         // when we still own the installed slot so we never clobber its wrapper.
         if (window != null && window.callback === installedWindowCallback) {
             originalWindowCallback?.let { window.callback = it }
+            originalWindowCallback = null
+            installedWindowCallback = null
+            installedWindow = null
         }
-        originalWindowCallback = null
-        installedWindowCallback = null
-        installedWindow = null
+        // When another library owns the top-level slot, retain our dormant
+        // callback reference. If it chained us, activate() can safely re-enable
+        // that exact node without inserting a duplicate wrapper.
     }
 
     // Report methods (called by GestureAggregator)

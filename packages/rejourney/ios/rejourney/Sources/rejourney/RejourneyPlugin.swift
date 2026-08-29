@@ -84,13 +84,14 @@ public final class RejourneyPlugin: NSObject, FlutterPlugin {
             }
         case "markVisualChange":
             let importance = arguments.string("importance")
-            if importance == "high" || importance == "critical" {
-                VisualCapture.shared.snapshotNow()
+            Task { @MainActor in
+                result(RejourneyNativeController.shared.markVisualChange(importance))
             }
-            result(true)
         case "onScroll":
-            ReplayOrchestrator.shared.logScrollAction()
-            result(nil)
+            Task { @MainActor in
+                RejourneyNativeController.shared.onScroll()
+                result(nil)
+            }
         case "onOAuthStarted":
             recordBridgeEvent("oauth_started", ["provider": arguments.string("provider")])
             result(true)

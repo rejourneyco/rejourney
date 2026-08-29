@@ -30,6 +30,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
@@ -104,6 +105,8 @@ class RejourneyModuleImpl(
     private var lastKnownActivity: WeakReference<Activity>? = null
     private data class UserPause(val id: String, val startedAtMs: Long)
     private var userPause: UserPause? = null
+
+    private fun isUserPaused(): Boolean = stateLock.withLock { userPause != null }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -286,7 +289,7 @@ class RejourneyModuleImpl(
             val currentState = state
             if (currentState is SessionState.Active) {
                 state = SessionState.Paused(currentState.sessionId, currentState.startTimeMs)
-                backgroundEntryTimeMs = System.currentTimeMillis()
+                backgroundEntryTimeMs = SystemClock.elapsedRealtime()
                 DiagnosticLog.notice("[Rejourney] ⏸️ Session '${currentState.sessionId}' paused (app backgrounded)")
                 
                 VisualCapture.shared?.pauseForBackground()
@@ -315,7 +318,7 @@ class RejourneyModuleImpl(
             }
 
             val backgroundDuration = backgroundEntryTimeMs?.let {
-                System.currentTimeMillis() - it
+                (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L)
             } ?: 0L
             backgroundEntryTimeMs = null
 
@@ -381,9 +384,13 @@ class RejourneyModuleImpl(
                     DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
                 }
 
+                // Always clear the native background marker. The user-pause
+                // guard inside each component keeps work dormant; skipping
+                // these calls would leave the orchestrator permanently marked
+                // backgrounded, so a later explicit resume could not recover.
+                VisualCapture.shared?.resumeFromBackground()
+                ReplayOrchestrator.shared?.resumeFromBackground()
                 if (userPause == null) {
-                    VisualCapture.shared?.resumeFromBackground()
-                    ReplayOrchestrator.shared?.resumeFromBackground()
                     TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
                 }
                 StabilityMonitor.shared?.transmitStoredReport()
@@ -468,8 +475,14 @@ class RejourneyModuleImpl(
 
                 ReplayOrchestrator.shared?.activateGestureRecording()
 
+                if (!savedUserId.isNullOrBlank() && savedUserId != "anonymous" && !savedUserId.startsWith("anon_")) {
+                    ReplayOrchestrator.shared?.associateUser(savedUserId)
+                    DiagnosticLog.notice("[Rejourney] ✅ Restored user identity '$savedUserId' to new session $newSid")
+                }
+
                 val pause = userPause
                 if (pause != null) {
+                    val inheritedPauseAtMs = System.currentTimeMillis()
                     ReplayOrchestrator.shared?.recordCustomEvent(
                         "sdk_paused",
                         JSONObject(
@@ -481,12 +494,15 @@ class RejourneyModuleImpl(
                             )
                         ).toString()
                     )
+                    SegmentDispatcher.shared.updatePauseState(
+                        newSid,
+                        pause.id,
+                        true,
+                        inheritedPauseAtMs
+                    )
                     VisualCapture.shared?.pauseForUser()
                     ReplayOrchestrator.shared?.pauseForUser()
                     TelemetryPipeline.shared?.pause()
-                } else if (!savedUserId.isNullOrBlank() && savedUserId != "anonymous" && !savedUserId.startsWith("anon_")) {
-                    ReplayOrchestrator.shared?.associateUser(savedUserId)
-                    DiagnosticLog.notice("[Rejourney] ✅ Restored user identity '$savedUserId' to new session $newSid")
                 }
 
                 DiagnosticLog.replayBegan(newSid)
@@ -539,7 +555,8 @@ class RejourneyModuleImpl(
         val userId = options.getStringSafe("userId", "anonymous")
         val apiUrl = options.getStringSafe("apiUrl", "https://api.rejourney.co")
         val publicKey = options.getStringSafe("publicKey", "")
-        nativeNetworkTrackingEnabled = options.getBooleanSafe("autoTrackNetwork", true)
+        val projectId = options.getStringSafe("projectId", "").trim().ifEmpty { null }
+        val requestedNetworkTrackingEnabled = options.getBooleanSafe("autoTrackNetwork", true)
 
         if (publicKey.isEmpty()) {
             promise.reject("INVALID_KEY", "publicKey is required")
@@ -579,7 +596,6 @@ class RejourneyModuleImpl(
         }
 
         mainHandler.post {
-            RejourneyNetworkInterceptor.setEnabled(nativeNetworkTrackingEnabled)
             // Check if already active
             stateLock.withLock {
                 val currentState = state
@@ -597,9 +613,18 @@ class RejourneyModuleImpl(
                         }
                         return@post
                     }
+                    is SessionState.Paused -> {
+                        promise.resolve(createResultMap(true, currentState.sessionId))
+                        return@post
+                    }
                     else -> Unit
                 }
             }
+
+            // Only a genuinely new session may replace active runtime options.
+            // A duplicate start while user-paused must not re-enable capture.
+            nativeNetworkTrackingEnabled = requestedNetworkTrackingEnabled
+            RejourneyNetworkInterceptor.setEnabled(nativeNetworkTrackingEnabled)
 
             if (!userId.isNullOrBlank() && userId != "anonymous" && !userId.startsWith("anon_")) {
                 currentUserIdentity = userId
@@ -614,8 +639,10 @@ class RejourneyModuleImpl(
             RejourneyNetworkEventFilter.configure(apiUrl)
             TelemetryPipeline.shared?.endpoint = apiUrl
             TelemetryPipeline.shared?.apiToken = publicKey
+            TelemetryPipeline.shared?.projectId = projectId
             SegmentDispatcher.shared.endpoint = apiUrl
             DeviceRegistrar.shared?.endpoint = apiUrl
+            StabilityMonitor.shared?.transmitStoredReport()
 
             // Set current activity on capture components before starting
             val activity = currentCaptureActivity()
@@ -773,6 +800,12 @@ class RejourneyModuleImpl(
                     )
                 ).toString()
             )
+            SegmentDispatcher.shared.updatePauseState(
+                active.sessionId,
+                pause.id,
+                true,
+                pause.startedAtMs
+            )
             TelemetryPipeline.shared?.dispatchNow()
             SegmentDispatcher.shared.shipPending()
             VisualCapture.shared?.pauseForUser()
@@ -803,17 +836,24 @@ class RejourneyModuleImpl(
                 return@post
             }
 
+            val resumedAtMs = System.currentTimeMillis()
             TelemetryPipeline.shared?.resume()
             ReplayOrchestrator.shared?.recordCustomEvent(
                 "sdk_resumed",
                 JSONObject(
                     mapOf(
                         "pauseId" to capturedPause.id,
-                        "gapDurationMs" to (System.currentTimeMillis() - capturedPause.startedAtMs).coerceAtLeast(0),
+                        "gapDurationMs" to (resumedAtMs - capturedPause.startedAtMs).coerceAtLeast(0),
                         "sdkVersion" to sdkVersion,
                         "apiStatus" to "beta"
                     )
                 ).toString()
+            )
+            SegmentDispatcher.shared.updatePauseState(
+                active.sessionId,
+                capturedPause.id,
+                false,
+                resumedAtMs
             )
             ReplayOrchestrator.shared?.resumeFromUser()
             VisualCapture.shared?.resumeFromUser()
@@ -930,6 +970,10 @@ class RejourneyModuleImpl(
     }
 
     fun logEvent(eventType: String, details: ReadableMap, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         // Handle network_request events specially
         if (eventType == "network_request") {
             val detailsMap = details.toHashMap().filterValues { it != null }.mapValues { it.value!! }
@@ -1001,17 +1045,29 @@ class RejourneyModuleImpl(
     }
 
     fun screenChanged(screenName: String, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         TelemetryPipeline.shared?.recordViewTransition(screenName, screenName, true)
         ReplayOrchestrator.shared?.logScreenView(screenName)
         promise.resolve(createResultMap(true))
     }
 
     fun onScroll(offsetY: Double, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         ReplayOrchestrator.shared?.logScrollAction()
         promise.resolve(createResultMap(true))
     }
 
     fun markVisualChange(reason: String, importance: String, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(false)
+            return
+        }
         if (importance == "high") {
             VisualCapture.shared?.snapshotNow()
         }
@@ -1019,16 +1075,28 @@ class RejourneyModuleImpl(
     }
 
     fun onExternalURLOpened(urlScheme: String, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         ReplayOrchestrator.shared?.recordCustomEvent("external_url_opened", "{\"scheme\":\"$urlScheme\"}")
         promise.resolve(createResultMap(true))
     }
 
     fun onOAuthStarted(provider: String, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         ReplayOrchestrator.shared?.recordCustomEvent("oauth_started", "{\"provider\":\"$provider\"}")
         promise.resolve(createResultMap(true))
     }
 
     fun onOAuthCompleted(provider: String, success: Boolean, promise: Promise) {
+        if (isUserPaused()) {
+            promise.resolve(createResultMap(true))
+            return
+        }
         ReplayOrchestrator.shared?.recordCustomEvent("oauth_completed", "{\"provider\":\"$provider\",\"success\":$success}")
         promise.resolve(createResultMap(true))
     }

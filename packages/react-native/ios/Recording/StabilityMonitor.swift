@@ -46,6 +46,8 @@ struct IncidentRecord: Codable {
     let detail: String
     let frames: [String]
     let context: [String: String]
+    let routeEndpoint: String?
+    let routeProjectId: String?
 
     init(
         incidentId: String = UUID().uuidString,
@@ -55,7 +57,10 @@ struct IncidentRecord: Codable {
         identifier: String,
         detail: String,
         frames: [String],
-        context: [String: String]
+        context: [String: String],
+        routeEndpoint: String? = nil,
+        routeProjectId: String? = nil,
+        captureCurrentRoute: Bool = true
     ) {
         self.incidentId = incidentId
         self.sessionId = sessionId
@@ -65,6 +70,14 @@ struct IncidentRecord: Codable {
         self.detail = detail
         self.frames = frames
         self.context = context
+        if captureCurrentRoute {
+            let route = SegmentDispatcher.shared.currentUploadRoute()
+            self.routeEndpoint = routeEndpoint ?? route.endpoint
+            self.routeProjectId = routeProjectId ?? route.projectId
+        } else {
+            self.routeEndpoint = routeEndpoint
+            self.routeProjectId = routeProjectId
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +89,8 @@ struct IncidentRecord: Codable {
         detail = try values.decode(String.self, forKey: .detail)
         frames = try values.decode([String].self, forKey: .frames)
         context = try values.decode([String: String].self, forKey: .context)
+        routeEndpoint = try values.decodeIfPresent(String.self, forKey: .routeEndpoint)
+        routeProjectId = try values.decodeIfPresent(String.self, forKey: .routeProjectId)
         incidentId = try values.decodeIfPresent(String.self, forKey: .incidentId)
             ?? String("legacy-\(sessionId)-\(timestampMs)-\(category)-\(identifier)".prefix(128))
     }
@@ -90,16 +105,24 @@ final class StabilityMonitor: NSObject {
         didSet {
             guard let currentSessionId, !currentSessionId.isEmpty else { return }
             try? Data(currentSessionId.utf8).write(to: _sessionContextStore, options: .atomic)
+            _persistCurrentSessionRoute()
         }
     }
 
     private let _incidentStore: URL
     private let _signalMarkerStore: URL
     private let _sessionContextStore: URL
+    private let _captureStateStore: URL
+    private let _sessionRouteStore: URL
     private let _previousSessionId: String?
+    private let _previousSessionWasCapturing: Bool
+    private let _previousRouteEndpoint: String?
+    private let _previousRouteProjectId: String?
     private let _incidentStoreLock = NSLock()
     private let _workerQueue = DispatchQueue(label: "co.rejourney.stability", qos: .utility)
     private var _uploadInFlight = false
+    private var _hasActivatedCrashDiagnosticsThisProcess = false
+    private static let maxStoredIncidents = 100
 
     private override init() {
         let supportBase = FileManager.default.urls(
@@ -113,8 +136,25 @@ final class StabilityMonitor: NSObject {
         _incidentStore = supportBase.appendingPathComponent("rj_incidents.json")
         _signalMarkerStore = supportBase.appendingPathComponent("rj_signal.marker")
         _sessionContextStore = supportBase.appendingPathComponent("rj_last_session.txt")
+        _captureStateStore = supportBase.appendingPathComponent("rj_capture_enabled.txt")
+        _sessionRouteStore = supportBase.appendingPathComponent("rj_last_session_route.json")
         _previousSessionId = (try? String(contentsOf: _sessionContextStore, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let state = try? String(contentsOf: _captureStateStore, encoding: .utf8) {
+            _previousSessionWasCapturing = state.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        } else {
+            // Preserve historical crash recovery for upgrades from SDK builds
+            // that predate the explicit pause-state marker.
+            _previousSessionWasCapturing = _previousSessionId?.isEmpty == false
+        }
+        if let routeData = try? Data(contentsOf: _sessionRouteStore),
+           let route = try? JSONSerialization.jsonObject(with: routeData) as? [String: Any] {
+            _previousRouteEndpoint = route["endpoint"] as? String
+            _previousRouteProjectId = route["projectId"] as? String
+        } else {
+            _previousRouteEndpoint = nil
+            _previousRouteProjectId = nil
+        }
 
         if let legacy = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
             .first?.appendingPathComponent("rj_incidents.json"),
@@ -128,6 +168,16 @@ final class StabilityMonitor: NSObject {
     @objc func activate() {
         guard !isMonitoring else { return }
         isMonitoring = true
+        _persistCaptureState(true)
+
+        if #available(iOS 14.0, *) {
+            let suppressPreviousPausedLaunch = !_hasActivatedCrashDiagnosticsThisProcess
+                && !_previousSessionWasCapturing
+            _hasActivatedCrashDiagnosticsThisProcess = true
+            RejourneyMetricKitDiagnostics.shared.activateCrashDiagnostics(
+                suppressNextDelivery: suppressPreviousPausedLaunch
+            )
+        }
 
         rjInstallExceptionHandler(rjCaptureUncaughtException)
 
@@ -146,9 +196,54 @@ final class StabilityMonitor: NSObject {
     @objc func deactivate() {
         guard isMonitoring else { return }
         isMonitoring = false
+        // Explicit user pause and full stop both end crash collection. Persist
+        // before returning so a later MetricKit delivery cannot report a crash
+        // that happened while Rejourney was paused.
+        _persistCaptureState(false)
+
+        if #available(iOS 14.0, *) {
+            RejourneyMetricKitDiagnostics.shared.deactivateCrashDiagnostics()
+        }
 
         rjUninstallExceptionHandler()
         rjUninstallSignalHandler()
+    }
+
+    private func _persistCaptureState(_ enabled: Bool) {
+        try? Data((enabled ? "1" : "0").utf8).write(to: _captureStateStore, options: .atomic)
+    }
+
+    private func _persistCurrentSessionRoute() {
+        let route = SegmentDispatcher.shared.currentUploadRoute()
+        var payload: [String: Any] = ["endpoint": route.endpoint]
+        if let projectId = route.projectId { payload["projectId"] = projectId }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: _sessionRouteStore, options: .atomic)
+    }
+
+    func historicalUploadRoute() -> (endpoint: String?, projectId: String?) {
+        (_previousRouteEndpoint, _previousRouteProjectId)
+    }
+
+    func historicalSessionContext() -> (sessionId: String?, endpoint: String?, projectId: String?) {
+        (
+            Self.historicalSessionId(
+                previousSessionId: _previousSessionId,
+                wasCapturing: _previousSessionWasCapturing
+            ),
+            _previousRouteEndpoint,
+            _previousRouteProjectId
+        )
+    }
+
+    static func historicalSessionId(
+        previousSessionId: String?,
+        wasCapturing: Bool
+    ) -> String? {
+        guard wasCapturing,
+              let normalized = previousSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty else { return nil }
+        return normalized
     }
 
     @objc func transmitStoredReport() {
@@ -177,11 +272,19 @@ final class StabilityMonitor: NSObject {
     }
 
     fileprivate func captureUncaughtException(_ exception: NSException) {
+        guard isMonitoring else { return }
         _captureException(exception)
     }
 
     private func _processSignalMarker() {
         guard let marker = try? Data(contentsOf: _signalMarkerStore), marker.count >= 8 else {
+            return
+        }
+        guard _previousSessionWasCapturing else {
+            // Deactivation persists the disabled state before uninstalling the
+            // process-wide handler. Ignore the narrow race where a fatal signal
+            // lands between those two operations.
+            try? FileManager.default.removeItem(at: _signalMarkerStore)
             return
         }
         let bytes = [UInt8](marker.prefix(8))
@@ -220,7 +323,10 @@ final class StabilityMonitor: NSObject {
                 "source": "async_signal_safe_marker",
                 "signalNumber": "\(signalNumber)",
                 "framesAvailable": "false"
-            ]
+            ],
+            routeEndpoint: _previousRouteEndpoint,
+            routeProjectId: _previousRouteProjectId,
+            captureCurrentRoute: false
         )
         persistIncidentSync(incident)
         try? FileManager.default.removeItem(at: _signalMarkerStore)
@@ -234,7 +340,10 @@ final class StabilityMonitor: NSObject {
             let existing = Self.decodeStoredIncidents(
                 (try? Data(contentsOf: _incidentStore)) ?? Data()
             )
-            let queued = Self.mergeStoredIncidents(existing, with: incident)
+            let queued = Array(
+                Self.mergeStoredIncidents(existing, with: incident)
+                    .suffix(Self.maxStoredIncidents)
+            )
             let data = try JSONEncoder().encode(queued)
             try data.write(to: _incidentStore, options: .atomic)
         } catch {
@@ -311,10 +420,17 @@ final class StabilityMonitor: NSObject {
     private func _uploadStoredIncidents() {
         guard !_uploadInFlight else { return }
 
+        let route = SegmentDispatcher.shared.currentUploadRoute()
         _incidentStoreLock.lock()
         let incident = (try? Data(contentsOf: _incidentStore))
             .map(Self.decodeStoredIncidents)?
-            .first
+            .first(where: {
+                Self.routeMatches(
+                    incident: $0,
+                    endpoint: route.endpoint,
+                    projectId: route.projectId
+                )
+            })
         _incidentStoreLock.unlock()
         guard let incident else { return }
 
@@ -346,7 +462,28 @@ final class StabilityMonitor: NSObject {
         }
     }
 
+    static func routeMatches(
+        incident: IncidentRecord,
+        endpoint: String,
+        projectId: String?
+    ) -> Bool {
+        if let routeEndpoint = incident.routeEndpoint, routeEndpoint != endpoint {
+            return false
+        }
+        if let routeProjectId = incident.routeProjectId, routeProjectId != projectId {
+            return false
+        }
+        return true
+    }
+
     private func _transmitIncident(_ incident: IncidentRecord, completion: @escaping (Bool) -> Void) {
+        guard SegmentDispatcher.shared.matchesCurrentUploadRoute(
+            endpoint: incident.routeEndpoint,
+            projectId: incident.routeProjectId
+        ) else {
+            completion(false)
+            return
+        }
         let base = SegmentDispatcher.shared.endpoint
         guard let url = URL(string: "\(base)/api/ingest/fault") else {
             completion(false)
@@ -363,7 +500,16 @@ final class StabilityMonitor: NSObject {
         }
 
         do {
-            req.httpBody = try JSONEncoder().encode(incident)
+            let storedData = try JSONEncoder().encode(incident)
+            guard var body = try JSONSerialization.jsonObject(with: storedData) as? [String: Any] else {
+                completion(false)
+                return
+            }
+            // Routing metadata is SDK-internal and exists only to prevent a
+            // durable report crossing projects after reconfiguration.
+            body.removeValue(forKey: "routeEndpoint")
+            body.removeValue(forKey: "routeProjectId")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             completion(false)
             return

@@ -11,6 +11,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest --watchAll",
+    "test:rejourney-types": "tsc -p type-tests/tsconfig.json",
     "lint": "expo lint"
   },
   "jest": {
@@ -29,7 +30,7 @@
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
-    "@rejourneyco/react-native": "^1.2.0",
+    "@rejourneyco/react-native": "file:../../packages/react-native",
     "@supabase/supabase-js": "^2.49.1",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",

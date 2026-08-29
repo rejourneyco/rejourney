@@ -24,7 +24,10 @@ import Testing
 
     @Test func allCountriesSuccess() async throws {
         let data = await ApiModel.Country.mockedData
-        try mock(.allCountries, result: .success(data))
+        let payload = RESTCountriesV5.Response(objects: data.map {
+            RESTCountriesV5.Country(country: $0)
+        })
+        try mock(.allCountries, result: .success(payload))
         let response = try await sut.countries()
         #expect(response == data)
     }
@@ -36,7 +39,10 @@ import Testing
             currencies: [ApiModel.Currency(code: "12", symbol: "$", name: "US dollar")],
             borders: countries.map({ $0.alpha3Code }))
         let country = countries[0]
-        try mock(.countryDetails(countryName: country.name), result: .success([value]))
+        let payload = RESTCountriesV5.Response(objects: [
+            RESTCountriesV5.Country(country: country, details: value)
+        ])
+        try mock(.countryDetails(countryName: country.name), result: .success(payload))
         let response = try await sut.details(country: country.dbModel())
         #expect(response == value)
     }
@@ -44,7 +50,8 @@ import Testing
     @Test func countryDetailsWhenDetailsAreEmpty() async throws {
         let countries = await ApiModel.Country.mockedData
         let country = countries[0]
-        try mock(.countryDetails(countryName: country.name), result: .success([ApiModel.CountryDetails]()))
+        let payload = RESTCountriesV5.Response(objects: [])
+        try mock(.countryDetails(countryName: country.name), result: .success(payload))
         await #expect(throws: APIError.unexpectedResponse) {
             try await sut.details(country: country.dbModel())
         }
@@ -58,4 +65,3 @@ import Testing
         RequestMocking.add(mock: mock)
     }
 }
-

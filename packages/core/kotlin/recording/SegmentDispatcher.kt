@@ -48,18 +48,35 @@ class SegmentDispatcher private constructor() {
             get() = instance ?: synchronized(this) {
                 instance ?: SegmentDispatcher().also { instance = it }
             }
+
+        internal fun pauseStatePayload(
+            replayId: String,
+            pauseId: String,
+            paused: Boolean,
+            occurredAt: Long,
+            isSampledIn: Boolean
+        ): Map<String, Any> = mapOf(
+            "sessionId" to replayId,
+            "pauseId" to pauseId,
+            "paused" to paused,
+            "occurredAt" to occurredAt,
+            "sdkVersion" to RejourneySdkInfo.sdkVersion,
+            "isSampledIn" to isSampledIn
+        )
     }
 
-    var endpoint: String = "https://api.rejourney.co"
-    var currentReplayId: String? = null
-    var apiToken: String? = null
-    var credential: String? = null
-    var projectId: String? = null
-    var isSampledIn: Boolean = true  // SDK's sampling decision for server-side enforcement
+    @Volatile var endpoint: String = "https://api.rejourney.co"
+    @Volatile var currentReplayId: String? = null
+    @Volatile var apiToken: String? = null
+    @Volatile var credential: String? = null
+    @Volatile var projectId: String? = null
+    @Volatile var isSampledIn: Boolean = true  // SDK's sampling decision for server-side enforcement
     /** When false, the backend is instructed to skip IP geolocation lookup for this session */
-    var collectGeoLocation: Boolean = true
+    @Volatile var collectGeoLocation: Boolean = true
     /** When true, signals the backend that no visual artifacts will ever arrive for this session */
-    var observeOnly: Boolean = false
+    @Volatile var observeOnly: Boolean = false
+    private val sessionUploadBindings = LinkedHashMap<String, SessionUploadBinding>()
+    private val maxSessionUploadBindings = 128
 
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -180,6 +197,20 @@ class SegmentDispatcher private constructor() {
         circuitOpen = false
         circuitOpenTime = 0
         active = true
+        // Bind non-secret routing and privacy controls when the session is
+        // created. A queued old-session batch may not become a PendingUpload
+        // until after a later session has been configured.
+        sessionUploadBindings.remove(replayId)
+        sessionUploadBindings[replayId] = SessionUploadBinding(
+            endpoint = endpoint,
+            projectId = projectId,
+            isSampledIn = isSampledIn,
+            collectGeoLocation = collectGeoLocation,
+            observeOnly = observeOnly
+        )
+        while (sessionUploadBindings.size > maxSessionUploadBindings) {
+            sessionUploadBindings.remove(sessionUploadBindings.keys.first())
+        }
         resetSessionTelemetry()
         // Each pending upload carries its original session ID. Preserve and
         // drain it across an in-process session rollover instead of discarding
@@ -252,6 +283,7 @@ class SegmentDispatcher private constructor() {
             completion?.invoke(false)
             return
         }
+        val binding = uploadBinding(sid)
 
         val upload = PendingUpload(
             sessionId = sid,
@@ -261,7 +293,11 @@ class SegmentDispatcher private constructor() {
             rangeEnd = endMs,
             itemCount = frameCount,
             attempt = 0,
-            isSampledIn = isSampledIn
+            isSampledIn = binding.isSampledIn,
+            routeEndpoint = binding.endpoint,
+            routeProjectId = binding.projectId,
+            collectGeoLocation = binding.collectGeoLocation,
+            observeOnly = binding.observeOnly
         )
         scheduleUpload(upload, completion)
     }
@@ -272,6 +308,7 @@ class SegmentDispatcher private constructor() {
         timestampMs: Long,
         completion: ((Boolean) -> Unit)? = null
     ) {
+        val binding = uploadBinding(replayId)
         val upload = PendingUpload(
             sessionId = replayId,
             contentType = "hierarchy",
@@ -280,7 +317,11 @@ class SegmentDispatcher private constructor() {
             rangeEnd = timestampMs,
             itemCount = 1,
             attempt = 0,
-            isSampledIn = isSampledIn
+            isSampledIn = binding.isSampledIn,
+            routeEndpoint = binding.endpoint,
+            routeProjectId = binding.projectId,
+            collectGeoLocation = binding.collectGeoLocation,
+            observeOnly = binding.observeOnly
         )
         scheduleUpload(upload, completion)
     }
@@ -297,9 +338,20 @@ class SegmentDispatcher private constructor() {
             return
         }
 
+        transmitEventBatchForSession(sid, payload, batchNumber, eventCount, completion)
+    }
+
+    fun transmitEventBatchForSession(
+        sessionId: String,
+        payload: ByteArray,
+        batchNumber: Int,
+        eventCount: Int,
+        completion: ((Boolean) -> Unit)? = null
+    ) {
+        val binding = uploadBinding(sessionId)
         scheduleUpload(
             PendingUpload(
-                sessionId = sid,
+                sessionId = sessionId,
                 contentType = "events",
                 payload = payload,
                 rangeStart = 0,
@@ -307,7 +359,11 @@ class SegmentDispatcher private constructor() {
                 itemCount = eventCount,
                 attempt = 0,
                 batchNumber = batchNumber,
-                isSampledIn = isSampledIn
+                isSampledIn = binding.isSampledIn,
+                routeEndpoint = binding.endpoint,
+                routeProjectId = binding.projectId,
+                collectGeoLocation = binding.collectGeoLocation,
+                observeOnly = binding.observeOnly
             ),
             completion
         )
@@ -319,8 +375,8 @@ class SegmentDispatcher private constructor() {
         eventCount: Int,
         completion: ((Boolean) -> Unit)? = null
     ) {
-        batchSeqNumber++
-        val seq = batchSeqNumber
+        val seq = nextAlternateBatchSequence()
+        val binding = uploadBinding(replayId)
 
         scheduleUpload(
             PendingUpload(
@@ -332,10 +388,20 @@ class SegmentDispatcher private constructor() {
                 itemCount = eventCount,
                 attempt = 0,
                 batchNumber = seq,
-                isSampledIn = isSampledIn
+                isSampledIn = binding.isSampledIn,
+                routeEndpoint = binding.endpoint,
+                routeProjectId = binding.projectId,
+                collectGeoLocation = binding.collectGeoLocation,
+                observeOnly = binding.observeOnly
             ),
             completion
         )
+    }
+
+    @Synchronized
+    private fun nextAlternateBatchSequence(): Int {
+        batchSeqNumber++
+        return batchSeqNumber
     }
 
     fun concludeReplay(
@@ -349,14 +415,20 @@ class SegmentDispatcher private constructor() {
         closeAnchorAtMs: Long? = null,
         completion: (Boolean) -> Unit
     ) {
-        val url = "$endpoint/api/ingest/session/end"
+        val binding = uploadBinding(replayId)
+        val requestContext = requestContext(binding)
+        if (requestContext == null) {
+            completion(false)
+            return
+        }
+        val url = "${requestContext.endpoint}/api/ingest/session/end"
         ingestFinalizeMetrics(metrics)
 
         val body = JSONObject().apply {
             put("sessionId", replayId)
             put("endedAt", concludedAt)
             put("sdkVersion", RejourneySdkInfo.sdkVersion)
-            put("isSampledIn", isSampledIn)
+            put("isSampledIn", binding.isSampledIn)
             if (backgroundDurationMs > 0) put("totalBackgroundTimeMs", backgroundDurationMs)
             metrics?.let { put("metrics", JSONObject(it)) }
             put("sdkTelemetry", buildSdkTelemetry(currentQueueDepth))
@@ -365,7 +437,7 @@ class SegmentDispatcher private constructor() {
             if ((closeAnchorAtMs ?: 0) > 0) put("closeAnchorAtMs", closeAnchorAtMs)
         }
 
-        val request = buildRequest(url, body, replayId)
+        val request = buildRequest(url, body, replayId, requestContext)
 
         scope.launch {
             try {
@@ -380,6 +452,27 @@ class SegmentDispatcher private constructor() {
             } catch (e: Exception) {
                 completion(false)
             }
+        }
+    }
+
+    /**
+     * One fire-and-forget transition prevents a deliberately silent paused
+     * session from looking abandoned to the backend. A 404 from an older
+     * backend is tolerated; the durable custom event remains the fallback.
+     */
+    fun updatePauseState(replayId: String, pauseId: String, paused: Boolean, occurredAt: Long) {
+        val binding = uploadBinding(replayId)
+        val requestContext = requestContext(binding) ?: return
+        val request = buildRequest(
+            "${requestContext.endpoint}/api/ingest/session/pause-state",
+            JSONObject(pauseStatePayload(replayId, pauseId, paused, occurredAt, binding.isSampledIn)),
+            replayId,
+            requestContext
+        )
+        scope.launch {
+            try {
+                httpClient.newCall(request).execute().use { }
+            } catch (_: Exception) { }
         }
     }
 
@@ -446,11 +539,20 @@ class SegmentDispatcher private constructor() {
     }
 
     private suspend fun executeSegmentUpload(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
+        // A retry may outlive its session and even an SDK reconfiguration. Never
+        // authenticate an old project's payload with the newly configured
+        // project's credentials. The route itself is persisted, but credentials
+        // are deliberately not; switching back makes the item eligible again.
+        val requestContext = requestContext(upload)
+        if (requestContext == null) {
+            deferUploadWithoutAttempt(upload, completion)
+            return
+        }
         if (!canUploadNow()) {
             deferUploadWithoutAttempt(upload, completion)
             return
         }
-        val presignResponse = requestPresignedUrl(upload)
+        val presignResponse = requestPresignedUrl(upload, requestContext)
         if (presignResponse == null) {
             DiagnosticLog.caution("[SegmentDispatcher] requestPresignedUrl FAILED for ${upload.contentType}")
             registerFailure()
@@ -473,7 +575,7 @@ class SegmentDispatcher private constructor() {
             return
         }
 
-        val confirmOk = confirmBatchComplete(presignResponse.batchId, upload)
+        val confirmOk = confirmBatchComplete(presignResponse.batchId, upload, requestContext)
         if (confirmOk) {
             registerSuccess()
             removePersistedUpload(upload)
@@ -484,6 +586,51 @@ class SegmentDispatcher private constructor() {
             return
         }
         completion?.invoke(confirmOk)
+    }
+
+    @Synchronized
+    internal fun currentUploadRoute(): UploadRoute = UploadRoute(endpoint, projectId)
+
+    @Synchronized
+    internal fun uploadBinding(sessionId: String): SessionUploadBinding =
+        sessionUploadBindings[sessionId] ?: SessionUploadBinding(
+            endpoint = endpoint,
+            projectId = projectId,
+            isSampledIn = isSampledIn,
+            collectGeoLocation = collectGeoLocation,
+            observeOnly = observeOnly
+        )
+
+    @Synchronized
+    internal fun matchesCurrentUploadRoute(routeEndpoint: String?, routeProjectId: String?): Boolean {
+        if (routeEndpoint != null && routeEndpoint != endpoint) return false
+        if (routeProjectId != null && routeProjectId != projectId) return false
+        return true
+    }
+
+    @Synchronized
+    private fun requestContext(upload: PendingUpload): UploadRequestContext? {
+        if (upload.routeEndpoint != null && upload.routeEndpoint != endpoint) return null
+        if (upload.routeProjectId != null && upload.routeProjectId != projectId) return null
+        return UploadRequestContext(
+            endpoint = upload.routeEndpoint ?: endpoint,
+            apiToken = apiToken,
+            credential = credential,
+            collectGeoLocation = upload.collectGeoLocation ?: collectGeoLocation,
+            observeOnly = upload.observeOnly ?: observeOnly
+        )
+    }
+
+    @Synchronized
+    private fun requestContext(binding: SessionUploadBinding): UploadRequestContext? {
+        if (binding.endpoint != endpoint || binding.projectId != projectId) return null
+        return UploadRequestContext(
+            endpoint = binding.endpoint,
+            apiToken = apiToken,
+            credential = credential,
+            collectGeoLocation = binding.collectGeoLocation,
+            observeOnly = binding.observeOnly
+        )
     }
 
     private fun scheduleRetryIfNeeded(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
@@ -572,6 +719,10 @@ class SegmentDispatcher private constructor() {
             put("attempt", upload.attempt)
             put("batchNumber", upload.batchNumber)
             put("isSampledIn", upload.isSampledIn)
+            upload.routeEndpoint?.let { put("routeEndpoint", it) }
+            upload.routeProjectId?.let { put("routeProjectId", it) }
+            upload.collectGeoLocation?.let { put("collectGeoLocation", it) }
+            upload.observeOnly?.let { put("observeOnly", it) }
         }.toString().toByteArray(Charsets.UTF_8)
 
         return try {
@@ -626,7 +777,11 @@ class SegmentDispatcher private constructor() {
                         itemCount = json.getInt("itemCount"),
                         attempt = json.getInt("attempt"),
                         batchNumber = json.optInt("batchNumber", 0),
-                        isSampledIn = json.optBoolean("isSampledIn", true)
+                        isSampledIn = json.optBoolean("isSampledIn", true),
+                        routeEndpoint = json.optString("routeEndpoint", "").takeIf { it.isNotBlank() },
+                        routeProjectId = json.optString("routeProjectId", "").takeIf { it.isNotBlank() },
+                        collectGeoLocation = json.opt("collectGeoLocation")?.let { json.optBoolean("collectGeoLocation") },
+                        observeOnly = json.opt("observeOnly")?.let { json.optBoolean("observeOnly") }
                     )
                     val recoveredFile = File(directory, "${upload.persistenceKey}.json")
                     upload to (recoveredFile.length().takeIf { it > 0L } ?: file.length())
@@ -704,9 +859,12 @@ class SegmentDispatcher private constructor() {
         ?.distinctBy { it.absolutePath }
         ?.toList()
 
-    private suspend fun requestPresignedUrl(upload: PendingUpload): PresignResponse? {
+    private suspend fun requestPresignedUrl(
+        upload: PendingUpload,
+        context: UploadRequestContext
+    ): PresignResponse? {
         val urlPath = if (upload.contentType == "events") "/api/ingest/presign" else "/api/ingest/segment/presign"
-        val url = "$endpoint$urlPath"
+        val url = "${context.endpoint}$urlPath"
 
         val body = JSONObject().apply {
             put("sessionId", upload.sessionId)
@@ -726,7 +884,7 @@ class SegmentDispatcher private constructor() {
             }
         }
 
-        val request = buildRequest(url, body, upload.sessionId)
+        val request = buildRequest(url, body, upload.sessionId, context)
         val startTime = System.currentTimeMillis()
 
         return try {
@@ -803,9 +961,13 @@ class SegmentDispatcher private constructor() {
         }
     }
 
-    private suspend fun confirmBatchComplete(batchId: String, upload: PendingUpload): Boolean {
+    private suspend fun confirmBatchComplete(
+        batchId: String,
+        upload: PendingUpload,
+        context: UploadRequestContext
+    ): Boolean {
         val urlPath = if (upload.contentType == "events") "/api/ingest/batch/complete" else "/api/ingest/segment/complete"
-        val url = "$endpoint$urlPath"
+        val url = "${context.endpoint}$urlPath"
 
         val body = JSONObject().apply {
             put("actualSizeBytes", upload.payload.size)
@@ -821,7 +983,7 @@ class SegmentDispatcher private constructor() {
             }
         }
 
-        val request = buildRequest(url, body, upload.sessionId)
+        val request = buildRequest(url, body, upload.sessionId, context)
 
         return try {
             httpClient.newCall(request).execute().use { response ->
@@ -832,10 +994,19 @@ class SegmentDispatcher private constructor() {
         }
     }
 
-    private fun buildRequest(url: String, body: JSONObject, sessionId: String? = null): Request {
+    private fun buildRequest(
+        url: String,
+        body: JSONObject,
+        sessionId: String? = null,
+        context: UploadRequestContext? = null
+    ): Request {
         val requestSessionId = sessionId?.takeIf { it.isNotBlank() } ?: currentReplayId
+        val requestApiToken = context?.apiToken ?: apiToken
+        val requestCredential = context?.credential ?: credential
+        val requestCollectGeoLocation = context?.collectGeoLocation ?: collectGeoLocation
+        val requestObserveOnly = context?.observeOnly ?: observeOnly
         // Log auth state before building request
-        DiagnosticLog.trace("[SegmentDispatcher] buildRequest: apiToken=${apiToken?.take(15) ?: "NULL"}, credential=${credential?.take(15) ?: "NULL"}, replayId=${requestSessionId?.take(20) ?: "NULL"}")
+        DiagnosticLog.trace("[SegmentDispatcher] buildRequest: apiToken=${requestApiToken?.take(15) ?: "NULL"}, credential=${requestCredential?.take(15) ?: "NULL"}, replayId=${requestSessionId?.take(20) ?: "NULL"}")
 
         val requestBody = body.toString().toRequestBody("application/json".toMediaType())
 
@@ -844,13 +1015,13 @@ class SegmentDispatcher private constructor() {
             .post(requestBody)
             .header("Content-Type", "application/json")
             .apply {
-                apiToken?.let {
+                requestApiToken?.let {
                     header("x-rejourney-key", it)
                 } ?: DiagnosticLog.fault("[SegmentDispatcher] ⚠️ apiToken is NULL - auth will fail!")
-                credential?.let { header("x-upload-token", it) }
+                requestCredential?.let { header("x-upload-token", it) }
                 requestSessionId?.let { header("x-session-id", it) }
-                if (!collectGeoLocation) { header("x-rj-no-geo", "1") }
-                if (observeOnly) { header("x-rj-observe-only", "1") }
+                if (!requestCollectGeoLocation) { header("x-rj-no-geo", "1") }
+                if (requestObserveOnly) { header("x-rj-observe-only", "1") }
             }
             .build()
 
@@ -988,7 +1159,32 @@ private data class PendingUpload(
     val itemCount: Int,
     val attempt: Int,
     val batchNumber: Int = 0,
-    val isSampledIn: Boolean
+    val isSampledIn: Boolean,
+    val routeEndpoint: String? = null,
+    val routeProjectId: String? = null,
+    val collectGeoLocation: Boolean? = null,
+    val observeOnly: Boolean? = null
+)
+
+internal data class UploadRoute(
+    val endpoint: String,
+    val projectId: String?
+)
+
+internal data class SessionUploadBinding(
+    val endpoint: String,
+    val projectId: String?,
+    val isSampledIn: Boolean,
+    val collectGeoLocation: Boolean,
+    val observeOnly: Boolean
+)
+
+private data class UploadRequestContext(
+    val endpoint: String,
+    val apiToken: String?,
+    val credential: String?,
+    val collectGeoLocation: Boolean,
+    val observeOnly: Boolean
 )
 
 private data class PresignResponse(

@@ -3,7 +3,218 @@ import UIKit
 import XCTest
 @testable import Rejourney
 
+private class MapDelegateMethodOwner: NSObject {
+    @objc(mapView:regionDidChangeAnimated:)
+    func mapView(_ mapView: AnyObject, regionDidChangeAnimated animated: Bool) {}
+
+    @objc(mapView:regionWillChangeAnimated:)
+    func mapView(_ mapView: AnyObject, regionWillChangeAnimated animated: Bool) {}
+}
+
+private final class InheritedMapDelegateMethods: MapDelegateMethodOwner {}
+
 final class RejourneyTests: XCTestCase {
+    func testOverlappingDrainsCompleteOnlyTheirOwnLifecycle() {
+        let registry = DrainCompletionRegistry()
+        var firstCompletions = 0
+        var secondCompletions = 0
+        let first = registry.begin { firstCompletions += 1 }
+        let second = registry.begin { secondCompletions += 1 }
+
+        registry.finish(first)?.forEach { $0() }
+        XCTAssertEqual(firstCompletions, 1)
+        XCTAssertEqual(secondCompletions, 0)
+        XCTAssertNil(registry.finish(first))
+
+        registry.finish(second)?.forEach { $0() }
+        XCTAssertEqual(firstCompletions, 1)
+        XCTAssertEqual(secondCompletions, 1)
+    }
+
+    func testDeadTapCandidateMustStillBeCurrentAndUnanswered() {
+        XCTAssertTrue(TelemetryPipeline.shouldEmitDeadTap(
+            candidateGeneration: 3,
+            currentGeneration: 3,
+            lastResponseTimestamp: 99,
+            tapTimestamp: 100
+        ))
+        XCTAssertFalse(TelemetryPipeline.shouldEmitDeadTap(
+            candidateGeneration: 3,
+            currentGeneration: 4,
+            lastResponseTimestamp: 0,
+            tapTimestamp: 100
+        ))
+        XCTAssertFalse(TelemetryPipeline.shouldEmitDeadTap(
+            candidateGeneration: 3,
+            currentGeneration: 3,
+            lastResponseTimestamp: 101,
+            tapTimestamp: 100
+        ))
+    }
+
+    func testRecoveryTimerOnlyRunsForAnActiveForegroundUnpausedSession() {
+        XCTAssertTrue(ReplayOrchestrator.shouldRunRecoveryCheckpointTimer(
+            live: true,
+            userPaused: false,
+            backgrounded: false
+        ))
+        XCTAssertFalse(ReplayOrchestrator.shouldRunRecoveryCheckpointTimer(
+            live: false,
+            userPaused: false,
+            backgrounded: false
+        ))
+        XCTAssertFalse(ReplayOrchestrator.shouldRunRecoveryCheckpointTimer(
+            live: true,
+            userPaused: true,
+            backgrounded: false
+        ))
+        XCTAssertFalse(ReplayOrchestrator.shouldRunRecoveryCheckpointTimer(
+            live: true,
+            userPaused: false,
+            backgrounded: true
+        ))
+    }
+
+    func testNetworkDurationUsesNonnegativeMonotonicDelta() {
+        XCTAssertEqual(RejourneyURLProtocol.elapsedDurationMs(start: 100, end: 145), 45)
+        XCTAssertEqual(RejourneyURLProtocol.elapsedDurationMs(start: 145, end: 100), 0)
+    }
+
+    func testMapRawTouchFallbackIsOnlyUsedWithoutPreciseMotionSignals() {
+        XCTAssertFalse(SpecialCases.shouldUseRawTouchFallback(
+            delegateIdleHooked: true,
+            observedGestureCount: 0
+        ))
+        XCTAssertFalse(SpecialCases.shouldUseRawTouchFallback(
+            delegateIdleHooked: false,
+            observedGestureCount: 1
+        ))
+        XCTAssertTrue(SpecialCases.shouldUseRawTouchFallback(
+            delegateIdleHooked: false,
+            observedGestureCount: 0
+        ))
+    }
+
+    func testMapRawTouchFallbackIgnoresOverlayControlsAboveMap() {
+        let container = UIView()
+        let map = UIView()
+        let mapChild = UIView()
+        let overlayButton = UIButton(type: .system)
+        container.addSubview(map)
+        map.addSubview(mapChild)
+        container.addSubview(overlayButton)
+
+        XCTAssertTrue(SpecialCases.isTouchView(map, within: map))
+        XCTAssertTrue(SpecialCases.isTouchView(mapChild, within: map))
+        XCTAssertFalse(SpecialCases.isTouchView(overlayButton, within: map))
+        XCTAssertFalse(SpecialCases.isTouchView(nil, within: map))
+    }
+
+    func testMapCaptureIsSuppressedOnlyWhileTheCameraMoves() {
+        // No map on screen: the heuristic never applies.
+        XCTAssertTrue(SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: false,
+            mapIdle: false,
+            eventDriven: false
+        ))
+        // A settled map still records at the normal cadence. A map screen is
+        // mostly not map -- sheets, results, callouts, overlays -- so gating
+        // the whole screen on a map being mounted loses all of that.
+        XCTAssertTrue(SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: true,
+            mapIdle: true,
+            eventDriven: false
+        ))
+        // An explicit request is never dropped, even mid-gesture: session
+        // start, a high-importance visual change, a screen change, resume.
+        XCTAssertTrue(SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: true,
+            mapIdle: false,
+            eventDriven: true
+        ))
+        XCTAssertTrue(SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: true,
+            mapIdle: true,
+            eventDriven: true
+        ))
+        // The one real skip: a periodic tick while the camera is moving.
+        XCTAssertFalse(SpecialCases.shouldCaptureMapBackedContent(
+            mapVisible: true,
+            mapIdle: false,
+            eventDriven: false
+        ))
+    }
+
+    func testMapDelegateHookDoesNotTreatInheritedMethodAsClassOwned() {
+        let didChange = NSSelectorFromString("mapView:regionDidChangeAnimated:")
+        let willChange = NSSelectorFromString("mapView:regionWillChangeAnimated:")
+
+        XCTAssertTrue(SpecialCases.classDirectlyImplementsInstanceMethod(
+            MapDelegateMethodOwner.self,
+            selector: didChange
+        ))
+        XCTAssertTrue(SpecialCases.classDirectlyImplementsInstanceMethod(
+            MapDelegateMethodOwner.self,
+            selector: willChange
+        ))
+        XCTAssertFalse(SpecialCases.classDirectlyImplementsInstanceMethod(
+            InheritedMapDelegateMethods.self,
+            selector: didChange
+        ))
+        XCTAssertFalse(SpecialCases.classDirectlyImplementsInstanceMethod(
+            InheritedMapDelegateMethods.self,
+            selector: willChange
+        ))
+    }
+
+    func testAnrWatchdogReportsOnlyOnceUntilMainThreadResponds() {
+        XCTAssertFalse(AnrSentinel.shouldReportFreeze(
+            awaitingPong: false,
+            elapsed: 10,
+            threshold: 5,
+            alreadyReported: false
+        ))
+        XCTAssertFalse(AnrSentinel.shouldReportFreeze(
+            awaitingPong: true,
+            elapsed: 4.99,
+            threshold: 5,
+            alreadyReported: false
+        ))
+        XCTAssertTrue(AnrSentinel.shouldReportFreeze(
+            awaitingPong: true,
+            elapsed: 5,
+            threshold: 5,
+            alreadyReported: false
+        ))
+        XCTAssertFalse(AnrSentinel.shouldReportFreeze(
+            awaitingPong: true,
+            elapsed: 30,
+            threshold: 5,
+            alreadyReported: true
+        ))
+    }
+
+    func testMetricKitCrashSuppressionIsBoundedToPreActivationReports() {
+        let activation = Date(timeIntervalSince1970: 10_000)
+
+        XCTAssertTrue(RejourneyMetricKitDiagnostics.shouldSuppressCrashPayload(
+            endingAt: activation.addingTimeInterval(-1),
+            activationCutoff: activation
+        ))
+        XCTAssertTrue(RejourneyMetricKitDiagnostics.shouldSuppressCrashPayload(
+            endingAt: activation,
+            activationCutoff: activation
+        ))
+        XCTAssertFalse(RejourneyMetricKitDiagnostics.shouldSuppressCrashPayload(
+            endingAt: activation.addingTimeInterval(1),
+            activationCutoff: activation
+        ))
+        XCTAssertFalse(RejourneyMetricKitDiagnostics.shouldSuppressCrashPayload(
+            endingAt: activation.addingTimeInterval(-1),
+            activationCutoff: nil
+        ))
+    }
+
     @available(iOS 14.0, *)
     func testMetricKitHangFramesUseAttributedMainThreadTree() {
         let payload: [String: Any] = [
@@ -182,6 +393,77 @@ final class RejourneyTests: XCTestCase {
             StabilityMonitor.mergeStoredIncidents(queued, with: signal).map(\.incidentId),
             ["exception-id"]
         )
+    }
+
+    func testStoredIncidentRouteMatchingSkipsOtherProjectsButAllowsLegacyRecords() {
+        let current = IncidentRecord(
+            sessionId: "current",
+            timestampMs: 1,
+            category: "crash",
+            identifier: "Current",
+            detail: "",
+            frames: [],
+            context: [:],
+            routeEndpoint: "https://api.rejourney.co",
+            routeProjectId: "project-current",
+            captureCurrentRoute: false
+        )
+        let other = IncidentRecord(
+            sessionId: "other",
+            timestampMs: 2,
+            category: "crash",
+            identifier: "Other",
+            detail: "",
+            frames: [],
+            context: [:],
+            routeEndpoint: "https://api.rejourney.co",
+            routeProjectId: "project-other",
+            captureCurrentRoute: false
+        )
+        let legacy = IncidentRecord(
+            sessionId: "legacy",
+            timestampMs: 3,
+            category: "crash",
+            identifier: "Legacy",
+            detail: "",
+            frames: [],
+            context: [:],
+            captureCurrentRoute: false
+        )
+
+        XCTAssertTrue(StabilityMonitor.routeMatches(
+            incident: current,
+            endpoint: "https://api.rejourney.co",
+            projectId: "project-current"
+        ))
+        XCTAssertFalse(StabilityMonitor.routeMatches(
+            incident: other,
+            endpoint: "https://api.rejourney.co",
+            projectId: "project-current"
+        ))
+        XCTAssertTrue(StabilityMonitor.routeMatches(
+            incident: legacy,
+            endpoint: "https://api.rejourney.co",
+            projectId: "project-current"
+        ))
+    }
+
+    func testHistoricalCrashSessionRequiresCaptureAndNormalizesIdentifier() {
+        XCTAssertEqual(
+            StabilityMonitor.historicalSessionId(
+                previousSessionId: "  session-prior  ",
+                wasCapturing: true
+            ),
+            "session-prior"
+        )
+        XCTAssertNil(StabilityMonitor.historicalSessionId(
+            previousSessionId: "session-paused",
+            wasCapturing: false
+        ))
+        XCTAssertNil(StabilityMonitor.historicalSessionId(
+            previousSessionId: "   ",
+            wasCapturing: true
+        ))
     }
 
     func testNetworkEventFilterIgnoresRejourneyInternalUrls() throws {
@@ -462,17 +744,23 @@ final class RejourneyTests: XCTestCase {
         var context = RejourneySessionContext()
 
         context.setUserId("old_user")
+        context.setMetadata("plan", .string("pro"))
+        context.setMetadata("attempt", .int(1))
         XCTAssertFalse(context.trackScreen("Search", sessionActive: false))
         context.setUserId("new_user")
+        context.setMetadata("attempt", .int(2))
         XCTAssertFalse(context.trackScreen("Details", sessionActive: false))
         XCTAssertFalse(context.trackScreen("Details", sessionActive: false))
 
         let replay = context.replayContextForReadySession()
         XCTAssertEqual(replay.userId, "new_user")
         XCTAssertEqual(replay.screenNames, ["Search", "Details"])
+        XCTAssertEqual(replay.metadata["plan"], .string("pro"))
+        XCTAssertEqual(replay.metadata["attempt"], .int(2))
 
         let nextReplay = context.replayContextForReadySession()
         XCTAssertEqual(nextReplay.screenNames, ["Details"])
+        XCTAssertEqual(nextReplay.metadata, replay.metadata)
     }
 
     @MainActor
@@ -588,6 +876,142 @@ final class RejourneyTests: XCTestCase {
         if let percent = snapshot["batteryLevelPercent"] as? Int {
             XCTAssertTrue((0...100).contains(percent))
         }
+    }
+
+    func testEventRingKeepsSessionBatchesSeparateAndRetryOrderStable() {
+        func entry(_ label: String, session: String) -> EventEntry {
+            let data = Data(label.utf8)
+            return EventEntry(data: data, size: data.count, sessionId: session)
+        }
+
+        let ring = EventRingBuffer(capacity: 4)
+        ring.push(entry("a1", session: "session-a"))
+        ring.push(entry("a2", session: "session-a"))
+        ring.push(entry("b1", session: "session-b"))
+
+        let firstAttempt = ring.drain(maxBytes: 100)
+        XCTAssertEqual(firstAttempt.map(\.sessionId), ["session-a", "session-a"])
+        XCTAssertEqual(firstAttempt.map { String(decoding: $0.data, as: UTF8.self) }, ["a1", "a2"])
+
+        ring.prepend(firstAttempt)
+        XCTAssertEqual(
+            ring.drain(maxBytes: 100).map { String(decoding: $0.data, as: UTF8.self) },
+            ["a1", "a2"]
+        )
+        XCTAssertEqual(
+            ring.drain(maxBytes: 100).map { String(decoding: $0.data, as: UTF8.self) },
+            ["b1"]
+        )
+    }
+
+    func testEventRetryAtCapacityEvictsNewestInsteadOfFailedOldestBatch() {
+        func entry(_ label: String) -> EventEntry {
+            let data = Data(label.utf8)
+            return EventEntry(data: data, size: data.count, sessionId: "session")
+        }
+
+        let ring = EventRingBuffer(capacity: 3)
+        ["a", "b", "c"].forEach { ring.push(entry($0)) }
+        let failed = ring.drain(maxBytes: 2)
+        ring.push(entry("d"))
+        ring.push(entry("e"))
+        ring.prepend(failed)
+
+        XCTAssertEqual(
+            ring.drain(maxBytes: 100).map { String(decoding: $0.data, as: UTF8.self) },
+            ["a", "b", "c"]
+        )
+    }
+
+    func testFrameRetryAtCapacityPreservesFailedAndOlderBundles() {
+        func bundle(_ tag: String) -> PendingFrameBundle {
+            PendingFrameBundle(
+                tag: tag,
+                payload: Data(tag.utf8),
+                rangeStart: 0,
+                rangeEnd: 1,
+                count: 1,
+                sessionId: "session"
+            )
+        }
+
+        let queue = FrameBundleQueue(maxPending: 2)
+        queue.enqueue(bundle("old"))
+        queue.enqueue(bundle("middle"))
+        let failed = queue.dequeue()
+        queue.enqueue(bundle("newest"))
+        queue.requeue(try! XCTUnwrap(failed))
+
+        XCTAssertEqual(queue.dequeue()?.tag, "old")
+        XCTAssertEqual(queue.dequeue()?.tag, "middle")
+        XCTAssertNil(queue.dequeue())
+    }
+
+    func testSessionUploadBindingSurvivesLaterProjectConfiguration() {
+        let dispatcher = SegmentDispatcher.shared
+        dispatcher.endpoint = "https://old.example"
+        dispatcher.collectGeoLocation = false
+        dispatcher.observeOnly = true
+        dispatcher.configure(
+            replayId: "session-old-route",
+            apiToken: "old-key",
+            credential: nil,
+            projectId: "project-old",
+            isSampledIn: false
+        )
+
+        dispatcher.endpoint = "https://new.example"
+        dispatcher.collectGeoLocation = true
+        dispatcher.observeOnly = false
+        dispatcher.configure(
+            replayId: "session-new-route",
+            apiToken: "new-key",
+            credential: nil,
+            projectId: "project-new",
+            isSampledIn: true
+        )
+        defer {
+            dispatcher.endpoint = "https://api.rejourney.co"
+            dispatcher.collectGeoLocation = true
+            dispatcher.observeOnly = false
+        }
+
+        XCTAssertEqual(
+            dispatcher.uploadBinding(for: "session-old-route"),
+            SessionUploadBinding(
+                endpoint: "https://old.example",
+                projectId: "project-old",
+                isSampledIn: false,
+                collectGeoLocation: false,
+                observeOnly: true
+            )
+        )
+        XCTAssertEqual(
+            dispatcher.uploadBinding(for: "session-new-route").projectId,
+            "project-new"
+        )
+        XCTAssertFalse(dispatcher.matchesCurrentUploadRoute(
+            endpoint: "https://old.example",
+            projectId: "project-old"
+        ))
+    }
+
+    func testPauseStatePayloadIsSmallAndSessionOwned() {
+        let payload = SegmentDispatcher.pauseStatePayload(
+            replayId: "session-1",
+            pauseId: "pause-1",
+            paused: true,
+            occurredAt: 1_777_000_001_000,
+            isSampledIn: false
+        )
+
+        XCTAssertEqual(payload["sessionId"] as? String, "session-1")
+        XCTAssertEqual(payload["pauseId"] as? String, "pause-1")
+        XCTAssertEqual(payload["paused"] as? Bool, true)
+        XCTAssertEqual(payload["occurredAt"] as? UInt64, 1_777_000_001_000)
+        XCTAssertEqual(payload["isSampledIn"] as? Bool, false)
+        XCTAssertEqual(payload["sdkVersion"] as? String, RejourneySDKInfo.version)
+        XCTAssertEqual(payload.count, 6)
     }
 }
 

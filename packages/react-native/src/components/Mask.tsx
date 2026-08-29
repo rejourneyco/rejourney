@@ -64,7 +64,11 @@ export interface MaskProps extends ViewProps {
  * Uses accessibilityHint to signal to the native capture engine
  * that this view and its contents should be masked.
  */
-export const Mask: React.FC<MaskProps> = ({ children, style, ...props }) => {
+// Keep the exported call signature concrete instead of using React.FC.
+// React 19 widened FunctionComponent to ReactNode | Promise<ReactNode>, which
+// makes a declaration built with React 19 types unusable in React 18 apps even
+// though this synchronous component only ever returns an element.
+export function Mask({ children, style, ...props }: MaskProps): React.ReactElement<any, any> | null {
     const RN = getRN();
 
     // Stable unique nativeID so the Android scanner can detect this view via
@@ -97,6 +101,6 @@ export const Mask: React.FC<MaskProps> = ({ children, style, ...props }) => {
             {children}
         </View>
     );
-};
+}
 
 export default Mask;

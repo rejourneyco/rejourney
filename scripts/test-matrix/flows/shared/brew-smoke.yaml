@@ -1,0 +1,82 @@
+appId: ${APP_ID}
+---
+- startRecording: brew-smoke
+- extendedWaitUntil:
+    visible: Home.*
+    timeout: 25000
+- tapOn:
+    id: brew-tab-community
+- swipe:
+    start: 50%, 78%
+    end: 50%, 24%
+    duration: 350
+    waitToSettleTimeoutMs: 400
+- runFlow:
+    when:
+      visible: ^!$
+    commands:
+      - tapOn:
+          point: 92%,92%
+- tapOn:
+    id: brew-tab-recipes
+- swipe:
+    start: 50%, 76%
+    end: 50%, 28%
+    duration: 320
+    waitToSettleTimeoutMs: 350
+- runFlow:
+    when:
+      visible: ^!$
+    commands:
+      - tapOn:
+          point: 92%,92%
+- tapOn:
+    id: brew-tab-profile
+- scrollUntilVisible:
+    element:
+      text: Beta SDK Pause
+    direction: DOWN
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 20000
+- tapOn: Pause Rejourney SDK
+- tapOn: Pause Rejourney SDK
+- assertVisible: SDK paused · interact now
+- swipe:
+    start: 50%, 74%
+    end: 50%, 32%
+    duration: 400
+    waitToSettleTimeoutMs: 400
+- scrollUntilVisible:
+    element:
+      text: Resume Rejourney SDK
+    direction: UP
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 15000
+- tapOn: Resume Rejourney SDK
+- tapOn: Resume Rejourney SDK
+- assertVisible: SDK resumed · same session
+- scrollUntilVisible:
+    element:
+      text: Nested Video Button
+    direction: DOWN
+    speed: 85
+    visibilityPercentage: 75
+    timeout: 15000
+- tapOn: Nested Video Button
+- swipe:
+    start: 50%, 72%
+    end: 50%, 28%
+    duration: 420
+    waitToSettleTimeoutMs: 400
+- scrollUntilVisible:
+    element:
+      text: Stop and flush Rejourney SDK
+    direction: UP
+    speed: 90
+    visibilityPercentage: 70
+    timeout: 15000
+- tapOn: Stop and flush Rejourney SDK
+- assertVisible: SDK stopping · awaiting final upload
+- stopRecording

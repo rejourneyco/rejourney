@@ -1,0 +1,24 @@
+appId: ${APP_ID}
+name: Complete interrupted Flutter matrix smoke
+---
+- tapOn: S4 · Video.*
+- tapOn: Back
+- tapOn: S6 · Image scroll.*
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 50%, 78%
+          end: 50%, 24%
+          duration: 300
+          waitToSettleTimeoutMs: 300
+- tapOn: Back
+- tapOn: S1-S3 · 3D scene.*
+- tapOn: Settle (stop motion)
+- tapOn: Animate
+- tapOn: Back
+- tapOn: Back
+- tapOn: Stop and flush
+- extendedWaitUntil:
+    visible: Session stopped.*
+    timeout: 20000

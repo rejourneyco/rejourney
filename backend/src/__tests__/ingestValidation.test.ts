@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { endSessionSchema } from '../validation/ingest.js';
+import { endSessionSchema, sdkPauseStateSchema } from '../validation/ingest.js';
+
+describe('sdkPauseStateSchema', () => {
+    it('accepts the bounded one-shot mobile pause transition', () => {
+        expect(sdkPauseStateSchema.parse({
+            sessionId: 'session_123',
+            pauseId: 'A4F90A2B-1234-5678-9ABC-1234567890AB',
+            paused: true,
+            occurredAt: 1_777_000_001_000,
+            sdkVersion: '1.5.1',
+        })).toMatchObject({ paused: true });
+    });
+
+    it('rejects unbounded or path-like pause IDs', () => {
+        expect(() => sdkPauseStateSchema.parse({
+            sessionId: 'session_123',
+            pauseId: '../pause',
+            paused: true,
+            occurredAt: 1_777_000_001_000,
+        })).toThrow();
+    });
+});
 
 describe('endSessionSchema', () => {
     it('accepts mobile capture quality counters', () => {
@@ -21,6 +42,13 @@ describe('endSessionSchema', () => {
             framesSkippedBacklog: 5,
             framesSkippedMapMoving: 6,
         });
+    });
+
+    it('rejects capture counters that would overflow PostgreSQL integer columns', () => {
+        expect(() => endSessionSchema.parse({
+            sessionId: 'session_capture_overflow',
+            metrics: { framesCaptured: 2_147_483_648 },
+        })).toThrow();
     });
 
     it('accepts crash/anr counts in metrics payload', () => {

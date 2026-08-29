@@ -214,6 +214,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         lastIngestActivityAt: session.lastIngestActivityAt,
         startedAt: session.startedAt,
         endedAt: session.endedAt,
+        sdkPausedAt: session.sdkPausedAt,
         hasPendingWork: aggregate.hasPendingWork,
         hasPendingProcessingWork: aggregate.hasPendingProcessingWork,
         hasPendingReplayWork: aggregate.hasPendingReplayWork,
@@ -371,6 +372,26 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
                 (
                     s.last_ingest_activity_at <= ${cutoff}
                     and (
+                        s.sdk_paused_at is null
+                        or s.ended_at is not null
+                        or s.started_at <= (${now}::timestamp - make_interval(
+                            mins => least(10, greatest(1, coalesce(p.max_recording_minutes, 10)))
+                        ))
+                        or (
+                            coalesce(s.device_id, s.anonymous_hash, s.user_display_id) is not null
+                            and exists (
+                                select 1
+                                from ${sessions} paused_successor
+                                where paused_successor.project_id = s.project_id
+                                  and coalesce(paused_successor.device_id, paused_successor.anonymous_hash, paused_successor.user_display_id) = coalesce(s.device_id, s.anonymous_hash, s.user_display_id)
+                                  and (
+                                      paused_successor.started_at > s.started_at
+                                      or (paused_successor.started_at = s.started_at and paused_successor.id > s.id)
+                                  )
+                            )
+                        )
+                    )
+                    and (
                         coalesce(s.platform, '') <> 'web'
                         or s.ended_at is not null
                         or s.started_at <= (${now}::timestamp - make_interval(
@@ -393,6 +414,26 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
                 )
                 or (
                     s.replay_available = true
+                    and (
+                        s.sdk_paused_at is null
+                        or s.ended_at is not null
+                        or s.started_at <= (${now}::timestamp - make_interval(
+                            mins => least(10, greatest(1, coalesce(p.max_recording_minutes, 10)))
+                        ))
+                        or (
+                            coalesce(s.device_id, s.anonymous_hash, s.user_display_id) is not null
+                            and exists (
+                                select 1
+                                from ${sessions} paused_replay_successor
+                                where paused_replay_successor.project_id = s.project_id
+                                  and coalesce(paused_replay_successor.device_id, paused_replay_successor.anonymous_hash, paused_replay_successor.user_display_id) = coalesce(s.device_id, s.anonymous_hash, s.user_display_id)
+                                  and (
+                                      paused_replay_successor.started_at > s.started_at
+                                      or (paused_replay_successor.started_at = s.started_at and paused_replay_successor.id > s.id)
+                                  )
+                            )
+                        )
+                    )
                     and (
                         coalesce(s.platform, '') <> 'web'
                         or s.ended_at is not null

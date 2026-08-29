@@ -4,6 +4,8 @@
 
 import { z } from 'zod';
 
+const postgresCounter = z.number().int().min(0).max(2_147_483_647);
+
 export const endSessionSchema = z.object({
     sessionId: z.string(),
     endedAt: z.number().optional(),
@@ -25,17 +27,17 @@ export const endSessionSchema = z.object({
         apiSuccessCount: z.number().int().optional(),
         apiErrorCount: z.number().int().optional(),
         apiTotalCount: z.number().int().optional(),
-        framesCaptured: z.number().int().nonnegative().optional(),
-        framesSkippedDuplicate: z.number().int().nonnegative().optional(),
-        framesSkippedThrottle: z.number().int().nonnegative().optional(),
-        framesSkippedBacklog: z.number().int().nonnegative().optional(),
-        framesSkippedMapMoving: z.number().int().nonnegative().optional(),
+        framesCaptured: postgresCounter.optional(),
+        framesSkippedDuplicate: postgresCounter.optional(),
+        framesSkippedThrottle: postgresCounter.optional(),
+        framesSkippedBacklog: postgresCounter.optional(),
+        framesSkippedMapMoving: postgresCounter.optional(),
         thermalStateStart: z.enum(['nominal', 'fair', 'serious', 'critical', 'unknown']).optional(),
         thermalStatePeak: z.enum(['nominal', 'fair', 'serious', 'critical', 'unknown']).optional(),
         thermalStateEnd: z.enum(['nominal', 'fair', 'serious', 'critical', 'unknown']).optional(),
         thermalThrottledDurationMs: z.number().int().nonnegative().optional(),
         memoryPressurePeak: z.enum(['normal', 'warning', 'critical']).optional(),
-        memoryPressureEventCount: z.number().int().nonnegative().optional(),
+        memoryPressureEventCount: postgresCounter.optional(),
         memoryHeadroomMbBucketStart: z.number().int().min(0).max(8192).optional(),
         memoryHeadroomMbBucketMin: z.number().int().min(0).max(8192).optional(),
         memoryHeadroomMbBucketEnd: z.number().int().min(0).max(8192).optional(),
@@ -44,7 +46,7 @@ export const endSessionSchema = z.object({
         layoutDirection: z.enum(['ltr', 'rtl']).optional(),
         orientationStart: z.enum(['portrait', 'landscape', 'unknown']).optional(),
         orientationEnd: z.enum(['portrait', 'landscape', 'unknown']).optional(),
-        orientationChangeCount: z.number().int().nonnegative().optional(),
+        orientationChangeCount: postgresCounter.optional(),
         displayMaxRefreshRateHz: z.number().int().positive().max(1000).optional(),
         batteryLevelStartPercent: z.number().int().min(0).max(100).optional(),
         batteryLevelEndPercent: z.number().int().min(0).max(100).optional(),
@@ -80,5 +82,15 @@ export const endSessionSchema = z.object({
     sdkVersion: z.string().max(50).optional(),
 });
 
+export const sdkPauseStateSchema = z.object({
+    sessionId: z.string().min(1).max(64),
+    pauseId: z.string().min(1).max(64).regex(/^[A-Za-z0-9._:-]+$/),
+    paused: z.boolean(),
+    occurredAt: z.number().positive(),
+    isSampledIn: z.boolean().optional(),
+    sdkVersion: z.string().max(50).optional(),
+});
+
 
 export type EndSessionInput = z.infer<typeof endSessionSchema>;
+export type SdkPauseStateInput = z.infer<typeof sdkPauseStateSchema>;

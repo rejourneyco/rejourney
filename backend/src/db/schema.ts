@@ -491,6 +491,12 @@ export const sessions = pgTable(
         explicitEndedAt: timestamp('explicit_ended_at'),
         finalizedAt: timestamp('finalized_at'),
         lastIngestActivityAt: timestamp('last_ingest_activity_at').defaultNow().notNull(),
+        // A mobile SDK pause is intentionally silent after the one-shot state
+        // transition. Keep it distinct from app backgrounding so the stale
+        // session reconciler does not close a live, user-paused replay.
+        sdkPausedAt: timestamp('sdk_paused_at'),
+        sdkPauseId: varchar('sdk_pause_id', { length: 64 }),
+        sdkPauseStateUpdatedAt: timestamp('sdk_pause_state_updated_at'),
         durationSeconds: integer('duration_seconds'),
         backgroundTimeSeconds: integer('background_time_seconds').default(0),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
@@ -605,6 +611,9 @@ export const sessions = pgTable(
         index('sessions_reconciliation_activity_idx')
             .on(table.lastIngestActivityAt)
             .where(sql`${table.status} IN ('processing', 'pending')`),
+        index('sessions_sdk_paused_started_idx')
+            .on(table.startedAt)
+            .where(sql`${table.status} IN ('processing', 'pending') AND ${table.sdkPausedAt} IS NOT NULL`),
         /** Covering index for any future analytics shape filtering by project + time window + status. sessions_project_started_idx alone does not cover status, so a post-filter scans the full project's session range (1M+ rows on the top project). */
         index('sessions_project_started_status_idx').on(table.projectId, table.startedAt, table.status),
     ]
@@ -688,6 +697,9 @@ export const sessionMetrics = pgTable('session_metrics', {
     sdkTotalBytesEvicted: bigint('sdk_total_bytes_evicted', { mode: 'bigint' }),
 
     // Capture quality telemetry reported by mobile SDK finalization.
+    // The presence bit distinguishes a genuine all-zero report from legacy SDK
+    // sessions whose counter columns received their database defaults.
+    captureHealthReported: boolean('capture_health_reported').notNull().default(false),
     framesCaptured: integer('frames_captured').default(0),
     framesSkippedDuplicate: integer('frames_skipped_duplicate').default(0),
     framesSkippedThrottle: integer('frames_skipped_throttle').default(0),

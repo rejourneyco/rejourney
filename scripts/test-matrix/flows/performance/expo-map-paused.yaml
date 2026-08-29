@@ -1,0 +1,20 @@
+appId: ${APP_ID}
+name: Expo Apple Maps paused SDK performance sample
+---
+- assertVisible:
+    id: native-map
+- startRecording: expo-map-paused
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 22%,62%
+          end: 78%,42%
+          duration: 500
+          waitToSettleTimeoutMs: 100
+      - swipe:
+          start: 75%,42%
+          end: 28%,68%
+          duration: 420
+          waitToSettleTimeoutMs: 100
+- stopRecording

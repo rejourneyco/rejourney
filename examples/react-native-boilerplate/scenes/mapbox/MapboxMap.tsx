@@ -244,16 +244,32 @@ export default function MapboxMap() {
       </View>
 
       <View style={styles.controlsContainer}>
-        <TouchableOpacity style={styles.controlButton} onPress={toggleStyle}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Mapbox toggle style"
+          style={styles.controlButton}
+          onPress={toggleStyle}>
           <Text style={styles.controlText}>🛰️</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton} onPress={togglePitch}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Mapbox toggle pitch"
+          style={styles.controlButton}
+          onPress={togglePitch}>
           <Text style={styles.controlText}>{pitch === 60 ? '2D' : '3D'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton} onPress={flyToRandom}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Mapbox fly to marker"
+          style={styles.controlButton}
+          onPress={flyToRandom}>
           <Text style={styles.controlText}>✈️</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton} onPress={resetView}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Mapbox reset view"
+          style={styles.controlButton}
+          onPress={resetView}>
           <Text style={styles.controlText}>🏠</Text>
         </TouchableOpacity>
       </View>

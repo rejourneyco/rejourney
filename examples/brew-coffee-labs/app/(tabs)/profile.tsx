@@ -27,6 +27,7 @@ import { getCurrentSupabaseToken } from '../../authUtils';
 import { router } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 import Rejourney, { Mask } from '@rejourneyco/react-native';
+import { TEST_MATRIX_MODE } from '@/config';
 
 // Assume Cloudflare Worker URL is still used for *uploading*, not validation
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://your-worker-name.your-subdomain.workers.dev';
@@ -72,11 +73,27 @@ export default function ProfileScreen() {
     const [activeNativeSheet, setActiveNativeSheet] = useState<NativeSheetDemo | null>(null);
     const [isNestedVideoPlaying, setIsNestedVideoPlaying] = useState(false);
     const [showNestedVideoPoster, setShowNestedVideoPoster] = useState(true);
+    const [sdkPauseStatus, setSdkPauseStatus] = useState('Recording active');
     const nestedVideoPlayer = useVideoPlayer(BREW_NESTED_VIDEO_SOURCE, (player) => {
         player.loop = true;
         player.muted = true;
         player.volume = 0;
     });
+
+    const pauseSdk = useCallback(async () => {
+        const succeeded = await Rejourney.pause();
+        setSdkPauseStatus(succeeded ? 'SDK paused · interact now' : 'Pause unavailable');
+    }, []);
+
+    const resumeSdk = useCallback(async () => {
+        const succeeded = await Rejourney.resume();
+        setSdkPauseStatus(succeeded ? 'SDK resumed · same session' : 'Resume unavailable');
+    }, []);
+
+    const stopSdk = useCallback(() => {
+        setSdkPauseStatus('SDK stopping · awaiting final upload');
+        Rejourney.stop();
+    }, []);
 
     // --- Refactored Validation Function to use Supabase Edge Function ---
     const validateProfileContentWithEdgeFunction = async (
@@ -155,6 +172,14 @@ export default function ProfileScreen() {
         const fetchUserData = async () => {
             console.log("Fetching user data...");
             try {
+                if (TEST_MATRIX_MODE) {
+                    if (isMounted) {
+                        setUserId('matrix-user');
+                        setName('Matrix User');
+                        setProfileIcon('');
+                    }
+                    return;
+                }
                 const { data: authData, error: authError } = await supabase.auth.getUser();
                 if (!isMounted) return;
                 if (authError) throw authError;
@@ -222,6 +247,13 @@ export default function ProfileScreen() {
     useEffect(() => {
         let isMounted = true;
         const fetchStats = async () => {
+            if (TEST_MATRIX_MODE) {
+                setTotalLikes(12);
+                setTotalBrews(8);
+                setTotalPostsLiked(5);
+                setIsLoading(false);
+                return;
+            }
             if (!userId) {
                 console.log("Skipping stats fetch: No userId yet.");
                 // Ensure loading is eventually false even if userId never arrives
@@ -943,6 +975,46 @@ export default function ProfileScreen() {
                         </View>
                     )}
 
+
+                    <View style={styles.settingsSection}>
+                        <Text style={styles.sectionTitle}>Beta SDK Pause</Text>
+                        <Text style={{ color: COLORS.darkGray, marginBottom: 10 }}>{sdkPauseStatus}</Text>
+                        <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel="Pause Rejourney SDK"
+                            style={styles.settingButton}
+                            onPress={pauseSdk}
+                        >
+                            <View style={styles.settingIconContainer}>
+                                <Feather name="pause" size={20} color={COLORS.coffee} />
+                            </View>
+                            <Text style={styles.settingText}>Pause SDK</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel="Resume Rejourney SDK"
+                            style={styles.settingButton}
+                            onPress={resumeSdk}
+                        >
+                            <View style={styles.settingIconContainer}>
+                                <Feather name="play" size={20} color={COLORS.coffee} />
+                            </View>
+                            <Text style={styles.settingText}>Resume SDK</Text>
+                        </TouchableOpacity>
+                        {TEST_MATRIX_MODE && (
+                            <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel="Stop and flush Rejourney SDK"
+                                style={styles.settingButton}
+                                onPress={stopSdk}
+                            >
+                                <View style={styles.settingIconContainer}>
+                                    <Feather name="square" size={20} color={COLORS.coffee} />
+                                </View>
+                                <Text style={styles.settingText}>Stop &amp; Flush SDK</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
 
                     {/* Native Sheet Tests */}
                     <View style={styles.settingsSection}>

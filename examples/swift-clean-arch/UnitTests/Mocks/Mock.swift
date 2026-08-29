@@ -25,18 +25,31 @@ extension Mock {
     func verify(sourceLocation: SourceLocation = #_sourceLocation) {
         actions.verify(sourceLocation: sourceLocation)
     }
+
+    func fulfillment() async {
+        await actions.fulfillment()
+    }
 }
 
 final class MockActions<Action> where Action: Equatable {
     let expected: [Action]
     var factual: [Action] = []
+    private let expectation: TestExpectation?
     
     init(expected: [Action]) {
         self.expected = expected
+        self.expectation = expected.isEmpty
+            ? nil
+            : TestExpectation(expectedCount: expected.count)
     }
     
     fileprivate func register(_ action: Action) {
         factual.append(action)
+        expectation?.fulfill()
+    }
+
+    fileprivate func fulfillment() async {
+        await expectation?.fulfillment()
     }
     
     fileprivate func verify(sourceLocation: SourceLocation) {

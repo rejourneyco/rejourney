@@ -14,25 +14,29 @@ import { User } from '@/types';
 import config from '@/utils/config';
 import { Rejourney } from 'rejourney';
 
-Rejourney.init('rj_b8c5fe9468c85611ca0facfc78413396', {
-  apiUrl: config.apiUrl || 'http://127.0.0.1:3000',
-  debug: true,
-  autoTrackExpoRouter: false,
-});
+if (config.rejourneyPublicKey) {
+  Rejourney.init(config.rejourneyPublicKey, {
+    apiUrl: config.rejourneyApiUrl,
+    debug: true,
+    autoTrackExpoRouter: false,
+  });
 
-// Set some initial session metadata for testing
-Rejourney.setMetadata({
-  plan: 'pro',
-  platform: 'boilerplate',
-  env: 'development',
-});
+  // Set some initial session metadata for testing
+  Rejourney.setMetadata({
+    plan: 'pro',
+    platform: 'boilerplate',
+    env: config.env,
+  });
 
-// Log an event for SDK initialization
-Rejourney.logEvent('boilerplate_initialized', {
-  timestamp: new Date().toISOString(),
-});
+  // Log an event for SDK initialization
+  Rejourney.logEvent('boilerplate_initialized', {
+    timestamp: new Date().toISOString(),
+  });
 
-Rejourney.start();
+  Rejourney.start();
+} else {
+  console.warn('[Rejourney] Recording disabled: REJOURNEY_PUBLIC_KEY is not configured.');
+}
 
 // keep the splash screen visible while complete fetching resources
 SplashScreen.preventAutoHideAsync();

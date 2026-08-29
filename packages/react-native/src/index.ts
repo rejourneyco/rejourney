@@ -60,9 +60,11 @@ import {
   deriveRemoteStartState,
   evaluateInitAttempt,
   normalizeRemoteConfig,
+  shouldForwardCaptureCall,
   type RemoteConfig,
 } from './sdk/runtimeState';
 import { buildNativeStartOptions, shouldStartWithConfig } from './sdk/sessionConfig';
+import { fetchWithTimeout } from './sdk/fetchWithTimeout';
 
 // =============================================================================
 // Lazy Module Loading
@@ -230,16 +232,31 @@ let _isRecording = false;
 let _isPaused = false;
 let _isStarting = false;
 let _sessionOperationGeneration = 0;
+let _pauseTransition: Promise<boolean> | null = null;
 let _initializationFailed = false;
 let _appStateSubscription: { remove: () => void } | null = null;
 let _authErrorSubscription: { remove: () => void } | null = null;
 let _currentAppState: string = 'active'; // Default to active, will be updated on init
 let _userIdentity: string | null = null;
 let _backgroundEntryTime: number | null = null; // Track when app went to background
+let _backgroundSessionId: string | null = null;
+let _rolloverBaselineSessionId: string | null = null;
+let _rolloverReinitPending = false;
+let _rolloverReconcileToken = 0;
+let _pendingRolloverContextRestore = false;
 const _storedMetadata: Record<string, string | number | boolean> = {}; // Accumulate metadata for session rollover
 
 // Session timeout - must match native side (60 seconds)
 const SESSION_TIMEOUT_MS = 60_000;
+
+// RN's performance clock is measured from system boot and is unaffected by
+// wall-clock corrections. Fall back for older runtimes that do not expose it.
+function monotonicNowMs(): number {
+  const clock = (globalThis as unknown as {
+    performance?: { now?: () => number };
+  }).performance;
+  return clock && typeof clock.now === 'function' ? clock.now() : Date.now();
+}
 
 // Scroll throttling - reduce native bridge calls from 60fps to at most 10/sec
 let _lastScrollTime: number = 0;
@@ -274,7 +291,6 @@ type ConfigFetchResult =
 
 let _remoteConfig: RemoteConfig | null = null;
 let _sessionSampledOut: boolean = false; // True = no native session/capture for this start
-const REMOTE_CONFIG_TIMEOUT_MS = 1000;
 
 type NativeRemoteConfigCache = Spec & {
   setCachedRemoteConfig?: (publicKey: string, configJson: string) => Promise<{ success: boolean }>;
@@ -353,19 +369,7 @@ async function fetchRemoteConfig(apiUrl: string, publicKey: string): Promise<Con
       method: 'GET',
       headers,
     };
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    if (typeof AbortController !== 'undefined') {
-      const controller = new AbortController();
-      requestInit.signal = controller.signal;
-      timeout = setTimeout(() => controller.abort(), REMOTE_CONFIG_TIMEOUT_MS);
-    }
-
-    let response: Response;
-    try {
-      response = await fetch(`${apiUrl}/api/sdk/config`, requestInit);
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
+    const response = await fetchWithTimeout(`${apiUrl}/api/sdk/config`, requestInit);
 
     if (!response.ok) {
       // 401/403/404 = access denied (invalid key, project disabled, deleted, etc) - STOP recording
@@ -609,6 +613,14 @@ export const Rejourney: RejourneyAPI = {
       return false;
     }
 
+    // stopRejourney() intentionally removes process-lifetime listeners. A
+    // later start is supported, so restore those listeners before recording
+    // instead of leaving the restarted session without lifecycle rollover or
+    // native authentication handling.
+    if (!_appStateSubscription) {
+      setupLifecycleManagement();
+    }
+
     const generation = ++_sessionOperationGeneration;
     _isStarting = true;
 
@@ -729,13 +741,13 @@ export const Rejourney: RejourneyAPI = {
             textInputMasking: effectiveRemoteConfig.textInputMasking,
             imageVideoMasking: effectiveRemoteConfig.imageVideoMasking,
             recordingFps: _remoteConfig ? effectiveRemoteConfig.recordingFps : undefined,
+            projectId: effectiveRemoteConfig.projectId,
           })
         )
         : await nativeModule.startSession(userId, apiUrl, publicKey);
       getLogger().debug('Native session start returned:', JSON.stringify(result));
 
       if (generation !== _sessionOperationGeneration) {
-        await safeNativeCall('stopSession', () => nativeModule.stopSession(), undefined);
         return false;
       }
 
@@ -750,6 +762,9 @@ export const Rejourney: RejourneyAPI = {
 
       _isRecording = true;
       _isPaused = false;
+      _rolloverReinitPending = false;
+      _rolloverBaselineSessionId = null;
+      _pendingRolloverContextRestore = false;
       getLogger().debug(`✅ Session started: ${result.sessionId}`);
       getLogger().logSessionStart(result.sessionId);
 
@@ -827,7 +842,11 @@ export const Rejourney: RejourneyAPI = {
    */
   async _stopSession(): Promise<void> {
     const shouldStopNative = _isRecording || _isStarting;
-    _sessionOperationGeneration++;
+    const stopGeneration = ++_sessionOperationGeneration;
+    _rolloverReconcileToken++;
+    _rolloverReinitPending = false;
+    _rolloverBaselineSessionId = null;
+    _pendingRolloverContextRestore = false;
     _isStarting = false;
 
     if (!shouldStopNative) {
@@ -841,15 +860,20 @@ export const Rejourney: RejourneyAPI = {
       const metrics = getAutoTracking().getSessionMetrics();
       this.logEvent('session_metrics', metrics as unknown as Record<string, unknown>);
 
+      // Publish the stopped state before awaiting native finalization. Native
+      // teardown can take several seconds while it flushes uploads, and callers
+      // are allowed to begin a replacement session during that work.
+      _isRecording = false;
+      _isPaused = false;
       getNetworkInterceptor().restoreNetworkInterceptor();
       getAutoTracking().cleanupAutoTracking();
       getAutoTracking().resetMetrics();
 
       await safeNativeCall('stopSession', () => getRejourneyNative()!.stopSession(), undefined);
 
-      _isRecording = false;
-      _isPaused = false;
-      getLogger().logSessionEnd('current');
+      if (stopGeneration === _sessionOperationGeneration) {
+        getLogger().logSessionEnd('current');
+      }
     } catch (error) {
       getLogger().error('Failed to stop recording:', error);
     }
@@ -917,7 +941,6 @@ export const Rejourney: RejourneyAPI = {
     }
   },
 
-  /**
   /**
    * Set custom session metadata.
    * Can be called with a single key-value pair or an object of properties.
@@ -1065,38 +1088,12 @@ export const Rejourney: RejourneyAPI = {
    * Returns false when there is no foreground session to pause.
    */
   async pause(): Promise<boolean> {
-    if (!_isRecording) return false;
-    if (_isPaused) return true;
-    const result = await safeNativeCall(
-      'pauseSession',
-      () => getRejourneyNative()!.pauseSession(),
-      { success: false }
-    );
-    if (!result?.success) return false;
-    _isPaused = true;
-    getNetworkInterceptor().restoreNetworkInterceptor();
-    getAutoTracking().pauseAutoTracking();
-    return true;
+    return _setUserPauseState(true);
   },
 
   /** Resume capture in the same foreground session after a Beta pause. */
   async resume(): Promise<boolean> {
-    if (!_isRecording) return false;
-    if (!_isPaused) return true;
-    const result = await safeNativeCall(
-      'resumeSession',
-      () => getRejourneyNative()!.resumeSession(),
-      { success: false }
-    );
-    if (!result?.success) return false;
-    _isPaused = false;
-    getAutoTracking().resumeAutoTracking();
-    try {
-      setupNetworkInterception();
-    } catch (error) {
-      getLogger().warn('Failed to restore network interception after resume:', error);
-    }
-    return true;
+    return _setUserPauseState(false);
   },
 
   /**
@@ -1132,7 +1129,7 @@ export const Rejourney: RejourneyAPI = {
     reason: string,
     importance: 'low' | 'medium' | 'high' | 'critical' = 'medium'
   ): Promise<boolean> {
-    if (_isPaused) return false;
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return false;
     return safeNativeCall(
       'markVisualChange',
       async () => {
@@ -1165,6 +1162,7 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onScroll(scrollOffset: number): Promise<void> {
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return;
     // Throttle scroll events to reduce native bridge traffic
     // Scroll events can fire at 60fps, but we only need ~10/sec for smooth replay
     const now = Date.now();
@@ -1204,7 +1202,7 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onOAuthStarted(provider: string): Promise<boolean> {
-    if (_isPaused) return false;
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return false;
     return safeNativeCall(
       'onOAuthStarted',
       async () => {
@@ -1232,7 +1230,7 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onOAuthCompleted(provider: string, success: boolean): Promise<boolean> {
-    if (_isPaused) return false;
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return false;
     return safeNativeCall(
       'onOAuthCompleted',
       async () => {
@@ -1260,7 +1258,7 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   async onExternalURLOpened(urlScheme: string): Promise<boolean> {
-    if (_isPaused) return false;
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return false;
     return safeNativeCall(
       'onExternalURLOpened',
       async () => {
@@ -1300,6 +1298,7 @@ export const Rejourney: RejourneyAPI = {
    * ```
    */
   logNetworkRequest(request: NetworkRequestParams): void {
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return;
     safeNativeCallSync(
       'logNetworkRequest',
       () => {
@@ -1352,6 +1351,7 @@ export const Rejourney: RejourneyAPI = {
    * @param message - Associated feedback text or comment
    */
   logFeedback(rating: number, message: string): void {
+    if (!shouldForwardCaptureCall(_isRecording, _isPaused)) return;
     safeNativeCallSync(
       'logFeedback',
       () => {
@@ -1491,6 +1491,60 @@ export const Rejourney: RejourneyAPI = {
   },
 };
 
+async function _setUserPauseState(shouldPause: boolean): Promise<boolean> {
+  // Opposing calls can arrive before the first native promise resolves. Queue
+  // them so the final native and JS states follow call order.
+  while (_pauseTransition) {
+    await _pauseTransition.catch(() => false);
+  }
+
+  if (!_isRecording) return false;
+  if (_isPaused === shouldPause) return true;
+
+  const generation = _sessionOperationGeneration;
+  const transition = (async (): Promise<boolean> => {
+    const result = shouldPause
+      ? await safeNativeCall(
+        'pauseSession',
+        () => getRejourneyNative()!.pauseSession(),
+        { success: false }
+      )
+      : await safeNativeCall(
+        'resumeSession',
+        () => getRejourneyNative()!.resumeSession(),
+        { success: false }
+      );
+
+    if (!result?.success || generation !== _sessionOperationGeneration || !_isRecording) {
+      return false;
+    }
+
+    _isPaused = shouldPause;
+    if (shouldPause) {
+      getNetworkInterceptor().restoreNetworkInterceptor();
+      getAutoTracking().pauseAutoTracking();
+    } else {
+      getAutoTracking().resumeAutoTracking();
+      try {
+        setupNetworkInterception();
+      } catch (error) {
+        getLogger().warn('Failed to restore network interception after resume:', error);
+      }
+      if (_pendingRolloverContextRestore) {
+        _restoreJSContextForNewSession(generation);
+      }
+    }
+    return true;
+  })();
+
+  _pauseTransition = transition;
+  try {
+    return await transition;
+  } finally {
+    if (_pauseTransition === transition) _pauseTransition = null;
+  }
+}
+
 /**
  * Reinitialize JS-side auto-tracking for a new session after background timeout.
  *
@@ -1519,6 +1573,7 @@ function _reinitAutoTrackingForNewSession(): void {
         trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? true,
         collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
         autoTrackExpoRouter: _storedConfig?.autoTrackExpoRouter !== false,
+        maxSessionDurationMs: _storedConfig?.maxSessionDuration,
       },
       {
         onRageTap: (count: number, x: number, y: number) => {
@@ -1538,40 +1593,134 @@ function _reinitAutoTrackingForNewSession(): void {
       }
     );
 
-    // 3. Re-collect device info for the new session
-    if (_storedConfig?.collectDeviceInfo !== false) {
-      getAutoTracking().collectDeviceInfo().then((deviceInfo) => {
-        if (generation === _sessionOperationGeneration && _isRecording) {
-          Rejourney.logEvent('device_info', deviceInfo as unknown as Record<string, unknown>);
-        }
-      }).catch(() => { });
-    }
-
-    // 4. Re-send user identity to the new native session
-    if (_userIdentity) {
-      safeNativeCallSync(
-        'setUserIdentity',
-        () => {
-          getRejourneyNative()!.setUserIdentity(_userIdentity!).catch(() => { });
-        },
-        undefined
-      );
-      getLogger().debug(`Restored user identity '${_userIdentity}' to new session`);
-    }
-
-    // 5. Re-send any stored metadata to the new native session
-    if (Object.keys(_storedMetadata).length > 0) {
-      for (const [key, value] of Object.entries(_storedMetadata)) {
-        if (value !== undefined && value !== null) {
-          Rejourney.setMetadata(key, value);
-        }
+    if (_isPaused) {
+      // A user pause survives native rollover. Keep newly installed JS hooks
+      // dormant and defer context events until the user explicitly resumes.
+      getAutoTracking().pauseAutoTracking();
+      _pendingRolloverContextRestore = true;
+    } else {
+      try {
+        setupNetworkInterception();
+      } catch (error) {
+        getLogger().warn('Failed to restore network interception after session rollover:', error);
       }
-      getLogger().debug('Restored metadata to new session');
+      _restoreJSContextForNewSession(generation);
     }
 
     getLogger().logLifecycleEvent('JS auto-tracking reinitialized for new session');
   } catch (error) {
     getLogger().warn('Failed to reinitialize auto-tracking after session rollover:', error);
+  }
+}
+
+function _restoreJSContextForNewSession(generation: number): void {
+  if (generation !== _sessionOperationGeneration || !_isRecording || _isPaused) return;
+  _pendingRolloverContextRestore = false;
+
+  if (_userIdentity) {
+    safeNativeCallSync(
+      'setUserIdentity',
+      () => {
+        getRejourneyNative()!.setUserIdentity(_userIdentity!).catch(() => { });
+      },
+      undefined
+    );
+    getLogger().debug(`Restored user identity '${_userIdentity}' to new session`);
+  }
+
+  if (Object.keys(_storedMetadata).length > 0) {
+    for (const [key, value] of Object.entries(_storedMetadata)) {
+      Rejourney.setMetadata(key, value);
+    }
+    getLogger().debug('Restored metadata to new session');
+  }
+
+  if (_storedConfig?.collectDeviceInfo !== false) {
+    getAutoTracking().collectDeviceInfo().then((deviceInfo) => {
+      if (generation === _sessionOperationGeneration && _isRecording && !_isPaused) {
+        Rejourney.logEvent('device_info', deviceInfo as unknown as Record<string, unknown>);
+      }
+    }).catch(() => { });
+  }
+}
+
+async function _reconcileNativeSessionRollover(
+  initialSessionId: string | null,
+  generation: number,
+  token: number
+): Promise<void> {
+  const nativeModule = getRejourneyNative();
+  if (!nativeModule) return;
+
+  const baseline = initialSessionId;
+  let sawUnavailableSession = false;
+  let stableUnknownId: string | null = null;
+  let stableUnknownSince = 0;
+  let latestSessionId: string | null = null;
+
+  for (let attempt = 0; attempt < 85; attempt++) {
+    if (
+      generation !== _sessionOperationGeneration ||
+      token !== _rolloverReconcileToken ||
+      !_isRecording ||
+      _currentAppState !== 'active'
+    ) return;
+
+    try {
+      latestSessionId = await nativeModule.getSessionId();
+    } catch {
+      latestSessionId = null;
+    }
+
+    if (generation !== _sessionOperationGeneration || token !== _rolloverReconcileToken) return;
+
+    if (!latestSessionId) {
+      sawUnavailableSession = true;
+      stableUnknownId = null;
+    } else if ((baseline && latestSessionId !== baseline) || (!baseline && sawUnavailableSession)) {
+      _rolloverReinitPending = false;
+      _rolloverBaselineSessionId = null;
+      _reinitAutoTrackingForNewSession();
+      return;
+    } else if (!baseline) {
+      // If JS did not obtain the old ID before backgrounding, a stable active
+      // ID after foreground is the best signal available. Native moves through
+      // an unavailable state during rollover, so one second also covers the
+      // observer-ordering race without adding steady-state work.
+      if (stableUnknownId !== latestSessionId) {
+        stableUnknownId = latestSessionId;
+        stableUnknownSince = Date.now();
+      } else if (Date.now() - stableUnknownSince >= 1_000) {
+        _rolloverReinitPending = false;
+        _rolloverBaselineSessionId = null;
+        _reinitAutoTrackingForNewSession();
+        return;
+      }
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+
+  if (
+    generation !== _sessionOperationGeneration ||
+    token !== _rolloverReconcileToken ||
+    !_isRecording ||
+    _currentAppState !== 'active'
+  ) return;
+
+  if (latestSessionId) {
+    getLogger().warn('Timed out confirming native session rollover; using the active native session');
+    _rolloverReinitPending = false;
+    _rolloverBaselineSessionId = null;
+    _reinitAutoTrackingForNewSession();
+  } else {
+    getLogger().error('Native session rollover did not recover an active session');
+    _rolloverReinitPending = false;
+    _rolloverBaselineSessionId = null;
+    _isRecording = false;
+    _isPaused = false;
+    getNetworkInterceptor().restoreNetworkInterceptor();
+    getAutoTracking().cleanupAutoTracking();
   }
 }
 
@@ -1586,29 +1735,84 @@ function handleAppStateChange(nextAppState: string): void {
   if (!_isInitialized || _initializationFailed) return;
 
   try {
-    if (_currentAppState.match(/active/) && nextAppState === 'background') {
+    const previousAppState = _currentAppState;
+    _currentAppState = nextAppState;
+
+    if (previousAppState === 'active' && nextAppState === 'inactive' && _isRecording) {
+      // iOS enters `inactive` while transitioning to the background and for
+      // temporary interruptions such as Notification Center. Native capture
+      // pauses at the same point, so keep JS error/navigation/network hooks
+      // aligned even if the app returns directly to active.
+      getNetworkInterceptor().restoreNetworkInterceptor();
+      getAutoTracking().pauseAutoTracking();
+    }
+
+    if (previousAppState !== 'background' && nextAppState === 'background') {
       // App going to background - native module handles this automatically
       getLogger().logLifecycleEvent('App moving to background');
-      _backgroundEntryTime = Date.now();
-    } else if (_currentAppState.match(/inactive|background/) && nextAppState === 'active') {
+      const entryTime = monotonicNowMs();
+      const generation = _sessionOperationGeneration;
+      _backgroundEntryTime = entryTime;
+      _backgroundSessionId = null;
+      _rolloverReconcileToken++;
+
+      if (_isRecording) {
+        // JS fetch/error/navigation hooks otherwise remain live while native is
+        // paused and can attach background work to the wrong session.
+        getNetworkInterceptor().restoreNetworkInterceptor();
+        getAutoTracking().pauseAutoTracking();
+        getRejourneyNative()?.getSessionId().then((sessionId) => {
+          if (
+            generation === _sessionOperationGeneration &&
+            _backgroundEntryTime === entryTime &&
+            _currentAppState === 'background'
+          ) {
+            _backgroundSessionId = sessionId;
+          }
+        }).catch(() => { });
+      }
+    } else if (previousAppState.match(/inactive|background/) && nextAppState === 'active') {
       // App coming back to foreground
       getLogger().logLifecycleEvent('App returning to foreground');
 
-      // Check if we exceeded the session timeout (60s).
-      // Native side will have already ended the old session and started a new
-      // one — we need to reset JS-side auto-tracking state to match.
+      // Native rollover is asynchronous (old-session flush + new-session
+      // registration). Keep JS hooks paused until getSessionId confirms the
+      // replacement, rather than sending early foreground events to the old ID.
       if (_backgroundEntryTime && _isRecording) {
-        const backgroundDurationMs = Date.now() - _backgroundEntryTime;
+        const backgroundDurationMs = Math.max(0, monotonicNowMs() - _backgroundEntryTime);
         if (backgroundDurationMs > SESSION_TIMEOUT_MS) {
           getLogger().debug(
             `Session rollover: background ${Math.round(backgroundDurationMs / 1000)}s > ${SESSION_TIMEOUT_MS / 1000}s timeout`
           );
-          if (!_isPaused) _reinitAutoTrackingForNewSession();
+          if (!_rolloverReinitPending) {
+            _rolloverReinitPending = true;
+            _rolloverBaselineSessionId = _backgroundSessionId;
+          }
+        }
+
+        if (_rolloverReinitPending) {
+          const token = ++_rolloverReconcileToken;
+          void _reconcileNativeSessionRollover(
+            _rolloverBaselineSessionId,
+            _sessionOperationGeneration,
+            token
+          );
+        }
+      }
+
+      // This also covers iOS inactive -> active interruptions that never
+      // reached background and therefore have no rollover timestamp.
+      if (!_rolloverReinitPending && _isRecording && !_isPaused) {
+        getAutoTracking().resumeAutoTracking();
+        try {
+          setupNetworkInterception();
+        } catch (error) {
+          getLogger().warn('Failed to restore network interception after foregrounding:', error);
         }
       }
       _backgroundEntryTime = null;
+      _backgroundSessionId = null;
     }
-    _currentAppState = nextAppState;
   } catch (error) {
     getLogger().warn('Error handling app state change:', error);
   }
@@ -1678,8 +1882,13 @@ function setupAuthErrorListener(): void {
           }
 
           _sessionOperationGeneration++;
+          _rolloverReconcileToken++;
+          _rolloverReinitPending = false;
+          _rolloverBaselineSessionId = null;
+          _pendingRolloverContextRestore = false;
           _isStarting = false;
           _isRecording = false;
+          _isPaused = false;
           getNetworkInterceptor().restoreNetworkInterceptor();
           getAutoTracking().cleanupAutoTracking();
           getAutoTracking().resetMetrics();
@@ -1761,6 +1970,12 @@ export function initRejourney(
     ...options,
     publicRouteKey,
   };
+  _backgroundEntryTime = null;
+  _backgroundSessionId = null;
+  _rolloverReconcileToken++;
+  _rolloverReinitPending = false;
+  _rolloverBaselineSessionId = null;
+  _pendingRolloverContextRestore = false;
 
   if (options?.debug) {
     getLogger().setDebugMode(true);

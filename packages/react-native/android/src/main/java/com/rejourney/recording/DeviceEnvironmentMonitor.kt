@@ -58,6 +58,7 @@ internal class DeviceEnvironmentMonitor(private val context: Context) {
 
     @Volatile
     private var active = false
+    private var lifecycleGeneration = 0L
     private var receiverRegistered = false
     private var callbacksRegistered = false
     private var thermalListener: Any? = null
@@ -148,11 +149,14 @@ internal class DeviceEnvironmentMonitor(private val context: Context) {
 
     fun start(resetSession: Boolean) {
         if (resetSession) resetSessionState()
-        val alreadyActive = synchronized(lock) {
+        val (alreadyActive, generation) = synchronized(lock) {
             sessionObserved = true
             val wasActive = active
-            active = true
-            wasActive
+            if (!wasActive) {
+                active = true
+                lifecycleGeneration += 1
+            }
+            wasActive to lifecycleGeneration
         }
 
         sampleBoundary(countOrientationChange = false)
@@ -165,7 +169,7 @@ internal class DeviceEnvironmentMonitor(private val context: Context) {
         if (alreadyActive) return
 
         runOnMain {
-            if (!active) return@runOnMain
+            if (!isActive(generation)) return@runOnMain
             if (!receiverRegistered) {
                 val filter = IntentFilter().apply {
                     addAction(Intent.ACTION_BATTERY_CHANGED)
@@ -213,13 +217,17 @@ internal class DeviceEnvironmentMonitor(private val context: Context) {
     fun pause() {
         if (!active) return
         sampleBoundary(countOrientationChange = false)
-        synchronized(lock) {
+        val generation = synchronized(lock) {
+            if (!active) return
             accumulateThermalDurationLocked(SystemClock.elapsedRealtime())
             thermalThrottledSinceMs = null
+            active = false
+            lifecycleGeneration += 1
+            lifecycleGeneration
         }
-        active = false
 
         runOnMain {
+            if (!isInactive(generation)) return@runOnMain
             if (receiverRegistered) {
                 try { context.unregisterReceiver(batteryReceiver) } catch (_: Exception) { }
                 receiverRegistered = false
@@ -233,6 +241,14 @@ internal class DeviceEnvironmentMonitor(private val context: Context) {
                 unregisterThermalListenerApi29()
             }
         }
+    }
+
+    private fun isActive(generation: Long): Boolean = synchronized(lock) {
+        active && lifecycleGeneration == generation
+    }
+
+    private fun isInactive(generation: Long): Boolean = synchronized(lock) {
+        !active && lifecycleGeneration == generation
     }
 
     /** Current low-cardinality values for ordinary deviceInfo envelopes. */
