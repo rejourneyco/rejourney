@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Rejourney' => 'support@rejourney.co' }
   s.source           = { :path => '.' }
-  s.source_files     = 'rejourney/Sources/rejourney/**/*.{swift,h,m,mm}'
+  s.source_files     = 'rejourney/Sources/**/*.{swift,h,m,mm}'
   s.resource_bundles = {
     'rejourney_privacy' => ['rejourney/Sources/rejourney/Core/Resources/PrivacyInfo.xcprivacy']
   }
