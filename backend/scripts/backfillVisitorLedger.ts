@@ -78,29 +78,60 @@ async function loadIdentityChunk(projectId: string, cursor: string | null): Prom
     return result.rows.map((row) => row.identity);
 }
 
+const DEADLOCK_SQLSTATE = '40P01';
+const MAX_CHUNK_ATTEMPTS = 4;
+
 async function applyChunk(projectId: string, identities: string[], effectiveDays: number): Promise<{ sessions: number; visitors: number }> {
+    // Live ingest locks the session row first and then upserts the visitor row. This
+    // statement must take locks in the same order (sessions, then project_visitors) or
+    // the two deadlock on an active visitor. Sessions currently held by ingest are
+    // skipped; ingest stamps them itself. A deadlock can still surface under heavy
+    // churn, so the chunk is retried a few times before giving up.
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            return await applyChunkOnce(projectId, identities, effectiveDays);
+        } catch (err) {
+            const code = (err as { code?: string } | null)?.code;
+            if (code === DEADLOCK_SQLSTATE && attempt < MAX_CHUNK_ATTEMPTS) {
+                logger.warn({ projectId, attempt, identities: identities.length }, 'Visitor ledger backfill chunk deadlocked; retrying');
+                await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+                continue;
+            }
+            throw err;
+        }
+    }
+}
+
+async function applyChunkOnce(projectId: string, identities: string[], effectiveDays: number): Promise<{ sessions: number; visitors: number }> {
     const keys = identities.map((identity) => computeVisitorKey(projectId, identity));
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // Rank every unassigned session of these identities by started_at and roll the
-        // per-visitor aggregates into the ledger, offsetting by any existing count.
+        // Lock the unassigned sessions of these identities first (same order as ingest),
+        // rank them by started_at, and roll the per-visitor aggregates into the ledger,
+        // offsetting by any count the ledger already holds.
         const ledger = await client.query<{ visitors: number | string }>(
             `
             WITH pairs AS (
                 SELECT * FROM unnest($2::text[], $3::text[]) AS p(identity, visitor_key)
             ),
-            ranked AS (
-                SELECT s.id,
-                       p.visitor_key,
-                       s.started_at,
-                       row_number() OVER (PARTITION BY p.visitor_key ORDER BY s.started_at, s.id) AS rn
+            locked AS (
+                SELECT s.id, p.visitor_key, s.started_at
                 FROM sessions s
                 INNER JOIN pairs p ON p.identity = ${VISITOR_IDENTITY_SQL.replace(/\b(device_id|anonymous_hash|anonymous_display_id|user_display_id)\b/g, 's.$1')}
                 WHERE s.project_id = $1
                   AND s.identity_scrubbed_at IS NULL
                   AND s.visitor_session_ordinal IS NULL
+                ORDER BY s.id
+                FOR UPDATE OF s SKIP LOCKED
+            ),
+            ranked AS (
+                SELECT id,
+                       visitor_key,
+                       started_at,
+                       row_number() OVER (PARTITION BY visitor_key ORDER BY started_at, id) AS rn
+                FROM locked
             ),
             agg AS (
                 SELECT visitor_key,
