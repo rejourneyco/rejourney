@@ -10,8 +10,8 @@
  * under a server-side secret, first/last seen, and a session count. No raw ids.
  * Rows expire on a sliding inactivity window (teams.visitor_identity_retention_days,
  * never shorter than the session retention) and are deleted by the retention worker
- * or on erasure request. This mirrors how GA4 (user-level retention with reset on
- * activity) and FullStory (user record kept while any session survives) behave.
+ * or on erasure request. This is the standard analytics pattern: user-level retention
+ * that resets on activity, with the visitor record kept while any session survives.
  *
  * Every write here is best-effort: ingest must never fail because of the ledger.
  */
