@@ -1,7 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { db, retentionDeletionLog } from '../db/client.js';
 
-export type RetentionDeletionScope = 'session_purge';
+/**
+ * session_purge: replay artifacts removed for one session.
+ * identity_scrub: one batch of per-session identity scrubs (counts in details).
+ * visitor_ledger_expiry: one batch of expired project_visitors rows deleted.
+ * visitor_erasure: a per-visitor Article 17 erasure request.
+ */
+export type RetentionDeletionScope = 'session_purge' | 'identity_scrub' | 'visitor_ledger_expiry' | 'visitor_erasure';
 export type RetentionDeletionStatus = 'started' | 'completed' | 'failed' | 'skipped';
 
 export interface RetentionAuditStartParams {

@@ -1,5 +1,5 @@
 import { and, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { db, projects, recordingArtifacts, sessions } from '../db/client.js';
+import { db, projects, projectVisitors, recordingArtifacts, sessions } from '../db/client.js';
 import { deleteObjectsFromProjectStorage } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { normalizeHeatmapScreenName } from '../utils/heatmapScreens.js';
@@ -53,6 +53,10 @@ type SmartCaptureSession = {
     deviceId?: string | null;
     userDisplayId?: string | null;
     anonymousHash?: string | null;
+    /** Pseudonymous visitor ledger key (null before the ledger stamped the row). */
+    visitorKey?: string | null;
+    /** Lifetime session ordinal from the visitor ledger; survives identity scrub. */
+    visitorSessionOrdinal?: number | null;
     platform?: string | null;
     appVersion?: string | null;
     deviceModel?: string | null;
@@ -883,7 +887,29 @@ function visitorIdentityForSession(session: SmartCaptureSession): string | null 
     return session.deviceId ?? session.anonymousHash ?? session.userDisplayId ?? null;
 }
 
+/** Lifetime ordinal stamped by the visitor ledger, or null for rows it has not keyed. */
+function ledgerVisitOrdinal(session: SmartCaptureSession): number | null {
+    const ordinal = session.visitorSessionOrdinal;
+    return typeof ordinal === 'number' && Number.isFinite(ordinal) && ordinal > 0 ? ordinal : null;
+}
+
 async function hasReturnedAfterSession(session: SmartCaptureSession): Promise<boolean> {
+    // Ledger path: the visitor row records every later session, including ones whose
+    // identity has since been scrubbed.
+    const ordinal = ledgerVisitOrdinal(session);
+    if (session.visitorKey && ordinal !== null) {
+        const [ledgerRow] = await db
+            .select({ id: projectVisitors.id })
+            .from(projectVisitors)
+            .where(and(
+                eq(projectVisitors.projectId, session.projectId),
+                eq(projectVisitors.visitorKey, session.visitorKey),
+                sql`(${projectVisitors.lastSeenAt} > ${session.startedAt} or ${projectVisitors.sessionCount} > ${ordinal})`,
+            ))
+            .limit(1);
+        if (ledgerRow) return true;
+    }
+
     const visitorIdentity = visitorIdentityForSession(session);
     if (!visitorIdentity) return false;
 
@@ -907,6 +933,9 @@ async function hasMinimumVisitCount(session: SmartCaptureSession, rule: SmartCap
     );
     if (minVisits <= 1) return true;
 
+    const ordinal = ledgerVisitOrdinal(session);
+    if (ordinal !== null) return ordinal >= minVisits;
+
     const visitorIdentity = visitorIdentityForSession(session);
     if (!visitorIdentity) return false;
 
@@ -927,6 +956,11 @@ async function isWithinMaximumVisitCount(session: SmartCaptureSession, rule: Sma
         1,
         Math.floor(numeric(conditionValue(rule, 'maxVisits') ?? conditionValue(rule, 'sessionWindowSize') ?? conditionValue(rule, 'maxVisitCount') ?? fallbackMaxVisits)),
     );
+    // Ledger ordinal counts sessions whose identity has since been scrubbed, so a
+    // weekly visitor on a short retention tier is not treated as "new" every week.
+    const ordinal = ledgerVisitOrdinal(session);
+    if (ordinal !== null) return ordinal <= maxVisits;
+
     const visitorIdentity = visitorIdentityForSession(session);
     if (!visitorIdentity) return false;
 

@@ -66,6 +66,11 @@ vi.mock('../services/recording.js', () => ({
     lookupGeoIp: vi.fn(async () => undefined),
 }));
 
+vi.mock('../services/visitorLedger.js', () => ({
+    assignSessionVisitorForRow: vi.fn(async () => null),
+    isVisitorLedgerWriteEnabled: vi.fn(() => false),
+}));
+
 import {
     ingestSessionSelection,
     isSessionIdFresh,
@@ -88,6 +93,10 @@ describe('ingest session lifecycle clock guard', () => {
     it('keeps large event payloads out of the ingest hot-path projection', () => {
         expect(ingestSessionSelection).not.toHaveProperty('events');
         expect(ingestSessionSelection).toHaveProperty('metadata');
+        // Visitor ledger guards read these off the cached row instead of re-querying.
+        expect(ingestSessionSelection).toHaveProperty('visitorKey');
+        expect(ingestSessionSelection).toHaveProperty('visitorSessionOrdinal');
+        expect(ingestSessionSelection).toHaveProperty('retentionDays');
         expect(ingestSessionSelection).toHaveProperty('status');
     });
 

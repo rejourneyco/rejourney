@@ -19,6 +19,7 @@ import {
     resolveSessionClock,
 } from './sessionClock.js';
 import { recordProjectOwnerMilestone } from './googleAdsConversions.js';
+import { assignSessionVisitorForRow, isVisitorLedgerWriteEnabled } from './visitorLedger.js';
 
 export type IngestSessionMetadata = {
     userId?: string;
@@ -118,10 +119,13 @@ export const ingestSessionSelection = {
     replayAvailable: sessions.replayAvailable,
     replayQuotaBillingExhausted: sessions.replayQuotaBillingExhausted,
     replayRetentionState: sessions.replayRetentionState,
+    retentionDays: sessions.retentionDays,
     sdkVersion: sessions.sdkVersion,
     startedAt: sessions.startedAt,
     status: sessions.status,
     userDisplayId: sessions.userDisplayId,
+    visitorKey: sessions.visitorKey,
+    visitorSessionOrdinal: sessions.visitorSessionOrdinal,
 };
 
 function toDateOrNull(value: unknown): Date | null {
@@ -580,6 +584,23 @@ export async function ensureIngestSession(
             .where(eq(sessions.id, sessionId))
             .limit(1);
         updatedSessionMetadata = Boolean(session);
+    }
+
+    // Visitor ledger: stamp the lifetime ordinal once identity is known. Runs only when
+    // the row was created, back-filled, or freshly loaded from the DB without an
+    // ordinal (a retry after a best-effort failure); never on the cache-hit presign path.
+    if (
+        isVisitorLedgerWriteEnabled()
+        && session
+        && session.visitorSessionOrdinal == null
+        && (created || updatedSessionMetadata || loadedSessionFromDb)
+    ) {
+        const assigned = await assignSessionVisitorForRow(session);
+        if (assigned) {
+            session.visitorKey = assigned.visitorKey;
+            session.visitorSessionOrdinal = assigned.ordinal;
+            updatedSessionMetadata = true;
+        }
     }
 
     // Only INSERT session_metrics when we just created the session. For existing

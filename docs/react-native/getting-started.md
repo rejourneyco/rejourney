@@ -389,6 +389,10 @@ Masked content appears as a privacy placeholder in replays and is never captured
    Rejourney.clearUserIdentity();
    ```
 
+#### Returning-visitor recognition
+
+So that a returning user is not counted as a brand-new user once their earlier sessions have aged out of your retention period, Rejourney keeps a pseudonymous visitor key per project: an HMAC of the device or user identifier under a server-side secret, stored with only the first-seen date, last-seen date, and session count. No raw identifier is kept. The key is deleted automatically after a sliding inactivity window (90 days by default, configurable per team from 0 to 365 days, never shorter than your session retention) and immediately through the project's visitor erasure endpoint when you handle a data subject request. Calling `Rejourney.clearUserIdentity()` stops new sessions from being linked to the user id; it does not by itself delete the visitor key, so route opt-out deletion requests through the erasure endpoint.
+
 #### Console log capture
 
 Console log capture is enabled by default (`trackConsoleLogs: true`). Console logs can contain PII depending on your app's logging practices. Disable it if sensitive data may appear in logs:

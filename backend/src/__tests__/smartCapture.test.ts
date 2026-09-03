@@ -29,6 +29,37 @@ const baseSession = {
 };
 
 describe('smartCapture decisions', () => {
+    it('matches the new_user signal from the scrub-surviving ledger ordinal without querying sessions', async () => {
+        const newUserProject = {
+            ...baseProject,
+            smartCaptureRules: [
+                { id: 'new-users', type: 'signal', signal: 'new_user', label: 'New users', condition: { maxVisits: 3 } },
+            ],
+        };
+
+        const firstVisit = await resolveSmartCaptureDecision({
+            project: newUserProject,
+            session: { ...baseSession, visitorKey: 'vk_1', visitorSessionOrdinal: 1 },
+            hasReplayArtifacts: true,
+            entitled: true,
+            now: new Date('2026-06-01T00:03:00.000Z'),
+        });
+        expect(firstVisit.status).toBe('kept');
+        expect(firstVisit.ruleId).toBe('new-users');
+
+        // Fourth lifetime visit: the ordinal (not a count over still-identifiable rows)
+        // says this visitor is no longer new, even if earlier sessions were scrubbed.
+        const fourthVisit = await resolveSmartCaptureDecision({
+            project: newUserProject,
+            session: { ...baseSession, visitorKey: 'vk_1', visitorSessionOrdinal: 4 },
+            hasReplayArtifacts: true,
+            entitled: true,
+            now: new Date('2026-06-01T00:03:00.000Z'),
+        });
+        expect(fourthVisit.status).toBe('discarded');
+        expect(fourthVisit.reason).toBe('no_rules_matched');
+    });
+
     it('keeps replay artifacts when Scale Smart Capture is in record all mode', async () => {
         const decision = await resolveSmartCaptureDecision({
             project: { ...baseProject, smartCaptureMode: 'record_all' },

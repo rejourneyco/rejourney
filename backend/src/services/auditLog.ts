@@ -26,6 +26,7 @@ export type AuditAction =
     | 'project_setup_email_sent'
     | 'project_smart_capture_updated'
     | 'project_updated'
+    | 'visitor_erased'
     | 'team_created'
     | 'team_updated'
     | 'team_deleted'

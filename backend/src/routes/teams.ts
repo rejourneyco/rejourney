@@ -14,7 +14,12 @@ import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, writeApiRateLimiter, inviteRateLimiter } from '../middleware/rateLimit.js';
 import { sendTeamInviteEmail } from '../services/email.js';
 import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
-import { syncTeamVideoRetention } from '../services/videoRetention.js';
+import { getVideoRetentionDetailsForTier, syncTeamVideoRetention } from '../services/videoRetention.js';
+import {
+    invalidateProjectVisitorWindowCache,
+    resolveEffectiveVisitorRetentionDays,
+    resyncTeamVisitorLedgerExpiry,
+} from '../services/visitorLedger.js';
 import { hardDeleteTeam } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
 import { isDisposableEmail } from '../utils/disposableEmail.js';
@@ -40,11 +45,13 @@ const router = Router();
 function getTeamAuditState(team: {
     name: string | null;
     retentionTier?: number | null;
+    visitorIdentityRetentionDays?: number | null;
     workspaceConfirmedAt?: Date | null;
 }): Record<string, unknown> {
     return {
         name: team.name ?? null,
         retentionTier: team.retentionTier ?? null,
+        visitorIdentityRetentionDays: team.visitorIdentityRetentionDays ?? null,
         workspaceConfirmedAt: team.workspaceConfirmedAt ?? null,
     };
 }
@@ -208,6 +215,9 @@ router.put(
         };
         if (req.body.name !== undefined) setParams.name = req.body.name;
         if (req.body.retentionTier !== undefined) setParams.retentionTier = req.body.retentionTier;
+        if (req.body.visitorIdentityRetentionDays !== undefined) {
+            setParams.visitorIdentityRetentionDays = req.body.visitorIdentityRetentionDays;
+        }
         if ((req.body.workspaceConfirmed === true || req.body.name !== undefined) && !currentTeam.workspaceConfirmedAt) {
             setParams.workspaceConfirmedAt = new Date();
         }
@@ -223,6 +233,25 @@ router.put(
                 backfillSessions: true,
             });
             logger.info({ teamId: team.id, retentionTier: retention.tier, retentionDays: retention.days }, 'Retroactively updated team video retention');
+        }
+
+        // The visitor ledger window depends on both settings: recompute expires_at for
+        // the team's ledger rows whenever either changed, and drop the per-process cache
+        // so ingest picks up the new window immediately.
+        if (req.body.retentionTier !== undefined || req.body.visitorIdentityRetentionDays !== undefined) {
+            const tierRetention = await getVideoRetentionDetailsForTier(team.retentionTier);
+            const effectiveDays = resolveEffectiveVisitorRetentionDays(team.visitorIdentityRetentionDays, tierRetention.days);
+            const teamProjects = await db
+                .select({ id: projects.id })
+                .from(projects)
+                .where(eq(projects.teamId, team.id));
+            for (const project of teamProjects) invalidateProjectVisitorWindowCache(project.id);
+            try {
+                const resynced = await resyncTeamVisitorLedgerExpiry(team.id, effectiveDays);
+                logger.info({ teamId: team.id, effectiveDays, resynced }, 'Resynced visitor ledger expiry for team');
+            } catch (err) {
+                logger.warn({ err, teamId: team.id }, 'Failed to resync visitor ledger expiry; rows keep their previous expiry');
+            }
         }
 
         logger.info({ teamId: team.id, userId: req.user!.id }, 'Team updated');

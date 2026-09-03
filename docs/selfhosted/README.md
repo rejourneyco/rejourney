@@ -341,6 +341,7 @@ The installer writes `.env.selfhosted`. These are the values you are most likely
 | Redis | `REDIS_URL`, `REDIS_PASSWORD` |
 | Storage | `STORAGE_BACKEND`, `S3_*`, `MINIO_*` |
 | Security | `JWT_SECRET`, `JWT_SIGNING_KEY`, `SHARE_LINK_SECRET`, `INGEST_HMAC_SECRET`, `STORAGE_ENCRYPTION_KEY`, `SUPERWALL_API_KEY_ENCRYPTION_KEY`, `REVENUECAT_API_KEY_ENCRYPTION_KEY` |
+| Visitor ledger | `VISITOR_KEY_SECRET` (HMAC key for the pseudonymous returning-visitor ledger; falls back to `JWT_SECRET`, and rotating it makes every visitor look new once), `VISITOR_LEDGER_WRITE_ENABLED` (kill switch, default `true`) |
 | Email login | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SECURE` |
 
 SMTP is required for passwordless email login. For the usual STARTTLS submission port `587`, set `SMTP_SECURE=false`; use `true` for implicit TLS, normally on port `465`. SMTP may stay blank only if GitHub OAuth is configured as the login path.

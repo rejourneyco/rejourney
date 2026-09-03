@@ -56,6 +56,7 @@ import {
 } from '../services/sessionIngestImmutability.js';
 import { selectMaxObservabilityMinutes } from '../services/sessionTiming.js';
 import { normalizeArtifactTimeRangeForSession } from '../services/sessionClock.js';
+import { assignSessionVisitorById } from '../services/visitorLedger.js';
 const router = Router();
 
 type ReplayBillingGate = {
@@ -427,6 +428,8 @@ router.post(
             db.update(sessions)
                 .set({ deviceId })
                 .where(eq(sessions.id, sessionId))
+                // Identity just became known: stamp the visitor ledger ordinal (best-effort).
+                .then(() => assignSessionVisitorById(sessionId, projectId))
                 .catch(() => {});
         }
 

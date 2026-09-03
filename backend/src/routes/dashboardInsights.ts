@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { eq, gte, and, desc, asc, inArray, sql, type SQL } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, projects, teamMembers, recordingArtifacts } from '../db/client.js';
+import { db, sessions, sessionMetrics, projects, projectVisitors, teamMembers, recordingArtifacts } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -1150,7 +1150,7 @@ router.get(
 
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
         const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
-        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v2`;
+        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v3`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1196,14 +1196,34 @@ router.get(
             conditions.push(eq(sessions.platform, normalizedPlatform));
         }
 
+        // Cohort week from the visitor ledger when available, so a visitor whose earlier
+        // sessions were identity-scrubbed keeps their true first-seen week.
+        const ledgerFirstWeekKeySql = sql<string | null>`
+            case
+                when ${projectVisitors.firstSeenAt} is null then null
+                else to_char(
+                    (
+                        date_trunc('day', ${projectVisitors.firstSeenAt})
+                        - (extract(dow from ${projectVisitors.firstSeenAt})::int * interval '1 day')
+                    )::date,
+                    'YYYY-MM-DD'
+                )
+            end
+        `;
+
         const activityRows = await db
             .select({
                 userKey: scopedIdentitySql,
                 weekStartKey: weekStartKeySql,
+                firstWeekStartKey: ledgerFirstWeekKeySql,
             })
             .from(sessions)
+            .leftJoin(projectVisitors, and(
+                eq(projectVisitors.projectId, sessions.projectId),
+                eq(projectVisitors.visitorKey, sessions.visitorKey),
+            ))
             .where(and(...conditions, sql`${scopedIdentitySql} is not null`))
-            .groupBy(scopedIdentitySql, weekStartKeySql)
+            .groupBy(scopedIdentitySql, weekStartKeySql, ledgerFirstWeekKeySql)
             .orderBy(asc(weekStartKeySql), asc(scopedIdentitySql));
 
         const response = {

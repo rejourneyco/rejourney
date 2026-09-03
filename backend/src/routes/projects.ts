@@ -28,8 +28,10 @@ import {
     projectIdParamSchema,
     requestDeleteProjectOtpSchema,
     deleteProjectSchema,
+    eraseVisitorSchema,
     sendProjectSetupEmailSchema,
 } from '../validation/projects.js';
+import { eraseVisitor } from '../services/visitorErasure.js';
 import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { hardDeleteProject } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
@@ -2412,6 +2414,82 @@ router.get(
             .slice(0, 20);
         const locations = await loadAvailableProjectLocations(req.params.id, { kind, search, country, countryCodes });
         res.json({ locations });
+    })
+);
+
+/**
+ * Erase one end-user of a project (GDPR Article 17).
+ * POST /api/projects/:id/visitors/erase
+ *
+ * Body: { identity } — the raw device id, anonymous id, or user id the SDK reported.
+ * Deletes the pseudonymous visitor ledger row, purges replay media, and scrubs identity
+ * on every still-identifiable session of that visitor. Capped per call; repeat until
+ * `remaining` is 0. Team owner or admin only.
+ */
+router.post(
+    '/:id/visitors/erase',
+    sessionAuth,
+    writeApiRateLimiter,
+    validate(projectIdParamSchema, 'params'),
+    validate(eraseVisitorSchema),
+    requireProjectAccess,
+    asyncHandler(async (req, res) => {
+        const projectId = req.params.id;
+        const teamId = req.project!.teamId;
+        const userId = req.user!.id;
+
+        const [team] = await db
+            .select({ ownerUserId: teams.ownerUserId })
+            .from(teams)
+            .where(eq(teams.id, teamId))
+            .limit(1);
+        const [membership] = await db
+            .select({ role: teamMembers.role })
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+            .limit(1);
+        const isPrivileged = team?.ownerUserId === userId || membership?.role === 'owner' || membership?.role === 'admin';
+        if (!isPrivileged) {
+            throw ApiError.forbidden('Only team owners and admins can erase visitors');
+        }
+
+        const runId = `visitor_erasure:${projectId}:${Date.now()}`;
+        const result = await eraseVisitor({
+            projectId,
+            identity: req.body.identity,
+            runId,
+            trigger: 'dashboard_visitor_erasure',
+        });
+
+        await auditFromRequest(req, 'visitor_erased', {
+            targetType: 'project',
+            targetId: projectId,
+            teamId,
+            metadata: {
+                runId,
+                // The raw identity is deliberately not written to the audit log.
+                visitorKey: result.visitorKey,
+                ledgerRowsDeleted: result.ledgerRowsDeleted,
+                sessionsMatched: result.sessionsMatched,
+                sessionsScrubbed: result.sessionsScrubbed,
+                artifactsPurged: result.artifactsPurged,
+                artifactPurgeFailures: result.artifactPurgeFailures,
+                remaining: result.remaining,
+            },
+        });
+
+        logger.info({ projectId, teamId, userId, runId, remaining: result.remaining }, 'Visitor erasure requested');
+
+        res.json({
+            visitorKey: result.visitorKey,
+            ledgerRowsDeleted: result.ledgerRowsDeleted,
+            sessionsMatched: result.sessionsMatched,
+            sessionsScrubbed: result.sessionsScrubbed,
+            artifactsPurged: result.artifactsPurged,
+            artifactPurgeFailures: result.artifactPurgeFailures,
+            remaining: result.remaining,
+            complete: result.remaining === 0,
+        });
     })
 );
 

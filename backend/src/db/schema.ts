@@ -137,6 +137,12 @@ export const teams = pgTable('teams', {
     stripeCurrentPeriodStart: timestamp('stripe_current_period_start'), // Stripe's authoritative billing period start
     stripeCurrentPeriodEnd: timestamp('stripe_current_period_end'),     // Stripe's authoritative billing period end
     retentionTier: integer('retention_tier').default(1).notNull(), // Defaults to free video retention
+    /**
+     * Sliding inactivity window (days) for the pseudonymous project_visitors ledger.
+     * A visitor row expires `max(this, session retention_days)` days after the visitor's
+     * last session; 0 means "no extra window beyond session retention".
+     */
+    visitorIdentityRetentionDays: integer('visitor_identity_retention_days').default(90).notNull(),
     bonusSessions: integer('bonus_sessions').default(0).notNull(), // Manual override: extra sessions beyond plan limit
     /** When set, bonus_sessions only applies for this billing period string (see getTeamBillingPeriod). */
     bonusSessionsBillingPeriod: text('bonus_sessions_billing_period'),
@@ -485,6 +491,18 @@ export const sessions = pgTable(
         userDisplayId: varchar('user_display_id', { length: 255 }), // User ID for dashboard display
         anonymousHash: varchar('anonymous_hash', { length: 255 }),
         anonymousDisplayId: varchar('anonymous_display_id', { length: 255 }), // Original anonymousId for display
+        /**
+         * Pseudonymous visitor key (keyed hash of the device/user identifier) linking this
+         * session to its project_visitors ledger row. Nulled by the identity scrub together
+         * with the raw identity columns above.
+         */
+        visitorKey: varchar('visitor_key', { length: 64 }),
+        /**
+         * 1-based lifetime session ordinal for the visitor at ingest time (1 = first session
+         * within the visitor identity window). Survives the identity scrub because a small
+         * integer cannot re-link sessions; NULL means unknown, never "new".
+         */
+        visitorSessionOrdinal: integer('visitor_session_ordinal'),
         webReferral: varchar('web_referral', { length: 255 }),
         startedAt: timestamp('started_at').defaultNow().notNull(),
         endedAt: timestamp('ended_at'),
@@ -581,13 +599,17 @@ export const sessions = pgTable(
             .where(sql`${table.replayAvailable} = true AND COALESCE(${table.replayRetentionState}, 'saved') = 'saved'`),
         /** Speeds “first session for device” checks on the archive list */
         index('sessions_project_device_started_idx').on(table.projectId, table.deviceId, table.startedAt),
-        /** Speeds first-session checks (resolveArchiveFirstSessionIds), new_user filter NOT EXISTS, and live-badge visitor EXISTS — all use coalesce(device_id, anonymous_hash, user_display_id) */
+        /** Legacy: served the pre-ledger first-session / new_user / live-badge subqueries on coalesce(device_id, anonymous_hash, user_display_id). Still used by sessionReconciliation successor checks; droppable once those move to visitor_key. */
         index('sessions_visitor_identity_started_idx').on(
             table.projectId,
             sql`coalesce(${table.deviceId}, ${table.anonymousHash}, ${table.userDisplayId})`,
             table.startedAt,
             table.id
         ),
+        /** Visitor ledger: newer-session EXISTS, lifetime ordinals and first-seen joins keyed by the pseudonymous visitor key (partial: scrubbed rows carry NULL). */
+        index('sessions_project_visitor_key_started_idx')
+            .on(table.projectId, table.visitorKey, table.startedAt, table.id)
+            .where(sql`${table.visitorKey} IS NOT NULL`),
         index('sessions_project_web_referral_started_idx')
             .on(table.projectId, table.webReferral, table.startedAt)
             .where(sql`${table.webReferral} IS NOT NULL`),
@@ -618,6 +640,36 @@ export const sessions = pgTable(
         index('sessions_project_started_status_idx').on(table.projectId, table.startedAt, table.status),
     ]
 
+);
+
+/**
+ * Pseudonymous visitor ledger.
+ *
+ * One row per (project, visitor_key) where visitor_key is an HMAC of the visitor's
+ * device/user identifier under a server-side secret. It stores only first/last seen
+ * and a session count so returning visitors keep their lifetime ordinal after the
+ * per-session identity scrub has nulled the raw identifiers. Rows expire on a sliding
+ * inactivity window (teams.visitor_identity_retention_days, never shorter than the
+ * session retention) and are deleted by the retention worker or on erasure request.
+ */
+export const projectVisitors = pgTable(
+    'project_visitors',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        visitorKey: varchar('visitor_key', { length: 64 }).notNull(),
+        firstSeenAt: timestamp('first_seen_at').notNull(),
+        lastSeenAt: timestamp('last_seen_at').notNull(),
+        sessionCount: integer('session_count').default(1).notNull(),
+        expiresAt: timestamp('expires_at').notNull(),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('project_visitors_project_key_unique').on(table.projectId, table.visitorKey),
+        /** Retention worker expiry sweep: expires_at < NOW() ordered by (expires_at, id). */
+        index('project_visitors_expires_at_idx').on(table.expiresAt, table.id),
+    ],
 );
 
 export const sessionMetrics = pgTable('session_metrics', {

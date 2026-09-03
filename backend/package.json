@@ -25,6 +25,7 @@
         "db:backfill:bonus-sessions-period": "node --import tsx scripts/backfillBonusSessionsBillingPeriod.ts",
         "db:backfill:artifact-lifecycle": "node --import tsx scripts/backfillArtifactLifecycleState.ts",
         "db:backfill:session-reconciliation": "node --import tsx scripts/backfillSessionReconciliationState.ts",
+        "db:backfill:visitor-ledger": "node --import tsx scripts/backfillVisitorLedger.ts",
         "db:repair:missing-sessions": "node --import tsx scripts/repairMissingSessions.ts",
         "retention:backfill:expired-artifacts": "node dist/worker/retentionWorker.js --once --drain-backlog --trigger=manual_backfill",
         "research-lake:worker": "tsx src/worker/researchLakeWorker.ts",

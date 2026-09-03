@@ -10,6 +10,7 @@ import { eq, gte, and, inArray, sql, desc, isNotNull, gt } from 'drizzle-orm';
 import {
     db,
     projects,
+    projectVisitors,
     teamMembers,
     sessions,
     sessionMetrics,
@@ -3448,7 +3449,7 @@ router.get(
 
         const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
         const growthPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all' ? req.query.platform : undefined;
-        const cacheKey = `analytics:growth-observability:v4:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${growthPlatform || 'all'}`;
+        const cacheKey = `analytics:growth-observability:v5:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${growthPlatform || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -3547,6 +3548,8 @@ router.get(
                 id: sessions.id,
                 startedAt: sessions.startedAt,
                 deviceId: sessions.deviceId,
+                visitorKey: sessions.visitorKey,
+                visitorSessionOrdinal: sessions.visitorSessionOrdinal,
                 screensVisited: sessionMetrics.screensVisited,
                 crashCount: sessionMetrics.crashCount,
                 anrCount: sessionMetrics.anrCount,
@@ -3579,16 +3582,40 @@ router.get(
         // Daily health tracking for chart
         const dailyHealth: Record<string, { clean: number; error: number; rage: number; slow: number; crash: number }> = {};
 
-        // First pass: find first session per device
+        // Visitor bucket: the pseudonymous ledger key when the row was stamped, else the raw
+        // device id (legacy rows). The ledger survives identity scrub, so returning visitors
+        // are not re-counted as acquisitions once their earlier sessions were scrubbed.
+        const visitorBucketFor = (s: { visitorKey: string | null; deviceId: string | null }) => s.visitorKey ?? s.deviceId ?? null;
+
+        // First pass (legacy rows only): earliest in-window session per device.
         for (const s of sessionsWithMetrics) {
-            if (!s.deviceId) continue;
+            if (s.visitorSessionOrdinal != null || !s.deviceId) continue;
             const existing = deviceFirstSession.get(s.deviceId);
             if (!existing || s.startedAt < existing.startedAt) {
                 deviceFirstSession.set(s.deviceId, { id: s.id, startedAt: s.startedAt });
             }
         }
 
-        // For real acquisition/return metrics, find each observed device's first-ever session in the selected projects.
+        // Ledger rows: lifetime first-seen straight from project_visitors.
+        const observedVisitorKeys = Array.from(new Set(
+            sessionsWithMetrics.map((s) => s.visitorKey).filter((key): key is string => Boolean(key)),
+        ));
+        const firstSeenByVisitor = new Map<string, Date>();
+        for (let offset = 0; offset < observedVisitorKeys.length; offset += 5000) {
+            const chunk = observedVisitorKeys.slice(offset, offset + 5000);
+            const ledgerRows = await db
+                .select({ visitorKey: projectVisitors.visitorKey, firstSeenAt: projectVisitors.firstSeenAt })
+                .from(projectVisitors)
+                .where(and(inArray(projectVisitors.projectId, projectIds), inArray(projectVisitors.visitorKey, chunk)));
+            for (const row of ledgerRows) {
+                if (!row.firstSeenAt) continue;
+                const candidate = new Date(row.firstSeenAt);
+                const existing = firstSeenByVisitor.get(row.visitorKey);
+                if (!existing || candidate < existing) firstSeenByVisitor.set(row.visitorKey, candidate);
+            }
+        }
+
+        // Legacy rows: first-ever still-identifiable session per device in the selected projects.
         const observedDeviceIds = Array.from(deviceFirstSession.keys());
         const firstSeenByDevice = new Map<string, Date>();
         if (observedDeviceIds.length > 0) {
@@ -3620,11 +3647,14 @@ router.get(
             const rageTaps = Number(s.rageTapCount || 0);
             const apiErrors = Number(s.apiErrorCount || 0);
             const apiLatency = Number(s.apiAvgResponseMs || 0);
-            const isFirstSession = firstSessionIds.has(s.id);
+            const isFirstSession = s.visitorSessionOrdinal != null
+                ? s.visitorSessionOrdinal === 1
+                : firstSessionIds.has(s.id);
             const screens = s.screensVisited || [];
             const firstScreen = screens[0] || 'Unknown';
-            if (s.deviceId) {
-                sessionsPerDeviceInWindow.set(s.deviceId, (sessionsPerDeviceInWindow.get(s.deviceId) || 0) + 1);
+            const visitorBucket = visitorBucketFor(s);
+            if (visitorBucket) {
+                sessionsPerDeviceInWindow.set(visitorBucket, (sessionsPerDeviceInWindow.get(visitorBucket) || 0) + 1);
             }
 
             // Date for daily tracking
@@ -3705,8 +3735,8 @@ router.get(
         let acquiredUsers = 0;
         let returnedUsers = 0;
 
-        for (const [deviceId, sessionCount] of sessionsPerDeviceInWindow.entries()) {
-            const firstSeenAt = firstSeenByDevice.get(deviceId);
+        for (const [visitorBucket, sessionCount] of sessionsPerDeviceInWindow.entries()) {
+            const firstSeenAt = firstSeenByVisitor.get(visitorBucket) ?? firstSeenByDevice.get(visitorBucket);
             const isNewInWindow = startedAfter ? Boolean(firstSeenAt && firstSeenAt >= startedAfter) : true;
 
             if (!isNewInWindow) continue;

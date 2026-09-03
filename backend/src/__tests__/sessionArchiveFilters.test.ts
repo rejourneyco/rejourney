@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import {
     getSessionArchiveIssueFilterCondition,
@@ -29,5 +30,16 @@ describe('sessionArchiveFilters', () => {
         expect(getSessionArchiveIssueFilterCondition('new_user')).toBeDefined();
         expect(getSessionArchiveIssueFilterCondition('all')).toBeUndefined();
         expect(getSessionArchiveIssueFilterCondition(null)).toBeUndefined();
+    });
+
+    it('flags new users from the scrub-surviving ledger ordinal before falling back to the legacy check', () => {
+        const dialect = new PgDialect();
+        const { sql } = dialect.sqlToQuery(getSessionArchiveIssueFilterCondition('new_user')!);
+        const normalized = sql.replace(/\s+/g, ' ').trim();
+
+        expect(normalized).toContain('"sessions"."visitor_session_ordinal" = 1');
+        // Ordinal wins when present; the legacy correlated NOT EXISTS only runs for un-keyed rows.
+        expect(normalized.indexOf('visitor_session_ordinal')).toBeLessThan(normalized.indexOf('not exists'));
+        expect(normalized).toMatch(/^coalesce\(/);
     });
 });

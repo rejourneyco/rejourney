@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns, type SQL } from 'drizzle-orm';
 
-import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors, replayShareLinks } from '../db/client.js';
+import { db, sessions, sessionMetrics, recordingArtifacts, projects, projectVisitors, teamMembers, crashes, anrs, errors, replayShareLinks } from '../db/client.js';
 
 import {
     getSignedDownloadUrl,
@@ -125,21 +125,38 @@ const archiveListLatestReplayEndMsSql = sql<number | null>`(
       and ${inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy', 'rrweb'])}
 )`.as('latestReplayArtifactEndMs');
 
-/** `device_id` → `anonymous_hash` → `user_display_id` — matches how the dashboard distinguishes visitors. */
+/**
+ * `device_id` → `anonymous_hash` → `user_display_id` — legacy visitor identity, kept as the
+ * fallback for rows that predate the visitor ledger (no `visitor_key` yet).
+ */
 const archiveVisitorIdentitySql = sql<string>`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
 
-/** True when a strictly later session exists for the same project + visitor (archive list LIVE badge). */
+/**
+ * True when a strictly later session exists for the same project + visitor (archive list LIVE badge).
+ * Prefers the pseudonymous visitor_key (partial index); falls back to the legacy identity coalesce.
+ */
 const archiveListHasNewerVisitorSessionSql = sql<boolean>`(
-    EXISTS (
-        SELECT 1 FROM sessions s2
-        WHERE s2.project_id = ${sessions.projectId}
-          AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) IS NOT NULL
-          AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) = ${archiveVisitorIdentitySql}
-          AND (
-            s2.started_at > ${sessions.startedAt}
-            OR (s2.started_at = ${sessions.startedAt} AND s2.id > ${sessions.id})
-          )
-    )
+    CASE
+        WHEN ${sessions.visitorKey} IS NOT NULL THEN EXISTS (
+            SELECT 1 FROM sessions s2
+            WHERE s2.project_id = ${sessions.projectId}
+              AND s2.visitor_key = ${sessions.visitorKey}
+              AND (
+                s2.started_at > ${sessions.startedAt}
+                OR (s2.started_at = ${sessions.startedAt} AND s2.id > ${sessions.id})
+              )
+        )
+        ELSE EXISTS (
+            SELECT 1 FROM sessions s2
+            WHERE s2.project_id = ${sessions.projectId}
+              AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) IS NOT NULL
+              AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) = ${archiveVisitorIdentitySql}
+              AND (
+                s2.started_at > ${sessions.startedAt}
+                OR (s2.started_at = ${sessions.startedAt} AND s2.id > ${sessions.id})
+              )
+        )
+    END
 )`.as('hasNewerSessionOnVisitor');
 
 const archiveWebReferralSql = sql<string | null>`
@@ -157,49 +174,6 @@ const archiveWebLandingRouteSql = sql<string | null>`
         ${sessions.metadata}->>'webEntryPath'
     ), '')
 `.as('webLandingRoute');
-
-type ArchiveListSessionForFirstCheck = Pick<
-    typeof sessions.$inferSelect,
-    'id' | 'projectId' | 'deviceId' | 'anonymousHash' | 'userDisplayId'
->;
-
-/**
- * Session ids that are the chronologically first row for each (project, visitor) among identities present on this page.
- */
-async function resolveArchiveFirstSessionIds(rows: Array<{ session: ArchiveListSessionForFirstCheck }>): Promise<Set<string>> {
-    const firstIds = new Set<string>();
-    const byProject = new Map<string, Set<string>>();
-
-    for (const { session: s } of rows) {
-        const identity = s.deviceId || s.anonymousHash || s.userDisplayId;
-        if (!identity) continue;
-        if (!byProject.has(s.projectId)) byProject.set(s.projectId, new Set());
-        byProject.get(s.projectId)!.add(identity);
-    }
-
-    for (const [projectId, identitySet] of byProject) {
-        const identities = [...identitySet];
-        if (identities.length === 0) continue;
-
-        // DISTINCT ON returns exactly one row per identity — the chronologically earliest session.
-        // = ANY(ARRAY[...]) works well with the sessions_visitor_identity_started_idx expression index.
-        const result = await db.execute<{ id: string }>(sql`
-            SELECT DISTINCT ON (coalesce(device_id, anonymous_hash, user_display_id)) id
-            FROM sessions
-            WHERE project_id = ${projectId}
-              AND coalesce(device_id, anonymous_hash, user_display_id) = ANY(
-                  ARRAY[${sql.join(identities.map((i) => sql`${i}`), sql`, `)}]
-              )
-            ORDER BY coalesce(device_id, anonymous_hash, user_display_id), started_at ASC, id ASC
-        `);
-
-        for (const row of result.rows) {
-            firstIds.add(row.id);
-        }
-    }
-
-    return firstIds;
-}
 
 /**
  * Get time range filter for queries
@@ -466,33 +440,12 @@ function buildSessionArchiveBaseConditions(
     }
 
     const normalizedWindowSize = Math.min(25, Math.max(1, parseInt(sessionWindowSize || '5', 10) || 5));
-    const visitorIdentity = sql`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
+    // Lifetime session ordinal from the visitor ledger (survives identity scrub). Rows without an
+    // ordinal fall back to the legacy correlated count over the still-identifiable sessions.
     if (lifecyclePreset === 'early_user') {
-        userFilterConditions.push(sql`
-            ${visitorIdentity} is not null
-            and (
-                select count(*) from sessions earlier
-                where earlier.project_id = ${sessions.projectId}
-                  and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id) = ${visitorIdentity}
-                  and (
-                    earlier.started_at < ${sessions.startedAt}
-                    or (earlier.started_at = ${sessions.startedAt} and earlier.id <= ${sessions.id})
-                  )
-                ) <= ${normalizedWindowSize}
-        `);
+        userFilterConditions.push(sql`${archiveVisitorSessionOrdinalSql} <= ${normalizedWindowSize}`);
     } else if (lifecyclePreset === 'returning_user') {
-        userFilterConditions.push(sql`
-            ${visitorIdentity} is not null
-            and (
-                select count(*) from sessions earlier
-                where earlier.project_id = ${sessions.projectId}
-                  and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id) = ${visitorIdentity}
-                  and (
-                    earlier.started_at < ${sessions.startedAt}
-                    or (earlier.started_at = ${sessions.startedAt} and earlier.id <= ${sessions.id})
-                  )
-            ) > ${normalizedWindowSize}
-        `);
+        userFilterConditions.push(sql`${archiveVisitorSessionOrdinalSql} > ${normalizedWindowSize}`);
     }
 
     const checkoutEnteredCondition = sql`(
@@ -594,27 +547,55 @@ function buildSessionArchiveBaseConditions(
     };
 }
 
-const archiveVisitorSessionNumberSql = sql<number>`(
+/**
+ * Legacy 1-based visitor session ordinal: count of still-identifiable earlier sessions. Only
+ * evaluated (coalesce short-circuits) for rows the visitor ledger has not stamped yet.
+ */
+const archiveLegacyVisitorSessionNumberSql = sql<number>`(
     select count(*)::int from sessions ranked
     where ranked.project_id = ${sessions.projectId}
       and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) is not null
-      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
+      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = ${archiveVisitorIdentitySql}
       and (
         ranked.started_at < ${sessions.startedAt}
         or (ranked.started_at = ${sessions.startedAt} and ranked.id <= ${sessions.id})
       )
-)`.as('visitorSessionNumber');
+)`;
 
+/**
+ * Lifetime session ordinal for the visitor. Sourced from the ledger stamp on the row, which
+ * survives the identity scrub, so returning visitors are not re-counted as new.
+ */
+const archiveVisitorSessionOrdinalSql = sql<number>`coalesce(${sessions.visitorSessionOrdinal}, ${archiveLegacyVisitorSessionNumberSql})`;
+
+const archiveVisitorSessionNumberSql = archiveVisitorSessionOrdinalSql.as('visitorSessionNumber');
+
+/**
+ * Sessions remaining for the visitor counting this one (so total = ordinal + final - 1). With a
+ * ledger row this is lifetime-accurate; without one it falls back to the legacy forward count.
+ */
 const archiveVisitorFinalSessionNumberSql = sql<number>`(
-    select count(*)::int from sessions ranked
-    where ranked.project_id = ${sessions.projectId}
-      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) is not null
-      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
-      and (
-        ranked.started_at > ${sessions.startedAt}
-        or (ranked.started_at = ${sessions.startedAt} and ranked.id >= ${sessions.id})
-      )
+    case
+        when ${sessions.visitorSessionOrdinal} is not null and ${projectVisitors.sessionCount} is not null
+            then greatest(${projectVisitors.sessionCount} - ${sessions.visitorSessionOrdinal} + 1, 1)
+        else (
+            select count(*)::int from sessions ranked
+            where ranked.project_id = ${sessions.projectId}
+              and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) is not null
+              and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = ${archiveVisitorIdentitySql}
+              and (
+                ranked.started_at > ${sessions.startedAt}
+                or (ranked.started_at = ${sessions.startedAt} and ranked.id >= ${sessions.id})
+              )
+        )
+    end
 )`.as('visitorFinalSessionNumber');
+
+/** Join predicate for the visitor ledger row backing the archive ordinals. */
+const archiveVisitorLedgerJoinCondition = and(
+    eq(projectVisitors.projectId, sessions.projectId),
+    eq(projectVisitors.visitorKey, sessions.visitorKey),
+);
 
 const archiveCheckoutEnteredSql = sql<boolean>`(
     ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_started' }])}::jsonb
@@ -3147,6 +3128,7 @@ router.get(
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .leftJoin(projectVisitors, archiveVisitorLedgerJoinCondition)
             .where(and(...baseConditions))
             .orderBy(exportOrderPrimary, exportOrderSecondary);
 
@@ -3370,6 +3352,7 @@ router.get(
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .leftJoin(projectVisitors, archiveVisitorLedgerJoinCondition)
             .where(and(...dataConditions))
             .orderBy(orderPrimary, orderSecondary)
             .limit(parsedLimit + 1)
@@ -3399,8 +3382,6 @@ router.get(
                 kn,
             });
         }
-
-        const firstSessionIds = await resolveArchiveFirstSessionIds(resultSessions);
 
         // Transform to API format
         const sessionsData = resultSessions.map(
@@ -3458,7 +3439,7 @@ router.get(
                 ...buildSessionPresentationPayload(presentationState),
                 webReferral,
                 webLandingRoute,
-                isFirstSession: firstSessionIds.has(s.id),
+                isFirstSession: visitorSessionNumber === 1,
                 // Metrics
                 touchCount: m?.touchCount ?? 0,
                 scrollCount: m?.scrollCount ?? 0,

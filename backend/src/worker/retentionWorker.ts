@@ -22,6 +22,7 @@ import {
     repairExpiredSessionArtifactsBatch,
 } from '../services/sessionArtifactPurge.js';
 import { scrubExpiredSessionIdentitiesBatch } from '../services/sessionIdentityScrub.js';
+import { expireVisitorLedgerBatch } from '../services/visitorLedger.js';
 import {
     buildRetentionRunOwnerId,
     refreshRetentionRunLock,
@@ -53,6 +54,7 @@ type RetentionRunSummary = {
     repairFailed: number;
     identityScrubbedCount: number;
     linkedIdentityRowsScrubbed: number;
+    visitorLedgerExpiredCount: number;
     deletedProjectCount: number;
     deletedObjectCount: number;
     deletedBytes: number;
@@ -347,6 +349,7 @@ async function runRetentionCycle(options: {
             repairFailed: 0,
             identityScrubbedCount: 0,
             linkedIdentityRowsScrubbed: 0,
+            visitorLedgerExpiredCount: 0,
             deletedProjectCount: 0,
             deletedObjectCount: 0,
             deletedBytes: 0,
@@ -387,6 +390,7 @@ async function runRetentionCycle(options: {
         repairFailed: 0,
         identityScrubbedCount: 0,
         linkedIdentityRowsScrubbed: 0,
+        visitorLedgerExpiredCount: 0,
         deletedProjectCount: 0,
         deletedObjectCount: 0,
         deletedBytes: 0,
@@ -437,10 +441,21 @@ async function runRetentionCycle(options: {
                     reachedProcessingCap: false,
                 };
             const identityScrubResult = Date.now() < deadlineAtMs
-                ? await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE)
+                ? await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE, {
+                    runId: options.runId,
+                    trigger: buildTriggerName(options.trigger, 'identity_scrub'),
+                })
                 : {
                     scrubbed: 0,
                     linkedRowsScrubbed: 0,
+                    reachedProcessingCap: true,
+                };
+            // Visitor ledger rows expire on their own sliding window, which is never
+            // shorter than the session retention, so this always runs after the scrub.
+            const ledgerResult = Date.now() < deadlineAtMs
+                ? await expireVisitorLedgerBatch(BATCH_SIZE)
+                : {
+                    deleted: 0,
                     reachedProcessingCap: true,
                 };
             const deletedProjectCount = Date.now() < deadlineAtMs
@@ -454,6 +469,7 @@ async function runRetentionCycle(options: {
             summary.repairFailed += repairResult.failed;
             summary.identityScrubbedCount += identityScrubResult.scrubbed;
             summary.linkedIdentityRowsScrubbed += identityScrubResult.linkedRowsScrubbed;
+            summary.visitorLedgerExpiredCount += ledgerResult.deleted;
             summary.deletedProjectCount += deletedProjectCount;
             summary.deletedObjectCount += expiredResult.deletedObjectCount + repairResult.deletedObjectCount;
             summary.deletedBytes += expiredResult.deletedBytes + repairResult.deletedBytes;
@@ -462,11 +478,13 @@ async function runRetentionCycle(options: {
                 expiredResult.processedCount > 0 ||
                 repairResult.repaired > 0 ||
                 identityScrubResult.scrubbed > 0 ||
+                ledgerResult.deleted > 0 ||
                 deletedProjectCount > 0;
             const maybeMoreWork =
                 expiredResult.reachedProcessingCap ||
                 repairResult.reachedProcessingCap ||
                 identityScrubResult.reachedProcessingCap ||
+                ledgerResult.reachedProcessingCap ||
                 deletedProjectCount >= BATCH_SIZE;
 
             if (Date.now() >= deadlineAtMs) {
@@ -510,6 +528,11 @@ async function runRetentionCycle(options: {
                 value: summary.identityScrubbedCount,
             },
             {
+                name: 'rejourney_retention_expired_visitor_ledger_total',
+                help: 'Total expired pseudonymous visitor ledger rows deleted in the current run',
+                value: summary.visitorLedgerExpiredCount,
+            },
+            {
                 name: 'rejourney_retention_deleted_bytes_total',
                 help: 'Total bytes deleted in the current run',
                 value: summary.deletedBytes,
@@ -529,7 +552,7 @@ async function runRetentionCycle(options: {
         await pingWorker(
             'retentionWorker',
             'up',
-            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},bytes=${summary.deletedBytes},durationMs=${summary.durationMs},purgedPerMinute=${summary.purgedSessionsPerMinute}`,
+            `expired=${summary.expiredCount},repaired=${summary.repairedCount},scrubbed=${summary.identityScrubbedCount},visitorsExpired=${summary.visitorLedgerExpiredCount},bytes=${summary.deletedBytes},durationMs=${summary.durationMs},purgedPerMinute=${summary.purgedSessionsPerMinute}`,
             undefined,
             extraMetrics,
         );

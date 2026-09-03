@@ -12,6 +12,12 @@ export const updateTeamSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     billingPlan: z.string().optional(),
     retentionTier: z.number().int().min(1).max(6).optional(),
+    /**
+     * Sliding inactivity window (days) for the pseudonymous visitor ledger. The
+     * effective window is never shorter than the session retention; 0 disables the
+     * extra window so visitor rows expire together with the last session scrub.
+     */
+    visitorIdentityRetentionDays: z.number().int().min(0).max(365).optional(),
     workspaceConfirmed: z.boolean().optional(),
 });
 

@@ -165,6 +165,15 @@ const envSchema = z.object({
     RESEARCH_LAKE_V2_CPU_LIMIT_CORES: z.string().transform(Number).default('2'),
     RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS: z.string().default(''),
 
+    // Visitor ledger (pseudonymous returning-visitor recognition across identity scrub).
+    // VISITOR_KEY_SECRET keys the HMAC that derives visitor_key from the raw device/user
+    // identifier. Falls back to JWT_SECRET only (the one secret every workload receives, so
+    // ingest pods and workers agree); rotating the effective secret orphans existing ledger rows.
+    VISITOR_KEY_SECRET: z.string().min(32).optional(),
+    // Kill switch for the ingest write path (schema always ships ahead of app pods via
+    // db-setup / infra additive migrations, so writes are safe by default).
+    VISITOR_LEDGER_WRITE_ENABLED: z.string().transform(v => v !== 'false').default('true'),
+
     // Auth
     JWT_SECRET: z.string().min(32),
     JWT_REFRESH_SECRET: z.string().optional(),

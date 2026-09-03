@@ -13,6 +13,7 @@ import {
     dbRead,
     heatmapBaseTemplates,
     projects,
+    projectVisitors,
     recordingArtifacts,
     sessionMetrics,
     sessions,
@@ -309,7 +310,7 @@ async function loadRetentionPreview(
         return { rows: [] };
     }
 
-    const cacheKey = `overview:retention-preview:${projectIds.slice().sort().join(',')}:${timeRange || 'all'}:${platform || 'all'}:v1`;
+    const cacheKey = `overview:retention-preview:${projectIds.slice().sort().join(',')}:${timeRange || 'all'}:${platform || 'all'}:v2`;
     const cached = await redis.get(cacheKey);
     if (cached) {
         return JSON.parse(cached);
@@ -343,6 +344,21 @@ async function loadRetentionPreview(
         )
     `;
 
+    // Cohort week from the visitor ledger when available: a visitor whose earlier sessions
+    // were identity-scrubbed keeps their true first-seen week instead of re-entering as new.
+    const ledgerFirstWeekKeySql = sql<string | null>`
+        case
+            when ${projectVisitors.firstSeenAt} is null then null
+            else to_char(
+                (
+                    date_trunc('day', ${projectVisitors.firstSeenAt})
+                    - (extract(dow from ${projectVisitors.firstSeenAt})::int * interval '1 day')
+                )::date,
+                'YYYY-MM-DD'
+            )
+        end
+    `;
+
     const conditions: SQL[] = [inArray(sessions.projectId, projectIds), gte(sessions.startedAt, startedAfter), sql`${scopedIdentitySql} is not null`];
     const platformCondition = buildSessionPlatformCondition(platform);
     if (platformCondition) conditions.push(platformCondition);
@@ -351,10 +367,15 @@ async function loadRetentionPreview(
         .select({
             userKey: scopedIdentitySql,
             weekStartKey: weekStartKeySql,
+            firstWeekStartKey: ledgerFirstWeekKeySql,
         })
         .from(sessions)
+        .leftJoin(projectVisitors, and(
+            eq(projectVisitors.projectId, sessions.projectId),
+            eq(projectVisitors.visitorKey, sessions.visitorKey),
+        ))
         .where(and(...conditions))
-        .groupBy(scopedIdentitySql, weekStartKeySql)
+        .groupBy(scopedIdentitySql, weekStartKeySql, ledgerFirstWeekKeySql)
         .orderBy(weekStartKeySql);
 
     const response = {
@@ -388,34 +409,42 @@ async function loadUserFirstSeenMap(
 
     const legs: ReturnType<typeof sql>[] = [];
 
+    // First seen prefers the visitor ledger (survives identity scrub, so "First appeared"
+    // does not jump forward once older sessions are scrubbed) and falls back to the
+    // earliest still-identifiable session for rows the ledger has not keyed.
+    const ledgerJoinSql = sql`
+            LEFT JOIN ${projectVisitors} pv
+              ON pv.project_id = ${sessions.projectId} AND pv.visitor_key = ${sessions.visitorKey}`;
+    const firstSeenSql = sql`coalesce(min(pv.first_seen_at), min(${sessions.startedAt})) AS first_seen`;
+
     if (userIds.length > 0) {
         legs.push(sql`
-            SELECT 'user' AS kind, ${sessions.userDisplayId} AS key, min(${sessions.startedAt}) AS first_seen
-            FROM ${sessions}
+            SELECT 'user' AS kind, ${sessions.userDisplayId} AS key, ${firstSeenSql}
+            FROM ${sessions}${ledgerJoinSql}
             WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.userDisplayId, userIds)}
             GROUP BY ${sessions.userDisplayId}
         `);
     }
     if (anonDisplayIds.length > 0) {
         legs.push(sql`
-            SELECT 'anon' AS kind, ${sessions.anonymousDisplayId} AS key, min(${sessions.startedAt}) AS first_seen
-            FROM ${sessions}
+            SELECT 'anon' AS kind, ${sessions.anonymousDisplayId} AS key, ${firstSeenSql}
+            FROM ${sessions}${ledgerJoinSql}
             WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.anonymousDisplayId, anonDisplayIds)}
             GROUP BY ${sessions.anonymousDisplayId}
         `);
     }
     if (anonHashes.length > 0) {
         legs.push(sql`
-            SELECT 'hash' AS kind, ${sessions.anonymousHash} AS key, min(${sessions.startedAt}) AS first_seen
-            FROM ${sessions}
+            SELECT 'hash' AS kind, ${sessions.anonymousHash} AS key, ${firstSeenSql}
+            FROM ${sessions}${ledgerJoinSql}
             WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.anonymousHash, anonHashes)}
             GROUP BY ${sessions.anonymousHash}
         `);
     }
     if (deviceIds.length > 0) {
         legs.push(sql`
-            SELECT 'device' AS kind, ${sessions.deviceId} AS key, min(${sessions.startedAt}) AS first_seen
-            FROM ${sessions}
+            SELECT 'device' AS kind, ${sessions.deviceId} AS key, ${firstSeenSql}
+            FROM ${sessions}${ledgerJoinSql}
             WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.deviceId, deviceIds)}
             GROUP BY ${sessions.deviceId}
         `);

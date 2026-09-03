@@ -160,6 +160,14 @@ export const requestDeleteProjectOtpSchema = z.object({
     confirmText: z.string().min(1, 'Confirmation text is required'),
 });
 
+/**
+ * GDPR Article 17 erasure of one end-user of a project, addressed by the raw
+ * device id, anonymous id, or user id the SDK reported.
+ */
+export const eraseVisitorSchema = z.object({
+    identity: z.string().trim().min(1, 'Visitor identity is required').max(255, 'Visitor identity is too long'),
+});
+
 export const sendProjectSetupEmailSchema = z.object({
     email: z.string().trim().email('Invalid email address'),
     aiPrompt: z.string().trim().min(1, 'AI setup prompt is required').max(50000, 'AI setup prompt is too long'),

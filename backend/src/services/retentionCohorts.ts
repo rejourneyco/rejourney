@@ -1,6 +1,13 @@
 export interface RetentionCohortActivity {
     userKey: string;
     weekStartKey: string;
+    /**
+     * Week the visitor was first seen according to the visitor ledger. When present it
+     * defines the cohort even if that week is outside the loaded activity window, so a
+     * visitor whose earlier sessions were scrubbed does not masquerade as a new cohort
+     * member. Absent for rows the ledger has not keyed yet.
+     */
+    firstWeekStartKey?: string | null;
 }
 
 export interface RetentionCohortRow {
@@ -34,9 +41,11 @@ export function buildRetentionCohortRows(
         }
         weeklyActiveUsers.get(weekStartKey)!.add(userKey);
 
+        const ledgerFirstWeek = activity.firstWeekStartKey?.trim();
+        const candidateFirstWeek = ledgerFirstWeek && ledgerFirstWeek < weekStartKey ? ledgerFirstWeek : weekStartKey;
         const existingFirstWeek = userFirstWeek.get(userKey);
-        if (!existingFirstWeek || weekStartKey < existingFirstWeek) {
-            userFirstWeek.set(userKey, weekStartKey);
+        if (!existingFirstWeek || candidateFirstWeek < existingFirstWeek) {
+            userFirstWeek.set(userKey, candidateFirstWeek);
         }
     }
 

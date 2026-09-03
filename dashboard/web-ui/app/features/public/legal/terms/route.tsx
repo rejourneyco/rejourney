@@ -146,6 +146,9 @@ export default function TermsOfService() {
                             <p className="mt-2 text-muted-foreground italic">
                                 Personally identifiable session metadata is retained for the duration of your session retention period. After a session recording is deleted, anonymized aggregate event data that contains no personal identifiers may be retained indefinitely for product analytics, research, benchmarking, and public trend reporting.
                             </p>
+                            <p className="mt-2 text-muted-foreground italic">
+                                To recognize returning visitors after their earlier sessions have been deleted, a pseudonymous visitor key (a keyed hash of the device or user identifier, stored with only first-seen, last-seen, and session-count values) is retained for a sliding inactivity window that you configure (90 days by default, never shorter than your session retention period) and is deleted automatically afterwards or on request.
+                            </p>
 
                             <h3 id="ip" className="text-base font-semibold mt-6 mb-2">6. Intellectual Property</h3>
                             <p>

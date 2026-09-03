@@ -16,6 +16,7 @@ import {
     recordingArtifacts,
     teams,
     billingUsage,
+    projectVisitors,
 } from '../db/client.js';
 import {
     deletePrefixFromAllConfiguredStorageEndpoints,
@@ -92,6 +93,9 @@ export async function hardDeleteProject(target: ProjectDeletionTarget): Promise<
         await tx.delete(projectUsage).where(eq(projectUsage.projectId, target.id));
         await tx.delete(storageEndpoints).where(eq(storageEndpoints.projectId, target.id));
         await tx.delete(sessions).where(eq(sessions.projectId, target.id));
+        // Pseudonymous visitor ledger: the FK cascades, but delete explicitly so the
+        // erasure path is visible here alongside the other per-project data.
+        await tx.delete(projectVisitors).where(eq(projectVisitors.projectId, target.id));
         await tx.delete(projects).where(eq(projects.id, target.id));
     });
 

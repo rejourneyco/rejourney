@@ -48,17 +48,23 @@ export function getSessionArchiveIssueFilterCondition(
         case 'slow_api':
             return sql`coalesce(${sessionMetrics.apiAvgResponseMs}, 0) > 1000`;
         case 'new_user':
-            // First-ever session for this visitor (device → anonymous → user id) in the project.
+            // First-ever session for this visitor. The ledger ordinal survives the identity
+            // scrub, so a returning visitor is not re-flagged as new once their earlier
+            // sessions were scrubbed. Rows without an ordinal (pre-ledger) fall back to the
+            // legacy "no earlier identifiable session" check.
             return sql`
-                coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId}) is not null
-                and not exists (
-                    select 1 from sessions as earlier
-                    where earlier.project_id = ${sessions.projectId}
-                    and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id)
-                        = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
-                    and (
-                        earlier.started_at < ${sessions.startedAt}
-                        or (earlier.started_at = ${sessions.startedAt} and earlier.id < ${sessions.id})
+                coalesce(
+                    ${sessions.visitorSessionOrdinal} = 1,
+                    coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId}) is not null
+                    and not exists (
+                        select 1 from sessions as earlier
+                        where earlier.project_id = ${sessions.projectId}
+                        and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id)
+                            = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
+                        and (
+                            earlier.started_at < ${sessions.startedAt}
+                            or (earlier.started_at = ${sessions.startedAt} and earlier.id < ${sessions.id})
+                        )
                     )
                 )
             `;

@@ -149,6 +149,9 @@ export default function PrivacyPolicy() {
                                 <strong>Metadata & Analytics:</strong> Personally identifiable session metadata is retained for the duration of your active subscription. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) may be retained indefinitely for product analytics, research, benchmarking, and public trend reporting.
                             </p>
                             <p>
+                                <strong>Visitor Identity Window:</strong> So that returning visitors are not counted as new users after their earlier sessions have been deleted, we keep a pseudonymous visitor key per project. The key is a keyed hash (HMAC) of the device or user identifier computed with a server-side secret, stored together with only the visitor's first-seen date, last-seen date, and session count. No raw identifier is retained. Each visitor key is deleted automatically after a sliding period of inactivity (90 days by default; the Customer may configure between 0 and 365 days, and the period is never shorter than the Customer's session retention period), on the Customer's request, or when the individual exercises their right to erasure.
+                            </p>
+                            <p>
                                 <strong>Backups:</strong> Encrypted backups are retained for up to 90 days for disaster recovery.
                             </p>
 

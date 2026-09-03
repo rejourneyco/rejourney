@@ -13,6 +13,7 @@ import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internal
 import { normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { extractSessionIdentityChange } from './sessionIdentityEvents.js';
+import { assignSessionVisitorById } from './visitorLedger.js';
 import {
     buildClickHouseApiEndpointEventRow,
     writeApiEndpointEventsToClickHouse,
@@ -427,6 +428,13 @@ export async function processEventsArtifact(
         }
 
         await db.update(sessions).set(sessionUpdates).where(eq(sessions.id, job.sessionId));
+
+        if (sessionUpdates.deviceId) {
+            // Device identity arrived after the row was created: stamp the visitor
+            // ledger ordinal now (no-op if a concurrent path already did).
+            session.deviceId = sessionUpdates.deviceId;
+            await assignSessionVisitorById(job.sessionId, projectId);
+        }
 
         const deviceMetricUpdates: Record<string, string | boolean | number> = buildBatteryMetricUpdates(deviceInfo);
         if (deviceInfo.networkType) {
@@ -939,11 +947,14 @@ export async function processEventsArtifact(
                     .set({ anonymousDisplayId: identityChange.anonymousDisplayId, userDisplayId: null, updatedAt: new Date() })
                     .where(eq(sessions.id, job.sessionId));
                 log.info({ anonymousId: identityChange.anonymousDisplayId }, 'Session anonymousId updated from user_identity_changed event');
+                // Device-first ledger key: a user/anon id only keys the visitor when no device id exists.
+                if (!session.deviceId) await assignSessionVisitorById(job.sessionId, projectId);
             } else if (identityChange.type === 'user') {
                 await db.update(sessions)
                     .set({ userDisplayId: identityChange.userDisplayId, anonymousDisplayId: null, updatedAt: new Date() })
                     .where(eq(sessions.id, job.sessionId));
                 log.info({ userId: identityChange.userDisplayId }, 'Session userId updated from user_identity_changed event');
+                if (!session.deviceId) await assignSessionVisitorById(job.sessionId, projectId);
             }
         }
     }
