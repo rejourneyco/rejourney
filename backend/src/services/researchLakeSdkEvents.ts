@@ -13,6 +13,7 @@
  * download and hash functions so the same code serves the export workers, the
  * timeline driver, and unit tests.
  */
+import { mapWithConcurrency } from '../utils/mapWithConcurrency.js';
 import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
 import {
     getFirstTouchPointFromTelemetryEvent,
@@ -261,20 +262,6 @@ function hostAndPath(event: Record<string, unknown>): { host: string | null; pat
 function statusClass(code: number | null): string | null {
     if (code === null || code < 100 || code > 599) return null;
     return `${Math.floor(code / 100)}xx`;
-}
-
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
-    const results: R[] = new Array(items.length);
-    let next = 0;
-    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length || 1)) }, async () => {
-        while (next < items.length) {
-            const index = next;
-            next += 1;
-            results[index] = await fn(items[index], index);
-        }
-    });
-    await Promise.all(workers);
-    return results;
 }
 
 function emptyRow(index: number, type: SdkEventType, artifactIndex: number, artifactKey: string, ordinal: number): SdkEventRow {
