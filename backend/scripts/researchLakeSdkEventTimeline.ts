@@ -112,7 +112,9 @@ async function loadProjects(): Promise<ProjectRow[]> {
 async function loadCandidates(projectId: string, cursor: CandidateRow | null): Promise<CandidateRow[]> {
     for (let attempt = 1; ; attempt += 1) {
         try {
-            return await loadCandidatesOnce(projectId, cursor);
+            const rows = await withTimeout(loadCandidatesOnce(projectId, cursor), CANDIDATE_QUERY_TIMEOUT_MS, 'candidate query');
+            lastProgressAt = Date.now();
+            return rows;
         } catch (err) {
             if (attempt >= 5) throw err;
             logger.warn({ projectId, attempt, err: err instanceof Error ? err.message : String(err) }, 'SDK event timeline: candidate query failed; retrying');
@@ -182,6 +184,20 @@ type Totals = {
 };
 
 const totals: Totals = { sessions: 0, applied: 0, skipped: 0, unavailable: 0, failed: 0, lanes: 0, events: 0, artifacts: 0, artifactsMissing: 0 };
+// A pod that stops completing sessions and stops loading candidates is stuck on a
+// lost response (pooled connections have no client-side query timeout). Exit so the
+// Job replaces the pod; every session's work is idempotent and resumes from stamps.
+const STALL_EXIT_MS = Math.max(120_000, Number(process.env.SDK_EVENT_TIMELINE_STALL_EXIT_MS ?? 600_000));
+const CANDIDATE_QUERY_TIMEOUT_MS = 120_000;
+let lastProgressAt = Date.now();
+let workPending = false;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms} ms`)), ms);
+        promise.then((value) => { clearTimeout(timer); resolve(value); }, (err) => { clearTimeout(timer); reject(err); });
+    });
+}
 let stopRequested = false;
 let throttleUntil = 0;
 let activeConcurrency = SESSION_CONCURRENCY;
@@ -194,6 +210,7 @@ function isThrottleError(err: unknown): boolean {
 }
 
 function record(result: SdkEventTimelineApplyResult): void {
+    lastProgressAt = Date.now();
     totals.sessions += 1;
     totals.lanes += result.lanes;
     if (result.status === 'applied') totals.applied += 1;
@@ -225,6 +242,7 @@ async function processSession(sessionId: string): Promise<void> {
                 await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
                 continue;
             }
+            lastProgressAt = Date.now();
             totals.sessions += 1;
             totals.failed += 1;
             logger.error({ sessionId, err: err instanceof Error ? err.message : String(err) }, 'SDK event timeline: session failed');
@@ -309,6 +327,16 @@ async function main(): Promise<void> {
     let remaining = LIMIT > 0 ? LIMIT : Number.POSITIVE_INFINITY;
     let sinceLog = 0;
 
+    workPending = true;
+    const watchdog = setInterval(() => {
+        if (!workPending || stopRequested) return;
+        const idleMs = Date.now() - lastProgressAt;
+        if (idleMs < STALL_EXIT_MS) return;
+        logger.error({ idleMs, ...totals, activeConcurrency }, 'SDK event timeline: no progress; exiting so the Job replaces this pod');
+        process.exit(3);
+    }, 30_000);
+    watchdog.unref();
+
     for (const project of projects) {
         if (stopRequested || remaining <= 0 || runtimeExhausted()) break;
         let cursor: CandidateRow | null = null;
@@ -331,6 +359,8 @@ async function main(): Promise<void> {
         }
         logProgress(project.id, { projectDone: true });
     }
+    workPending = false;
+    clearInterval(watchdog);
     logProgress(null, { finished: !stopRequested, runtimeExhausted: runtimeExhausted() });
 }
 
