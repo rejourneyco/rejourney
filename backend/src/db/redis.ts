@@ -47,6 +47,10 @@ function logRedisOperationFailed(operation: string, err: unknown, extra: Record<
     );
 }
 
+// A reply that never arrives must fail the command, not the process. No code path
+// issues blocking commands, so a bounded wait is safe everywhere.
+const REDIS_COMMAND_TIMEOUT_MS = Math.max(1_000, Number(process.env.REDIS_COMMAND_TIMEOUT_MS ?? 30_000) || 30_000);
+
 export function getRedis(): RedisClient {
     if (!redis) {
         if (config.REDIS_SENTINEL_HOST) {
@@ -60,6 +64,7 @@ export function getRedis(): RedisClient {
                 maxRetriesPerRequest: 3,
                 retryStrategy: (times: number) => Math.min(times * 50, 2000),
                 lazyConnect: true,
+                commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
             });
         } else {
             // URL mode (current behaviour — used until Bitnami Sentinel is live)
@@ -70,6 +75,7 @@ export function getRedis(): RedisClient {
                     return delay;
                 },
                 lazyConnect: true,
+                commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
             });
         }
 
