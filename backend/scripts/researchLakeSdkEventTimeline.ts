@@ -131,7 +131,9 @@ async function loadCandidatesOnce(projectId: string, cursor: CandidateRow | null
         WHERE s.project_id = $1
           AND s.recording_deleted = false
           AND s.identity_scrubbed_at IS NULL
-          AND s.status IN ('ready', 'completed')
+          -- Sessions can drop back to 'processing' when late artifacts arrive after
+          -- their export; the exported sample exists, so its timeline is still due.
+          AND s.status IN ('ready', 'completed', 'processing')
           AND ($2::timestamp IS NULL OR (s.started_at, s.id) > ($2::timestamp, $3::varchar))
           AND abs(hashtext(s.id)) % $4 = $5
           AND EXISTS (
