@@ -25,7 +25,9 @@ export const SDK_EVENTS_FILE_NAME = 'sdk_events.jsonl.gz';
 export const SDK_EVENTS_ZIP_ENTRY_NAME = 'sdk_events.jsonl';
 export const SDK_EVENT_ROW_LIMIT = 250_000;
 export const SDK_EVENT_ARTIFACT_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
-export const SDK_EVENT_ARTIFACT_MAX_COMPRESSED_BYTES = 32 * 1024 * 1024;
+// Events artifacts are typically tens of kilobytes; anything far larger is
+// treated as unavailable rather than inflated in memory beside other sessions.
+export const SDK_EVENT_ARTIFACT_MAX_COMPRESSED_BYTES = 8 * 1024 * 1024;
 const SESSION_DAY_MS = 86_400_000;
 const FLOW_EDGE_ACTION_WINDOW_MS = 5_000;
 const BYTES_BUCKET = 1024;

@@ -110,6 +110,18 @@ async function loadProjects(): Promise<ProjectRow[]> {
 }
 
 async function loadCandidates(projectId: string, cursor: CandidateRow | null): Promise<CandidateRow[]> {
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            return await loadCandidatesOnce(projectId, cursor);
+        } catch (err) {
+            if (attempt >= 5) throw err;
+            logger.warn({ projectId, attempt, err: err instanceof Error ? err.message : String(err) }, 'SDK event timeline: candidate query failed; retrying');
+            await new Promise((resolve) => setTimeout(resolve, 2_000 * attempt));
+        }
+    }
+}
+
+async function loadCandidatesOnce(projectId: string, cursor: CandidateRow | null): Promise<CandidateRow[]> {
     const result = await pool.query<CandidateRow>(
         `
         SELECT s.id, s.started_at
@@ -245,7 +257,10 @@ async function runQueue(sessionIds: string[]): Promise<void> {
 
 function logProgress(projectId: string | null, extra: Record<string, unknown> = {}): void {
     const elapsedMin = Math.max(1 / 60, (Date.now() - startedAt) / 60_000);
+    const memory = process.memoryUsage();
     logger.info({
+        rssMb: Math.round(memory.rss / 1_048_576),
+        heapUsedMb: Math.round(memory.heapUsed / 1_048_576),
         projectId,
         shard: `${SHARD.index}/${SHARD.count}`,
         dryRun: DRY_RUN,
@@ -263,6 +278,14 @@ function runtimeExhausted(): boolean {
 async function main(): Promise<void> {
     process.on('SIGTERM', () => { stopRequested = true; logger.warn('SDK event timeline: SIGTERM received, draining'); });
     process.on('SIGINT', () => { stopRequested = true; });
+    // A rejected promise outside the awaited chain must not take the pod down;
+    // the session that caused it is already counted as failed by its worker.
+    process.on('unhandledRejection', (reason) => {
+        logger.error({ err: reason instanceof Error ? reason.message : String(reason) }, 'SDK event timeline: unhandled rejection');
+    });
+    process.on('uncaughtException', (err) => {
+        logger.error({ err: err.message, stack: err.stack?.slice(0, 2000) }, 'SDK event timeline: uncaught exception');
+    });
     // Storage endpoint lookups consult the Redis cache; connect up front with a
     // bound so a slow sentinel handshake cannot stall the first session.
     await Promise.race([initRedis(), new Promise<void>((resolve) => setTimeout(resolve, 15_000))]);
