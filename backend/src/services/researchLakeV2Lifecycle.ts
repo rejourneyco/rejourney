@@ -20,6 +20,8 @@ export type ResearchLakeV2SessionInput = {
     userDisplayId?: string | null;
     events?: unknown;
     isSampledIn?: boolean | null;
+    /** Project retention in days at the time the session was prepared; drives purge_at on the export jobs. */
+    retentionDays?: number | null;
 };
 
 export type ResearchLakeV2ProjectInput = {
@@ -332,21 +334,26 @@ export async function prepareResearchLakeV2Session(params: {
             ],
         );
 
-        const jobs: Array<{ lakeType: string; dueAt: Date }> = [
-            { lakeType: 'behavioral_outcomes', dueAt: now },
-            { lakeType: 'forward_outcomes', dueAt: new Date(params.session.startedAt.getTime() + 31 * 24 * 60 * 60 * 1000) },
+        // The source recording disappears at retention; a discard-tier session's
+        // screenshots go earlier, at the visual hold. Claims export the soonest first.
+        const retentionDays = Math.max(1, Math.trunc(Number(params.session.retentionDays ?? 7)) || 7);
+        const retentionPurgeAt = new Date(params.session.startedAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+        const interactionPurgeAt = cleanupDueAt && cleanupDueAt.getTime() < retentionPurgeAt.getTime() ? cleanupDueAt : retentionPurgeAt;
+        const jobs: Array<{ lakeType: string; dueAt: Date; purgeAt: Date }> = [
+            { lakeType: 'behavioral_outcomes', dueAt: now, purgeAt: retentionPurgeAt },
+            { lakeType: 'forward_outcomes', dueAt: new Date(params.session.startedAt.getTime() + 31 * 24 * 60 * 60 * 1000), purgeAt: retentionPurgeAt },
         ];
         const shouldCreateInteractionJob = params.hasReplayArtifacts && tier !== 'metadata_only';
-        if (shouldCreateInteractionJob) jobs.unshift({ lakeType: 'interaction', dueAt: now });
+        if (shouldCreateInteractionJob) jobs.unshift({ lakeType: 'interaction', dueAt: now, purgeAt: interactionPurgeAt });
         for (const job of jobs) {
             await client.query(
                 `
                 INSERT INTO research_extraction_jobs (
-                    session_id, project_id, team_id, due_at, lake_type, schema_version, job_lane
-                ) VALUES ($1, $2, $3, $4, $5, 2, $6)
+                    session_id, project_id, team_id, due_at, lake_type, schema_version, job_lane, purge_at
+                ) VALUES ($1, $2, $3, $4, $5, 2, $6, $7)
                 ON CONFLICT (session_id, lake_type, schema_version) DO NOTHING
                 `,
-                [params.session.id, params.project.id, params.project.teamId, job.dueAt, job.lakeType, params.jobLane ?? 'fresh'],
+                [params.session.id, params.project.id, params.project.teamId, job.dueAt, job.lakeType, params.jobLane ?? 'fresh', job.purgeAt],
             );
         }
 

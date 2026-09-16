@@ -986,6 +986,13 @@ export const researchExtractionJobs = pgTable(
         sdkEventCount: integer('sdk_event_count'),
         sdkEventArtifactCount: integer('sdk_event_artifact_count'),
         sdkEventArtifactMissingCount: integer('sdk_event_artifact_missing_count'),
+        // When the job's source recording is expected to be purged (retention, or
+        // the V2 visual hold for discard-tier sessions). Claims order by it so
+        // the soonest-to-expire sessions export first. Null on rows written
+        // before the column existed; the worker backfills them.
+        purgeAt: timestamp('purge_at'),
+        // Hostname of the pod that claimed the row; diagnostic only, never a lock.
+        claimedBy: varchar('claimed_by', { length: 64 }),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },
