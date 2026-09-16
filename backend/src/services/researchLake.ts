@@ -33,6 +33,7 @@ import {
 } from './researchLakeV2Lifecycle.js';
 import { discardSmartCaptureVisualArtifacts } from './smartCapture.js';
 import {
+    SDK_EVENT_ARTIFACT_MAX_COUNT,
     SDK_EVENTS_FILE_NAME,
     SDK_EVENTS_ZIP_ENTRY_NAME,
     buildSdkEventTimeline,
@@ -5691,6 +5692,21 @@ export async function applySdkEventTimelineToExportedSamples(params: {
     );
     if (lanes.rows.length === 0) {
         return { sessionId: params.sessionId, status: 'skipped_no_candidates', lanes: 0, summary: null };
+    }
+    // Refuse runaway recorders before loading their artifact rows into memory.
+    const artifactCount = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM recording_artifacts WHERE session_id = $1 AND kind = 'events' AND status = 'ready'`,
+        [params.sessionId],
+    );
+    const eventArtifactCount = Number(artifactCount.rows[0]?.n ?? 0);
+    if (eventArtifactCount > SDK_EVENT_ARTIFACT_MAX_COUNT) {
+        const oversized = unavailableSdkEventTimeline([], 'artifact_count_exceeded');
+        const summary = { ...oversized.summary, sdk_event_artifact_count: eventArtifactCount, sdk_event_artifact_missing_count: eventArtifactCount };
+        logger.warn({ sessionId: params.sessionId, eventArtifactCount }, 'SDK event timeline: artifact count exceeds the limit; recorded as unavailable');
+        if (!params.dryRun) {
+            for (const lane of lanes.rows) await stampSdkEventTimeline(lane.id, summary);
+        }
+        return { sessionId: params.sessionId, status: 'unavailable', lanes: lanes.rows.length, summary };
     }
     const { session, artifacts } = await loadSessionContext(params.sessionId);
     if (!session) {

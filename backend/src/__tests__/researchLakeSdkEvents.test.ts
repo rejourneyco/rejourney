@@ -252,6 +252,19 @@ describe('SDK event timeline builder', () => {
         expect(__researchLakeTestInternals.containsIdentifierRisk({ sdkEvents: rows })).toBe(false);
     });
 
+    it('refuses runaway recorders with too many artifacts', async () => {
+        const many = Array.from({ length: 5001 }, (_, i) => artifact(`a${i}`, t(i)));
+        let downloads = 0;
+        const timeline = await buildSdkEventTimeline({
+            session: { started_at: startedAt }, artifacts: many, projectKey: 'projkey', hash, positionBuckets,
+            download: async () => { downloads += 1; return envelope([]); },
+        });
+        expect(downloads).toBe(0);
+        expect(timeline.summary.sdk_event_timeline).toBe('unavailable');
+        expect(timeline.summary.sdk_event_artifact_count).toBe(5001);
+        expect(timeline.warnings).toContain('sdk_event_artifact_count_exceeded');
+    });
+
     it('caps rows and flags the limit', async () => {
         const timeline = await buildSdkEventTimeline({
             session: { started_at: startedAt }, artifacts: [artifact('a')], projectKey: 'projkey', hash, positionBuckets, maxRows: 3,

@@ -24,6 +24,9 @@ import { normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
 export const SDK_EVENTS_FILE_NAME = 'sdk_events.jsonl.gz';
 export const SDK_EVENTS_ZIP_ENTRY_NAME = 'sdk_events.jsonl';
 export const SDK_EVENT_ROW_LIMIT = 250_000;
+// A session with more events artifacts than this is a runaway recorder, not a
+// user session; it is recorded as unavailable instead of being downloaded.
+export const SDK_EVENT_ARTIFACT_MAX_COUNT = 5_000;
 export const SDK_EVENT_ARTIFACT_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
 // Events artifacts are typically tens of kilobytes; anything far larger is
 // treated as unavailable rather than inflated in memory beside other sessions.
@@ -384,6 +387,9 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
     const eventArtifacts = params.artifacts
         .filter((artifact) => artifact.kind === 'events' && artifact.s3ObjectKey)
         .sort((a, b) => ((a.start_time ?? 0) - (b.start_time ?? 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (eventArtifacts.length > SDK_EVENT_ARTIFACT_MAX_COUNT) {
+        return unavailableSdkEventTimeline(params.artifacts, 'artifact_count_exceeded');
+    }
 
     const parsed = await mapWithConcurrency(eventArtifacts, params.artifactConcurrency ?? 6, async (artifact, index): Promise<ParsedArtifact> => {
         const base: ParsedArtifact = { artifact, index, events: [], screenWidth: null, screenHeight: null, status: 'missing' };
@@ -575,7 +581,7 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
     return { rows, summary, warnings: sdkEventTimelineWarnings(summary) };
 }
 
-export function unavailableSdkEventTimeline(artifacts: SdkEventArtifact[], reason?: 'identifier_risk'): SdkEventTimeline {
+export function unavailableSdkEventTimeline(artifacts: SdkEventArtifact[], reason?: 'identifier_risk' | 'artifact_count_exceeded'): SdkEventTimeline {
     const count = artifacts.filter((artifact) => artifact.kind === 'events' && artifact.s3ObjectKey).length;
     const summary: SdkEventTimelineSummary = {
         sdk_event_timeline: 'unavailable',
@@ -594,6 +600,7 @@ export function unavailableSdkEventTimeline(artifacts: SdkEventArtifact[], reaso
     };
     const warnings = sdkEventTimelineWarnings(summary);
     if (reason === 'identifier_risk') warnings.push('sdk_event_timeline_identifier_risk_detected');
+    if (reason === 'artifact_count_exceeded') warnings.push('sdk_event_artifact_count_exceeded');
     return { rows: [], summary, warnings };
 }
 
