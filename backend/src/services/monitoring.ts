@@ -232,6 +232,7 @@ export async function pingWorker(
     message?: string,
     ping?: number,
     extraMetrics: WorkerMetric[] = [],
+    groupingLabels: Record<string, string> = {},
 ): Promise<void> {
     const baseUrl = getPushgatewayUrl();
 
@@ -269,7 +270,12 @@ export async function pingWorker(
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
         try {
-            const response = await fetch(`${baseUrl}/metrics/job/${workerName}`, {
+            // Extra grouping labels (for example one instance per pod of an
+            // Indexed Job) keep concurrent workers from overwriting each other.
+            const grouping = Object.entries(groupingLabels)
+                .map(([key, value]) => `/${key.replace(/[^A-Za-z0-9_]/g, '_')}/${String(value).replace(/[^A-Za-z0-9_.-]/g, '_')}`)
+                .join('');
+            const response = await fetch(`${baseUrl}/metrics/job/${workerName}${grouping}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
                 body,

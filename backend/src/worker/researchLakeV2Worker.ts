@@ -2,6 +2,7 @@
 import { logger } from '../logger.js';
 import { closeRedis } from '../db/redis.js';
 import { pingWorker, type WorkerMetric } from '../services/monitoring.js';
+import { workerInstanceLabel } from '../utils/workerShard.js';
 import type { ResearchLakeV2CycleSummary } from '../services/researchLake.js';
 
 type Runtime = {
@@ -31,6 +32,8 @@ async function closeRuntime(): Promise<void> {
 
 function metrics(summary: ResearchLakeV2CycleSummary): WorkerMetric[] {
     const values: WorkerMetric[] = [
+        { name: 'rejourney_research_lake_v2_cycle_duration_seconds', help: 'V2 cycle wall time', value: summary.durationMs / 1000 },
+        { name: 'rejourney_research_lake_v2_attempted_jobs_per_minute', help: 'V2 jobs attempted per minute of cycle', value: summary.attemptedPerMinute },
         { name: 'rejourney_research_lake_v2_seeded_jobs_total', help: 'V2 jobs seeded', value: summary.seeded },
         { name: 'rejourney_research_lake_v2_attempted_jobs_total', help: 'V2 jobs attempted', value: summary.attempted },
         { name: 'rejourney_research_lake_v2_exported_jobs_total', help: 'V2 jobs exported', value: summary.exported },
@@ -54,9 +57,10 @@ async function runCycle(): Promise<ResearchLakeV2CycleSummary | null> {
     await pingWorker(
         'researchLakeV2Worker',
         'up',
-        `attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed}`,
+        `attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},durationMs=${summary.durationMs},attemptedPerMinute=${summary.attemptedPerMinute},purgeAtBackfilled=${summary.purgeAtBackfilled}`,
         undefined,
         metrics(summary),
+        { instance: workerInstanceLabel() },
     );
     return summary;
 }
@@ -86,7 +90,7 @@ async function main(): Promise<void> {
     while (running) {
         await runCycle().catch(async (error) => {
             logger.error({ error }, 'Research lake V2 extraction cycle failed');
-            await pingWorker('researchLakeV2Worker', 'down', error instanceof Error ? error.message : String(error)).catch(() => {});
+            await pingWorker('researchLakeV2Worker', 'down', error instanceof Error ? error.message : String(error), undefined, [], { instance: workerInstanceLabel() }).catch(() => {});
         });
         await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000));
     }
@@ -95,7 +99,7 @@ async function main(): Promise<void> {
 logger.info({ runOnce }, 'Research lake V2 worker started independently of V1');
 main().catch(async (error) => {
     logger.error({ error }, 'Research lake V2 worker fatal error');
-    await pingWorker('researchLakeV2Worker', 'down', error instanceof Error ? error.message : String(error)).catch(() => {});
+    await pingWorker('researchLakeV2Worker', 'down', error instanceof Error ? error.message : String(error), undefined, [], { instance: workerInstanceLabel() }).catch(() => {});
     await closeRuntime().catch(() => {});
     process.exit(1);
 });

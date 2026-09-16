@@ -7,6 +7,7 @@
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { workerInstanceLabel } from '../utils/workerShard.js';
 import { pingWorker, type WorkerMetric } from '../services/monitoring.js';
 
 type ResearchLakeCycleSummary = {
@@ -161,6 +162,7 @@ async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycleSummar
         `seeded=${summary.seeded},attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},recovered=${summary.recoveredStaleProcessing},durationMs=${summary.durationMs},attemptedPerMinute=${summary.attemptedPerMinute},revenueMode=${summary.revenueOutcomes.mode},revenueExported=${summary.revenueOutcomes.exported},revenueFailed=${summary.revenueOutcomes.failed}`,
         undefined,
         extraMetrics,
+        { instance: workerInstanceLabel() },
     );
 
     return summary;
@@ -199,7 +201,7 @@ async function runLoop(): Promise<void> {
     while (isRunning) {
         await runResearchLakeExtractionCycle().catch(async (err) => {
             logger.error({ err }, 'Research lake extraction cycle failed');
-            await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err)).catch(() => {});
+            await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err), undefined, [], { instance: workerInstanceLabel() }).catch(() => {});
         });
         await new Promise((resolve) => setTimeout(resolve, RUN_INTERVAL_MS));
     }
@@ -215,14 +217,14 @@ if (runOnce) {
         })
         .catch(async (err) => {
             logger.error({ err }, 'Research lake worker fatal error');
-            await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err)).catch(() => {});
+            await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err), undefined, [], { instance: workerInstanceLabel() }).catch(() => {});
             await closeRuntimePool().catch(() => {});
             process.exit(1);
         });
 } else {
     runLoop().catch(async (err) => {
         logger.error({ err }, 'Research lake worker fatal error');
-        await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err)).catch(() => {});
+        await pingWorker('researchLakeWorker', 'down', err instanceof Error ? err.message : String(err), undefined, [], { instance: workerInstanceLabel() }).catch(() => {});
         await closeRuntimePool().catch(() => {});
         process.exit(1);
     });
