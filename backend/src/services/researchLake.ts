@@ -10,7 +10,10 @@ import {
 } from '../db/s3.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { extractFramesFromArchive } from './screenshotFrames.js';
+import { claimOwner, isPrimaryShard } from '../utils/workerShard.js';
+import { mapWithConcurrency } from '../utils/mapWithConcurrency.js';
+import { withResearchLakeSectionLock } from './researchLakeSectionLock.js';
+import { extractFramesFromArchive, type ExtractedFrame } from './screenshotFrames.js';
 import {
     dimensionsFromRrwebEnvelope,
     extractRrwebEventsFromArtifact,
@@ -224,6 +227,24 @@ type ArtifactContext = {
 };
 
 type ArtifactDataCache = Map<string, Buffer | null>;
+// Frames already extracted from a cached screenshot archive during visual-row
+// building, so the V2 archive copy does not unzip the same buffer again.
+// Keyed by the per-job data cache so the entries die with it.
+const extractedFramesByCache = new WeakMap<ArtifactDataCache, Map<string, ExtractedFrame[]>>();
+
+function rememberExtractedFrames(cache: ArtifactDataCache | undefined, artifactId: string, frames: ExtractedFrame[]): void {
+    if (!cache) return;
+    let frameMap = extractedFramesByCache.get(cache);
+    if (!frameMap) {
+        frameMap = new Map();
+        extractedFramesByCache.set(cache, frameMap);
+    }
+    frameMap.set(artifactId, frames);
+}
+
+function recallExtractedFrames(cache: ArtifactDataCache | undefined, artifactId: string): ExtractedFrame[] | undefined {
+    return cache ? extractedFramesByCache.get(cache)?.get(artifactId) : undefined;
+}
 
 type ResearchInteractionRow = Record<string, unknown> & {
     index: number;
@@ -294,6 +315,10 @@ export interface ResearchLakeV2CycleSummary extends ResearchLakeLaneSummary {
     recoveredStaleProcessing: number;
     cleanedVisualHolds: number;
     expiredPanelRows: number;
+    purgeAtBackfilled: number;
+    durationMs: number;
+    workRuntimeMs: number;
+    attemptedPerMinute: number;
     byLake: Record<ResearchLakeV2Type, ResearchLakeLaneSummary>;
 }
 
@@ -417,6 +442,28 @@ async function putResearchObjects(objects: readonly ResearchObjectUpload[]): Pro
     if (firstError !== null) throw firstError;
 }
 
+async function putVerifiedResearchObjects(objects: readonly ResearchObjectUpload[]): Promise<void> {
+    const concurrency = Math.max(
+        1,
+        Math.min(Math.trunc(config.RESEARCH_LAKE_UPLOAD_CONCURRENCY || 1), objects.length || 1),
+    );
+    let nextIndex = 0;
+    let firstError: unknown = null;
+    const worker = async (): Promise<void> => {
+        while (nextIndex < objects.length && firstError === null) {
+            const object = objects[nextIndex];
+            nextIndex += 1;
+            try {
+                await putVerifiedResearchObject(object.key, object.body, object.contentType);
+            } catch (err) {
+                firstError ??= err;
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    if (firstError !== null) throw firstError;
+}
+
 async function putVerifiedResearchObject(key: string, body: Buffer, contentType: string): Promise<void> {
     const checksum = hmacBuffer('research-v2-object:', body, 40);
     await getResearchLakeClient().send(new PutObjectCommand({
@@ -438,6 +485,10 @@ async function putVerifiedResearchObject(key: string, body: Buffer, contentType:
     ) {
         throw new Error(`Research lake object verification failed for ${key}`);
     }
+}
+
+function artifactDownloadConcurrency(): number {
+    return Math.max(1, Math.trunc(config.RESEARCH_LAKE_ARTIFACT_DOWNLOAD_CONCURRENCY) || 4);
 }
 
 async function downloadArtifactData(
@@ -2222,11 +2273,15 @@ async function buildHierarchyVisualRows(
         return left - right;
     });
 
+    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+        artifact.s3ObjectKey ? downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId) : Promise.resolve(null)
+    ));
+
     for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
         const artifact = sortedArtifacts[artifactIndex];
         if (!artifact.s3ObjectKey) continue;
 
-        const data = await downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId);
+        const data = prefetched[artifactIndex];
         if (!data) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download hierarchy artifact');
             continue;
@@ -2328,17 +2383,24 @@ async function buildScreenshotVisualRows(
         return left - right;
     });
 
+    // Downloads are the dominant latency; fetch them a few at a time up front
+    // and consume in sorted order so frame indices and grid chaining are unchanged.
+    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+        artifact.s3ObjectKey ? downloadArtifactData(session.project_id, artifact, artifactDataCache) : Promise.resolve(null)
+    ));
+
     for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
         const artifact = sortedArtifacts[artifactIndex];
         if (!artifact.s3ObjectKey) continue;
 
-        const archiveData = await downloadArtifactData(session.project_id, artifact, artifactDataCache);
+        const archiveData = prefetched[artifactIndex];
         if (!archiveData) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download screenshot artifact');
             continue;
         }
 
         const extractedFrames = await extractFramesFromArchive(archiveData, sessionStartMs);
+        rememberExtractedFrames(artifactDataCache, artifact.id, extractedFrames);
         const boundedFrames = extractedFrames.filter((frame) => (
             frame.timestamp >= sessionStartMs && frame.timestamp <= upperBound
         ));
@@ -2421,11 +2483,15 @@ async function buildRrwebVisualRows(
         return left - right;
     });
 
+    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+        artifact.s3ObjectKey ? downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId) : Promise.resolve(null)
+    ));
+
     for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
         const artifact = sortedArtifacts[artifactIndex];
         if (!artifact.s3ObjectKey) continue;
 
-        const data = await downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId);
+        const data = prefetched[artifactIndex];
         if (!data) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download rrweb artifact');
             continue;
@@ -3177,6 +3243,16 @@ ${lanePredicate}
         `;
 }
 
+/**
+ * Seed under a wait-lock so concurrent pods never run the global sessions scan
+ * at the same time. A pod that finds the lock held waits for the sibling's seed
+ * to commit and reports skipped; the caller then claims from that seed.
+ */
+async function seedResearchJobsExclusively(lakeType: ResearchLakeType, limit: number): Promise<{ count: number; skipped: boolean }> {
+    const outcome = await withResearchLakeSectionLock(`research-lake:v1:seed:${lakeType}`, 'wait', () => seedResearchJobs(lakeType, limit));
+    return outcome.skipped ? { count: 0, skipped: true } : { count: outcome.result, skipped: false };
+}
+
 async function seedResearchJobs(lakeType: ResearchLakeType, limit: number): Promise<number> {
     const result = await pool.query(
         buildSeedResearchJobsSql(lakeType),
@@ -3225,7 +3301,8 @@ function buildFifoClaimResearchJobsSql(): string {
         SET
             status = 'processing',
             attempts = attempts + 1,
-            updated_at = NOW()
+            updated_at = NOW(),
+            claimed_by = $4
         FROM candidates
         WHERE rej.id = candidates.id
         RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts, rej.schema_version, rej.job_lane
@@ -3290,7 +3367,8 @@ function buildFairClaimResearchJobsSql(): string {
         SET
             status = 'processing',
             attempts = attempts + 1,
-            updated_at = NOW()
+            updated_at = NOW(),
+            claimed_by = $5
         FROM candidates
         WHERE rej.id = candidates.id
         RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at, rej.attempts, rej.schema_version, rej.job_lane
@@ -3308,6 +3386,7 @@ async function claimResearchJobs(lakeType: ResearchLakeType, limit: number): Pro
     if (lakeType === 'interaction') {
         params.push(Math.max(1, Math.min(500, limit)));
     }
+    params.push(claimOwner());
     const result = await pool.query<ResearchJobRow>(
         buildClaimResearchJobsSql(lakeType),
         params,
@@ -3653,7 +3732,8 @@ function buildReleaseUnstartedResearchJobsSql(): string {
             status = 'pending',
             attempts = GREATEST(attempts - 1, 0),
             next_retry_at = NULL,
-            updated_at = NOW()
+            updated_at = NOW(),
+            claimed_by = NULL
         WHERE id = ANY($1::uuid[])
           AND status = 'processing'
     `;
@@ -5234,6 +5314,16 @@ async function copyV2ScreenshotArchives(
         .sort((left, right) => (left.start_time ?? 0) - (right.start_time ?? 0));
     const upperBound = session.ended_at ? session.ended_at.getTime() + 5_000 : Number.POSITIVE_INFINITY;
 
+    // Zips are built in order and uploaded in bounded windows; keys, entries
+    // and checksums do not depend on upload order.
+    const pendingUploads: ResearchObjectUpload[] = [];
+    const flushUploads = async (): Promise<void> => {
+        if (pendingUploads.length === 0) return;
+        const batch = pendingUploads.splice(0, pendingUploads.length);
+        await putVerifiedResearchObjects(batch);
+    };
+    const uploadWindow = Math.max(1, Math.trunc(config.RESEARCH_LAKE_UPLOAD_CONCURRENCY || 1));
+
     for (let artifactIndex = 0; artifactIndex < screenshotArtifacts.length; artifactIndex++) {
         const artifact = screenshotArtifacts[artifactIndex];
         const data = await downloadArtifactData(session.project_id, artifact, artifactDataCache);
@@ -5241,7 +5331,9 @@ async function copyV2ScreenshotArchives(
             throw new Error(`V2 screenshot source unavailable for artifact ${artifact.id}`);
         }
         const archiveKey = `${basePath}/screenshot_archives/artifact-${String(artifactIndex).padStart(4, '0')}.zip`;
-        const frames = (await extractFramesFromArchive(data, session.started_at.getTime())).filter((frame) => (
+        const extracted = recallExtractedFrames(artifactDataCache, artifact.id)
+            ?? await extractFramesFromArchive(data, session.started_at.getTime());
+        const frames = extracted.filter((frame) => (
             frame.timestamp >= session.started_at.getTime() && frame.timestamp <= upperBound
         ));
         if (frames.length === 0) {
@@ -5276,7 +5368,8 @@ async function copyV2ScreenshotArchives(
             });
         }
         const zipBuffer = await createZipArchiveBuffer(zipFiles, { store: true });
-        await putVerifiedResearchObject(archiveKey, zipBuffer, 'application/zip');
+        pendingUploads.push({ key: archiveKey, body: zipBuffer, contentType: 'application/zip' });
+        if (pendingUploads.length >= uploadWindow) await flushUploads();
         archives.push({
             archive_key: archiveKey,
             source_artifact_index: artifactIndex,
@@ -5286,6 +5379,8 @@ async function copyV2ScreenshotArchives(
             source_format: 'standard_zip_jpeg_frames',
         });
     }
+    await flushUploads();
+    extractedFramesByCache.delete(artifactDataCache);
     return { archives, frameIndex, unavailableArtifactCount };
 }
 
@@ -5879,15 +5974,20 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_BATCH_SIZE));
     const seedMultiplier = Math.max(1, Math.trunc(config.RESEARCH_LAKE_SEED_MULTIPLIER));
     const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_MAX_RUNTIME_MS));
-    summary.recoveredStaleProcessing = await recoverStaleProcessingJobs();
+    // Once-per-tick maintenance belongs to the primary pod; the advisory lock
+    // also covers a manually created Job overlapping the scheduled one.
+    if (isPrimaryShard()) {
+        const recovered = await withResearchLakeSectionLock('research-lake:v1:maintenance', 'skip', recoverStaleProcessingJobs);
+        summary.recoveredStaleProcessing = recovered.skipped ? 0 : recovered.result;
+    }
     const nextEmptySeedRetryAtMs: Record<ResearchLakeType, number> = {
         interaction: 0,
         behavioral_outcomes: 0,
     };
     for (const lakeType of RESEARCH_LAKE_TYPES) {
-        const seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
-        summary.byLake[lakeType].seeded = seeded;
-        nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded, Date.now());
+        const seeded = await seedResearchJobsExclusively(lakeType, batchSize * seedMultiplier);
+        summary.byLake[lakeType].seeded = seeded.count;
+        nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded.count, Date.now());
     }
     addLaneSummaryTotals(summary);
     const startedAt = Date.now();
@@ -5895,6 +5995,7 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
 
     while (Date.now() < deadlineAtMs) {
         let claimedThisRound = 0;
+        let seedSkippedThisRound = false;
 
         for (const lakeType of RESEARCH_LAKE_TYPES) {
             if (Date.now() >= deadlineAtMs) break;
@@ -5907,10 +6008,11 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
                 // fresh READ COMMITTED snapshot and work can become eligible
                 // while another lane keeps this cycle alive.
                 if (!shouldRetryResearchSeed(nextEmptySeedRetryAtMs[lakeType], Date.now())) continue;
-                const seeded = await seedResearchJobs(lakeType, batchSize * seedMultiplier);
-                nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded, Date.now());
-                summary.byLake[lakeType].seeded += seeded;
-                if (seeded === 0) continue;
+                const seeded = await seedResearchJobsExclusively(lakeType, batchSize * seedMultiplier);
+                if (seeded.skipped) seedSkippedThisRound = true;
+                nextEmptySeedRetryAtMs[lakeType] = nextResearchSeedRetryAtMs(seeded.count, Date.now());
+                summary.byLake[lakeType].seeded += seeded.count;
+                if (seeded.count === 0 && !seeded.skipped) continue;
                 const seededJobs = await claimResearchJobs(lakeType, batchSize);
                 claimedThisRound += seededJobs.length;
                 if (seededJobs.length === 0) {
@@ -5960,15 +6062,29 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
         }
 
         addLaneSummaryTotals(summary);
+        // A sibling pod that just seeded may have produced work this pod has not
+        // seen yet; give its commit a moment before deciding the queue is empty.
+        if (claimedThisRound === 0 && seedSkippedThisRound) {
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
+            continue;
+        }
         if (claimedThisRound === 0) break;
     }
 
-    try {
-        summary.revenueOutcomes = await runResearchLakeRevenueOutcomesExportCycle();
-    } catch (err) {
-        summary.revenueOutcomes.failed++;
-        await recordRevenueExportError(err).catch(() => {});
-        logger.error({ err }, 'Research lake revenue outcomes export cycle failed');
+    // The revenue export advances a single-row checkpoint and must have one owner.
+    if (isPrimaryShard()) {
+        try {
+            const revenue = await withResearchLakeSectionLock('research-lake:v1:revenue-export', 'skip', runResearchLakeRevenueOutcomesExportCycle);
+            if (revenue.skipped) {
+                logger.info('Research lake revenue outcomes export skipped: another worker owns this section');
+            } else {
+                summary.revenueOutcomes = revenue.result;
+            }
+        } catch (err) {
+            summary.revenueOutcomes.failed++;
+            await recordRevenueExportError(err).catch(() => {});
+            logger.error({ err }, 'Research lake revenue outcomes export cycle failed');
+        }
     }
 
     addLaneSummaryTotals(summary);
@@ -5990,6 +6106,10 @@ function createV2CycleSummary(): ResearchLakeV2CycleSummary {
         recoveredStaleProcessing: 0,
         cleanedVisualHolds: 0,
         expiredPanelRows: 0,
+        purgeAtBackfilled: 0,
+        durationMs: 0,
+        workRuntimeMs: 0,
+        attemptedPerMinute: 0,
         byLake: {
             interaction: createLaneSummary(),
             behavioral_outcomes: createLaneSummary(),
@@ -6027,6 +6147,7 @@ type V2BackfillSession = {
     user_display_id: string | null;
     events: unknown;
     is_sampled_in: boolean | null;
+    retention_days: number | null;
     smart_capture_status: string;
     smart_capture_reason: string | null;
     smart_capture_rule_id: string | null;
@@ -6040,7 +6161,7 @@ async function seedV2BackfillSessionState(limit: number): Promise<{ sessions: nu
         WITH ranked AS (
             SELECT
                 s.id, s.project_id, p.team_id, p.sample_rate, s.started_at, s.platform, s.app_version,
-                s.device_id, s.anonymous_hash, s.user_display_id, s.events, s.is_sampled_in,
+                s.device_id, s.anonymous_hash, s.user_display_id, s.events, s.is_sampled_in, s.retention_days,
                 s.smart_capture_status, s.smart_capture_reason, s.smart_capture_rule_id,
                 EXISTS (
                     SELECT 1 FROM recording_artifacts ra
@@ -6082,6 +6203,7 @@ async function seedV2BackfillSessionState(limit: number): Promise<{ sessions: nu
                     userDisplayId: row.user_display_id,
                     events: row.events,
                     isSampledIn: row.is_sampled_in,
+                    retentionDays: row.retention_days,
                 },
                 project: { id: row.project_id, teamId: row.team_id, sampleRate: row.sample_rate },
                 capture: {
@@ -6122,31 +6244,35 @@ async function recoverStaleV2Jobs(): Promise<number> {
 function buildClaimV2JobsSql(): string {
     return `
         WITH active_projects AS (
-            SELECT project_id, MIN(due_at) AS oldest_due_at
+            SELECT project_id, MIN(COALESCE(purge_at, due_at)) AS oldest_purge_at
             FROM research_extraction_jobs
             WHERE schema_version = 2 AND lake_type = $1 AND job_lane = $2
               AND status IN ('pending', 'failed')
               AND (next_retry_at IS NULL OR next_retry_at <= NOW()) AND due_at <= NOW()
             GROUP BY project_id
         ), ranked AS (
-            SELECT jobs.id, jobs.project_id, jobs.due_at, jobs.created_at,
-                   ROW_NUMBER() OVER (PARTITION BY jobs.project_id ORDER BY jobs.due_at, jobs.created_at, jobs.id) AS project_rank,
-                   active_projects.oldest_due_at
+            SELECT jobs.id, jobs.project_id, jobs.created_at,
+                   COALESCE(jobs.purge_at, jobs.due_at) AS purge_at,
+                   ROW_NUMBER() OVER (PARTITION BY jobs.project_id ORDER BY COALESCE(jobs.purge_at, jobs.due_at), jobs.created_at, jobs.id) AS project_rank,
+                   active_projects.oldest_purge_at
             FROM research_extraction_jobs jobs
             INNER JOIN active_projects ON active_projects.project_id = jobs.project_id
             WHERE jobs.schema_version = 2 AND jobs.lake_type = $1 AND jobs.job_lane = $2
               AND jobs.status IN ('pending', 'failed')
               AND (jobs.next_retry_at IS NULL OR jobs.next_retry_at <= NOW()) AND jobs.due_at <= NOW()
         ), candidates AS (
+            -- Fair across projects (rank 1 of every project first); within and
+            -- between projects the soonest-to-purge source wins, so short-retention
+            -- apps and the oldest backlog export before their recordings vanish.
             SELECT rej.id
             FROM ranked
             INNER JOIN research_extraction_jobs rej ON rej.id = ranked.id
-            ORDER BY ranked.project_rank, ranked.oldest_due_at, ranked.project_id, ranked.due_at, ranked.created_at, ranked.id
+            ORDER BY ranked.project_rank, ranked.oldest_purge_at, ranked.project_id, ranked.purge_at, ranked.created_at, ranked.id
             LIMIT $3
             FOR UPDATE OF rej SKIP LOCKED
         )
         UPDATE research_extraction_jobs rej
-        SET status = 'processing', attempts = attempts + 1, updated_at = NOW()
+        SET status = 'processing', attempts = attempts + 1, updated_at = NOW(), claimed_by = $4
         FROM candidates
         WHERE rej.id = candidates.id
         RETURNING rej.id, rej.session_id, rej.lake_type, rej.project_id, rej.team_id, rej.due_at,
@@ -6156,7 +6282,7 @@ function buildClaimV2JobsSql(): string {
 
 async function claimV2Jobs(lakeType: ResearchLakeV2Type, lane: 'fresh' | 'backfill', limit: number): Promise<ResearchJobRow[]> {
     if (limit <= 0) return [];
-    const result = await pool.query<ResearchJobRow>(buildClaimV2JobsSql(), [lakeType, lane, limit]);
+    const result = await pool.query<ResearchJobRow>(buildClaimV2JobsSql(), [lakeType, lane, limit, claimOwner()]);
     return result.rows;
 }
 
@@ -6236,9 +6362,21 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         logger.info(summary, 'Research lake V2 extraction disabled; completed cleanup only and left V1 active');
         return summary;
     }
-    summary.recoveredStaleProcessing = await recoverStaleV2Jobs();
-    if (shouldRefreshV2ReleaseAdoption()) {
-        await refreshV2ReleaseAdoptionMilestones();
+    // Once-per-tick maintenance belongs to the primary pod; the advisory lock
+    // also covers a manually created Job overlapping the scheduled one.
+    if (isPrimaryShard()) {
+        const maintenance = await withResearchLakeSectionLock('research-lake:v2:maintenance', 'skip', async () => {
+            const recovered = await recoverStaleV2Jobs();
+            if (shouldRefreshV2ReleaseAdoption()) {
+                await refreshV2ReleaseAdoptionMilestones();
+            }
+            const backfilled = await backfillV2JobPurgeAt();
+            return { recovered, backfilled };
+        });
+        if (!maintenance.skipped) {
+            summary.recoveredStaleProcessing = maintenance.result.recovered;
+            summary.purgeAtBackfilled = maintenance.result.backfilled;
+        }
     }
 
     const batchSize = Math.max(2, Math.trunc(config.RESEARCH_LAKE_V2_BATCH_SIZE));
@@ -6260,18 +6398,26 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     while (Date.now() < workDeadlineAtMs) {
         const pauseBackfill = summary.failed > 0 || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
         let seededThisRound = 0;
+        let seedSkipped = false;
         if (!pauseBackfill && seedLimit > 0
             && shouldRetryResearchSeed(nextEmptyBackfillSeedRetryAtMs, Date.now())) {
-            const seeded = await seedV2BackfillSessionState(seedLimit);
-            seededThisRound = seeded.sessions;
-            nextEmptyBackfillSeedRetryAtMs = nextResearchSeedRetryAtMs(
-                seeded.sessions,
-                Date.now(),
-                RESEARCH_V2_EMPTY_SEED_RETRY_MS,
-            );
-            summary.byLake.interaction.seeded += seeded.interaction;
-            summary.byLake.behavioral_outcomes.seeded += seeded.sessions;
-            summary.byLake.forward_outcomes.seeded += seeded.sessions;
+            // One pod seeds at a time; a sibling that finds the lock held waits
+            // for that seed to commit and claims from it instead of re-scanning.
+            const outcome = await withResearchLakeSectionLock('research-lake:v2:backfill-seed', 'wait', () => seedV2BackfillSessionState(seedLimit));
+            if (outcome.skipped) {
+                seedSkipped = true;
+            } else {
+                const seeded = outcome.result;
+                seededThisRound = seeded.sessions;
+                nextEmptyBackfillSeedRetryAtMs = nextResearchSeedRetryAtMs(
+                    seeded.sessions,
+                    Date.now(),
+                    RESEARCH_V2_EMPTY_SEED_RETRY_MS,
+                );
+                summary.byLake.interaction.seeded += seeded.interaction;
+                summary.byLake.behavioral_outcomes.seeded += seeded.sessions;
+                summary.byLake.forward_outcomes.seeded += seeded.sessions;
+            }
         }
         let claimed = 0;
         for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
@@ -6313,16 +6459,67 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         }
         addV2LaneSummaryTotals(summary);
         if (claimed === 0 && (pauseBackfill || seedLimit === 0)) break;
-        if (claimed === 0 && seededThisRound === 0) break;
+        if (claimed === 0 && seededThisRound === 0 && !seedSkipped) break;
     }
     addV2LaneSummaryTotals(summary);
+    summary.durationMs = Date.now() - startedAt;
+    summary.workRuntimeMs = workDeadlineAtMs - startedAt;
+    summary.attemptedPerMinute = summary.durationMs > 0
+        ? Math.round((summary.attempted / summary.durationMs) * 60_000 * 100) / 100
+        : 0;
     logger.info({
         ...summary,
         maxRuntimeMs,
         drainBufferMs,
-        workRuntimeMs: workDeadlineAtMs - startedAt,
     }, 'Research lake V2 extraction cycle completed independently of V1');
     return summary;
+}
+
+/**
+ * Fill purge_at on V2 job rows written before the column existed, in bounded
+ * batches per lane so the fair-claim index serves the scan. Interaction jobs
+ * for discard-tier sessions use the earlier of retention and the visual hold.
+ */
+async function backfillV2JobPurgeAt(batch = 5_000, maxBatches = 10): Promise<number> {
+    let total = 0;
+    for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
+        for (const lane of ['fresh', 'backfill'] as const) {
+            for (let round = 0; round < maxBatches; round += 1) {
+                const result = await pool.query(
+                    `
+                    WITH batch AS (
+                        SELECT rej.id,
+                               LEAST(
+                                   s.started_at + GREATEST(1, s.retention_days) * INTERVAL '1 day',
+                                   COALESCE(
+                                       CASE WHEN rej.lake_type = 'interaction' AND rcd.source_cleanup_state = 'pending_export'
+                                            THEN rcd.source_cleanup_due_at END,
+                                       'infinity'::timestamp
+                                   )
+                               ) AS purge_at
+                        FROM research_extraction_jobs rej
+                        INNER JOIN sessions s ON s.id = rej.session_id
+                        LEFT JOIN research_capture_decisions rcd
+                               ON rcd.session_id = rej.session_id AND rcd.schema_version = 2
+                        WHERE rej.schema_version = 2 AND rej.lake_type = $1 AND rej.job_lane = $2
+                          AND rej.status IN ('pending', 'failed') AND rej.purge_at IS NULL
+                        LIMIT $3
+                    )
+                    UPDATE research_extraction_jobs rej
+                    SET purge_at = batch.purge_at
+                    FROM batch
+                    WHERE rej.id = batch.id
+                    `,
+                    [lakeType, lane, batch],
+                );
+                const updated = result.rowCount ?? 0;
+                total += updated;
+                if (updated < batch) break;
+            }
+        }
+    }
+    if (total > 0) logger.info({ total }, 'Research lake V2 purge_at backfilled on pending jobs');
+    return total;
 }
 
 export const __researchLakeTestInternals = {

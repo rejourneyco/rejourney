@@ -255,6 +255,31 @@ describe('research lake anonymized payload shape', () => {
         expect(behavioralClaimSql).toContain('ORDER BY due_at, created_at, id');
         expect(behavioralClaimSql).not.toContain('PARTITION BY project_id');
         expect(interactionClaimSql).toContain('schema_version = 1');
+        // Multi-pod ticks: every claim records its owner; release clears it.
+        expect(interactionClaimSql).toContain('claimed_by = $5');
+        expect(behavioralClaimSql).toContain('claimed_by = $4');
+        expect(__researchLakeTestInternals.buildReleaseUnstartedResearchJobsSql()).toContain('claimed_by = NULL');
+    });
+
+    it('orders V2 claims by the soonest source purge while keeping projects fair', () => {
+        const sql = __researchLakeTestInternals.buildClaimV2JobsSql();
+        expect(sql).toContain('MIN(COALESCE(purge_at, due_at)) AS oldest_purge_at');
+        expect(sql).toContain('PARTITION BY jobs.project_id ORDER BY COALESCE(jobs.purge_at, jobs.due_at), jobs.created_at, jobs.id');
+        expect(sql).toContain('ORDER BY ranked.project_rank, ranked.oldest_purge_at, ranked.project_id, ranked.purge_at, ranked.created_at, ranked.id');
+        expect(sql).toContain('due_at <= NOW()');
+        expect(sql).toContain('FOR UPDATE OF rej SKIP LOCKED');
+        expect(sql).toContain('claimed_by = $4');
+    });
+
+    it('adds purge_at and claimed_by additively without an index', () => {
+        const migrationSql = readFileSync(
+            `${process.cwd()}/drizzle/20260917120000_research_lake_job_purge_at/migration.sql`,
+            'utf8',
+        );
+        expect(migrationSql).toContain('ADD COLUMN IF NOT EXISTS "purge_at" timestamp');
+        expect(migrationSql).toContain('ADD COLUMN IF NOT EXISTS "claimed_by" varchar(64)');
+        expect(migrationSql).not.toContain('CREATE INDEX');
+        expect(migrationSql).toContain("SET LOCAL lock_timeout = '5s'");
     });
 
     it('throttles empty seed scans but retries when eligibility can have changed', () => {
