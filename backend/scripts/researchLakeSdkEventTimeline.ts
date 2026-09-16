@@ -10,6 +10,10 @@
  * project) so the ones closest to retention expiry are covered first. Projects
  * listed in --projects-first go first; the rest follow ordered by retention.
  *
+ * Sessions whose events artifacts are pinned to a storage endpoint that is no
+ * longer active are not attempted: their buckets are gone, so the timeline
+ * cannot be built and the rows stay unstamped rather than recorded as read.
+ *
  * Idempotent and resumable: the per-job sdk_event_timeline_at stamp is written
  * last, so a stopped run simply resumes. Sharded runs partition sessions by a
  * stable hash so several pods can work the same queue.
@@ -126,7 +130,9 @@ async function loadCandidates(projectId: string, cursor: CandidateRow | null): P
           )
           AND EXISTS (
               SELECT 1 FROM recording_artifacts ra
+              LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
               WHERE ra.session_id = s.id AND ra.kind = 'events' AND ra.status = 'ready'
+                AND (ra.endpoint_id IS NULL OR se.active = true)
           )
         ORDER BY s.started_at, s.id
         LIMIT $6
