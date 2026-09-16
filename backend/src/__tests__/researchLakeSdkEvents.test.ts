@@ -204,6 +204,54 @@ describe('SDK event timeline builder', () => {
         expect(withheld.summary.sdk_event_artifact_missing_count).toBe(1);
     });
 
+    it('maps the JS-side lifecycle, frustration, gesture detail, and safe error fields', async () => {
+        const timeline = await buildSdkEventTimeline({
+            session: { started_at: startedAt }, artifacts: [artifact('a')], projectKey: 'projkey', hash, positionBuckets,
+            download: async () => envelope([
+                { type: 'screen_change', screenName: 'Home', timestamp: t(100) },
+                { type: 'app_state', state: 'background', timestamp: t(200) },
+                { type: 'app_lifecycle', state: 'app_terminated', timestamp: t(300) },
+                { type: 'app_state', state: 'inactive', timestamp: t(350) },
+                { type: 'frustration', frustrationKind: 'rage_tap', x: 5, y: 6, timestamp: t(400) },
+                { type: 'frustration', frustrationKind: 'ui_freeze', timestamp: t(450) },
+                { type: 'gesture', gestureType: 'pinch', x: 1, y: 1, scale: 1.23456, timestamp: t(500) },
+                { type: 'gesture', gestureType: 'rotation', x: 1, y: 1, angle: 12.3456, timestamp: t(600) },
+                { type: 'error', name: 'TypeError', message: 'secret text', stack: 'at file:///Users/x', timestamp: t(700) },
+                { type: 'app_startup', durationMs: 812, platform: 'ios', timestamp: t(800) },
+                { type: 'session_timeout', backgroundDuration: 900000, timeoutThreshold: 600000, reason: 'background_timeout', timestamp: t(900) },
+                { type: 'external_url_opened', scheme: 'https', url: 'https://example.com/x', timestamp: t(1000) },
+                { type: 'oauth_completed', timestamp: t(1100) },
+                { type: 'keyboard_typing', keyPressCount: 7, timestamp: t(1200) },
+                { type: 'input', value: '***', redacted: true, label: 'Email', timestamp: t(1300) },
+                { type: 'device_info', model: 'iPhone', timestamp: t(1400) },
+                { type: 'feedback', message: 'free text', timestamp: t(1500) },
+            ]),
+        });
+        const rows = timeline.rows;
+        expect(rows.map((row) => row.type)).toEqual([
+            'navigation', 'app_background', 'app_terminated', 'gesture', 'anr', 'gesture', 'gesture', 'error', 'app_startup',
+            'session_timeout', 'external_url_opened', 'oauth', 'input', 'input',
+        ]);
+        expect(rows[0].screen_key).toBe(hash('projkey:screen:Home', 20));
+        expect(rows[3].frustration_kind).toBe('rage_tap');
+        expect(rows[5].gesture_scale).toBe(1.235);
+        expect(rows[6].gesture_angle).toBe(12.346);
+        expect(rows[7].error_name_key).toBe(hash('projkey:error-name:TypeError', 20));
+        expect(rows[8].duration_ms).toBe(812);
+        expect(rows[9].duration_ms).toBe(900000);
+        expect(rows[10].scheme_key).toBe(hash('projkey:url-scheme:https', 20));
+        expect(rows[11].oauth_stage).toBe('completed');
+        expect(rows[12].key_press_count).toBe(7);
+        expect(rows[13].input_redacted).toBe(true);
+        expect(timeline.summary.sdk_event_unrecognized_count).toBe(0);
+        const serialized = JSON.stringify(rows);
+        expect(serialized).not.toContain('secret text');
+        expect(serialized).not.toContain('example.com');
+        expect(serialized).not.toContain('iPhone');
+        expect(serialized).not.toContain('free text');
+        expect(__researchLakeTestInternals.containsIdentifierRisk({ sdkEvents: rows })).toBe(false);
+    });
+
     it('caps rows and flags the limit', async () => {
         const timeline = await buildSdkEventTimeline({
             session: { started_at: startedAt }, artifacts: [artifact('a')], projectKey: 'projkey', hash, positionBuckets, maxRows: 3,

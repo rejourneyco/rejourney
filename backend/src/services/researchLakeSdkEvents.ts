@@ -47,7 +47,12 @@ export type SdkEventType =
     | 'error'
     | 'crash'
     | 'keyboard'
-    | 'input';
+    | 'input'
+    | 'app_terminated'
+    | 'session_end'
+    | 'session_timeout'
+    | 'external_url_opened'
+    | 'oauth';
 
 export type SdkEventClockRelation = 'in_session' | 'before_session_start' | 'after_24h' | 'unavailable';
 
@@ -88,6 +93,13 @@ export type SdkEventRow = {
     log_level: string | null;
     event_name_key: string | null;
     keyboard_action: 'show' | 'hide' | null;
+    gesture_scale: number | null;
+    gesture_angle: number | null;
+    input_redacted: boolean | null;
+    key_press_count: number | null;
+    error_name_key: string | null;
+    oauth_stage: 'started' | 'completed' | 'returned' | null;
+    scheme_key: string | null;
     source_artifact_index: number;
     source_artifact_key: string;
     source_event_ordinal: number;
@@ -158,8 +170,10 @@ const GESTURE_KINDS = new Set([
 ]);
 const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
+const LIFECYCLE_TYPES = new Set<string>(['app_background', 'app_foreground', 'app_startup', 'app_terminated', 'session_end', 'session_timeout']);
 const SKIPPED_TYPES = new Set([
     'user_identity_changed', 'session_start', 'motion', 'scroll_motion', 'pan_motion', '$user_property',
+    'device_info', 'feedback', 'user_feedback', 'redux_action', 'attribute',
 ]);
 
 function lower(value: unknown): string {
@@ -296,10 +310,25 @@ function emptyRow(index: number, type: SdkEventType, artifactIndex: number, arti
         log_level: null,
         event_name_key: null,
         keyboard_action: null,
+        gesture_scale: null,
+        gesture_angle: null,
+        input_redacted: null,
+        key_press_count: null,
+        error_name_key: null,
+        oauth_stage: null,
+        scheme_key: null,
         source_artifact_index: artifactIndex,
         source_artifact_key: artifactKey,
         source_event_ordinal: ordinal,
     };
+}
+
+function lifecycleState(event: Record<string, unknown>): SdkEventType | 'skip' {
+    const state = lower(event.state);
+    if (state === 'active' || state === 'app_foreground' || state === 'foreground') return 'app_foreground';
+    if (state === 'background' || state === 'app_background') return 'app_background';
+    if (state === 'app_terminated' || state === 'terminated') return 'app_terminated';
+    return 'skip';
 }
 
 function classifyType(event: Record<string, unknown>): SdkEventType | 'skip' | 'unrecognized' {
@@ -307,8 +336,15 @@ function classifyType(event: Record<string, unknown>): SdkEventType | 'skip' | '
     if (!type || type.startsWith('$') || SKIPPED_TYPES.has(type)) return 'skip';
     if (type === 'touch' || type === 'tap' || type === 'click') return 'touch';
     if (type === 'gesture' || type === 'scroll' || type === 'dead_tap' || type === 'rage_tap' || type === 'dead_click' || type === 'rage_click') return 'gesture';
-    if (type === 'navigation' || type === 'screen_view') return 'navigation';
-    if (type === 'app_background' || type === 'app_foreground' || type === 'app_startup') return type;
+    if (type === 'frustration') {
+        const kind = lower(event.frustrationKind);
+        return kind === 'ui_freeze' ? 'anr' : kind === 'error' ? 'error' : 'gesture';
+    }
+    if (type === 'navigation' || type === 'screen_view' || type === 'screen_change') return 'navigation';
+    if (type === 'app_background' || type === 'app_foreground' || type === 'app_startup' || type === 'app_terminated') return type;
+    if (type === 'app_state' || type === 'app_lifecycle') return lifecycleState(event);
+    if (type === 'session_end' || type === 'session_timeout' || type === 'external_url_opened') return type;
+    if (type === 'oauth_started' || type === 'oauth_completed' || type === 'oauth_returned') return 'oauth';
     if (type === 'api_call' || type === 'network_request') return 'network_request';
     if (type === 'log' || type === 'console_log') return 'log';
     if (type === 'anr' || type === 'long_task' || type === 'ui_freeze') return 'anr';
@@ -430,6 +466,10 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
                 row.tap_count = positiveInt(event.count);
                 const direction = lower(event.direction);
                 row.direction = DIRECTIONS.has(direction) ? direction : null;
+                const scale = finiteNumber(event.scale);
+                row.gesture_scale = scale !== null ? Math.round(scale * 1000) / 1000 : null;
+                const angle = finiteNumber(event.angle);
+                row.gesture_angle = angle !== null ? Math.round(angle * 1000) / 1000 : null;
             } else if (classified === 'navigation') {
                 const screen = (typeof event.screen === 'string' && event.screen) || (typeof event.screenName === 'string' && event.screenName) || '';
                 row.entering = booleanOrNull(event.entering);
@@ -444,6 +484,24 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
             } else if (classified === 'app_foreground') {
                 const background = finiteNumber(event.totalBackgroundTime);
                 row.total_background_ms = background !== null && background >= 0 ? Math.round(background) : null;
+            } else if (classified === 'app_startup' || classified === 'anr') {
+                const duration = finiteNumber(event.durationMs ?? event.duration);
+                row.duration_ms = duration !== null && duration >= 0 ? Math.round(duration) : null;
+            } else if (classified === 'session_timeout') {
+                const duration = finiteNumber(event.backgroundDuration);
+                row.duration_ms = duration !== null && duration >= 0 ? Math.round(duration) : null;
+            } else if (classified === 'error' || classified === 'crash') {
+                const name = typeof event.name === 'string' ? event.name.trim() : '';
+                row.error_name_key = name ? params.hash(`${params.projectKey}:error-name:${name}`, 20) : null;
+            } else if (classified === 'external_url_opened') {
+                const scheme = lower(event.scheme);
+                row.scheme_key = scheme ? params.hash(`${params.projectKey}:url-scheme:${scheme}`, 20) : null;
+            } else if (classified === 'oauth') {
+                const raw = lower(event.type).replace('oauth_', '');
+                row.oauth_stage = raw === 'started' || raw === 'completed' || raw === 'returned' ? raw : null;
+            } else if (classified === 'input') {
+                row.input_redacted = typeof event.redacted === 'boolean' ? event.redacted : (lower(event.type) === 'keyboard_typing' ? null : true);
+                row.key_press_count = positiveInt(event.keyPressCount);
             } else if (classified === 'network_request') {
                 const method = lower(event.method).toUpperCase();
                 row.method = method ? (METHOD_ALLOWLIST.has(method) ? method : 'OTHER') : null;
@@ -508,7 +566,7 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
         sdk_event_type_counts: typeCounts,
         touch_timeline_present: rows.some((row) => row.type === 'touch' || row.type === 'gesture'),
         navigation_timeline_present: rows.some((row) => row.type === 'navigation'),
-        lifecycle_timeline_present: rows.some((row) => row.type === 'app_background' || row.type === 'app_foreground' || row.type === 'app_startup'),
+        lifecycle_timeline_present: rows.some((row) => LIFECYCLE_TYPES.has(row.type)),
         network_timeline_present: rows.some((row) => row.type === 'network_request'),
         sdk_event_row_limit_reached: rowLimitReached,
     };
@@ -630,7 +688,7 @@ export function sdkLifecycleEvidence(rows: SdkEventRow[], session: { started_at:
     let last: 'app_background' | 'app_foreground' | null = null;
     let lastBackgroundElapsed: number | null = null;
     for (const row of rows) {
-        if (row.type === 'app_background') {
+        if (row.type === 'app_background' || row.type === 'app_terminated' || row.type === 'session_timeout') {
             backgroundCount += 1;
             last = 'app_background';
             lastBackgroundElapsed = row.elapsed_ms;
