@@ -5694,7 +5694,13 @@ export async function applySdkEventTimelineToExportedSamples(params: {
     }
     const { session, artifacts } = await loadSessionContext(params.sessionId);
     if (!session) {
-        return { sessionId: params.sessionId, status: 'session_unavailable', lanes: lanes.rows.length, summary: null };
+        // The session no longer resolves (purged or scrubbed since the export).
+        // Stamp the lanes so the timeline is not requested again.
+        const summary = unavailableSdkEventTimeline([]).summary;
+        if (!params.dryRun) {
+            for (const lane of lanes.rows) await stampSdkEventTimeline(lane.id, summary);
+        }
+        return { sessionId: params.sessionId, status: 'session_unavailable', lanes: lanes.rows.length, summary };
     }
     const projectKey = hmac(`project:${session.project_id}`, 20);
     const timeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey, {

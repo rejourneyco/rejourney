@@ -25,6 +25,7 @@
  */
 
 import { pool } from '../src/db/client.js';
+import { closeRedis, initRedis } from '../src/db/redis.js';
 import { logger } from '../src/logger.js';
 import {
     applySdkEventTimelineToExportedSamples,
@@ -256,6 +257,9 @@ function runtimeExhausted(): boolean {
 async function main(): Promise<void> {
     process.on('SIGTERM', () => { stopRequested = true; logger.warn('SDK event timeline: SIGTERM received, draining'); });
     process.on('SIGINT', () => { stopRequested = true; });
+    // Storage endpoint lookups consult the Redis cache; connect up front with a
+    // bound so a slow sentinel handshake cannot stall the first session.
+    await Promise.race([initRedis(), new Promise<void>((resolve) => setTimeout(resolve, 15_000))]);
 
     const single = await resolveSingleSession();
     if (ONLY_SESSION || ONLY_SAMPLE_KEY) {
@@ -308,4 +312,7 @@ main()
     })
     .finally(async () => {
         await pool.end().catch(() => undefined);
+        await Promise.resolve(closeRedis()).catch(() => undefined);
+        // Cached clients keep handles open; exit explicitly so the Job pod completes.
+        process.exit(process.exitCode ?? 0);
     });
