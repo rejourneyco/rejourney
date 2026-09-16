@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { gzip } from 'node:zlib';
-import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ZipArchive } from 'archiver';
 import { pool } from '../db/client.js';
 import {
@@ -32,6 +32,19 @@ import {
     prepareResearchLakeV2Session,
 } from './researchLakeV2Lifecycle.js';
 import { discardSmartCaptureVisualArtifacts } from './smartCapture.js';
+import {
+    SDK_EVENTS_FILE_NAME,
+    SDK_EVENTS_ZIP_ENTRY_NAME,
+    buildSdkEventTimeline,
+    buildSdkFlowEdges,
+    sdkEventTimelineQualityFields,
+    sdkLifecycleEvidence,
+    unavailableSdkEventTimeline,
+    type SdkEventTimeline,
+    type SdkEventTimelineSummary,
+    type SdkLifecycleEvidence,
+    type SdkPositionBuckets,
+} from './researchLakeSdkEvents.js';
 
 const RESEARCH_SCHEMA_VERSION = 1;
 const RESEARCH_SCHEMA_VERSION_V2 = 2;
@@ -436,6 +449,67 @@ async function downloadArtifactData(
     const data = await downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId);
     cache?.set(artifact.id, data);
     return data;
+}
+
+async function getResearchObjectJson(key: string): Promise<Record<string, unknown> | null> {
+    try {
+        const result = await getResearchLakeClient().send(new GetObjectCommand({
+            Bucket: config.RESEARCH_LAKE_BUCKET,
+            Key: key,
+        }));
+        const body = await result.Body?.transformToString('utf8');
+        if (!body) return null;
+        const parsed = JSON.parse(body);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    } catch (err) {
+        const name = (err as { name?: string } | null)?.name;
+        const status = (err as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
+        if (name === 'NoSuchKey' || name === 'NotFound' || status === 404) return null;
+        throw err;
+    }
+}
+
+function sdkPositionBuckets(x: number, y: number, width: number | null, height: number | null): SdkPositionBuckets {
+    const xNorm = normalizedPositionBucket(x, width);
+    const yNorm = normalizedPositionBucket(y, height);
+    const grid = visualGridSpecForDimensions(width, height);
+    return {
+        x_norm_bucket: xNorm,
+        y_norm_bucket: yNorm,
+        x_cell: gridCellFromNormalizedBucket(xNorm, grid.columns),
+        y_cell: gridCellFromNormalizedBucket(yNorm, grid.rows),
+    };
+}
+
+/**
+ * Build the session's SDK event timeline from its events artifacts. The rows
+ * pass the identifier gate on their own: a hit withholds the timeline file and
+ * records why, without rejecting the rest of the sample.
+ */
+async function buildSessionSdkEventTimeline(
+    session: SessionContext,
+    artifacts: ArtifactContext[],
+    projectKey: string,
+    options: { artifactConcurrency?: number } = {},
+): Promise<SdkEventTimeline> {
+    const timeline = await buildSdkEventTimeline({
+        session,
+        artifacts,
+        projectKey,
+        hash: hmac,
+        download: (artifact) => downloadArtifactData(session.project_id, artifact as ArtifactContext),
+        positionBuckets: sdkPositionBuckets,
+        artifactConcurrency: options.artifactConcurrency,
+    });
+    if (timeline.rows.length > 0 && containsIdentifierRisk({ sdkEvents: timeline.rows })) {
+        logger.warn({ sessionId: session.id }, 'SDK event timeline withheld: identifier risk detected');
+        return unavailableSdkEventTimeline(artifacts, 'identifier_risk');
+    }
+    return timeline;
+}
+
+function sdkEventsObjectKey(basePath: string): string {
+    return `${basePath}/${SDK_EVENTS_FILE_NAME}`;
 }
 
 function asEvents(value: unknown): Record<string, unknown>[] {
@@ -3493,8 +3567,10 @@ async function completeJob(
         interactionEventCount: number;
         uiFrameCount: number;
         uiSkeletonElementCount: number;
+        sdkEventTimeline?: SdkEventTimelineSummary | null;
     },
 ): Promise<void> {
+    const sdk = params.sdkEventTimeline ?? null;
     await pool.query(
         `
         UPDATE research_extraction_jobs
@@ -3507,6 +3583,11 @@ async function completeJob(
             interaction_event_count = $7,
             ui_frame_count = $8,
             ui_skeleton_element_count = $9,
+            sdk_event_timeline_at = CASE WHEN $10::text IS NULL THEN sdk_event_timeline_at ELSE NOW() END,
+            sdk_event_timeline = COALESCE($10::text, sdk_event_timeline),
+            sdk_event_count = COALESCE($11::integer, sdk_event_count),
+            sdk_event_artifact_count = COALESCE($12::integer, sdk_event_artifact_count),
+            sdk_event_artifact_missing_count = COALESCE($13::integer, sdk_event_artifact_missing_count),
             processed_at = NOW(),
             last_error = NULL,
             updated_at = NOW()
@@ -3522,7 +3603,28 @@ async function completeJob(
             params.interactionEventCount,
             params.uiFrameCount,
             params.uiSkeletonElementCount,
+            sdk?.sdk_event_timeline ?? null,
+            sdk?.sdk_event_count ?? null,
+            sdk?.sdk_event_artifact_count ?? null,
+            sdk?.sdk_event_artifact_missing_count ?? null,
         ],
+    );
+}
+
+async function stampSdkEventTimeline(jobId: string, summary: SdkEventTimelineSummary): Promise<void> {
+    await pool.query(
+        `
+        UPDATE research_extraction_jobs
+        SET
+            sdk_event_timeline_at = NOW(),
+            sdk_event_timeline = $2,
+            sdk_event_count = $3,
+            sdk_event_artifact_count = $4,
+            sdk_event_artifact_missing_count = $5,
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [jobId, summary.sdk_event_timeline, summary.sdk_event_count, summary.sdk_event_artifact_count, summary.sdk_event_artifact_missing_count],
     );
 }
 
@@ -4584,6 +4686,7 @@ async function processInteractionJob(
         return 'rejected';
     }
 
+    const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const metrics = buildSessionMetrics(session);
@@ -4598,6 +4701,7 @@ async function processInteractionJob(
         ...hierarchyCaptureWarnings(hierarchyCaptureProfile),
         ...rrwebCaptureWarnings(rrwebCaptureProfile),
         ...maskingCaptureWarnings(maskingCaptureProfile),
+        ...sdkTimeline.warnings,
     ];
 
     const date = datePart(session.started_at);
@@ -4632,10 +4736,16 @@ async function processInteractionJob(
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
         labels,
+        provenance: {
+            interactions: 'observed_custom_events',
+            screenshots: visualRows.frames.some((frame) => frame.source_kind === 'screenshots') ? 'observed' : 'unavailable',
+            sdk_events: sdkTimeline.summary.sdk_event_timeline,
+        },
         files: {
             interactions: `${basePath}/interactions.jsonl.gz`,
             ui_frames: `${basePath}/ui_frames.jsonl.gz`,
             ui_skeleton: `${basePath}/ui_skeleton.jsonl.gz`,
+            sdk_events: sdkEventsObjectKey(basePath),
             quality: `${basePath}/quality.json`,
             zip: `${basePath}.zip`,
         },
@@ -4656,6 +4766,8 @@ async function processInteractionJob(
         feature_grid_status_counts: countStringField(visualRows.frames, 'feature_grid_status'),
         capture_profile: captureProfile,
         ...interactionQualityMetrics(interactions),
+        ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        provenance: manifest.provenance,
         pii_scan: 'passed',
         warnings: qualityWarnings,
     };
@@ -4666,6 +4778,7 @@ async function processInteractionJob(
         interactions,
         uiFrames: visualRows.frames,
         skeleton,
+        sdkEvents: sdkTimeline.rows,
     })) {
         await completeJob(job, {
             status: 'rejected',
@@ -4683,22 +4796,26 @@ async function processInteractionJob(
     const interactionsJsonlBuf = jsonlBuffer(interactions);
     const uiFramesJsonlBuf = jsonlBuffer(visualRows.frames);
     const uiSkeletonJsonlBuf = jsonlBuffer(skeleton);
+    const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
     const zipFiles = [
         { name: 'manifest.json', buffer: manifestBuf },
         { name: 'quality.json', buffer: qualityBuf },
         { name: 'interactions.jsonl', buffer: interactionsJsonlBuf },
         { name: 'ui_frames.jsonl', buffer: uiFramesJsonlBuf },
         { name: 'ui_skeleton.jsonl', buffer: uiSkeletonJsonlBuf },
+        { name: SDK_EVENTS_ZIP_ENTRY_NAME, buffer: sdkEventsJsonlBuf },
     ];
     const [
         interactionsBuf,
         uiFramesBuf,
         uiSkeletonBuf,
+        sdkEventsBuf,
         zipBuffer,
     ] = await Promise.all([
         gzipBuffer(interactionsJsonlBuf),
         gzipBuffer(uiFramesJsonlBuf),
         gzipBuffer(uiSkeletonJsonlBuf),
+        gzipBuffer(sdkEventsJsonlBuf),
         createZipArchiveBuffer(zipFiles),
     ]);
     await putResearchObjects([
@@ -4707,6 +4824,7 @@ async function processInteractionJob(
         { key: `${basePath}/interactions.jsonl.gz`, body: interactionsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/ui_frames.jsonl.gz`, body: uiFramesBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/ui_skeleton.jsonl.gz`, body: uiSkeletonBuf, contentType: 'application/jsonl+gzip' },
+        { key: sdkEventsObjectKey(basePath), body: sdkEventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
     ]);
 
@@ -4718,6 +4836,7 @@ async function processInteractionJob(
         interactionEventCount: interactions.length,
         uiFrameCount: visualRows.frames.length,
         uiSkeletonElementCount: skeleton.length,
+        sdkEventTimeline: sdkTimeline.summary,
     });
 
     return 'exported';
@@ -4726,7 +4845,7 @@ async function processInteractionJob(
 async function processBehavioralJob(
     job: ResearchJobRow,
     session: SessionContext,
-    _artifacts: ArtifactContext[],
+    artifacts: ArtifactContext[],
     transactions: { amount_cents: number; reporting_category: string; type: string; }[],
     customEventConfig: any | null,
 ): Promise<'exported' | 'rejected'> {
@@ -4748,12 +4867,13 @@ async function processBehavioralJob(
         return 'rejected';
     }
 
+    const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT ? 'usable' : 'metrics_only';
     const date = datePart(session.started_at);
     const basePath = `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=behavioral_outcomes/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
-    const manifest = buildBehavioralManifest({
+    const manifestBase = buildBehavioralManifest({
         session,
         projectKey,
         lakeSampleKey,
@@ -4764,6 +4884,18 @@ async function processBehavioralJob(
         labels,
         eventCount: events.length,
     });
+    const manifest = {
+        ...manifestBase,
+        provenance: {
+            events: events.length > 0 ? 'observed_custom_events' : 'unavailable',
+            metrics: 'observed',
+            sdk_events: sdkTimeline.summary.sdk_event_timeline,
+        },
+        files: {
+            ...manifestBase.files,
+            sdk_events: sdkEventsObjectKey(basePath),
+        },
+    };
     const quality = {
         schema_version: RESEARCH_SCHEMA_VERSION,
         quality_tier: qualityTier,
@@ -4771,8 +4903,13 @@ async function processBehavioralJob(
         event_count: events.length,
         metrics_only: qualityTier === 'metrics_only',
         ...interactionQualityMetrics(interactions),
+        ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        provenance: manifest.provenance,
         pii_scan: 'passed',
-        warnings: qualityTier === 'metrics_only' ? ['below_min_event_count_but_metrics_present'] : [],
+        warnings: [
+            ...(qualityTier === 'metrics_only' ? ['below_min_event_count_but_metrics_present'] : []),
+            ...sdkTimeline.warnings,
+        ],
     };
 
     if (containsIdentifierRisk({
@@ -4781,6 +4918,7 @@ async function processBehavioralJob(
         events,
         sessionMetrics: metrics,
         labels,
+        sdkEvents: sdkTimeline.rows,
     })) {
         await completeJob(job, {
             status: 'rejected',
@@ -4798,6 +4936,7 @@ async function processBehavioralJob(
     const eventsJsonlBuf = jsonlBuffer(events);
     const metricsBuf = jsonBuffer(metrics);
     const labelsBuf = jsonBuffer(labels);
+    const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
 
     const zipFiles = [
         { name: 'manifest.json', buffer: manifestBuf },
@@ -4805,9 +4944,11 @@ async function processBehavioralJob(
         { name: 'events.jsonl', buffer: eventsJsonlBuf },
         { name: 'session_metrics.json', buffer: metricsBuf },
         { name: 'labels.json', buffer: labelsBuf },
+        { name: SDK_EVENTS_ZIP_ENTRY_NAME, buffer: sdkEventsJsonlBuf },
     ];
-    const [eventsBuf, zipBuffer] = await Promise.all([
+    const [eventsBuf, sdkEventsBuf, zipBuffer] = await Promise.all([
         gzipBuffer(eventsJsonlBuf),
+        gzipBuffer(sdkEventsJsonlBuf),
         createZipArchiveBuffer(zipFiles),
     ]);
     await putResearchObjects([
@@ -4816,6 +4957,7 @@ async function processBehavioralJob(
         { key: `${basePath}/events.jsonl.gz`, body: eventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/session_metrics.json`, body: metricsBuf, contentType: 'application/json' },
         { key: `${basePath}/labels.json`, body: labelsBuf, contentType: 'application/json' },
+        { key: sdkEventsObjectKey(basePath), body: sdkEventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
     ]);
 
@@ -4827,6 +4969,7 @@ async function processBehavioralJob(
         interactionEventCount: events.length,
         uiFrameCount: 0,
         uiSkeletonElementCount: 0,
+        sdkEventTimeline: sdkTimeline.summary,
     });
 
     return 'exported';
@@ -5025,7 +5168,11 @@ function buildV2FlowEdges(interactions: ResearchInteractionRow[]): Record<string
     return edges;
 }
 
-function buildV2Lifecycle(session: SessionContext, labels: Record<string, unknown>): Record<string, unknown> {
+function buildV2Lifecycle(
+    session: SessionContext,
+    labels: Record<string, unknown>,
+    sdkLifecycle?: SdkLifecycleEvidence | null,
+): Record<string, unknown> {
     if ((session.crash_count ?? 0) > 0) {
         return { session_end_taxonomy: 'crashed', confidence: 'high', evidence: 'crash_record' };
     }
@@ -5034,6 +5181,9 @@ function buildV2Lifecycle(session: SessionContext, labels: Record<string, unknow
     }
     if (session.close_source && /successor|supersed|interrupt/i.test(session.close_source)) {
         return { session_end_taxonomy: 'interrupted', confidence: 'medium', evidence: 'server_close_source' };
+    }
+    if (sdkLifecycle?.ended_in_background) {
+        return { session_end_taxonomy: 'backgrounded', confidence: 'medium', evidence: 'observed_app_background' };
     }
     if (session.ended_at && labels.is_conversion_session === false) {
         return { session_end_taxonomy: 'abandoned', confidence: 'low', evidence: 'inferred_non_conversion_end' };
@@ -5196,13 +5346,16 @@ async function processV2InteractionJob(
     }
     const skeleton = [...visualRows.skeleton, ...buildInteractionSkeleton(interactions)];
     const screenVersions = buildV2ScreenVersions(visualRows.frames, skeleton, projectKey);
-    const flowEdges = buildV2FlowEdges(interactions);
+    const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const sdkLifecycle = sdkLifecycleEvidence(sdkTimeline.rows, session);
+    const sdkFlowEdges = sdkTimeline.summary.navigation_timeline_present ? buildSdkFlowEdges(sdkTimeline.rows) : [];
+    const flowEdges: Record<string, unknown>[] = sdkFlowEdges.length > 0 ? sdkFlowEdges : buildV2FlowEdges(interactions);
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const metrics = buildSessionMetrics(session);
     const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
     const capture = await loadV2CaptureContext(session.id);
-    const lifecycle = buildV2Lifecycle(session, labels);
+    const lifecycle = buildV2Lifecycle(session, labels, sdkLifecycle);
     const captureProfile = {
         hierarchy: hierarchyCaptureProfile,
         rrweb: buildRrwebCaptureProfile(visualRows.frames, skeleton),
@@ -5242,14 +5395,19 @@ async function processV2InteractionJob(
         },
         labels,
         provenance: {
-            interactions: 'observed', screenshots: media.archives.length > 0 ? 'observed' : 'unavailable',
-            screen_versions: 'derived', flow_edges: 'derived', lifecycle: lifecycle.evidence === 'insufficient_evidence' ? 'unavailable' : 'inferred',
+            interactions: 'observed_custom_events', screenshots: media.archives.length > 0 ? 'observed' : 'unavailable',
+            sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            screen_versions: 'derived', flow_edges: sdkFlowEdges.length > 0 ? 'observed_navigation_event' : 'derived',
+            lifecycle: lifecycle.evidence === 'observed_app_background'
+                ? 'observed'
+                : lifecycle.evidence === 'insufficient_evidence' ? 'unavailable' : 'inferred',
             experiment_assignment: 'unavailable', authored_copy: 'unavailable',
         },
         files: {
             interactions: `${basePath}/interactions.jsonl.gz`, ui_frames: `${basePath}/ui_frames.jsonl.gz`,
             ui_skeleton: `${basePath}/ui_skeleton.jsonl.gz`, screen_versions: `${basePath}/screen_versions.jsonl.gz`,
             flow_edges: `${basePath}/flow_edges.jsonl.gz`, frame_index: `${basePath}/frame_index.jsonl.gz`,
+            sdk_events: sdkEventsObjectKey(basePath),
             quality: `${basePath}/quality.json`, zip: `${basePath}.zip`, screenshot_archives: media.archives,
         },
     };
@@ -5259,6 +5417,7 @@ async function processV2InteractionJob(
         ...(capture ? [] : ['capture_propensity_unavailable']),
         ...(media.archives.length > 0 ? [] : ['full_resolution_screenshot_archive_unavailable']),
         ...(media.unavailableArtifactCount > 0 ? ['some_screenshot_source_artifacts_unavailable'] : []),
+        ...sdkTimeline.warnings,
     ];
     const quality = {
         schema_version: RESEARCH_SCHEMA_VERSION_V2,
@@ -5268,9 +5427,10 @@ async function processV2InteractionJob(
         unavailable_screenshot_artifact_count: media.unavailableArtifactCount,
         full_resolution_frame_index_count: media.frameIndex.length, ui_skeleton_element_count: skeleton.length,
         screen_version_count: screenVersions.length, flow_edge_count: flowEdges.length,
+        ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
         capture_profile: captureProfile, provenance: manifest.provenance, warnings,
     };
-    if (containsIdentifierRisk({ manifest, quality, interactions, uiFrames: visualRows.frames, skeleton, screenVersions, flowEdges, frameIndex: media.frameIndex })) {
+    if (containsIdentifierRisk({ manifest, quality, interactions, uiFrames: visualRows.frames, skeleton, screenVersions, flowEdges, frameIndex: media.frameIndex, sdkEvents: sdkTimeline.rows })) {
         await completeJob(job, {
             status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: artifacts.length,
             interactionEventCount: interactions.length, uiFrameCount: visualRows.frames.length, uiSkeletonElementCount: skeleton.length,
@@ -5286,6 +5446,7 @@ async function processV2InteractionJob(
     const screenVersionsJsonlBuf = jsonlBuffer(screenVersions);
     const flowEdgesJsonlBuf = jsonlBuffer(flowEdges);
     const frameIndexJsonlBuf = jsonlBuffer(media.frameIndex);
+    const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
     const [
         interactionsBuf,
         uiFramesBuf,
@@ -5293,6 +5454,7 @@ async function processV2InteractionJob(
         screenVersionsBuf,
         flowEdgesBuf,
         frameIndexBuf,
+        sdkEventsBuf,
         zipBuffer,
     ] = await Promise.all([
         gzipBuffer(interactionsJsonlBuf),
@@ -5301,6 +5463,7 @@ async function processV2InteractionJob(
         gzipBuffer(screenVersionsJsonlBuf),
         gzipBuffer(flowEdgesJsonlBuf),
         gzipBuffer(frameIndexJsonlBuf),
+        gzipBuffer(sdkEventsJsonlBuf),
         createZipArchiveBuffer([
             { name: 'manifest.json', buffer: manifestBuf },
             { name: 'quality.json', buffer: qualityBuf },
@@ -5310,6 +5473,7 @@ async function processV2InteractionJob(
             { name: 'screen_versions.jsonl', buffer: screenVersionsJsonlBuf },
             { name: 'flow_edges.jsonl', buffer: flowEdgesJsonlBuf },
             { name: 'frame_index.jsonl', buffer: frameIndexJsonlBuf },
+            { name: SDK_EVENTS_ZIP_ENTRY_NAME, buffer: sdkEventsJsonlBuf },
         ]),
     ]);
     await putResearchObjects([
@@ -5321,11 +5485,13 @@ async function processV2InteractionJob(
         { key: `${basePath}/screen_versions.jsonl.gz`, body: screenVersionsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/flow_edges.jsonl.gz`, body: flowEdgesBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/frame_index.jsonl.gz`, body: frameIndexBuf, contentType: 'application/jsonl+gzip' },
+        { key: sdkEventsObjectKey(basePath), body: sdkEventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
     ]);
     await completeJob(job, {
         status: 'exported', lakePath: basePath, qualityTier: 'usable', sourceArtifactCount: artifacts.length,
         interactionEventCount: interactions.length, uiFrameCount: visualRows.frames.length, uiSkeletonElementCount: skeleton.length,
+        sdkEventTimeline: sdkTimeline.summary,
     });
     await markResearchLakeV2VisualExportComplete(session.id);
     return 'exported';
@@ -5334,6 +5500,7 @@ async function processV2InteractionJob(
 async function processV2BehavioralJob(
     job: ResearchJobRow,
     session: SessionContext,
+    artifacts: ArtifactContext[],
     transactions: { amount_cents: number; reporting_category: string; type: string; }[],
     customEventConfig: any | null,
 ): Promise<'exported' | 'rejected'> {
@@ -5350,7 +5517,9 @@ async function processV2BehavioralJob(
     const labels = buildBehavioralLabels(session, businessContext);
     const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
     const capture = await loadV2CaptureContext(session.id);
-    const lifecycle = buildV2Lifecycle(session, labels);
+    const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const sdkLifecycle = sdkLifecycleEvidence(sdkTimeline.rows, session);
+    const lifecycle = buildV2Lifecycle(session, labels, sdkLifecycle);
     const date = datePart(session.started_at);
     const basePath = `${v2Prefix()}/lake=behavioral_outcomes/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
     const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT
@@ -5385,22 +5554,32 @@ async function processV2BehavioralJob(
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
         labels,
-        provenance: { events: events.length > 0 ? 'observed' : 'unavailable', metrics: 'observed', lifecycle: 'inferred', experiment_assignment: 'unavailable' },
-        files: { events: `${basePath}/events.jsonl.gz`, session_metrics: `${basePath}/session_metrics.json`, labels: `${basePath}/labels.json`, quality: `${basePath}/quality.json`, zip: `${basePath}.zip` },
+        provenance: {
+            events: events.length > 0 ? 'observed_custom_events' : 'unavailable', metrics: 'observed',
+            sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            lifecycle: lifecycle.evidence === 'observed_app_background' ? 'observed' : 'inferred',
+            experiment_assignment: 'unavailable',
+        },
+        files: {
+            events: `${basePath}/events.jsonl.gz`, session_metrics: `${basePath}/session_metrics.json`, labels: `${basePath}/labels.json`,
+            sdk_events: sdkEventsObjectKey(basePath), quality: `${basePath}/quality.json`, zip: `${basePath}.zip`,
+        },
     };
     const quality = {
         schema_version: RESEARCH_SCHEMA_VERSION_V2, quality_tier: qualityTier, source_artifact_count: 0,
         event_count: events.length,
         metrics_only: qualityTier === 'metrics_only',
         metadata_only: qualityTier === 'metadata_only',
+        ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
         pii_scan: 'passed',
         provenance: manifest.provenance,
         warnings: [
             ...(capture ? [] : ['capture_propensity_unavailable']),
             ...(qualityTier === 'metadata_only' ? ['no_behavioral_events_or_metrics'] : []),
+            ...sdkTimeline.warnings,
         ],
     };
-    if (containsIdentifierRisk({ manifest, quality, events, metrics, labels })) {
+    if (containsIdentifierRisk({ manifest, quality, events, metrics, labels, sdkEvents: sdkTimeline.rows })) {
         await completeJob(job, {
             status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: 0,
             interactionEventCount: events.length, uiFrameCount: 0, uiSkeletonElementCount: 0,
@@ -5412,14 +5591,17 @@ async function processV2BehavioralJob(
     const eventsJsonlBuf = jsonlBuffer(events);
     const metricsBuf = jsonBuffer(metrics);
     const labelsBuf = jsonBuffer(labels);
-    const [eventsBuf, zipBuffer] = await Promise.all([
+    const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
+    const [eventsBuf, sdkEventsBuf, zipBuffer] = await Promise.all([
         gzipBuffer(eventsJsonlBuf),
+        gzipBuffer(sdkEventsJsonlBuf),
         createZipArchiveBuffer([
             { name: 'manifest.json', buffer: manifestBuf },
             { name: 'quality.json', buffer: qualityBuf },
             { name: 'events.jsonl', buffer: eventsJsonlBuf },
             { name: 'session_metrics.json', buffer: metricsBuf },
             { name: 'labels.json', buffer: labelsBuf },
+            { name: SDK_EVENTS_ZIP_ENTRY_NAME, buffer: sdkEventsJsonlBuf },
         ]),
     ]);
     await putResearchObjects([
@@ -5428,13 +5610,133 @@ async function processV2BehavioralJob(
         { key: `${basePath}/events.jsonl.gz`, body: eventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}/session_metrics.json`, body: metricsBuf, contentType: 'application/json' },
         { key: `${basePath}/labels.json`, body: labelsBuf, contentType: 'application/json' },
+        { key: sdkEventsObjectKey(basePath), body: sdkEventsBuf, contentType: 'application/jsonl+gzip' },
         { key: `${basePath}.zip`, body: zipBuffer, contentType: 'application/zip' },
     ]);
     await completeJob(job, {
         status: 'exported', lakePath: basePath, qualityTier, sourceArtifactCount: 0,
         interactionEventCount: events.length, uiFrameCount: 0, uiSkeletonElementCount: 0,
+        sdkEventTimeline: sdkTimeline.summary,
     });
     return 'exported';
+}
+
+export type SdkEventTimelineApplyResult = {
+    sessionId: string;
+    status: 'applied' | 'skipped_no_candidates' | 'unavailable' | 'session_unavailable';
+    lanes: number;
+    summary: SdkEventTimelineSummary | null;
+};
+
+type ExportedLaneRow = { id: string; lake_type: string; lake_path: string; schema_version: number };
+
+function mergeSdkEventTimelineIntoSample(
+    manifest: Record<string, unknown>,
+    quality: Record<string, unknown> | null,
+    lakePath: string,
+    timeline: SdkEventTimeline,
+): { manifest: Record<string, unknown>; quality: Record<string, unknown> } {
+    const existingFiles = (manifest.files && typeof manifest.files === 'object' && !Array.isArray(manifest.files))
+        ? manifest.files as Record<string, unknown>
+        : {};
+    const existingProvenance = (manifest.provenance && typeof manifest.provenance === 'object' && !Array.isArray(manifest.provenance))
+        ? manifest.provenance as Record<string, unknown>
+        : {};
+    const lake = typeof manifest.lake === 'string' ? manifest.lake : 'interaction';
+    const provenance: Record<string, unknown> = {
+        ...existingProvenance,
+        ...(lake === 'behavioral_outcomes'
+            ? { events: existingProvenance.events === 'observed' ? 'observed_custom_events' : (existingProvenance.events ?? 'unavailable') }
+            : { interactions: 'observed_custom_events' }),
+        sdk_events: timeline.summary.sdk_event_timeline,
+    };
+    const mergedManifest = {
+        ...manifest,
+        provenance,
+        files: { ...existingFiles, sdk_events: sdkEventsObjectKey(lakePath) },
+    };
+    const existingWarnings = Array.isArray(quality?.warnings) ? quality!.warnings.filter((w): w is string => typeof w === 'string') : [];
+    const mergedQuality = {
+        ...(quality ?? { schema_version: manifest.schema_version ?? RESEARCH_SCHEMA_VERSION }),
+        ...sdkEventTimelineQualityFields(timeline.summary, false),
+        provenance,
+        warnings: Array.from(new Set([...existingWarnings, ...timeline.warnings])),
+    };
+    return { manifest: mergedManifest, quality: mergedQuality };
+}
+
+/**
+ * Attach the SDK event timeline to every exported research sample of a session
+ * that does not carry one yet. Reads the stored manifest and quality documents,
+ * merges the timeline fields additively, writes the timeline file first and the
+ * documents after, then stamps the job rows. Safe to re-run.
+ */
+export async function applySdkEventTimelineToExportedSamples(params: {
+    sessionId: string;
+    dryRun?: boolean;
+    artifactConcurrency?: number;
+}): Promise<SdkEventTimelineApplyResult> {
+    const lanes = await pool.query<ExportedLaneRow>(
+        `
+        SELECT id, lake_type, lake_path, schema_version
+        FROM research_extraction_jobs
+        WHERE session_id = $1
+          AND status = 'exported'
+          AND lake_path IS NOT NULL
+          AND lake_type IN ('interaction', 'behavioral_outcomes')
+          AND sdk_event_timeline_at IS NULL
+        ORDER BY schema_version DESC, lake_type
+        `,
+        [params.sessionId],
+    );
+    if (lanes.rows.length === 0) {
+        return { sessionId: params.sessionId, status: 'skipped_no_candidates', lanes: 0, summary: null };
+    }
+    const { session, artifacts } = await loadSessionContext(params.sessionId);
+    if (!session) {
+        return { sessionId: params.sessionId, status: 'session_unavailable', lanes: lanes.rows.length, summary: null };
+    }
+    const projectKey = hmac(`project:${session.project_id}`, 20);
+    const timeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey, {
+        artifactConcurrency: params.artifactConcurrency,
+    });
+    const unavailable = timeline.summary.sdk_event_timeline === 'unavailable';
+    const sdkEventsBuf = unavailable ? null : await gzipBuffer(jsonlBuffer(timeline.rows));
+    let applied = 0;
+    for (const lane of lanes.rows) {
+        const manifest = await getResearchObjectJson(`${lane.lake_path}/manifest.json`);
+        if (!manifest) {
+            logger.warn({ sessionId: params.sessionId, lakePath: lane.lake_path }, 'SDK event timeline: manifest missing for exported lane');
+            if (!params.dryRun) await stampSdkEventTimeline(lane.id, { ...timeline.summary, sdk_event_timeline: 'unavailable', sdk_event_count: 0 });
+            continue;
+        }
+        const quality = await getResearchObjectJson(`${lane.lake_path}/quality.json`);
+        const merged = mergeSdkEventTimelineIntoSample(manifest, quality, lane.lake_path, timeline);
+        if (containsIdentifierRisk({ manifest: merged.manifest, quality: merged.quality })) {
+            throw new Error(`SDK event timeline: merged documents failed the identifier gate for ${lane.lake_path}`);
+        }
+        if (params.dryRun) { applied += 1; continue; }
+        const objects: ResearchObjectUpload[] = [];
+        if (sdkEventsBuf) {
+            objects.push({ key: sdkEventsObjectKey(lane.lake_path), body: sdkEventsBuf, contentType: 'application/jsonl+gzip' });
+        }
+        // Documents follow the timeline file so a reader never sees a reference to a missing object.
+        await putResearchObjects(objects);
+        await putResearchObjects([
+            { key: `${lane.lake_path}/quality.json`, body: jsonBuffer(merged.quality), contentType: 'application/json' },
+        ]);
+        await putResearchObjects([
+            { key: `${lane.lake_path}/manifest.json`, body: jsonBuffer(merged.manifest), contentType: 'application/json' },
+        ]);
+        await stampSdkEventTimeline(lane.id, timeline.summary);
+        applied += 1;
+    }
+    return {
+        sessionId: params.sessionId,
+        status: unavailable ? 'unavailable' : 'applied',
+        lanes: applied,
+        summary: timeline.summary,
+    };
 }
 
 async function processV2ForwardOutcomesJob(job: ResearchJobRow, session: SessionContext): Promise<'exported' | 'rejected'> {
@@ -5529,7 +5831,7 @@ async function processV2Job(job: ResearchJobRow): Promise<'exported' | 'rejected
     const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
     if (!session) return rejectMissingSession(job);
     if (job.lake_type === 'forward_outcomes') return processV2ForwardOutcomesJob(job, session);
-    if (job.lake_type === 'behavioral_outcomes') return processV2BehavioralJob(job, session, transactions, customEventConfig);
+    if (job.lake_type === 'behavioral_outcomes') return processV2BehavioralJob(job, session, artifacts, transactions, customEventConfig);
     return processV2InteractionJob(job, session, artifacts, transactions, customEventConfig);
 }
 
@@ -6036,6 +6338,9 @@ export const __researchLakeTestInternals = {
     v2ScreenshotArchiveEntry,
     buildV2ScreenVersions,
     buildV2FlowEdges,
+    buildV2Lifecycle,
+    mergeSdkEventTimelineIntoSample,
+    sdkPositionBuckets,
     buildClaimV2JobsSql,
     v2RetryWindowExhausted,
     shouldRefreshV2ReleaseAdoption,

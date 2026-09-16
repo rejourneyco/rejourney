@@ -978,11 +978,22 @@ export const researchExtractionJobs = pgTable(
         jobLane: varchar('job_lane', { length: 32 }).default('retention').notNull(),
         processedAt: timestamp('processed_at'),
         lastError: text('last_error'),
+        // SDK event timeline (sdk_events.jsonl.gz) written for this export.
+        // Null until the timeline has been written; the status records whether
+        // every source events artifact was readable at that time.
+        sdkEventTimelineAt: timestamp('sdk_event_timeline_at'),
+        sdkEventTimeline: varchar('sdk_event_timeline', { length: 16 }),
+        sdkEventCount: integer('sdk_event_count'),
+        sdkEventArtifactCount: integer('sdk_event_artifact_count'),
+        sdkEventArtifactMissingCount: integer('sdk_event_artifact_missing_count'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },
     (table) => [
         uniqueIndex('research_extraction_jobs_session_lake_schema_unique').on(table.sessionId, table.lakeType, table.schemaVersion),
+        index('research_extraction_jobs_sdk_event_timeline_pending_idx')
+            .on(table.sessionId)
+            .where(sql`${table.status} = 'exported' AND ${table.sdkEventTimelineAt} IS NULL AND ${table.lakeType} IN ('interaction', 'behavioral_outcomes')`),
         index('research_extraction_jobs_claim_idx').on(table.lakeType, table.status, table.nextRetryAt, table.dueAt, table.sessionId),
         index('research_extraction_jobs_fair_claim_idx').on(table.lakeType, table.status, table.projectId, table.dueAt, table.createdAt),
         index('research_extraction_jobs_project_status_idx').on(table.projectId, table.lakeType, table.status, table.dueAt),

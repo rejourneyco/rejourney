@@ -1242,3 +1242,110 @@ describe('research lake anonymized payload shape', () => {
         })).toBe(false);
     });
 });
+
+describe('research lake SDK event timeline integration', () => {
+    const baseSession = {
+        id: 'session-sdk',
+        crash_count: 0,
+        explicit_ended_at: null,
+        close_source: null,
+        ended_at: new Date('2026-08-10T07:22:20.076Z'),
+        started_at: new Date('2026-08-10T07:18:17.588Z'),
+    } as any;
+
+    it('classifies a session that ended in the background from observed lifecycle rows', () => {
+        const inferred = __researchLakeTestInternals.buildV2Lifecycle(baseSession, { is_conversion_session: false }, null);
+        expect(inferred).toMatchObject({ session_end_taxonomy: 'abandoned', evidence: 'inferred_non_conversion_end' });
+
+        const observed = __researchLakeTestInternals.buildV2Lifecycle(baseSession, { is_conversion_session: false }, {
+            background_count: 1, foreground_count: 0, last_lifecycle_type: 'app_background', last_app_background_elapsed_ms: 240_000, ended_in_background: true,
+        });
+        expect(observed).toEqual({ session_end_taxonomy: 'backgrounded', confidence: 'medium', evidence: 'observed_app_background' });
+
+        const crashed = __researchLakeTestInternals.buildV2Lifecycle({ ...baseSession, crash_count: 1 }, {}, {
+            background_count: 1, foreground_count: 0, last_lifecycle_type: 'app_background', last_app_background_elapsed_ms: 1, ended_in_background: true,
+        });
+        expect(crashed.session_end_taxonomy).toBe('crashed');
+    });
+
+    it('merges the timeline into stored manifest and quality documents additively', () => {
+        const timeline = {
+            rows: [],
+            warnings: ['sdk_event_artifacts_partially_unavailable'],
+            summary: {
+                sdk_event_timeline: 'partial' as const,
+                sdk_event_artifact_count: 4,
+                sdk_event_artifact_missing_count: 1,
+                sdk_event_artifact_oversized_count: 0,
+                sdk_event_count: 120,
+                sdk_event_clock_out_of_range_count: 0,
+                sdk_event_unrecognized_count: 0,
+                sdk_event_type_counts: { touch: 100, navigation: 20 },
+                touch_timeline_present: true,
+                navigation_timeline_present: true,
+                lifecycle_timeline_present: false,
+                network_timeline_present: false,
+                sdk_event_row_limit_reached: false,
+            },
+        };
+        const merged = __researchLakeTestInternals.mergeSdkEventTimelineIntoSample(
+            {
+                schema_version: 2, lake: 'interaction', custom_field: 'kept',
+                provenance: { interactions: 'observed', screenshots: 'observed', flow_edges: 'derived' },
+                files: { interactions: 'v2/x/interactions.jsonl.gz', quality: 'v2/x/quality.json' },
+            },
+            { schema_version: 2, quality_tier: 'usable', warnings: ['hierarchy_sparse_timeline'], other: 1 },
+            'v2/x',
+            timeline,
+        );
+        expect(merged.manifest.custom_field).toBe('kept');
+        expect(merged.manifest.files).toEqual({
+            interactions: 'v2/x/interactions.jsonl.gz', quality: 'v2/x/quality.json', sdk_events: 'v2/x/sdk_events.jsonl.gz',
+        });
+        expect(merged.manifest.provenance).toEqual({
+            interactions: 'observed_custom_events', screenshots: 'observed', flow_edges: 'derived', sdk_events: 'partial',
+        });
+        expect(merged.quality).toMatchObject({
+            quality_tier: 'usable', other: 1, sdk_event_timeline: 'partial', sdk_event_count: 120,
+            touch_timeline_present: true, sdk_events_zip_entry_present: false,
+            warnings: ['hierarchy_sparse_timeline', 'sdk_event_artifacts_partially_unavailable'],
+        });
+        expect(__researchLakeTestInternals.containsIdentifierRisk(merged)).toBe(false);
+
+        const behavioral = __researchLakeTestInternals.mergeSdkEventTimelineIntoSample(
+            { schema_version: 1, lake: 'behavioral_outcomes', provenance: { events: 'observed' }, files: {} },
+            null,
+            'v1/y',
+            timeline,
+        );
+        expect(behavioral.manifest.provenance).toMatchObject({ events: 'observed_custom_events', sdk_events: 'partial' });
+        expect(behavioral.quality.schema_version).toBe(1);
+    });
+
+    it('maps logical points onto the shared replay grid', () => {
+        const buckets = __researchLakeTestInternals.sdkPositionBuckets(319, 716, 414, 896);
+        expect(buckets).toEqual({ x_norm_bucket: 770, y_norm_bucket: 800, x_cell: 49, y_cell: 102 });
+        expect(__researchLakeTestInternals.sdkPositionBuckets(1, 1, null, null)).toEqual({
+            x_norm_bucket: null, y_norm_bucket: null, x_cell: null, y_cell: null,
+        });
+    });
+
+    it('records the timeline on job rows with an additive migration', () => {
+        const migrationSql = readFileSync(
+            `${process.cwd()}/drizzle/20260916120000_research_lake_sdk_event_timeline/migration.sql`,
+            'utf8',
+        );
+        for (const column of ['sdk_event_timeline_at', 'sdk_event_timeline', 'sdk_event_count', 'sdk_event_artifact_count', 'sdk_event_artifact_missing_count']) {
+            expect(migrationSql).toContain(`ADD COLUMN IF NOT EXISTS "${column}"`);
+        }
+        expect(migrationSql).toContain('CREATE INDEX IF NOT EXISTS "research_extraction_jobs_sdk_event_timeline_pending_idx"');
+        expect(migrationSql).not.toMatch(/DROP|DELETE|UPDATE|NOT NULL/);
+
+        const serviceSource = readFileSync(`${process.cwd()}/src/services/researchLake.ts`, 'utf8');
+        expect(serviceSource).toContain("sdk_event_timeline_at = CASE WHEN $10::text IS NULL THEN sdk_event_timeline_at ELSE NOW() END");
+        expect(serviceSource).toContain('export async function applySdkEventTimelineToExportedSamples');
+        // Every export lane writes the timeline file and stamps its summary.
+        expect((serviceSource.match(/sdkEventTimeline: sdkTimeline\.summary,/g) ?? []).length).toBe(4);
+        expect((serviceSource.match(/key: sdkEventsObjectKey\(basePath\)/g) ?? []).length).toBe(4);
+    });
+});
