@@ -74,6 +74,11 @@ const RESEARCH_LAKE_V2_TYPES = ['interaction', 'behavioral_outcomes', 'forward_o
 const STALE_PROCESSING_BUFFER_MS = 10 * 60 * 1000;
 const RESEARCH_EMPTY_SEED_RETRY_MS = 5 * 60 * 1000;
 const RESEARCH_V2_EMPTY_SEED_RETRY_MS = 15 * 60 * 1000;
+// Backfill pauses only when failures are both several and a real share of attempts.
+const RESEARCH_V2_BACKFILL_FAILURE_TOLERANCE = 0.05;
+// Empty claim rounds a pod tolerates (with a short wait each) before exiting the tick.
+const RESEARCH_V2_IDLE_ROUNDS_BEFORE_EXIT = 3;
+const RESEARCH_V2_IDLE_ROUND_WAIT_MS = 20_000;
 
 const require = createRequire(import.meta.url);
 const jpeg = require('jpeg-js') as {
@@ -6404,9 +6409,15 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     const drainBufferMs = Math.min(Math.max(0, maxRuntimeMs - 30_000), configuredDrainBufferMs);
     const workDeadlineAtMs = deadlineAtMs - drainBufferMs;
     let nextEmptyBackfillSeedRetryAtMs = 0;
+    let idleRounds = 0;
 
     while (Date.now() < workDeadlineAtMs) {
-        const pauseBackfill = summary.failed > 0 || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
+        // A single transient failure (an S3 connect timeout, a verification
+        // retry) must not park the backfill lane for the rest of the tick; only
+        // a failure share above the tolerance does.
+        const failureShare = summary.attempted > 0 ? summary.failed / summary.attempted : 0;
+        const failuresExcessive = summary.failed >= 3 && failureShare > RESEARCH_V2_BACKFILL_FAILURE_TOLERANCE;
+        const pauseBackfill = failuresExcessive || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
         let seededThisRound = 0;
         let seedSkipped = false;
         if (!pauseBackfill && seedLimit > 0
@@ -6473,8 +6484,19 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
             }
         }
         addV2LaneSummaryTotals(summary);
-        if (claimed === 0 && (pauseBackfill || seedLimit === 0)) break;
-        if (claimed === 0 && seededThisRound === 0 && !seedSkipped) break;
+        if (claimed === 0) {
+            // With several pods sharing a tick, one empty claim round usually
+            // means a sibling holds the rows in flight, not that the queue is
+            // done. Wait briefly and look again before giving up the slot.
+            idleRounds += 1;
+            if (idleRounds >= RESEARCH_V2_IDLE_ROUNDS_BEFORE_EXIT) {
+                if (pauseBackfill || seedLimit === 0) break;
+                if (seededThisRound === 0 && !seedSkipped) break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, RESEARCH_V2_IDLE_ROUND_WAIT_MS));
+            continue;
+        }
+        idleRounds = 0;
     }
     addV2LaneSummaryTotals(summary);
     summary.durationMs = Date.now() - startedAt;
