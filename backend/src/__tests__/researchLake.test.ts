@@ -264,6 +264,7 @@ describe('research lake anonymized payload shape', () => {
     it('keeps a pod alive through momentary empty rounds and tolerates isolated failures', () => {
         const source = readFileSync(`${process.cwd()}/src/services/researchLake.ts`, 'utf8');
         expect(source).toContain('const failuresExcessive = summary.failed >= 3 && failureShare > RESEARCH_V2_BACKFILL_FAILURE_TOLERANCE;');
+        expect(source).toContain('summary.attempted >= RESEARCH_V2_FAILURE_SAMPLE_MIN ? summary.failed / summary.attempted : 0');
         expect(source).toContain('const pauseBackfill = failuresExcessive || v2MemoryPressureHigh()');
         expect(source).not.toContain('const pauseBackfill = summary.failed > 0');
         expect(source).toContain('if (idleRounds >= RESEARCH_V2_IDLE_ROUNDS_BEFORE_EXIT) {');

@@ -76,6 +76,8 @@ const RESEARCH_EMPTY_SEED_RETRY_MS = 5 * 60 * 1000;
 const RESEARCH_V2_EMPTY_SEED_RETRY_MS = 15 * 60 * 1000;
 // Backfill pauses only when failures are both several and a real share of attempts.
 const RESEARCH_V2_BACKFILL_FAILURE_TOLERANCE = 0.05;
+// Attempts a tick must have made before the failure share can pause backfill.
+const RESEARCH_V2_FAILURE_SAMPLE_MIN = 100;
 // Empty claim rounds a pod tolerates (with a short wait each) before exiting the tick.
 const RESEARCH_V2_IDLE_ROUNDS_BEFORE_EXIT = 3;
 const RESEARCH_V2_IDLE_ROUND_WAIT_MS = 20_000;
@@ -6415,7 +6417,9 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         // A single transient failure (an S3 connect timeout, a verification
         // retry) must not park the backfill lane for the rest of the tick; only
         // a failure share above the tolerance does.
-        const failureShare = summary.attempted > 0 ? summary.failed / summary.attempted : 0;
+        // Judge the share only once the sample is large enough to mean something:
+        // three failures in the first dozen attempts of a tick is noise, not a trend.
+        const failureShare = summary.attempted >= RESEARCH_V2_FAILURE_SAMPLE_MIN ? summary.failed / summary.attempted : 0;
         const failuresExcessive = summary.failed >= 3 && failureShare > RESEARCH_V2_BACKFILL_FAILURE_TOLERANCE;
         const pauseBackfill = failuresExcessive || v2MemoryPressureHigh() || v2CpuPressureHigh() || await v2FreshJobsLagging();
         let seededThisRound = 0;
