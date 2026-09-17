@@ -155,6 +155,8 @@ const envSchema = z.object({
     RESEARCH_LAKE_V2_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
     RESEARCH_LAKE_V2_DRAIN_BUFFER_MS: z.string().transform(Number).default('30000'),
     RESEARCH_LAKE_V2_BACKFILL_PERCENT: z.string().transform(Number).default('20'),
+    // Share of each batch for the forward-outcomes lane; the rest splits evenly between interaction and behavioral.
+    RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT: z.string().transform(Number).default('34'),
     RESEARCH_LAKE_V2_SEED_MULTIPLIER: z.string().transform(Number).default('2'),
     RESEARCH_LAKE_V2_SPINE_RATE_BPS: z.string().transform(Number).default('300'),
     RESEARCH_LAKE_V2_UNIFORM_RATE_BPS: z.string().transform(Number).default('200'),

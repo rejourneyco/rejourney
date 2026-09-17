@@ -1,6 +1,6 @@
 {
   "name": "rejourney-monorepo",
-  "version": "4.1.98",
+  "version": "4.1.99",
   "private": true,
   "description": "Rejourney Monorepo - Session Recording Platform",
   "workspaces": [

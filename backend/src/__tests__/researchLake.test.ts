@@ -261,6 +261,13 @@ describe('research lake anonymized payload shape', () => {
         expect(__researchLakeTestInternals.buildReleaseUnstartedResearchJobsSql()).toContain('claimed_by = NULL');
     });
 
+    it('weights recording-bound lanes over forward outcomes by configuration', () => {
+        const source = readFileSync(`${process.cwd()}/src/services/researchLake.ts`, 'utf8');
+        expect(source).toContain('config.RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT');
+        expect(source).toContain('const freshLimit = freshLimitFor(lakeType);');
+        expect(source).toContain('const backfillLimit = backfillLimitFor(lakeType);');
+    });
+
     it('lets the backfill lane absorb capacity the fresh lane leaves unused', () => {
         const source = readFileSync(`${process.cwd()}/src/services/researchLake.ts`, 'utf8');
         expect(source).toContain("const spareForBackfill = Math.max(0, freshLimit - freshJobs.length);");

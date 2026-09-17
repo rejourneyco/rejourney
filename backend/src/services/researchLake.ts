@@ -6385,8 +6385,16 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     const backfillPercent = Math.max(0, Math.min(80, Math.trunc(config.RESEARCH_LAKE_V2_BACKFILL_PERCENT)));
     const totalBackfillLimit = Math.floor(batchSize * backfillPercent / 100);
     const totalFreshLimit = batchSize - totalBackfillLimit;
-    const freshLimit = Math.max(1, Math.ceil(totalFreshLimit / RESEARCH_LAKE_V2_TYPES.length));
-    const backfillLimit = Math.floor(totalBackfillLimit / RESEARCH_LAKE_V2_TYPES.length);
+    // Recording-bound lanes race retention; forward outcomes are cheap DB rows
+    // with no purge deadline. Weight each lane's share of the batch accordingly.
+    const laneShare = (lakeType: ResearchLakeV2Type): number => {
+        const weight = lakeType === 'forward_outcomes'
+            ? Math.max(0, Math.min(100, Math.trunc(config.RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT)))
+            : Math.max(0, 100 - Math.max(0, Math.min(100, Math.trunc(config.RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT)))) / 2;
+        return weight / 100;
+    };
+    const freshLimitFor = (lakeType: ResearchLakeV2Type): number => Math.max(1, Math.ceil(totalFreshLimit * laneShare(lakeType)));
+    const backfillLimitFor = (lakeType: ResearchLakeV2Type): number => Math.floor(totalBackfillLimit * laneShare(lakeType));
     const seedLimit = totalBackfillLimit * Math.max(1, Math.trunc(config.RESEARCH_LAKE_V2_SEED_MULTIPLIER));
     const maxRuntimeMs = Math.max(30_000, Math.trunc(config.RESEARCH_LAKE_V2_MAX_RUNTIME_MS));
     const startedAt = Date.now();
@@ -6424,6 +6432,8 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         let claimed = 0;
         for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
             if (Date.now() >= workDeadlineAtMs) break;
+            const freshLimit = freshLimitFor(lakeType);
+            const backfillLimit = backfillLimitFor(lakeType);
             const freshJobs = await claimV2Jobs(lakeType, 'fresh', freshLimit);
             // Capacity the fresh lane did not use is not left idle while a
             // backlog waits; the backlog can never take fresh's own share.
