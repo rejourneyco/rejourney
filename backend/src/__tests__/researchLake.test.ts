@@ -261,6 +261,13 @@ describe('research lake anonymized payload shape', () => {
         expect(__researchLakeTestInternals.buildReleaseUnstartedResearchJobsSql()).toContain('claimed_by = NULL');
     });
 
+    it('lets the backfill lane absorb capacity the fresh lane leaves unused', () => {
+        const source = readFileSync(`${process.cwd()}/src/services/researchLake.ts`, 'utf8');
+        expect(source).toContain("const spareForBackfill = Math.max(0, freshLimit - freshJobs.length);");
+        expect(source).toContain("claimV2Jobs(lakeType, 'backfill', backfillLimit + spareForBackfill)");
+        expect(source).toContain('Math.min(80, Math.trunc(config.RESEARCH_LAKE_V2_BACKFILL_PERCENT))');
+    });
+
     it('orders V2 claims by the soonest source purge while keeping projects fair', () => {
         const sql = __researchLakeTestInternals.buildClaimV2JobsSql();
         expect(sql).toContain('MIN(COALESCE(purge_at, due_at)) AS oldest_purge_at');

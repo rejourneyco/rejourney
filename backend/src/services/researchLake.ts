@@ -6380,7 +6380,9 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
     }
 
     const batchSize = Math.max(2, Math.trunc(config.RESEARCH_LAKE_V2_BATCH_SIZE));
-    const backfillPercent = Math.max(0, Math.min(20, Math.trunc(config.RESEARCH_LAKE_V2_BACKFILL_PERCENT)));
+    // The manifest sets the backfill share; fresh work keeps first call on its
+    // own share, and whatever fresh leaves unclaimed also goes to backfill.
+    const backfillPercent = Math.max(0, Math.min(80, Math.trunc(config.RESEARCH_LAKE_V2_BACKFILL_PERCENT)));
     const totalBackfillLimit = Math.floor(batchSize * backfillPercent / 100);
     const totalFreshLimit = batchSize - totalBackfillLimit;
     const freshLimit = Math.max(1, Math.ceil(totalFreshLimit / RESEARCH_LAKE_V2_TYPES.length));
@@ -6423,7 +6425,10 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         for (const lakeType of RESEARCH_LAKE_V2_TYPES) {
             if (Date.now() >= workDeadlineAtMs) break;
             const freshJobs = await claimV2Jobs(lakeType, 'fresh', freshLimit);
-            const backfillJobs = pauseBackfill ? [] : await claimV2Jobs(lakeType, 'backfill', backfillLimit);
+            // Capacity the fresh lane did not use is not left idle while a
+            // backlog waits; the backlog can never take fresh's own share.
+            const spareForBackfill = Math.max(0, freshLimit - freshJobs.length);
+            const backfillJobs = pauseBackfill ? [] : await claimV2Jobs(lakeType, 'backfill', backfillLimit + spareForBackfill);
             const jobs = [...freshJobs, ...backfillJobs];
             claimed += jobs.length;
             const batchResult = await runBoundedConcurrentBatch(
