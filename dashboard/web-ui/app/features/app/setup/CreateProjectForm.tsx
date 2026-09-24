@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Check, Globe } from 'lucide-react';
+import { AlertTriangle, Check, Globe, Gamepad2 } from 'lucide-react';
 import { AppleBrandIcon, FlutterBrandIcon, ReactBrandIcon } from '~/shared/ui/core/PlatformBrandIcon';
 import { createProject, updateProject, type ApiTeam } from '~/shared/api/client';
 import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
@@ -18,6 +18,7 @@ const platformIcons: Record<SetupIntegration, React.ElementType> = {
   web: Globe,
   'react-native': ReactBrandIcon,
   flutter: FlutterBrandIcon,
+  unity: Gamepad2,
   ios: AppleBrandIcon,
 };
 
@@ -36,8 +37,8 @@ function togglePlatform(platforms: SetupIntegration[], platform: SetupIntegratio
     return platforms.filter((current) => current !== platform);
   }
 
-  if (platform === 'react-native' || platform === 'flutter' || platform === 'ios') {
-    return [...platforms.filter((current) => !['react-native', 'flutter', 'ios'].includes(current)), platform];
+  if (platform === 'react-native' || platform === 'flutter' || platform === 'unity' || platform === 'ios') {
+    return [...platforms.filter((current) => !['react-native', 'flutter', 'unity', 'ios'].includes(current)), platform];
   }
   return [...platforms, platform];
 }
@@ -95,7 +96,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const includesReactNative = selectedPlatforms.includes('react-native');
   const includesFlutter = selectedPlatforms.includes('flutter');
   const includesIos = selectedPlatforms.includes('ios');
-  const includesCrossPlatformMobile = includesReactNative || includesFlutter;
+  const includesCrossPlatformMobile = includesReactNative || includesFlutter || selectedPlatforms.includes('unity');
   const hasLegacyNativeAndroid = hasUnsupportedNativeAndroid(projectToEdit?.platforms) && !includesCrossPlatformMobile;
   const showIosIdentifier = includesIos || includesCrossPlatformMobile;
   const showAndroidIdentifier = includesCrossPlatformMobile;
@@ -103,9 +104,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const iosBundleIdError = showIosIdentifier && bundleId.trim() ? getIosBundleIdError(bundleId.trim()) : null;
   const androidPackageError = showAndroidIdentifier && packageName.trim() ? getAndroidPackageError(packageName.trim()) : null;
   const missingRequiredIosId = includesIos && !bundleId.trim();
-  const missingReactNativeIdentifiers = includesReactNative && !bundleId.trim() && !packageName.trim();
-  const missingFlutterIdentifiers = includesFlutter && !bundleId.trim() && !packageName.trim();
-  const missingCrossPlatformIdentifiers = missingReactNativeIdentifiers || missingFlutterIdentifiers;
+  const missingCrossPlatformIdentifiers = includesCrossPlatformMobile && !bundleId.trim() && !packageName.trim();
 
   const projectNameIsEmpty = !projectName.trim();
   const webIsEmpty = !webAllowedDomains.trim();

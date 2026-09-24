@@ -296,7 +296,7 @@ export function buildWebAttributionMetadata(event: any): Record<string, string> 
     return updates;
 }
 
-function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | boolean> {
+export function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | boolean> {
     const updates: Record<string, string | boolean> = {};
     const assign = (key: string, value: unknown, maxLength = 512) => {
         if (typeof value === 'boolean') {
@@ -316,6 +316,11 @@ function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | bo
     assign('effectiveConnectionType', deviceInfo?.effectiveConnectionType, 128);
     assign('connectionSaveData', deviceInfo?.connectionSaveData);
     assign('sdkVersion', normalizeIngestSdkVersion(deviceInfo?.sdkVersion), 50);
+    // Integration family is independent of the session operating system.
+    for (const key of ['sdkFamily', 'unityVersion', 'scriptingBackend', 'graphicsApi', 'renderPipeline', 'buildIdentifier']) {
+        assign(key, deviceInfo?.[key], 128);
+    }
+
     assign('appVersion', normalizeIngestAppVersion({
         platform: deviceInfo?.platform,
         os: deviceInfo?.os,
@@ -674,6 +679,8 @@ export async function processEventsArtifact(
 
         const type = (event.type || '').toLowerCase();
         const gestureType = (event.gestureType || '').toLowerCase();
+        const rageEligible = event.rageEligible !== false && event.properties?.rageEligible !== false;
+        if (!rageEligible) recentTaps.length = 0;
 
         const rawPauseTransition = extractSdkPauseTransitionFromEvent(event);
         const pauseTransition = rawPauseTransition
@@ -723,7 +730,7 @@ export async function processEventsArtifact(
             } else {
                 // Match native-package rage semantics for older tap-only
                 // Swift 0.2.x / RN 1.2.x uploads: 3 nearby taps within 1s.
-                const isRageTap = registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
+                const isRageTap = rageEligible && registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
                 if (isRageTap) rageTapCount++;
 
                 // Record touch coordinate for heatmap (if we have a current screen)
@@ -776,7 +783,7 @@ export async function processEventsArtifact(
                         } else if (gestureScreen) {
                             // Track for old native tap streams that did not
                             // emit explicit rage_tap events. See utility docs.
-                            const isRageTap = registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
+                            const isRageTap = rageEligible && registerTapForIngestRageInference(recentTaps, { x: tapX, y: tapY, timestamp: tapTime });
                             if (isRageTap) {
                                 rageTapCount++;
                             }

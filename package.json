@@ -1,10 +1,11 @@
 {
   "name": "rejourney-monorepo",
-  "version": "4.1.101",
+  "version": "4.1.102",
   "private": true,
   "description": "Rejourney Monorepo - Session Recording Platform",
   "workspaces": [
-    "packages/*",
+    "packages/react-native",
+    "packages/browser",
     "backend",
     "dashboard/web-ui"
   ],

@@ -128,6 +128,20 @@ type ResearchJobRow = {
     created_at?: Date;
 };
 
+/** Export bounded engine context without copying arbitrary custom metadata. */
+export function unityResearchRuntime(metadata: unknown): Record<string, string> {
+    const data = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? metadata as Record<string, unknown> : {};
+    if (data.sdkFamily !== 'unity') return {};
+    const result: Record<string, string> = { sdk_family: 'unity' };
+    if (typeof data.unityVersion === 'string' && /^\d{4}\.\d{1,2}\.\d{1,3}[abfp]\d{1,3}$/.test(data.unityVersion)) result.unity_version = data.unityVersion;
+    if (data.scriptingBackend === 'il2cpp' || data.scriptingBackend === 'mono') result.scripting_backend = data.scriptingBackend;
+    if (typeof data.graphicsApi === 'string' && ['Metal', 'Vulkan', 'OpenGLES3', 'OpenGLCore'].includes(data.graphicsApi)) result.graphics_api = data.graphicsApi;
+    if (typeof data.renderPipeline === 'string' && ['built-in', 'UniversalRenderPipelineAsset', 'HDRenderPipelineAsset'].includes(data.renderPipeline)) result.render_pipeline = data.renderPipeline;
+    if (typeof data.buildIdentifier === 'string' && /^(?:[a-f\d]{32}|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i.test(data.buildIdentifier)) result.build_identifier = data.buildIdentifier.toLowerCase();
+    return result;
+}
+
 type SessionContext = {
     id: string;
     project_id: string;
@@ -4696,6 +4710,7 @@ function buildBehavioralManifest(params: {
         platform: session.platform || 'unknown',
         app_version_bucket: coarseAppVersion(session.app_version),
         sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        ...unityResearchRuntime(session.metadata),
         duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
         retention_days: session.retention_days,
         source: {
@@ -4805,6 +4820,7 @@ async function processInteractionJob(
         platform: session.platform || 'unknown',
         app_version_bucket: coarseAppVersion(session.app_version),
         sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        ...unityResearchRuntime(session.metadata),
         duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
         retention_days: session.retention_days,
         source: artifactsSummary,
@@ -5476,6 +5492,7 @@ async function processV2InteractionJob(
         release_id: session.app_version || null,
         app_version_bucket: coarseAppVersion(session.app_version),
         sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        ...unityResearchRuntime(session.metadata),
         duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 24 * 60 * 60),
         retention_days: session.retention_days,
         source: artifactSummary(artifacts),
@@ -5633,7 +5650,8 @@ async function processV2BehavioralJob(
         lake: 'behavioral_outcomes', project_key: projectKey, sample_key: lakeSampleKey, sample_date: date,
         session_start_ts_utc: session.started_at.toISOString(), platform: session.platform || 'unknown',
         release_id: session.app_version || null, app_version_bucket: coarseAppVersion(session.app_version),
-        sdk_version_bucket: coarseAppVersion(session.sdk_version), duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 86_400),
+        sdk_version_bucket: coarseAppVersion(session.sdk_version),
+        ...unityResearchRuntime(session.metadata), duration_seconds_bucket: bucketNumber(session.duration_seconds, 30, 0, 86_400),
         retention_days: session.retention_days,
         source: {
             reason: behavioralSourceReason(session),

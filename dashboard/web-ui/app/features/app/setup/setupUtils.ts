@@ -1,6 +1,6 @@
 import type { Project } from '~/shared/types';
 
-export type SetupIntegration = 'web' | 'ios' | 'react-native' | 'flutter';
+export type SetupIntegration = 'web' | 'ios' | 'react-native' | 'flutter' | 'unity';
 export const SETUP_GATE_TOAST = "You can't have a Chicken before the Egg...Finish Setup";
 
 export const SETUP_PLATFORM_OPTIONS: Array<{
@@ -28,6 +28,12 @@ export const SETUP_PLATFORM_OPTIONS: Array<{
     description: 'Dart apps using the native iOS and Android Flutter plugin.',
   },
   {
+    id: 'unity',
+    label: 'Unity',
+    shortLabel: 'Unity',
+    description: 'Unity mobile games on iOS and Android.',
+  },
+  {
     id: 'ios',
     label: 'Native iOS',
     shortLabel: 'iOS',
@@ -40,7 +46,9 @@ export function normalizeSetupIntegrations(platforms: readonly string[] | null |
   const integrations: SetupIntegration[] = [];
 
   if (values.has('web')) integrations.push('web');
-  if (values.has('react-native')) {
+  if (values.has('unity')) {
+    integrations.push('unity');
+  } else if (values.has('react-native')) {
     integrations.push('react-native');
   } else if (values.has('flutter')) {
     integrations.push('flutter');
@@ -53,7 +61,7 @@ export function normalizeSetupIntegrations(platforms: readonly string[] | null |
 
 export function hasUnsupportedNativeAndroid(platforms: readonly string[] | null | undefined): boolean {
   const values = new Set(platforms ?? []);
-  return values.has('android') && !values.has('react-native') && !values.has('flutter');
+  return values.has('android') && !values.has('react-native') && !values.has('flutter') && !values.has('unity');
 }
 
 export function formatSetupPlatform(platform: string): string {
@@ -62,6 +70,7 @@ export function formatSetupPlatform(platform: string): string {
   if (platform === 'web') return 'Web';
   if (platform === 'react-native') return 'React Native';
   if (platform === 'flutter') return 'Flutter';
+  if (platform === 'unity') return 'Unity';
   return platform;
 }
 

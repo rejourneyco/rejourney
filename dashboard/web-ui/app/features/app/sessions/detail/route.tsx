@@ -1,3 +1,4 @@
+import { UnityRuntimeContext } from "./UnityRuntimeContext";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useLocation, useNavigate } from 'react-router';
@@ -1884,6 +1885,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             return type === 'rage_tap' || getEventGestureKind(e) === 'rage_tap';
         });
         const taps = sessionEvents.filter(e => {
+            if ((e as any).rageEligible === false || e.properties?.rageEligible === false || e.payload?.rageEligible === false) return false;
             // Keep replay inference compatible with older native SDKs that only
             // emitted `type: "touch", gestureType: "tap"` while ensuring
             // keyboard-area taps never become rage indicators.
@@ -2488,6 +2490,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     // Get device dimensions - try multiple fallbacks for Android compatibility
     // Android may not always have deviceInfo.screenWidth/Height or hierarchy snapshots
     const inferredDimensions = useMemo(() => {
+        // Unity viewport geometry may change with orientation during the session.
+        if ((fullSession as any)?.metadata?.sdkFamily === 'unity') {
+            const prior = hierarchySnapshots.filter(snapshot => snapshot.timestamp <= currentPlaybackRawTimestamp);
+            const current = prior[prior.length - 1] || hierarchySnapshots[0];
+            if (current?.screen?.width && current?.screen?.height) return { width: current.screen.width, height: current.screen.height };
+        }
         // 1. Try deviceInfo first (iOS always has this)
         if (fullSession?.deviceInfo?.screenWidth && fullSession?.deviceInfo?.screenHeight) {
             return {
@@ -2541,7 +2549,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 	            return { width: 1080, height: 2400 }; // Common Android resolution
 	        }
         return { width: 375, height: 812 }; // iPhone X/11/12/13/14 default
-    }, [fullSession, hierarchySnapshots]);
+    }, [fullSession, hierarchySnapshots, currentPlaybackRawTimestamp]);
 
     const deviceWidth = inferredDimensions.width;
     const deviceHeight = inferredDimensions.height;
@@ -2940,17 +2948,24 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
         const recentTouchEvents = (fullSession.events || [])
             .filter((e) => {
+                if ((fullSession as any)?.metadata?.sdkFamily === 'unity') {
+                    const width = Number((e as any).screenWidth ?? e.properties?.screenWidth);
+                    const height = Number((e as any).screenHeight ?? e.properties?.screenHeight);
+                    // An old-orientation touch must not be painted on the new viewport.
+                    if (width > 0 && height > 0 && (width !== screenWidth || height !== screenHeight)) return false;
+                }
                 const eventTime = e.timestamp;
                 const timeDiff = currentAbsoluteTime - eventTime;
                 const type = normalizeEventType(e.type);
                 const gestureKind = getEventGestureKind(e);
                 const isFrustrationTap = type === 'rage_tap' || type === 'dead_tap' ||
                     gestureKind === 'rage_tap' || gestureKind === 'dead_tap';
-                const isGestureEvent = type === 'touch' || type === 'gesture' || isFrustrationTap;
+                const isUnityMotion = (fullSession as any)?.metadata?.sdkFamily === 'unity' && type === 'motion';
+                const isGestureEvent = type === 'touch' || type === 'gesture' || isFrustrationTap || isUnityMotion;
                 const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
                 const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
                 // Use wider window for gesture events (swipe/scroll need more time to be visible)
-                const maxAge = isFrustrationTap ? 1800 : (type === 'gesture') ? 1500 : 1000;
+                const maxAge = isUnityMotion ? 100 : isFrustrationTap ? 1800 : (type === 'gesture') ? 1500 : 1000;
                 return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < maxAge;
             })
             .map((e) => {
@@ -6011,6 +6026,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                             )}
                             {canShowWorkbenchTools && activeWorkbenchTab === 'metadata' && (
                                 <div className="absolute inset-0 flex flex-col bg-[#f8fafc] overflow-auto">
+                                    <UnityRuntimeContext metadata={rawMetadata} events={allTimelineEvents} onSeek={timestamp => handleSeekToTime(eventTimestampToPlaybackSeconds(timestamp))} />
                                     <div className="border-b-2 border-black bg-[#f8fafc] px-4 py-3 sticky top-0 z-10">
                                         <div className="replay-panel-header flex items-center justify-between gap-2">
                                             <div>

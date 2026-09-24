@@ -161,5 +161,16 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(prompt).toContain('pk_live_flutter_123');
     expect(prompt).toContain('RejourneyMask');
     expect(prompt).not.toContain('IF SWIFT');
+    expect(prompt).not.toContain('IF UNITY');
+  });
+  it('offers Unity setup once for projects with both mobile identifiers', () => {
+    const project = { publicKey: 'rj_synthetic_unity', platforms: ['unity', 'ios', 'android'], bundleId: 'co.rejourney.arcadelab', packageName: 'co.rejourney.arcadelab' };
+    expect(getAIPromptIdsForProject(project)).toEqual(['unity']);
+    const prompt = buildProjectAIPromptById('unity', project);
+    expect(prompt).toContain('RejourneySDK.Rejourney.Init("rj_synthetic_unity"');
+    expect(prompt).toContain('- Selected platforms: Unity');
+    expect(prompt).not.toContain('PUBLIC_KEY_HERE');
+    expect(prompt).not.toContain('IF SWIFT');
+    expect(AI_INTEGRATION_PROMPT).toContain('IF UNITY');
   });
 });

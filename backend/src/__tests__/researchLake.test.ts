@@ -1398,3 +1398,14 @@ describe('research lake SDK event timeline integration', () => {
         expect((serviceSource.match(/key: sdkEventsObjectKey\(basePath\)/g) ?? []).length).toBe(4);
     });
 });
+
+describe('Unity runtime export', () => {
+    it('exports bounded engine context without arbitrary metadata', async () => {
+        const { unityResearchRuntime } = await import('../services/researchLake.js');
+        expect(unityResearchRuntime({ sdkFamily: 'unity', unityVersion: '6000.3.24f1', graphicsApi: 'Metal', scriptingBackend: 'il2cpp', renderPipeline: 'UniversalRenderPipelineAsset', userEmail: 'synthetic@example.invalid' })).toEqual({ sdk_family: 'unity', unity_version: '6000.3.24f1', graphics_api: 'Metal', scripting_backend: 'il2cpp', render_pipeline: 'UniversalRenderPipelineAsset' });
+        expect(unityResearchRuntime({ sdkFamily: 'unity', unityVersion: 'private arbitrary string' })).toEqual({ sdk_family: 'unity' });
+        expect(unityResearchRuntime({ sdkFamily: 'unity', buildIdentifier: '0123456789abcdef0123456789ABCDEF' })).toEqual({ sdk_family: 'unity', build_identifier: '0123456789abcdef0123456789abcdef' });
+        expect(unityResearchRuntime({ sdkFamily: 'unity', buildIdentifier: 'arbitrary player-entered identifier' })).toEqual({ sdk_family: 'unity' });
+        expect(unityResearchRuntime(null)).toEqual({});
+    });
+});

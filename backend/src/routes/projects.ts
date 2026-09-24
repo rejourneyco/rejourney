@@ -67,6 +67,7 @@ function getProjectPlatforms(project: { bundleId?: string | null; packageName?: 
     const platforms: string[] = [];
     if (project.platform === 'react-native') platforms.push('react-native');
     if (project.platform === 'flutter') platforms.push('flutter');
+    if (project.platform === 'unity') platforms.push('unity');
     if (project.bundleId) platforms.push('ios');
     if (project.packageName) platforms.push('android');
     if (project.webDomain || getProjectWebAllowedDomains(project).length > 0 || project.platform === 'web') platforms.push('web');
@@ -1595,7 +1596,7 @@ router.post(
                     packageName: data.packageName,
                     webDomain: webAllowedDomains[0] ?? null,
                     webAllowedDomains,
-                    platform: data.platforms?.includes('react-native')
+                    platform: data.platforms?.includes('unity') ? 'unity' : data.platforms?.includes('react-native')
                         ? 'react-native'
                         : data.platforms?.includes('flutter')
                             ? 'flutter'
@@ -1983,7 +1984,7 @@ router.put(
         if (data.name !== undefined) updateData.name = data.name;
         if (data.teamId !== undefined) updateData.teamId = data.teamId;
         if (data.platforms !== undefined) {
-            updateData.platform = data.platforms.includes('react-native')
+            updateData.platform = data.platforms.includes('unity') ? 'unity' : data.platforms.includes('react-native')
                 ? 'react-native'
                 : data.platforms.includes('flutter')
                     ? 'flutter'

@@ -112,6 +112,12 @@ export function computeMobileFrustrationCounts(events: any[]): { rageTapCount: n
     let deadTapCount = 0;
 
     for (const event of sortedEvents) {
+        // Unity gameplay taps are not frustration signals. Only explicitly
+        // eligible actionable UI taps may seed an inferred rage cluster.
+        if (event?.rageEligible === false || event?.properties?.rageEligible === false || event?.payload?.rageEligible === false) {
+            recentTaps.length = 0;
+            continue;
+        }
         const keyboardAreaEvent = isKeyboardAreaTelemetryEvent(event);
         const frustrationKind = getFrustrationTapKind(event);
 

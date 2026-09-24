@@ -1911,6 +1911,10 @@ function synthesizeRageTapEventsForTimeline(normalizedEvents: any[]): any[] {
             continue;
         }
         if (!isTapLikeTimelineEvent(event)) continue;
+        if (event?.rageEligible === false || event?.properties?.rageEligible === false || event?.payload?.rageEligible === false) {
+            recentTaps.length = 0;
+            continue;
+        }
         if (isKeyboardAreaTelemetryEvent(event)) {
             recentTaps.length = 0;
             continue;

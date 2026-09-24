@@ -26,14 +26,16 @@ function getProjectPlatformLabel(project: Project): string {
   const platforms = new Set(project.platforms);
   const labels: string[] = [];
   if (platforms.has('web')) labels.push('Web');
-  if (platforms.has('react-native')) {
+  if (platforms.has('unity')) {
+    labels.push('Unity');
+  } else if (platforms.has('react-native')) {
     labels.push('React Native');
   } else if (platforms.has('flutter')) {
     labels.push('Flutter');
   } else if (platforms.has('ios')) {
     labels.push('iOS');
   }
-  if (platforms.has('android') && !platforms.has('react-native') && !platforms.has('flutter')) {
+  if (platforms.has('android') && !platforms.has('react-native') && !platforms.has('flutter') && !platforms.has('unity')) {
     labels.push('Native Android (unsupported)');
   }
   if (labels.length === 1) return `${labels[0]} app`;

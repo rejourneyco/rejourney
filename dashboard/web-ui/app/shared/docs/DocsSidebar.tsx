@@ -77,6 +77,16 @@ const NAVIGATION: NavCategory[] = [
             }
         ]
     },
+    {
+        category: "Unity",
+        sections: [{ title: "Getting Started", links: [
+            { label: "Overview", href: "/docs/unity/overview", isRoute: true },
+            { label: "Install and configure", href: "/docs/unity/overview#install-and-configure", isRoute: false },
+            { label: "Privacy and capture", href: "/docs/unity/overview#privacy-and-capture", isRoute: false },
+            { label: "Automatic HTTP", href: "/docs/unity/overview#automatic-http-coverage", isRoute: false },
+            { label: "Native builds", href: "/docs/unity/overview#native-builds-and-stripping", isRoute: false },
+        ] }],
+    },
     ...(flutterDocs.length > 0 ? [{
         category: "Flutter",
         sections: [

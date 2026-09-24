@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Project } from '~/shared/types';
 import {
   formatProjectPlatforms,
+  formatSetupPlatform,
   hasUnsupportedNativeAndroid,
   isSetupSupportRoute,
   isSetupWizardRoute,
@@ -16,7 +17,7 @@ function projectWithPlatforms(platforms: Project['platforms']): Project {
 
 describe('setup integration normalization', () => {
   it('offers only integrations with installable SDKs', () => {
-    expect(SETUP_PLATFORM_OPTIONS.map((option) => option.id)).toEqual(['web', 'react-native', 'flutter', 'ios']);
+    expect(SETUP_PLATFORM_OPTIONS.map((option) => option.id)).toEqual(['web', 'react-native', 'flutter', 'unity', 'ios']);
   });
 
   it('collapses React Native runtime markers into one integration', () => {
@@ -58,4 +59,10 @@ describe('completed setup routing', () => {
     expect(isSetupWizardRoute('/dashboard/settings/project-1/github')).toBe(false);
     expect(isSetupSupportRoute('/dashboard/settings/project-1/github')).toBe(true);
   });
+});
+
+it('Unity remains one integration with either or both mobile identifiers', () => {
+  expect(normalizeSetupIntegrations(['unity', 'ios', 'android'])).toEqual(['unity']);
+  expect(hasUnsupportedNativeAndroid(['unity', 'android'])).toBe(false);
+  expect(formatSetupPlatform('unity')).toBe('Unity');
 });

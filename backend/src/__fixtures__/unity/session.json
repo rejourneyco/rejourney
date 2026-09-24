@@ -1,0 +1,22 @@
+{
+  "deviceInfo": {
+    "platform": "android", "sdkFamily": "unity", "sdkVersion": "0.1.0",
+    "unityVersion": "6000.3.24f1", "scriptingBackend": "il2cpp", "graphicsApi": "Vulkan",
+    "renderPipeline": "UniversalRenderPipelineAsset", "buildIdentifier": "0123456789abcdef0123456789abcdef",
+    "screenWidth": 1080, "screenHeight": 1920, "screenScale": 1, "coordinateSpace": "px"
+  },
+  "events": [
+    {"type":"screen_view","screen":"Privacy","timestamp":1770000000100},
+    {"type":"touch","x":100,"y":200,"rageEligible":false,"gestureType":"tap","screenWidth":1080,"screenHeight":1920,"touches":[{"x":100,"y":200,"timestamp":1770000000200}],"timestamp":1770000000200},
+    {"type":"custom","name":"unity_performance","payload":"{\"frameTimeP95Ms\":16.7,\"fps\":60,\"managedMemoryBytes\":8388608}","timestamp":1770000000300},
+    {"type":"error","name":"System.InvalidOperationException","message":"Synthetic handled exception","handled":true,"source":"unity","exceptionCategory":"managed","timestamp":1770000000400},
+    {"type":"anr","source":"unity_game_loop","threadState":"unity_game_loop_stalled","stackAvailable":false,"durationMs":5000,"timestamp":1770000000500}
+  ],
+  "hierarchy": {
+    "timestamp":1770000000200,"screen":{"width":1080,"height":1920,"scale":1},
+    "root":{"type":"UnityViewport","frame":{"x":0,"y":0,"width":1080,"height":1920},"children":[
+      {"type":"RejourneyMask","masked":true,"frame":{"x":100,"y":180,"width":400,"height":80}},
+      {"type":"UnityTarget","testID":"[masked]","masked":true,"interactive":true,"frame":{"x":100,"y":180,"width":400,"height":80}}
+    ]}
+  }
+}

@@ -5,7 +5,18 @@
  * All copy buttons should reference these constants to ensure consistency.
  */
 
-export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Web app, a React Native app, a Swift (native iOS) app, or a Flutter app by checking imports, dependencies, and file types. Then follow ONLY the matching section below.
+export const UNITY_AI_INTEGRATION_PROMPT = `Integrate Rejourney into this Unity mobile game.
+Install the co.rejourney.unity release tarball through Unity Package Manager (Install package from tarball), or use the local packages/unity directory during development.
+Supported targets: Unity 6.3 LTS and 6.6, IL2CPP, iOS 15.1+, Android API 24+.
+Call RejourneySDK.Rejourney.Init("PUBLIC_KEY_HERE", new RejourneySDK.RejourneyOptions()); then await RejourneySDK.Rejourney.StartAsync() only after consent.
+Use TrackScreen for menus, LogEvent for gameplay events, SetUserIdentity with a synthetic or non-sensitive identifier, and RejourneyMask for sensitive UI and world objects.
+Keep automatic HTTP capture enabled. Ordinary source-compiled UnityWebRequest and HttpClient calls are woven during player builds; inspect Library/Rejourney/NetworkReports. Opaque DLLs and native transports require LogNetworkRequest.
+Pause around native payment, advertising, and keyboard surfaces. Capture is 1 FPS by default and obeys remote settings up to 3 FPS. Password inputs are always masked.
+Test a physical iOS and Android build with this cloud-issued key. Verify processed frames, timestamps, masks, networking, pause gaps, and recovery in the cloud. Editor diagnostics do not establish device acceptance.
+Never include account credentials or operator secrets in the game. Read the package Documentation~ guide for capture and transport limitations.`;
+
+
+export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Web app, a React Native app, a Swift (native iOS) app, a Flutter app, or a Unity game by checking imports, dependencies, package manifests, and file types. Then follow ONLY the matching section below.
 
 ==========================================================
 IF WEB — follow this section:
@@ -564,7 +575,13 @@ VERIFY:
 - Run on both iOS and Android; hot reload cannot install a newly added native plugin.
 - Confirm named route transitions, a custom event, getSdkMetrics(), and masked checkout/login screens.
 - Use debugCrash/debugTriggerAnr only in disposable debug builds.
-- Tell the user exactly where the SDK was initialized, where consent gates start(), which routes are tracked, which views are masked, and which tests/builds passed.`;
+- Tell the user exactly where the SDK was initialized, where consent gates start(), which routes are tracked, which views are masked, and which tests/builds passed.
+
+==========================================================
+IF UNITY — follow this section:
+==========================================================
+
+${UNITY_AI_INTEGRATION_PROMPT}`;
 
 export const EXAMPLE_PROJECT_KEY = 'rj_example_public_key';
 
@@ -589,7 +606,7 @@ First ask me for any missing values:
 5. Storage choice: built-in MinIO or external S3-compatible storage.
 6. If external S3: endpoint, bucket, region, access key, secret key, and optional public endpoint.
 7. Whether this is a fresh install, update, restore, or broken install.
-8. Which SDKs I need to configure: Flutter, React Native, Swift iOS, Web SDK, or all four.
+8. Which SDKs I need to configure: Flutter, React Native, Swift iOS, Web SDK, Unity, or all five.
 
 Then give me an interactive runbook with checkboxes:
 - DNS records for dashboard, www redirect, API, and ingest hostnames.
@@ -744,7 +761,7 @@ type ProjectForPrompt = {
   webAllowedDomains?: string[] | null;
 } | null;
 
-export type AIPromptId = 'all' | 'web' | 'shopify' | 'react-native' | 'swift' | 'flutter' | 'self-hosted';
+export type AIPromptId = 'all' | 'web' | 'shopify' | 'react-native' | 'swift' | 'flutter' | 'unity' | 'self-hosted';
 
 export type AIPromptDefinition = {
   id: AIPromptId;
@@ -782,8 +799,10 @@ export const SWIFT_AI_INTEGRATION_PROMPT = extractPromptSection(
   'IF FLUTTER — follow this section:',
 );
 
+
 export const FLUTTER_AI_INTEGRATION_PROMPT = extractPromptSection(
   'IF FLUTTER — follow this section:',
+  'IF UNITY — follow this section:',
 );
 
 export const SHOPIFY_AI_INTEGRATION_PROMPT = `${WEB_AI_INTEGRATION_PROMPT}
@@ -839,7 +858,7 @@ export const AI_PROMPT_DEFINITIONS: Record<AIPromptId, AIPromptDefinition> = {
   all: {
     id: 'all',
     label: 'All SDKs',
-    description: 'Detect the app stack and follow only the matching Web, React Native, Flutter, or Swift section.',
+    description: 'Detect the app stack and follow only the matching Web, React Native, Flutter, Swift, or Unity section.',
     docsPath: '/docs',
     prompt: AI_INTEGRATION_PROMPT,
   },
@@ -878,6 +897,10 @@ export const AI_PROMPT_DEFINITIONS: Record<AIPromptId, AIPromptDefinition> = {
     docsPath: '/docs/flutter/overview',
     prompt: FLUTTER_AI_INTEGRATION_PROMPT,
   },
+  unity: {
+    id: 'unity', label: 'Unity', description: 'Unity mobile game replay and observability.',
+    docsPath: '/docs/unity/overview', prompt: UNITY_AI_INTEGRATION_PROMPT,
+  },
   'self-hosted': {
     id: 'self-hosted',
     label: 'Self-hosted',
@@ -893,6 +916,7 @@ function formatPromptPlatform(platform: string): string {
   if (platform === 'web') return 'Web';
   if (platform === 'react-native') return 'React Native';
   if (platform === 'flutter') return 'Flutter';
+  if (platform === 'unity') return 'Unity';
   return platform;
 }
 
@@ -900,15 +924,17 @@ function formatPromptPlatforms(platforms: readonly string[]): string {
   const values = new Set(platforms);
   const integrations: string[] = [];
   if (values.has('web')) integrations.push(formatPromptPlatform('web'));
-  if (values.has('react-native')) {
+  if (values.has('unity')) {
+    integrations.push('Unity');
+  } else if (values.has('react-native')) {
     integrations.push(formatPromptPlatform('react-native'));
   } else if (values.has('flutter')) {
     integrations.push(formatPromptPlatform('flutter'));
   } else if (values.has('ios')) {
     integrations.push(formatPromptPlatform('ios'));
   }
-  if (values.has('android') && !values.has('react-native') && !values.has('flutter')) {
-    integrations.push('Native Android (unsupported; Android requires React Native or Flutter)');
+  if (values.has('android') && !values.has('react-native') && !values.has('flutter') && !values.has('unity')) {
+    integrations.push('Native Android (unsupported; Android requires React Native, Flutter, or Unity)');
   }
   return integrations.join(', ');
 }
@@ -1040,7 +1066,9 @@ export function getAIPromptIdsForProject(project: ProjectForPrompt): AIPromptId[
   const hasWeb = platforms.includes('web') || Boolean(project?.webDomain || project?.webAllowedDomains?.length);
   const hasReactNative = platforms.includes('react-native');
   const hasFlutter = platforms.includes('flutter');
-  const hasSwift = platforms.includes('ios') && !hasReactNative && !hasFlutter;
+  const hasUnity = platforms.includes('unity');
+  const hasSwift = platforms.includes('ios') && !hasReactNative && !hasFlutter && !hasUnity;
+  if (hasUnity) promptIds.push('unity');
 
   if (hasWeb) {
     if (projectLooksLikeShopify(project)) {
@@ -1066,7 +1094,7 @@ ${docsUrl}
 Read the entire guide before changing anything, use it as the source of truth, and ask me for missing deployment details instead of guessing.
 
 Important self-hosting requirements:
-- REQUIRED: After deployment, manually set the self-hosted API URL in every app's Rejourney initialization. Use apiUrl: 'https://api.<domain>' for React Native, Web, and Flutter (inside RejourneyConfig), or apiURL: URL(string: "https://api.<domain>")! for Swift. If this option is omitted, the SDK defaults to https://api.rejourney.co and recordings go to Rejourney Cloud instead of my server.
+- REQUIRED: After deployment, manually set the self-hosted API URL in every app's Rejourney initialization. Use apiUrl: 'https://api.<domain>' for React Native, Web, and Flutter (inside RejourneyConfig), apiURL: URL(string: "https://api.<domain>")! for Swift, or RejourneyOptions.ApiUrl = "https://api.<domain>" for Unity. If this option is omitted, the SDK defaults to https://api.rejourney.co and recordings go to Rejourney Cloud instead of my server.
 - Use a project public key created in my self-hosted dashboard; do not reuse a Rejourney Cloud project key.
 - Confirm PUBLIC_API_URL and PUBLIC_INGEST_URL match the public api.<domain> and ingest.<domain> hosts, and verify DNS and TLS for the dashboard, www redirect, API, and ingest hostnames.
 - For the Web SDK, add every production, staging, and local app host (including local ports) to the project's Web allowed domains.

@@ -38,6 +38,12 @@ export const DOCS_MAP: Record<string, { file: string; title: string; category?: 
         description: 'Install the Rejourney React Native SDK for mobile session replay, crash reporting, heatmaps, journeys, and lightweight observability.',
         keywords: ['React Native session replay', 'React Native analytics SDK', 'mobile observability SDK', 'React Native crash reporting', 'React Native heatmaps']
     },
+    'unity/overview': {
+        file: 'unity/getting-started.md',
+        title: 'Unity SDK', category: 'Unity',
+        description: 'Unity mobile game replay, privacy masking, HTTP instrumentation, errors and performance context for iOS and Android.',
+        keywords: ['Unity session replay', 'Unity mobile observability', 'Unity analytics SDK']
+    },
     'flutter/overview': {
         file: 'flutter/getting-started.md',
         title: 'Flutter SDK',

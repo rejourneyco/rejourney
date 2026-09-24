@@ -233,7 +233,7 @@ describe('Project Validation', () => {
             expect(created.success).toBe(false);
             expect(updated.success).toBe(false);
             if (!created.success) {
-                expect(created.error.issues[0]?.message).toContain('Android is supported through React Native or Flutter');
+                expect(created.error.issues[0]?.message).toContain('Android is supported through React Native, Flutter, or Unity');
             }
         });
 
