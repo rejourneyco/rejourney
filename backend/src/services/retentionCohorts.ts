@@ -52,8 +52,7 @@ export function buildRetentionCohortRows(
     const weekKeys = Array.from(weeklyActiveUsers.keys()).sort((a, b) => a.localeCompare(b));
     if (weekKeys.length === 0) return [];
 
-    const weekIndex = new Map<string, number>();
-    weekKeys.forEach((key, index) => weekIndex.set(key, index));
+    const lastObservedWeek = weekKeys[weekKeys.length - 1];
 
     const cohortMembers = new Map<string, Set<string>>();
     for (const [userKey, firstWeek] of userFirstWeek.entries()) {
@@ -68,12 +67,11 @@ export function buildRetentionCohortRows(
             const members = cohortMembers.get(cohortWeek);
             if (!members || members.size === 0) return null;
 
-            const index = weekIndex.get(cohortWeek);
-            if (index === undefined) return null;
-
             const retention = Array.from({ length: weeks }, (_, offset) => {
-                const targetWeek = weekKeys[index + offset];
-                if (!targetWeek) return null;
+                const targetDate = new Date(`${cohortWeek}T00:00:00Z`);
+                targetDate.setUTCDate(targetDate.getUTCDate() + offset * 7);
+                const targetWeek = targetDate.toISOString().slice(0, 10);
+                if (targetWeek > lastObservedWeek) return null;
                 if (offset === 0) return 100;
 
                 const activeUsers = weeklyActiveUsers.get(targetWeek);

@@ -754,7 +754,7 @@ router.get(
         // Build time filter (rolling window lower bound)
         let startedAfter: Date | undefined;
         if (timeRange && timeRange !== 'all' && timeRange !== 'max') {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -817,7 +817,7 @@ router.get(
 
         let startDateStr: string | undefined;
         if (timeRange && timeRange !== 'all' && timeRange !== 'max') {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 const start = new Date();
                 start.setDate(start.getDate() - days);
@@ -948,7 +948,7 @@ router.get(
 
         let startedAfter: Date | undefined;
         if (timeRange && timeRange !== 'all') {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -1112,7 +1112,7 @@ router.get(
         // Build time filter
         let startedAfter: Date | undefined;
         if (timeRange && timeRange !== 'all') {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -2044,7 +2044,7 @@ router.get(
 
         let startDateStr: string | undefined;
         if (timeRange) {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 const startDate = new Date();
                 startDate.setDate(startDate.getDate() - days);
@@ -2157,7 +2157,7 @@ router.get(
 
         let startedAfter: Date | undefined;
         if (timeRange) {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -2798,7 +2798,7 @@ router.get(
         // Time filter
         let startedAfter: Date | undefined;
         if (timeRange) {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -3459,7 +3459,7 @@ router.get(
         // Time filter
         let startedAfter: Date | undefined;
         if (timeRange) {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -3956,7 +3956,7 @@ router.get(
         // Time filter
         let startedAfter: Date | undefined;
         if (timeRange && typeof timeRange === 'string') {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
             if (days) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
@@ -4568,22 +4568,21 @@ router.get(
         // sessions. The rollup has no per-platform engagement split, so a platform
         // filter forces the exact (raw-scan) path.
         const responseMode = req.query.mode === 'summary' && !engagementPlatform ? 'summary' : 'full';
-        const cacheKey = `analytics:user-engagement-trends:v2:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${engagementPlatform || 'all'}`;
+        const cacheKey = `analytics:user-engagement-trends:v3:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${engagementPlatform || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
-        const startedAfter = new Date();
-        startedAfter.setDate(startedAfter.getDate() - days);
+        const days = boundedTimeRangeToDays(typeof timeRange === 'string' ? timeRange : '');
+        const startedAfter = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
 
         if (responseMode === 'summary') {
             const lastRolledUpDate = await getLastRolledUpDate();
             const dailyRows = (await readProductDailyRollupRows({
                 projectIds,
-                startDate: startedAfter.toISOString().split('T')[0],
+                startDate: startedAfter?.toISOString().split('T')[0],
                 endDate: lastRolledUpDate,
             })).map((row) => ({
                 date: row.date,
@@ -4649,7 +4648,7 @@ router.get(
                     max(coalesce(${sessions.durationSeconds}, 0)) AS best_duration
                 FROM ${sessions}
                 WHERE ${inArray(sessions.projectId, projectIds)}
-                  AND ${sessions.startedAt} >= ${startedAfter}${engagementPlatformCond}
+                  AND ${startedAfter ? sql`${sessions.startedAt} >= ${startedAfter}` : sql`true`}${engagementPlatformCond}
                   AND coalesce(
                         nullif(trim(${sessions.userDisplayId}), ''),
                         nullif(trim(${sessions.anonymousHash}), ''),

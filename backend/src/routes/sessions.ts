@@ -411,7 +411,8 @@ function buildSessionArchiveBaseConditions(
     const recordingFilter = hasRecording;
     if (recordingFilter === 'true') {
         baseConditions.push(eq(sessions.replayAvailable, true));
-        baseConditions.push(or(isNull(sessions.replayRetentionState), eq(sessions.replayRetentionState, 'saved')));
+        // Match the existing partial-index predicate; the equivalent OR cannot use it.
+        baseConditions.push(sql`coalesce(${sessions.replayRetentionState}, 'saved') = 'saved'`);
     }
 
     const normalizedGeoCountry = typeof geoCountry === 'string' ? geoCountry.trim() : '';

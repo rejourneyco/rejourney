@@ -11,7 +11,8 @@ import {
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { claimOwner, isPrimaryShard } from '../utils/workerShard.js';
-import { mapWithConcurrency } from '../utils/mapWithConcurrency.js';
+import { prefetchInOrder } from '../utils/prefetchInOrder.js';
+import { ByteBudgetCache } from '../utils/byteBudgetCache.js';
 import { withResearchLakeSectionLock } from './researchLakeSectionLock.js';
 import { extractFramesFromArchive, type ExtractedFrame } from './screenshotFrames.js';
 import {
@@ -254,17 +255,18 @@ type ArtifactContext = {
     frame_count: number | null;
 };
 
-type ArtifactDataCache = Map<string, Buffer | null>;
+const MEDIA_CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
+type ArtifactDataCache = ByteBudgetCache<Buffer | null>;
 // Frames already extracted from a cached screenshot archive during visual-row
 // building, so the V2 archive copy does not unzip the same buffer again.
 // Keyed by the per-job data cache so the entries die with it.
-const extractedFramesByCache = new WeakMap<ArtifactDataCache, Map<string, ExtractedFrame[]>>();
+const extractedFramesByCache = new WeakMap<ArtifactDataCache, ByteBudgetCache<ExtractedFrame[]>>();
 
 function rememberExtractedFrames(cache: ArtifactDataCache | undefined, artifactId: string, frames: ExtractedFrame[]): void {
     if (!cache) return;
     let frameMap = extractedFramesByCache.get(cache);
     if (!frameMap) {
-        frameMap = new Map();
+        frameMap = new ByteBudgetCache(MEDIA_CACHE_BUDGET_BYTES, (frames) => frames.reduce((bytes, frame) => bytes + frame.data.byteLength, 0));
         extractedFramesByCache.set(cache, frameMap);
     }
     frameMap.set(artifactId, frames);
@@ -2383,15 +2385,12 @@ async function buildHierarchyVisualRows(
         return left - right;
     });
 
-    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+    const prefetched = prefetchInOrder(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
         artifact.s3ObjectKey ? downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId) : Promise.resolve(null)
     ));
 
-    for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
-        const artifact = sortedArtifacts[artifactIndex];
+    for await (const { item: artifact, value: data, index: artifactIndex } of prefetched) {
         if (!artifact.s3ObjectKey) continue;
-
-        const data = prefetched[artifactIndex];
         if (!data) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download hierarchy artifact');
             continue;
@@ -2495,15 +2494,12 @@ async function buildScreenshotVisualRows(
 
     // Downloads are the dominant latency; fetch them a few at a time up front
     // and consume in sorted order so frame indices and grid chaining are unchanged.
-    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+    const prefetched = prefetchInOrder(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
         artifact.s3ObjectKey ? downloadArtifactData(session.project_id, artifact, artifactDataCache) : Promise.resolve(null)
     ));
 
-    for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
-        const artifact = sortedArtifacts[artifactIndex];
+    for await (const { item: artifact, value: archiveData, index: artifactIndex } of prefetched) {
         if (!artifact.s3ObjectKey) continue;
-
-        const archiveData = prefetched[artifactIndex];
         if (!archiveData) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download screenshot artifact');
             continue;
@@ -2593,15 +2589,12 @@ async function buildRrwebVisualRows(
         return left - right;
     });
 
-    const prefetched = await mapWithConcurrency(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
+    const prefetched = prefetchInOrder(sortedArtifacts, artifactDownloadConcurrency(), (artifact) => (
         artifact.s3ObjectKey ? downloadFromS3ForArtifact(session.project_id, artifact.s3ObjectKey, artifact.endpointId) : Promise.resolve(null)
     ));
 
-    for (let artifactIndex = 0; artifactIndex < sortedArtifacts.length; artifactIndex++) {
-        const artifact = sortedArtifacts[artifactIndex];
+    for await (const { item: artifact, value: data, index: artifactIndex } of prefetched) {
         if (!artifact.s3ObjectKey) continue;
-
-        const data = prefetched[artifactIndex];
         if (!data) {
             logger.warn({ artifactId: artifact.id }, 'Research lake could not download rrweb artifact');
             continue;
@@ -5525,7 +5518,7 @@ async function processV2InteractionJob(
     const date = datePart(session.started_at);
     const basePath = `${v2Prefix()}/lake=interaction/project_key=${projectKey}/date=${date}/sample_key=${lakeSampleKey}`;
     const rawInteractions = buildInteractions(session, projectKey, customEventConfig);
-    const screenshotDataCache: ArtifactDataCache = new Map();
+    const screenshotDataCache: ArtifactDataCache = new ByteBudgetCache(MEDIA_CACHE_BUDGET_BYTES, (data) => data?.byteLength ?? 0);
     const rawVisualRows = await buildVisualRows(session, artifacts, rawInteractions, projectKey, true, screenshotDataCache);
     const rejection = interactionRejectReason(artifacts, rawInteractions, rawVisualRows.frames);
     if (rejection) {
@@ -6011,7 +6004,9 @@ export async function applySdkEventTimelineToExportedSamples(params: {
     };
 }
 
-async function processV2ForwardOutcomesJob(job: ResearchJobRow, session: SessionContext): Promise<'exported' | 'rejected'> {
+type ForwardSessionContext = Pick<SessionContext, 'id' | 'project_id' | 'started_at' | 'platform' | 'app_version'>;
+
+async function processV2ForwardOutcomesJob(job: ResearchJobRow, session: ForwardSessionContext): Promise<'exported' | 'rejected'> {
     const observation = await pool.query<{
         panel_key: string | null; started_at: Date; event_families: string[]; revenue_amount_bucket: number | null;
         refund_count: number; renewal_count: number; cancellation_count: number; created_at: Date;
@@ -6100,9 +6095,17 @@ async function processV2ForwardOutcomesJob(job: ResearchJobRow, session: Session
 }
 
 async function processV2Job(job: ResearchJobRow): Promise<'exported' | 'rejected'> {
+    if (job.lake_type === 'forward_outcomes') {
+        // Forward labels use the observation ledger, not replay media or raw event JSON.
+        const result = await pool.query<ForwardSessionContext>(`
+            SELECT s.id, s.project_id, s.started_at, s.platform, s.app_version
+            FROM sessions s INNER JOIN projects p ON p.id = s.project_id
+            WHERE s.id = $1 LIMIT 1
+        `, [job.session_id]);
+        return result.rows[0] ? processV2ForwardOutcomesJob(job, result.rows[0]) : rejectMissingSession(job);
+    }
     const { session, artifacts, transactions, customEventConfig } = await loadSessionContext(job.session_id);
     if (!session) return rejectMissingSession(job);
-    if (job.lake_type === 'forward_outcomes') return processV2ForwardOutcomesJob(job, session);
     if (job.lake_type === 'behavioral_outcomes') return processV2BehavioralJob(job, session, artifacts, transactions, customEventConfig);
     return processV2InteractionJob(job, session, artifacts, transactions, customEventConfig);
 }

@@ -1170,7 +1170,7 @@ router.get(
 
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
         const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
-        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v3`;
+        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v4-calendar-weeks`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1364,12 +1364,12 @@ router.get(
             const platformCondition = buildSessionPlatformCondition(normalizedPlatform);
             const rawConditions: SQL[] = [
                 inArray(sessions.projectId, projectIds),
-                sql`${sessionDate} <= ${lastRolledUpDate}`,
+                sql`${sessions.startedAt} < ${lastRolledUpDate}::date + interval '1 day'`,
             ];
-            if (startStr) rawConditions.push(sql`${sessionDate} >= ${startStr}`);
+            if (startStr) rawConditions.push(sql`${sessions.startedAt} >= ${startStr}::date`);
             if (platformCondition) rawConditions.push(platformCondition);
 
-            const rawDailyRows = await db
+            const rawDailyQuery = db
                 .select({
                     date: sessionDate,
                     sessions: sql<number>`count(*)::int`,
@@ -1390,7 +1390,7 @@ router.get(
                 .orderBy(asc(sessionDate));
 
             const normalizedVersion = sql<string>`COALESCE(NULLIF(${sessions.appVersion}, ''), 'Unknown')`;
-            const versionRows = await db
+            const versionQuery = db
                 .select({
                     date: sessionDate,
                     version: normalizedVersion,
@@ -1402,7 +1402,7 @@ router.get(
                 .groupBy(sessionDate, normalizedVersion);
 
             const normalizedCountry = sql<string>`COALESCE(NULLIF(${sessions.geoCountry}, ''), 'Unknown')`;
-            const countryRows = await db
+            const countryQuery = db
                 .select({
                     date: sessionDate,
                     country: normalizedCountry,
@@ -1412,7 +1412,7 @@ router.get(
                 .where(and(...rawConditions, sql`${sessions.geoCountry} IS NOT NULL`))
                 .groupBy(sessionDate, normalizedCountry);
 
-            const userRows = await db
+            const userQuery = db
                 .select({
                     date: sessionDate,
                     userKey: identitySql,
@@ -1420,6 +1420,10 @@ router.get(
                 .from(sessions)
                 .where(and(...rawConditions, sql`${identitySql} IS NOT NULL`))
                 .groupBy(sessionDate, identitySql);
+
+            const [rawDailyRows, versionRows, countryRows, userRows] = await Promise.all([
+                rawDailyQuery, versionQuery, countryQuery, userQuery,
+            ]);
 
             const dailyMap: Record<string, TrendDay> = {};
             for (const row of rawDailyRows) {

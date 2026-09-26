@@ -72,4 +72,13 @@ describe('buildRetentionCohortRows', () => {
             },
         ]);
     });
+    it('keeps empty calendar weeks instead of shifting later retention into week one', () => {
+        expect(buildRetentionCohortRows([
+            { userKey: 'u1', weekStartKey: '2026-03-01' },
+            { userKey: 'u1', weekStartKey: '2026-03-15' },
+        ], { weeks: 4 })).toEqual([
+            { weekStartKey: '2026-03-01', users: 1, retention: [100, 0, 100, null] },
+        ]);
+    });
+
 });
