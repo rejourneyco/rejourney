@@ -69,102 +69,35 @@ function toDateOrNull(value: unknown): Date | null {
 }
 
 export async function loadSessionWorkAggregate(sessionId: string): Promise<SessionWorkAggregate> {
+    // Aggregate a session's artifacts once. Independent scalar subqueries reread
+    // the same heap up to fourteen times for large, long-lived sessions.
     const result = await db.execute(sql`
         select
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'screenshots'
+            coalesce((count(*) FILTER (WHERE ra.kind = 'screenshots'
+                  and ra.status = 'ready'))::int, 0) as "readyScreenshotCount",
+            coalesce((sum(coalesce(ra.size_bytes, ra.declared_size_bytes, 0)) FILTER (WHERE ra.kind = 'screenshots'
+                  and ra.status = 'ready'))::bigint, 0) as "readyScreenshotBytes",
+            coalesce((count(*) FILTER (WHERE ra.kind = 'rrweb'
+                  and ra.status = 'ready'))::int, 0) as "readyWebReplayCount",
+            coalesce((sum(coalesce(ra.size_bytes, ra.declared_size_bytes, 0)) FILTER (WHERE ra.kind = 'rrweb'
+                  and ra.status = 'ready'))::bigint, 0) as "readyWebReplayBytes",
+            coalesce((count(*) FILTER (WHERE ra.kind = 'hierarchy'
+                  and ra.status = 'ready'))::int, 0) as "readyHierarchyCount",
+            coalesce((count(*) FILTER (WHERE ra.status in ('pending', 'buffered', 'uploaded')))::int, 0) as "openArtifactCount",
+            coalesce((count(*) FILTER (WHERE ra.status = 'uploaded'))::int, 0) as "activeJobCount",
+            coalesce((count(*) FILTER (WHERE ra.kind in ('screenshots', 'hierarchy', 'rrweb')
+                  and ra.status in ('pending', 'buffered', 'uploaded')))::int, 0) as "openReplayArtifactCount",
+            coalesce((count(*) FILTER (WHERE ra.kind in ('screenshots', 'hierarchy', 'rrweb')
+                  and ra.status = 'uploaded'))::int, 0) as "activeReplayJobCount",
+            (max(ra.end_time) FILTER (WHERE ra.kind in ('screenshots', 'hierarchy', 'rrweb'))) as "latestReplayArtifactEndMs",
+            (max(coalesce(ra.end_time, ra.timestamp)) FILTER (WHERE ra.kind = 'events'
+                  and ra.status = 'ready')) as "latestEventArtifactEndMs",
+            coalesce((count(*) FILTER (WHERE ra.kind = 'events'
                   and ra.status = 'ready'
-            ), 0) as "readyScreenshotCount",
-            coalesce((
-                select sum(coalesce(ra.size_bytes, ra.declared_size_bytes, 0))::bigint
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'screenshots'
-                  and ra.status = 'ready'
-            ), 0) as "readyScreenshotBytes",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'rrweb'
-                  and ra.status = 'ready'
-            ), 0) as "readyWebReplayCount",
-            coalesce((
-                select sum(coalesce(ra.size_bytes, ra.declared_size_bytes, 0))::bigint
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'rrweb'
-                  and ra.status = 'ready'
-            ), 0) as "readyWebReplayBytes",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'hierarchy'
-                  and ra.status = 'ready'
-            ), 0) as "readyHierarchyCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.status in ('pending', 'buffered', 'uploaded')
-            ), 0) as "openArtifactCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.status = 'uploaded'
-            ), 0) as "activeJobCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'hierarchy', 'rrweb')
-                  and ra.status in ('pending', 'buffered', 'uploaded')
-            ), 0) as "openReplayArtifactCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'hierarchy', 'rrweb')
-                  and ra.status = 'uploaded'
-            ), 0) as "activeReplayJobCount",
-            (
-                select max(ra.end_time)
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'hierarchy', 'rrweb')
-            ) as "latestReplayArtifactEndMs",
-            (
-                select max(coalesce(ra.end_time, ra.timestamp))
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'events'
-                  and ra.status = 'ready'
-            ) as "latestEventArtifactEndMs",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'events'
-                  and ra.status = 'ready'
-                  and (ra.start_time is null or ra.end_time is null)
-            ), 0) as "readyEventArtifactMissingDerivedCount",
-            (
-                select max(coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at))
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'rrweb')
-                  and ra.status = 'ready'
-            ) as "latestReadyAt",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'events'
+                  and (ra.start_time is null or ra.end_time is null)))::int, 0) as "readyEventArtifactMissingDerivedCount",
+            (max(coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at)) FILTER (WHERE ra.kind in ('screenshots', 'rrweb')
+                  and ra.status = 'ready')) as "latestReadyAt",
+            coalesce((count(*) FILTER (WHERE ra.kind = 'events'
                   and (
                     ra.status in ('buffered', 'uploaded')
                     or (
@@ -179,9 +112,9 @@ export async function loadSessionWorkAggregate(sessionId: string): Promise<Sessi
                             or ra.end_time is null
                         )
                     )
-                  )
-            ), 0) as "pendingEventEvidenceCount"
+                  )))::int, 0) as "pendingEventEvidenceCount"
         from ${sessions} s
+        left join ${recordingArtifacts} ra on ra.session_id = s.id
         where s.id = ${sessionId}
     `);
 
