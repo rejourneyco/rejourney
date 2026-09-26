@@ -29,6 +29,7 @@ const SURFACES = [
         ext: '.swift',
         targets: [
             'packages/ios/Sources/Rejourney',
+            'packages/unity/Native~/iOS/Sources/Rejourney',
             'packages/react-native/ios',
             'packages/rejourney/ios/rejourney/Sources/rejourney/Core',
         ],
@@ -45,6 +46,7 @@ const SURFACES = [
         ext: '.kt',
         targets: [
             'packages/react-native/android/src/main/java/com/rejourney',
+            'packages/unity/Native~/Android/src/main/java/com/rejourney',
             'packages/rejourney/android/src/main/kotlin/com/rejourney',
         ],
         // Not shared, and why:

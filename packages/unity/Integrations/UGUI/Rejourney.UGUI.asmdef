@@ -1,0 +1,1 @@
+{"name":"Rejourney.UGUI","references":["Rejourney.Runtime","Unity.ugui","Unity.TextMeshPro"],"defineConstraints":["REJOURNEY_UGUI"],"versionDefines":[{"name":"com.unity.ugui","expression":"2.0.0","define":"REJOURNEY_UGUI"}]}

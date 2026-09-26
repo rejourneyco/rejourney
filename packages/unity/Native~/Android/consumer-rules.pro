@@ -1,0 +1,4 @@
+-keep class com.rejourney.RejourneyUnity { public static *; }
+-keep class com.rejourney.platform.SessionLifecycleService { *; }
+-keepattributes Signature,InnerClasses,EnclosingMethod
+-keep class com.rejourney.UnityCrashMarker { *; }

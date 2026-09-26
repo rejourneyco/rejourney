@@ -1,0 +1,21 @@
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uilds/
+[Bb]uild/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+.utmp/
+Assets/Resources/RejourneyLocal.json*
+*.csproj
+*.sln
+ProjectSettings/Rejourney.local.json
+Assets/TextMesh Pro/
+Assets/TextMesh Pro.meta
+Assets/ArcadeLab/Generated/
+Assets/ArcadeLab/Generated.meta
+Assets/UniversalRenderPipelineGlobalSettings.asset*
+Assets/DefaultVolumeProfile.asset*
+Assets/Resources/ArcadePanel.asset*
+Assets/Resources/ArcadeURP.mat*
+Assets/Resources/ArcadeBuiltin.mat*

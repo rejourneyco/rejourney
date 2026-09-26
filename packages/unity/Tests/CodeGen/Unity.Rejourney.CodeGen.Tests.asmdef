@@ -1,0 +1,7 @@
+{
+  "name": "Unity.Rejourney.CodeGen.Tests",
+  "references": ["Unity.Rejourney.CodeGen", "Rejourney.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "precompiledReferences": ["Mono.Cecil.dll", "Mono.Cecil.Pdb.dll"]
+}

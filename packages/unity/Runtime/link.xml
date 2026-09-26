@@ -1,0 +1,1 @@
+<linker><assembly fullname="Rejourney.Runtime" preserve="all"/><assembly fullname="Rejourney.UGUI" preserve="all" ignoreIfMissing="1"/><assembly fullname="Rejourney.InputSystem" preserve="all" ignoreIfMissing="1"/></linker>

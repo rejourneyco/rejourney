@@ -1,0 +1,133 @@
+name: Rejourney Unity SDK
+
+# Packages co.rejourney.unity on every change and publishes it from main as a GitHub
+# release when packages/unity/package.json has a version without a unity-v<version> tag.
+# No Unity Editor or license is needed: the package ships prebuilt native binaries, and
+# packaging verifies them against their sources. The EditMode tests and clean-project
+# installs run locally (scripts/test-unity-package.mjs), as they need the Editor.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/unity/**'
+      - 'packages/core/**'
+      - 'scripts/package-unity.mjs'
+      - 'scripts/sync-sdk-core.mjs'
+      - 'scripts/sync-unity-controllers.mjs'
+      - '.github/releases/unity-*.md'
+      - '.github/workflows/rejourney-unity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/unity/**'
+      - 'packages/core/**'
+      - 'scripts/package-unity.mjs'
+      - 'scripts/sync-sdk-core.mjs'
+      - 'scripts/sync-unity-controllers.mjs'
+      - '.github/releases/unity-*.md'
+      - '.github/workflows/rejourney-unity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package and verify
+    # macOS also checks the C entry points the iOS framework must export.
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Checks the shared native core and controllers for drift, the prebuilt iOS and
+      # Android binaries against their sources, and Android 16 KB alignment, then builds
+      # the tarball and its SHA-256.
+      - name: Package
+        id: package
+        run: |
+          node scripts/package-unity.mjs
+          VERSION="$(node -p "require('./packages/unity/package.json').version")"
+          ARCHIVE="co.rejourney.unity-${VERSION}.tgz"
+          (cd artifacts/unity && shasum -a 256 -c "${ARCHIVE}.sha256")
+          tar -tzf "artifacts/unity/${ARCHIVE}" > "$RUNNER_TEMP/contents.txt"
+          for required in \
+            package/package.json \
+            package/Runtime/Rejourney.cs \
+            package/Plugins/Android/rejourney-unity.aar \
+            package/Plugins/iOS/RejourneyUnity.xcframework/Info.plist \
+            package/Plugins/native-artifacts.json; do
+            grep -qx "$required" "$RUNNER_TEMP/contents.txt" || { echo "::error::$ARCHIVE is missing $required"; exit 1; }
+          done
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: co.rejourney.unity
+          path: artifacts/unity/
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: rejourney-unity-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag records what has been released, so an unchanged version is a no-op.
+      - name: Check whether this version is released
+        id: tag
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          TAG="unity-v${VERSION}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG"; then
+            echo "$TAG already exists; bump packages/unity/package.json to release again."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.tag.outputs.release == 'true'
+        with:
+          name: co.rejourney.unity
+          path: artifacts/unity
+
+      - name: Tag and publish
+        if: steps.tag.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          echo "::add-mask::$GH_TOKEN"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          NOTES_FILE=".github/releases/unity-${VERSION}.md"
+          NOTES_ARGS=(--notes "Install \`co.rejourney.unity-${VERSION}.tgz\` with Package Manager → Install package from tarball." --generate-notes)
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          fi
+
+          gh release create "$TAG" \
+            --title "Unity SDK v${VERSION}" \
+            "${NOTES_ARGS[@]}" \
+            --verify-tag \
+            "artifacts/unity/co.rejourney.unity-${VERSION}.tgz" \
+            "artifacts/unity/co.rejourney.unity-${VERSION}.tgz.sha256"

@@ -1,0 +1,1 @@
+{"name":"Rejourney.InputSystem","references":["Rejourney.Runtime","Unity.InputSystem"],"defineConstraints":["REJOURNEY_INPUT_SYSTEM","ENABLE_INPUT_SYSTEM"],"versionDefines":[{"name":"com.unity.inputsystem","expression":"1.0.0","define":"REJOURNEY_INPUT_SYSTEM"}]}

@@ -1,0 +1,29 @@
+{
+  "name": "co.rejourney.unity",
+  "version": "0.1.0",
+  "displayName": "Rejourney",
+  "description": "Session replay and observability for Unity mobile games.",
+  "unity": "6000.3",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Rejourney",
+    "url": "https://rejourney.co"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.modules.screencapture": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.nuget.mono-cecil": "1.11.6",
+    "com.unity.modules.androidjni": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Quickstart",
+      "description": "Consent-driven initialization",
+      "path": "Samples~/Quickstart"
+    }
+  ]
+}

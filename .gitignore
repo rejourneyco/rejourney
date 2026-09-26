@@ -28,6 +28,7 @@ packages/**/lib/
 !packages/rejourney/example/lib/**
 packages/**/dist/
 *.tsbuildinfo
+/artifacts/unity/
 
 # iOS
 *.xcworkspace/
@@ -126,3 +127,4 @@ temp_env.txt
 # Local-only working documents
 /dev_docs/scaling-plan.md
 /dev_docs/google-ads-conversion-tracking.md
+/dev_docs/unity-implementation.md

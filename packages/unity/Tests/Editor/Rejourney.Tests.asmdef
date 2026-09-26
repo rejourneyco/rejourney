@@ -1,0 +1,16 @@
+{
+  "name": "Rejourney.Tests",
+  "references": [
+    "Rejourney.Runtime",
+    "Rejourney.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ]
+}

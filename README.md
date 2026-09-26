@@ -28,6 +28,7 @@ patterns worth investigating.
   <a href="https://rejourney.co/docs/web/getting-started#redux-and-redux-toolkit"><img src="https://img.shields.io/badge/Redux%20Toolkit-764abc?style=flat-square&amp;logo=redux&amp;logoColor=white" alt="Redux Toolkit replay" /></a>
   <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native%20%2F%20Expo-1e293b?style=flat-square&amp;logo=react&amp;logoColor=61DAFB" alt="React Native and Expo" /></a>
   <a href="https://rejourney.co/docs/flutter/overview"><img src="https://img.shields.io/badge/Flutter-027DFD?style=flat-square&amp;logo=flutter&amp;logoColor=white" alt="Flutter SDK documentation" /></a>
+  <a href="https://rejourney.co/docs/unity/overview"><img src="https://img.shields.io/badge/Unity-000000?style=flat-square&amp;logo=unity&amp;logoColor=white" alt="Unity SDK documentation" /></a>
   <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-f97316?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift" /></a>
   <a href="https://nuxt.com"><img src="https://img.shields.io/badge/Vue%20%2F%20Nuxt-0f766e?style=flat-square&amp;logo=nuxt&amp;logoColor=white" alt="Vue and Nuxt" /></a>
   <a href="https://angular.dev"><img src="https://img.shields.io/badge/Angular-dd0031?style=flat-square&amp;logo=angular&amp;logoColor=white" alt="Angular" /></a>
@@ -43,7 +44,7 @@ patterns worth investigating.
 
 ## How it works
 
-1. Install a Rejourney SDK in your web, Swift, React Native, or Flutter app.
+1. Install a Rejourney SDK in your web, Swift, React Native, Flutter, or Unity app.
 2. Track the few product events that matter most to your business, such as a
    completed signup, subscription purchase, or successful checkout. These are
    your **critical conversion events**.
@@ -235,6 +236,25 @@ struct MyApp: App {
 
 See [iOS getting started](docs/ios/getting-started.md) for screen tracking,
 identity, event capture, and recording controls.
+
+### Unity
+
+Install the Unity package tarball from the [Unity SDK release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.0) via Package Manager (**Window → Package Manager → + → Install package from tarball**) or add the git URL to `Packages/manifest.json`:
+
+```json
+"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.0"
+```
+
+Initialize once on the main thread and start recording after consent:
+
+```csharp
+using RejourneySDK;
+
+Rejourney.Init("rj_your_public_key");
+await Rejourney.StartAsync();
+```
+
+The Unity package supports Unity 6 LTS and iOS (15.1+) / Android (API 24+) IL2CPP builds. It records viewport replay with privacy masking, performance metrics, frame pacing, game-loop hangs, gameplay markers, unhandled exceptions, and automatic HTTP timing. See [Unity getting started](docs/unity/getting-started.md).
 
 ## Privacy and data handling
 

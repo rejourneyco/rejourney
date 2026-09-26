@@ -1,0 +1,6 @@
+{
+  "name": "Rejourney.Runtime",
+  "rootNamespace": "RejourneySDK",
+  "references": [],
+  "autoReferenced": true
+}

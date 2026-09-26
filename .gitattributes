@@ -20,3 +20,9 @@
 *.webp binary
 *.woff2 binary
 *.zip binary
+*.aar binary
+
+# Unity writes empty YAML values with a trailing space when serializing assets.
+packages/unity/**/*.meta whitespace=-blank-at-eol
+examples/unity/**/*.meta whitespace=-blank-at-eol
+examples/unity/ProjectSettings/*.asset whitespace=-blank-at-eol

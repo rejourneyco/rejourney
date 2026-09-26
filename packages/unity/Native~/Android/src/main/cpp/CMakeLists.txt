@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(rejourney_unity C)
+add_library(rejourney_unity_signal SHARED crash_marker.c)
+target_compile_options(rejourney_unity_signal PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
+target_link_options(rejourney_unity_signal PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")

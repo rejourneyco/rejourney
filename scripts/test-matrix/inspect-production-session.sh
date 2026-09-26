@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <expo|brew|swift|flutter> [session-id] [--expect-paused|--expect-resumed|--expect-ended]" >&2
+  echo "Usage: $0 <expo|brew|swift|flutter|unity> [session-id] [--expect-paused|--expect-resumed|--expect-ended]" >&2
   exit 64
 }
 
@@ -10,7 +10,7 @@ fixture="${1:-}"
 session_id="${2:-}"
 expectation="${3:-}"
 case "$fixture" in
-  expo|brew|swift|flutter) ;;
+  expo|brew|swift|flutter|unity) ;;
   *) usage ;;
 esac
 

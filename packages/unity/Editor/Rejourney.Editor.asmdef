@@ -1,0 +1,9 @@
+{
+  "name": "Rejourney.Editor",
+  "references": [
+    "Rejourney.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ]
+}

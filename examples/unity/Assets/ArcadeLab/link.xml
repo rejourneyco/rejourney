@@ -1,0 +1,17 @@
+<linker>
+  <!-- CreatePrimitive creates these components by native type, which the
+       managed linker cannot infer from the synthetic arena's call sites. -->
+  <assembly fullname="UnityEngine.CoreModule">
+    <type fullname="UnityEngine.MeshFilter" preserve="all" />
+    <type fullname="UnityEngine.MeshRenderer" preserve="all" />
+  </assembly>
+  <assembly fullname="UnityEngine.PhysicsModule">
+    <type fullname="UnityEngine.BoxCollider" preserve="all" />
+    <type fullname="UnityEngine.SphereCollider" preserve="all" />
+    <type fullname="UnityEngine.CapsuleCollider" preserve="all" />
+  </assembly>
+  <!-- The validation report serializes anonymous types through reflection. -->
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="&lt;&gt;f__AnonymousType*" preserve="all" />
+  </assembly>
+</linker>

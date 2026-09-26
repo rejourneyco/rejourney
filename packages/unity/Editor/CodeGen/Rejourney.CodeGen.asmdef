@@ -1,0 +1,15 @@
+{
+  "name": "Unity.Rejourney.CodeGen",
+  "references": [
+    "Rejourney.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Mono.Cecil.dll",
+    "Mono.Cecil.Pdb.dll"
+  ]
+}

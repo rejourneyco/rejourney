@@ -66,6 +66,11 @@ while IFS= read -r path; do
   fi
 
   case "${path}" in
+    packages/unity/Plugins/iOS/RejourneyUnity.xcframework/*/RejourneyUnity.framework/RejourneyUnity)
+      # The self-contained UPM distribution ships a dynamic Mach-O framework.
+      # Its executable mode is required when Xcode embeds/signs the framework.
+      if file -b "${path}" | rg -q 'Mach-O'; then continue; fi
+      ;;
     .husky/*|*/.husky/*)
       continue
       ;;

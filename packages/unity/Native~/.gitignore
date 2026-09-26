@@ -1,0 +1,7 @@
+**/.gradle/
+**/.kotlin/
+**/build/
+**/.build/
+**/.swiftpm/
+**/local.properties
+**/.cxx/
