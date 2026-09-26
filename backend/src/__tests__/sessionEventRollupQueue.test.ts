@@ -8,6 +8,7 @@ const {
     downloadFromS3ForArtifactMock,
     enqueueSessionEffectsJobMock,
     evalMock,
+    executeMock,
     existsMock,
     getJobMock,
     insertValuesMock,
@@ -24,28 +25,33 @@ const {
     downloadFromS3ForArtifactMock: vi.fn(async () => Buffer.from('{"events":[]}')),
     enqueueSessionEffectsJobMock: vi.fn(async () => true),
     evalMock: vi.fn(async () => 1),
+    executeMock: vi.fn(async () => undefined),
     existsMock: vi.fn(async () => 0),
     getJobMock: vi.fn(async (): Promise<any> => null),
     insertValuesMock: vi.fn(() => ({ onConflictDoNothing: vi.fn(async () => undefined) })),
     processEventsArtifactMock: vi.fn(async () => undefined),
     selectProjectionArgs: [] as any[],
-    selectResults: [] as any[][],
+    selectResults: [] as (any[] | Error)[],
     setMock: vi.fn(async () => 'OK'),
     updateSetMock: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
 }));
 
-function selectBuilder(result: any[]) {
+function selectBuilder(result: any[] | Error) {
     const builder: any = {};
     builder.from = vi.fn(() => builder);
     builder.leftJoin = vi.fn(() => builder);
     builder.where = vi.fn(() => builder);
     builder.orderBy = vi.fn(() => builder);
     builder.groupBy = vi.fn(() => builder);
-    builder.limit = vi.fn(async () => result);
+    builder.limit = vi.fn(async () => {
+        if (result instanceof Error) throw result;
+        return result;
+    });
     return builder;
 }
 
 vi.mock('drizzle-orm', () => ({
+    sql: (parts: TemplateStringsArray) => parts.join(''),
     and: vi.fn((...args) => ({ args, op: 'and' })),
     eq: vi.fn((...args) => ({ args, op: 'eq' })),
     isNotNull: vi.fn((arg) => ({ arg, op: 'isNotNull' })),
@@ -54,6 +60,13 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('../db/client.js', () => ({
     db: {
+        transaction: vi.fn(async (run) => run({
+            execute: executeMock,
+            select: (projection: any) => {
+                selectProjectionArgs.push(projection);
+                return selectBuilder(selectResults.shift() ?? []);
+            },
+        })),
         insert: vi.fn(() => ({ values: insertValuesMock })),
         select: vi.fn((projection) => {
             selectProjectionArgs.push(projection);
@@ -148,6 +161,7 @@ import {
 describe('sessionEventRollupQueue', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        executeMock.mockResolvedValue(undefined);
         delete process.env.RJ_SESSION_EVENT_ROLLUP_BATCH_SIZE;
         delete process.env.RJ_SESSION_EVENT_ROLLUP_CONCURRENCY;
         delete process.env.RJ_SESSION_EVENT_ROLLUP_DELAY_MS;
@@ -157,6 +171,14 @@ describe('sessionEventRollupQueue', () => {
         getJobMock.mockResolvedValue(null);
         existsMock.mockResolvedValue(0);
         setMock.mockResolvedValue('OK');
+    });
+
+    it('bounds lookup execution and propagates cancellation for queue retry', async () => {
+        const timeout = Object.assign(new Error('statement timeout'), { code: '57014' });
+        selectResults.push(timeout);
+        await expect(processSessionEventRollupBatch('session-1')).rejects.toBe(timeout);
+        expect(executeMock).toHaveBeenCalledWith("SET LOCAL statement_timeout = '10s'");
+        expect(processEventsArtifactMock).not.toHaveBeenCalled();
     });
 
     it('builds one coalesced job id per session', () => {

@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
@@ -209,16 +209,20 @@ export async function processSessionEventRollupBatch(
     sessionId: string,
     batchSize = resolveSessionEventRollupBatchSize(),
 ): Promise<{ hasMore: boolean; processed: number }> {
-    const artifacts = await db
-        .select({
-            endpointId: recordingArtifacts.endpointId,
-            id: recordingArtifacts.id,
-            s3ObjectKey: recordingArtifacts.s3ObjectKey,
-        })
-        .from(recordingArtifacts)
-        .where(pendingEventRollupPredicate(sessionId))
-        .orderBy(recordingArtifacts.createdAt, recordingArtifacts.id)
-        .limit(batchSize + 1);
+    // Only hold the transaction for the database lookup, never for S3 processing.
+    // A bad plan must fail into BullMQ retry instead of monopolizing disk for minutes.
+    const artifacts = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '10s'`);
+        return tx.select({
+                endpointId: recordingArtifacts.endpointId,
+                id: recordingArtifacts.id,
+                s3ObjectKey: recordingArtifacts.s3ObjectKey,
+            })
+            .from(recordingArtifacts)
+            .where(pendingEventRollupPredicate(sessionId))
+            .orderBy(recordingArtifacts.createdAt, recordingArtifacts.id)
+            .limit(batchSize + 1);
+    });
 
     const batch = artifacts.slice(0, batchSize);
     let processed = 0;
@@ -332,12 +336,14 @@ export async function queuePendingSessionEventRollups(limit = 100): Promise<numb
         return 0;
     }
 
-    const rows = await db
-        .select({ sessionId: recordingArtifacts.sessionId })
-        .from(recordingArtifacts)
-        .where(pendingEventRollupPredicate())
-        .groupBy(recordingArtifacts.sessionId)
-        .limit(limit);
+    const rows = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '10s'`);
+        return tx.select({ sessionId: recordingArtifacts.sessionId })
+            .from(recordingArtifacts)
+            .where(pendingEventRollupPredicate())
+            .groupBy(recordingArtifacts.sessionId)
+            .limit(limit);
+    });
 
     let queued = 0;
     for (const row of rows) {
