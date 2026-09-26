@@ -33,6 +33,8 @@ export interface TabDefinition extends TabInfo {
 }
 
 type TabPrefetchContext = {
+    /** Analytics reads are opt-in: background navigation must not compete with the active page. */
+    includeData?: boolean;
     projectId?: string | null;
     timeRange?: string;
     platform?: string;
@@ -268,7 +270,7 @@ export const TabRegistry = {
         if (route.loadComponent) {
             void route.loadComponent();
         }
-        if (route.prefetchData) {
+        if (context.includeData && route.prefetchData) {
             void route.prefetchData(context);
         }
     },

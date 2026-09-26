@@ -3602,17 +3602,18 @@ export async function getJourneysOverview(
     return fetchWithCache<JourneysOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getHeatmapsOverview(projectId: string, timeRange?: string, platform?: string): Promise<HeatmapOverviewResponse> {
+export async function getHeatmapsOverview(projectId: string, timeRange?: string, platform?: string, includePreviews = true): Promise<HeatmapOverviewResponse> {
     const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
     if (isDemoMode()) {
         return buildDemoHeatmapOverview();
     }
 
     const params = new URLSearchParams({ projectId });
+    if (!includePreviews) params.set('previews', 'false');
     if (timeRange) params.set('timeRange', timeRange);
     if (normalizedPlatform) params.set('platform', normalizedPlatform);
     const endpoint = `/api/overview/heatmaps?${params.toString()}`;
-    const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v13`;
+    const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v14:${includePreviews ? 'previews' : 'metrics'}`;
     return fetchWithCache<HeatmapOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 

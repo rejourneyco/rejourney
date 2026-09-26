@@ -1630,7 +1630,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
-        getHeatmapsOverview(selectedProject.id, range, platform)
+        getHeatmapsOverview(selectedProject.id, range, platform, false)
             .then((overview) => {
                 if (cancelled) return;
 
@@ -1651,6 +1651,25 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 setScreens(overviewScreens.filter((screen) => isMeaningfulHeatmapScreen(screen, minVisits)));
                 setScreenIteration(overview.screenIteration || null);
                 setLastUpdated(overview.lastUpdated || '');
+
+                // Metrics are usable now; enrich the previews without holding the page spinner.
+                setIndexingProgress(100);
+                setIsLoading(false);
+                void getHeatmapsOverview(selectedProject.id, range, platform)
+                    .then((withPreviews) => {
+                        if (cancelled) return;
+                        const enriched = (withPreviews.screens || []) as EnrichedHeatmapScreen[];
+                        const enrichedMinimum = getHeatmapRouteMinimumVisits(enriched);
+                        if (withPreviews.failedSections.length === 0) {
+                            setPartialError(null);
+                            setScreens(enriched.filter((screen) => isMeaningfulHeatmapScreen(screen, enrichedMinimum)));
+                            setScreenIteration(withPreviews.screenIteration || null);
+                            setLastUpdated(withPreviews.lastUpdated || '');
+                        }
+                    })
+                    .catch(() => {
+                        // Keep the usable metrics and rollup previews if enrichment fails.
+                    });
 
                 if (overview.failedSections.length > 0) {
                     console.warn(`${TOUCH_HEATMAP_DEBUG_PREFIX} Partial touch heatmap data failure`, {

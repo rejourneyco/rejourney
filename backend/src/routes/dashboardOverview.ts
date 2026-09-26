@@ -5,6 +5,7 @@
  * request, while keeping heavyweight detail routes separate.
  */
 
+import { createSingleFlight } from '../utils/asyncWork.js';
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from 'drizzle-orm';
@@ -147,6 +148,8 @@ function getFailedSections(payload: unknown): string[] {
     return failedSections.filter((section): section is string => typeof section === 'string' && section.length > 0);
 }
 
+const buildOverviewOnce = createSingleFlight<{ serializedPayload: string; failedSections: string[] }>();
+
 async function respondWithOverviewCache<T>({
     cacheKey,
     routeName,
@@ -171,15 +174,17 @@ async function respondWithOverviewCache<T>({
     }
 
     const startedAt = Date.now();
-    const payload = await build();
-    const serializedPayload = jsonSafeStringify(payload);
-    const failedSections = getFailedSections(payload);
+    const { serializedPayload, failedSections } = await buildOverviewOnce(cacheKey, async () => {
+        const payload = await build();
+        const serializedPayload = jsonSafeStringify(payload);
+        const failedSections = getFailedSections(payload);
+        if (failedSections.length === 0) {
+            await persistOverviewCachePayload(cacheKey, serializedPayload, { redisClient: redis, ttlSeconds });
+        }
+        return { serializedPayload, failedSections };
+    });
 
     if (failedSections.length === 0) {
-        await persistOverviewCachePayload(cacheKey, serializedPayload, {
-            redisClient: redis,
-            ttlSeconds,
-        });
         setOverviewCacheHeaders(res);
         res.setHeader('X-Rejourney-Overview-Cache', 'miss');
     } else {
@@ -1405,12 +1410,14 @@ async function fetchHeatmapSources(
     projectId: string,
     timeRange?: string,
     platform?: string,
+    includePreviews = true,
 ): Promise<{
     allTime: { screens?: HeatmapScreenSource[]; lastUpdated?: string };
     friction: { screens?: HeatmapScreenSource[] };
     failedSections: string[];
 }> {
     const frictionParams = new URLSearchParams({ projectId });
+    if (!includePreviews) frictionParams.set('previews', 'false');
     if (timeRange) {
         frictionParams.set('timeRange', timeRange);
     }
@@ -1423,7 +1430,7 @@ async function fetchHeatmapSources(
             ? Promise.resolve({ screens: [], lastUpdated: undefined })
             : fetchOverviewSection<{ screens?: HeatmapScreenSource[]; lastUpdated?: string }>(
                   cookieHeader,
-                  `/api/insights/alltime-heatmap?${new URLSearchParams({ projectId }).toString()}`,
+                  `/api/insights/alltime-heatmap?${new URLSearchParams({ projectId, previews: String(includePreviews) }).toString()}`,
               ),
         fetchOverviewSection<{ screens?: HeatmapScreenSource[] }>(cookieHeader, `/api/insights/friction-heatmap?${frictionParams.toString()}`),
     ]);
@@ -1446,9 +1453,9 @@ async function fetchHeatmapSources(
     };
 }
 
-async function loadHeatmapSummary(cookieHeader: string | undefined, projectId: string, timeRange?: string, platform?: string) {
+async function loadHeatmapSummary(cookieHeader: string | undefined, projectId: string, timeRange?: string, platform?: string, includePreviews = true) {
     const [{ allTime, friction, failedSections }, rawScreenIteration, templatesByScreen] = await Promise.all([
-        fetchHeatmapSources(cookieHeader, projectId, timeRange, platform),
+        fetchHeatmapSources(cookieHeader, projectId, timeRange, platform, includePreviews),
         loadHeatmapIterationSummary(projectId, timeRange, platform),
         loadHeatmapBaseTemplateMap(projectId),
     ]);
@@ -3124,12 +3131,13 @@ router.get(
     sessionAuth,
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
+        const includePreviews = req.query.previews !== 'false';
         await respondWithOverviewCache({
             cacheKey: buildOverviewCacheKey(
                 'heatmaps',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v13` : 'v13',
+                `${scope.normalizedPlatform || 'all'}:v14:${includePreviews ? 'previews' : 'metrics'}`,
             ),
             routeName: 'heatmaps',
             res,
@@ -3137,7 +3145,7 @@ router.get(
                 projectId: scope.normalizedProjectId,
                 timeRange: scope.normalizedTimeRange,
             },
-            build: async () => loadHeatmapSummary(scope.cookieHeader, scope.normalizedProjectId!, scope.normalizedTimeRange, scope.normalizedPlatform),
+            build: async () => loadHeatmapSummary(scope.cookieHeader, scope.normalizedProjectId!, scope.normalizedTimeRange, scope.normalizedPlatform, includePreviews),
         });
     }),
 );

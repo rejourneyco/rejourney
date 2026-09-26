@@ -6,6 +6,8 @@
  */
 
 import { Router } from 'express';
+import { createSingleFlight } from '../utils/asyncWork.js';
+import { mapWithConcurrency } from '../utils/mapWithConcurrency.js';
 import { eq, gte, and, desc, asc, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, projectVisitors, teamMembers, recordingArtifacts } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
@@ -121,6 +123,8 @@ function addUniqueHeatmapSessionId(target: string[], seen: Set<string>, sessionI
     target.push(normalized);
 }
 
+const loadHeatmapArtifactOnce = createSingleFlight<any[]>();
+
 async function resolveHeatmapPreviewEvidenceByScreen(
     projectIds: string[],
     candidatesByScreen: Map<string, string[]>,
@@ -149,6 +153,7 @@ async function resolveHeatmapPreviewEvidenceByScreen(
 
     if (allCandidateSessionIds.length === 0 || projectIds.length === 0) return new Map();
 
+    const previewStartedAt = Date.now();
     const [sessionRows, screenshotRows, eventArtifactRows] = await Promise.all([
         db
             .select({
@@ -177,25 +182,29 @@ async function resolveHeatmapPreviewEvidenceByScreen(
                 eq(recordingArtifacts.status, 'ready'),
             ))
             .groupBy(recordingArtifacts.sessionId, recordingArtifacts.kind),
-        db
-            .select({
-                id: recordingArtifacts.id,
-                sessionId: recordingArtifacts.sessionId,
-                s3ObjectKey: recordingArtifacts.s3ObjectKey,
-                endpointId: recordingArtifacts.endpointId,
-                startTime: recordingArtifacts.startTime,
-                timestamp: recordingArtifacts.timestamp,
-                createdAt: recordingArtifacts.createdAt,
-            })
-            .from(recordingArtifacts)
-            .where(and(
-                inArray(recordingArtifacts.sessionId, allCandidateSessionIds),
-                eq(recordingArtifacts.kind, 'events'),
-                eq(recordingArtifacts.status, 'ready'),
-            ))
-            .orderBy(recordingArtifacts.sessionId, recordingArtifacts.startTime, recordingArtifacts.timestamp, recordingArtifacts.createdAt),
+        // Apply the per-session cap in SQL, before transferring or parsing artifacts.
+        // A global LIMIT would let one long session crowd out every other candidate.
+        db.execute<{
+            id: string; sessionId: string; s3ObjectKey: string; endpointId: string | null;
+            startTime: number | null; timestamp: number | null;
+        }>(sql`
+            SELECT artifact.id, artifact.session_id AS "sessionId",
+                   artifact.s3_object_key AS "s3ObjectKey", artifact.endpoint_id AS "endpointId",
+                   artifact.start_time::double precision AS "startTime",
+                   artifact.timestamp::double precision AS "timestamp"
+            FROM unnest(ARRAY[${sql.join(allCandidateSessionIds.map((id) => sql`${id}`), sql`, `)}]::text[]) AS candidate(session_id)
+            CROSS JOIN LATERAL (
+                SELECT id, session_id, s3_object_key, endpoint_id, start_time, timestamp, created_at
+                FROM ${recordingArtifacts}
+                WHERE session_id = candidate.session_id AND kind = 'events' AND status = 'ready'
+                ORDER BY start_time, timestamp, created_at, id
+                LIMIT ${HEATMAP_PREVIEW_EVENT_ARTIFACT_LIMIT_PER_SESSION}
+            ) artifact
+            ORDER BY candidate.session_id, artifact.start_time, artifact.timestamp, artifact.created_at, artifact.id
+        `).then((result) => result.rows),
     ]);
 
+    const previewDatabaseDoneAt = Date.now();
     const sessionById = new Map(sessionRows.map((row) => [row.sessionId, row]));
     const visualArtifactKindsBySession = new Map<string, Set<string>>();
     for (const row of screenshotRows) {
@@ -216,7 +225,7 @@ async function resolveHeatmapPreviewEvidenceByScreen(
     const loadArtifactEvents = (artifact: (typeof eventArtifactRows)[number], projectId: string): Promise<any[]> => {
         let cached = eventsByArtifactId.get(artifact.id);
         if (!cached) {
-            const next = downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId)
+            const next = loadHeatmapArtifactOnce(`${projectId}:${artifact.id}`, () => downloadFromS3ForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId)
                 .then(async (data: Buffer | null) => {
                     if (!data) return [];
                     const parsed = await parseMaybeGzippedJson(data, artifact.s3ObjectKey);
@@ -232,7 +241,7 @@ async function resolveHeatmapPreviewEvidenceByScreen(
                         '[heatmap-preview] failed to read events artifact while resolving screen preview',
                     );
                     return [];
-                });
+                }));
             eventsByArtifactId.set(artifact.id, next);
             cached = next;
         }
@@ -247,14 +256,14 @@ async function resolveHeatmapPreviewEvidenceByScreen(
         let cached = sessionEventEntriesBySession.get(sessionId);
         if (!cached) {
             cached = (async () => {
-                const entries: HeatmapPreviewEventEntry[] = [];
-                for (const artifact of artifacts) {
+                // Four screen workers share these session promises. Three artifact reads
+                // per session cap total S3 concurrency at twelve and preserve event order.
+                const batches = await mapWithConcurrency(artifacts, 3, async (artifact) => {
                     const artifactStartMs = artifact.startTime ?? artifact.timestamp ?? null;
                     const events = await loadArtifactEvents(artifact, projectId);
-                    for (const event of events) {
-                        entries.push({ event, artifactStartMs });
-                    }
-                }
+                    return events.map((event): HeatmapPreviewEventEntry => ({ event, artifactStartMs }));
+                });
+                const entries = batches.flat();
                 return entries;
             })();
             sessionEventEntriesBySession.set(sessionId, cached);
@@ -316,6 +325,13 @@ async function resolveHeatmapPreviewEvidenceByScreen(
         }
     }));
 
+    logger.info({
+        databaseDurationMs: previewDatabaseDoneAt - previewStartedAt,
+        eventReadDurationMs: Date.now() - previewDatabaseDoneAt,
+        candidateSessionCount: allCandidateSessionIds.length,
+        eventArtifactCount: eventArtifactRows.length,
+        downloadedArtifactCount: eventsByArtifactId.size,
+    }, '[heatmap-preview] resolved preview evidence');
     return new Map(resolvedEntries.filter((entry): entry is [string, HeatmapPreviewEvidence] => entry !== null));
 }
 
@@ -394,7 +410,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v8`;
+        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v9:${req.query.previews === 'false' ? 'metrics' : 'previews'}`;
 
         // For realtime, use shorter cache TTL
         if (!isRealtime) {
@@ -741,7 +757,9 @@ router.get(
                 previewCandidatesByScreen.set(screen.name, candidates);
             }
         }
-        const previewEvidenceByScreen = await resolveHeatmapPreviewEvidenceByScreen(projectIds, previewCandidatesByScreen);
+        const previewEvidenceByScreen = req.query.previews === 'false'
+            ? new Map<string, HeatmapPreviewEvidence>()
+            : await resolveHeatmapPreviewEvidenceByScreen(projectIds, previewCandidatesByScreen);
 
         // Build final response with screen-specific frame URLs and touch hotspots.
         const screens = scoredScreens.map((screen) => {
@@ -836,7 +854,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:alltime-heatmap:${productRollupSourceKey()}:${projectIds.sort().join(',')}:v7`;
+        const cacheKey = `insights:alltime-heatmap:${productRollupSourceKey()}:${projectIds.sort().join(',')}:v8:${req.query.previews === 'false' ? 'metrics' : 'previews'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1052,7 +1070,9 @@ router.get(
                 previewCandidatesByScreen.set(screenName, candidates);
             }
         }
-        const previewEvidenceByScreen = await resolveHeatmapPreviewEvidenceByScreen(projectIds, previewCandidatesByScreen);
+        const previewEvidenceByScreen = req.query.previews === 'false'
+            ? new Map<string, HeatmapPreviewEvidence>()
+            : await resolveHeatmapPreviewEvidenceByScreen(projectIds, previewCandidatesByScreen);
 
         // Build response
         const screens = rankedScreenEntries
