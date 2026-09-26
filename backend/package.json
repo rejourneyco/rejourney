@@ -27,6 +27,7 @@
         "db:backfill:session-reconciliation": "node --import tsx scripts/backfillSessionReconciliationState.ts",
         "db:backfill:visitor-ledger": "node --import tsx scripts/backfillVisitorLedger.ts",
         "db:repair:missing-sessions": "node --import tsx scripts/repairMissingSessions.ts",
+        "db:repair:issue-short-ids": "node --import tsx scripts/repairDuplicateIssueShortIds.ts",
         "retention:backfill:expired-artifacts": "node dist/worker/retentionWorker.js --once --drain-backlog --trigger=manual_backfill",
         "research-lake:worker": "tsx src/worker/researchLakeWorker.ts",
         "research-lake:worker:once": "tsx src/worker/researchLakeWorker.ts --once",

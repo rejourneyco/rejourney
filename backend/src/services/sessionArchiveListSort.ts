@@ -91,8 +91,41 @@ export function shouldSearchAnonymousDisplayName(trimmedQuery: string): boolean 
         || ANONYMOUS_NAME_ANIMALS.some(matchesGeneratedNamePart);
 }
 
+const MAX_ARCHIVE_SEARCH_QUERY_LENGTH = 256;
+
+/**
+ * Pasted IDs often carry zero-width characters or surrounding quotes from chat apps and
+ * spreadsheets; strip them so an exact ID still matches.
+ */
+export function normalizeArchiveSearchQuery(raw: string): string {
+    let q = raw.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+    const quoted = q.match(/^(["'`])(.*)\1$/s);
+    if (quoted) q = quoted[2].trim();
+    return q.slice(0, MAX_ARCHIVE_SEARCH_QUERY_LENGTH);
+}
+
+/** Single-token input that could be a user, session, device or visitor ID. */
+export function isIdentifierLikeSearchQuery(q: string): boolean {
+    return q.length > 0 && !/\s/.test(q);
+}
+
+/**
+ * Exact match on the indexed identity columns. Every OR branch has an index, so this stays a
+ * lookup instead of the full-project scan that the substring search needs.
+ */
+export function buildArchiveExactIdSearchCondition(rawQuery: string): SQL | null {
+    const q = normalizeArchiveSearchQuery(rawQuery);
+    if (!q) return null;
+    return or(
+        eq(sessions.id, q),
+        eq(sessions.userDisplayId, q),
+        eq(sessions.deviceId, q),
+        eq(sessions.anonymousHash, q),
+    )!;
+}
+
 export function buildArchiveTextSearchCondition(trimmedQuery: string): SQL | null {
-    const q = trimmedQuery.trim();
+    const q = normalizeArchiveSearchQuery(trimmedQuery);
     if (!q) return null;
     const pattern = `%${escapeIlikePattern(q)}%`;
     const conditions: SQL[] = [

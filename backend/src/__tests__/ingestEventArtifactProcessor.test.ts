@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import {
     buildBatteryMetricUpdates,
     buildWebAttributionMetadata,
@@ -16,6 +18,12 @@ import {
     shouldTrustClientFrustrationCountsForPlatform,
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
+
+const dialect = new PgDialect();
+const render = (value: unknown) => {
+    const { sql, params } = dialect.sqlToQuery(value as SQL);
+    return { sql, params };
+};
 
 describe('event artifact summary', () => {
     it('reuses an already-parsed payload without reparsing the buffer', () => {
@@ -267,7 +275,8 @@ describe('ingest mobile frustration event compatibility', () => {
             { touchCount: 12, rageTapCount: 7, apiTotalCount: 2 },
             { trustClientFrustrationCounts: false }
         );
-        expect(mobileUpdates).toMatchObject({ touchCount: 12, apiTotalCount: 2 });
+        expect(render(mobileUpdates.touchCount).params).toEqual([12]);
+        expect(render(mobileUpdates.apiTotalCount).params).toEqual([2]);
         expect(mobileUpdates).not.toHaveProperty('rageTapCount');
 
         expect(summarizeSessionEndMetrics(
@@ -279,6 +288,30 @@ describe('ingest mobile frustration event compatibility', () => {
             { rageTapCount: 3 },
             { trustClientFrustrationCounts: true }
         )).toMatchObject({ rageTapCount: 3 });
+    });
+
+    it('never lets a session-end summary lower counts built from event artifacts', () => {
+        // Unity forwards C# errors and touches to native as opaque events, so its native
+        // summary reports 0 for them; crash recovery reports no counts at all.
+        const updates = buildSessionEndMetricsMergeSet({ touchCount: 0, errorCount: 0, apiTotalCount: 3, crashCount: 1, framesCaptured: 9 });
+        for (const [key, column, value] of [
+            ['touchCount', 'touch_count', 0],
+            ['errorCount', 'error_count', 0],
+            ['apiTotalCount', 'api_total_count', 3],
+            ['crashCount', 'crash_count', 1],
+        ] as const) {
+            expect(render(updates[key])).toEqual({ sql: `GREATEST(COALESCE("session_metrics"."${column}", 0), $1)`, params: [value] });
+        }
+        // Capture counters come only from the SDK and are stored as reported.
+        expect(updates.framesCaptured).toBe(9);
+    });
+
+    it('keeps the longer screen path and ignores an empty one from the summary', () => {
+        expect(buildSessionEndMetricsMergeSet({ screensVisited: [] })).not.toHaveProperty('screensVisited');
+        const query = render(buildSessionEndMetricsMergeSet({ screensVisited: ['Menu', 'Arena', 7, ''] }).screensVisited);
+        expect(query.sql).toContain('WHEN COALESCE(cardinality("session_metrics"."screens_visited"), 0) < $1');
+        expect(query.sql).toContain('THEN ARRAY[$2, $3]::text[] ELSE "session_metrics"."screens_visited" END');
+        expect(query.params).toEqual([2, 'Menu', 'Arena']);
     });
 
     it('persists mobile capture quality counters from session finalization', () => {

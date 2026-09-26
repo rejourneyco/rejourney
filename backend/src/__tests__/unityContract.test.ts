@@ -51,3 +51,37 @@ describe('Unity gameplay frustration eligibility', () => {
         expect(computeMobileFrustrationCounts(events.map(event => ({ ...event, rageEligible: true }))).rageTapCount).toBeGreaterThan(0);
     });
 });
+
+describe('Unity gameplay markers', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../__fixtures__/unity/session.json', import.meta.url), 'utf8'));
+
+    it('pairs the fixture markers into one interval that holds the gameplay tap', async () => {
+        const { deriveGameplayIntervals, gameplayIntervalAt, gameplayMarkersFromEvents, isGameplayTelemetryEvent } = await import('../utils/gameplayIntervals.js');
+        const markers = gameplayMarkersFromEvents(fixture.events, (event) => Number(event.timestamp));
+        const intervals = deriveGameplayIntervals(markers, { start: 1770000000000, end: 1770000000600 });
+        expect(intervals).toEqual([{
+            index: 0, gameplayId: '9f1c2b7e4d5a4c3b8a716e5f4d3c2b1a', name: 'arena', start: 1770000000150, end: 1770000000350,
+            outcome: 'completed', continued: false, startInferred: false, endInferred: false,
+        }]);
+        const touch = fixture.events.find((event: { type: string }) => event.type === 'touch');
+        expect(isGameplayTelemetryEvent(touch)).toBe(true);
+        expect(gameplayIntervalAt(intervals, touch.timestamp)?.gameplayId).toBe(touch.gameplayId);
+        const error = fixture.events.find((event: { type: string }) => event.type === 'error');
+        expect(gameplayIntervalAt(intervals, error.timestamp)).toBeNull();
+    });
+
+    it('keeps marker properties readable for the replay', () => {
+        const end = fixture.events.find((event: { type: string; phase?: string }) => event.type === 'gameplay' && event.phase === 'end');
+        expect(normalizeReplayEventPayload(end).properties).toMatchObject({ score: 3 });
+    });
+
+    it('never counts taps recorded during play as frustration, even from SDKs that mark them rage-eligible', async () => {
+        const { computeMobileFrustrationCounts } = await import('../utils/mobileFrustration.js');
+        const taps = [0, 100, 200, 300, 400].map((offset) => ({
+            type: 'touch', gestureType: 'tap', x: 100, y: 100, timestamp: 1770000000000 + offset, rageEligible: true, gameplayId: 'segment',
+        }));
+        expect(computeMobileFrustrationCounts(taps)).toEqual({ rageTapCount: 0, deadTapCount: 0 });
+        expect(computeMobileFrustrationCounts([{ type: 'rage_tap', x: 1, y: 1, timestamp: 1770000000000, gameplayId: 'segment' }])).toEqual({ rageTapCount: 0, deadTapCount: 0 });
+        expect(computeMobileFrustrationCounts(taps.map(({ gameplayId: _unused, ...tap }) => tap)).rageTapCount).toBeGreaterThan(0);
+    });
+});

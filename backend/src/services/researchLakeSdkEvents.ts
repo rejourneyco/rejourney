@@ -4,10 +4,14 @@
  * Builds the privacy-safe per-session `sdk_events.jsonl.gz` stream from the
  * raw `recording_artifacts.kind = 'events'` objects the SDK uploads: touches,
  * gestures (including dead and rage taps), navigation, app lifecycle, network
- * requests, log levels and stability markers. Rows carry exact device-clock
- * elapsed times, logical-point coordinates, keyed (HMAC) identifiers, and the
- * artifact they came from. Raw labels, URLs, messages and identities never
- * leave this module.
+ * requests, log levels, stability markers and gameplay markers. Rows carry
+ * exact device-clock elapsed times, logical-point coordinates, keyed (HMAC)
+ * identifiers, and the artifact they came from. Raw labels, URLs, messages and
+ * identities never leave this module.
+ *
+ * Games mark gameplay with start/end markers. Every row says whether it falls
+ * inside a gameplay interval (`in_gameplay`), and the derived intervals are
+ * returned beside the rows, so research can leave game input out.
  *
  * The builder is pure with respect to storage and hashing: callers inject the
  * download and hash functions so the same code serves the export workers, the
@@ -21,6 +25,16 @@ import {
     isKeyboardAreaTelemetryEvent,
 } from '../utils/mobileFrustration.js';
 import { normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
+import {
+    deriveGameplayIntervals,
+    gameplayIdOfTelemetryEvent,
+    gameplayIntervalAt,
+    normalizeGameplayOutcome,
+    parseGameplayMarker,
+    type GameplayInterval,
+    type GameplayMarker,
+    type GameplayOutcome,
+} from '../utils/gameplayIntervals.js';
 
 export const SDK_EVENTS_FILE_NAME = 'sdk_events.jsonl.gz';
 export const SDK_EVENTS_ZIP_ENTRY_NAME = 'sdk_events.jsonl';
@@ -36,6 +50,8 @@ const SESSION_DAY_MS = 86_400_000;
 const FLOW_EDGE_ACTION_WINDOW_MS = 5_000;
 const BYTES_BUCKET = 1024;
 const BYTES_BUCKET_MAX = 64 * 1024 * 1024;
+// Intervals listed in a sample manifest; the count and total cover all of them.
+export const GAMEPLAY_MANIFEST_INTERVAL_LIMIT = 1_000;
 
 export type SdkEventTimelineStatus = 'observed' | 'partial' | 'unavailable';
 
@@ -58,7 +74,8 @@ export type SdkEventType =
     | 'session_end'
     | 'session_timeout'
     | 'external_url_opened'
-    | 'oauth';
+    | 'oauth'
+    | 'gameplay';
 
 export type SdkEventClockRelation = 'in_session' | 'before_session_start' | 'after_24h' | 'unavailable';
 
@@ -106,6 +123,14 @@ export type SdkEventRow = {
     error_name_key: string | null;
     oauth_stage: 'started' | 'completed' | 'returned' | null;
     scheme_key: string | null;
+    gameplay_phase: 'start' | 'end' | null;
+    gameplay_outcome: GameplayOutcome | null;
+    gameplay_continued: boolean | null;
+    gameplay_name_key: string | null;
+    /** Keyed segment id, on markers and on every row inside the segment. */
+    gameplay_key: string | null;
+    gameplay_segment_index: number | null;
+    in_gameplay: boolean;
     source_artifact_index: number;
     source_artifact_key: string;
     source_event_ordinal: number;
@@ -124,13 +149,32 @@ export type SdkEventTimelineSummary = {
     navigation_timeline_present: boolean;
     lifecycle_timeline_present: boolean;
     network_timeline_present: boolean;
+    gameplay_timeline_present: boolean;
+    gameplay_segment_count: number;
+    gameplay_elapsed_ms: number;
+    gameplay_event_count: number;
     sdk_event_row_limit_reached: boolean;
+};
+
+/** One gameplay interval on the session-elapsed axis. */
+export type SdkGameplayIntervalRow = {
+    segment_index: number;
+    gameplay_key: string | null;
+    gameplay_name_key: string | null;
+    start_elapsed_ms: number;
+    end_elapsed_ms: number;
+    duration_ms: number;
+    outcome: GameplayOutcome | null;
+    continued: boolean;
+    start_inferred: boolean;
+    end_inferred: boolean;
 };
 
 export type SdkEventTimeline = {
     rows: SdkEventRow[];
     summary: SdkEventTimelineSummary;
     warnings: string[];
+    gameplayIntervals: SdkGameplayIntervalRow[];
 };
 
 export type SdkEventArtifact = {
@@ -309,6 +353,13 @@ function emptyRow(index: number, type: SdkEventType, artifactIndex: number, arti
         error_name_key: null,
         oauth_stage: null,
         scheme_key: null,
+        gameplay_phase: null,
+        gameplay_outcome: null,
+        gameplay_continued: null,
+        gameplay_name_key: null,
+        gameplay_key: null,
+        gameplay_segment_index: null,
+        in_gameplay: false,
         source_artifact_index: artifactIndex,
         source_artifact_key: artifactKey,
         source_event_ordinal: ordinal,
@@ -344,6 +395,7 @@ function classifyType(event: Record<string, unknown>): SdkEventType | 'skip' | '
     if (type === 'crash') return 'crash';
     if (type === 'keyboard_show' || type === 'keyboard_hide') return 'keyboard';
     if (type === 'keyboard_typing' || type === 'input' || type === 'text_input') return 'input';
+    if (type === 'gameplay') return 'gameplay';
     if (type === 'custom') return 'custom';
     return 'unrecognized';
 }
@@ -415,7 +467,8 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
     let carriedHeight: number | null = null;
     let currentScreenKey: string | null = null;
 
-    type Pending = { row: SdkEventRow; deviceTs: number | null };
+    // Raw gameplay ids and names stay on the pending entry; rows carry keys only.
+    type Pending = { row: SdkEventRow; deviceTs: number | null; marker: GameplayMarker | null; taggedGameplayId: string | null };
     const pending: Pending[] = [];
 
     for (const entry of parsed) {
@@ -442,8 +495,11 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
             }
             row.screen_width = carriedWidth;
             row.screen_height = carriedHeight;
+            let marker: GameplayMarker | null = null;
+            let taggedGameplayId: string | null = null;
 
             if (classified === 'touch' || classified === 'gesture') {
+                taggedGameplayId = gameplayIdOfTelemetryEvent(event);
                 row.gesture_kind = gestureKind(event, classified);
                 row.frustration_kind = getFrustrationTapKind(event);
                 if (row.frustration_kind) row.gesture_kind = row.frustration_kind;
@@ -524,9 +580,21 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
                 row.event_name_key = name ? params.hash(`${params.projectKey}:event-name:${name}`, 20) : null;
             } else if (classified === 'keyboard') {
                 row.keyboard_action = lower(event.type) === 'keyboard_show' ? 'show' : 'hide';
+            } else if (classified === 'gameplay') {
+                marker = parseGameplayMarker(event, row.elapsed_ms);
+                const phase = lower(event.phase);
+                row.gameplay_phase = phase === 'start' || phase === 'end' ? phase : null;
+                const name = typeof event.name === 'string' ? event.name.trim() : '';
+                row.gameplay_name_key = name ? params.hash(`${params.projectKey}:gameplay-name:${name}`, 20) : null;
+                if (row.gameplay_phase === 'start') row.gameplay_continued = event.continued === true;
+                if (row.gameplay_phase === 'end') {
+                    row.gameplay_outcome = normalizeGameplayOutcome(typeof event.outcome === 'string' ? event.outcome : null);
+                    const duration = finiteNumber(event.durationMs);
+                    row.duration_ms = duration !== null && duration >= 0 ? Math.round(duration) : null;
+                }
             }
             if (classified !== 'navigation') row.screen_key = currentScreenKey;
-            pending.push({ row, deviceTs });
+            pending.push({ row, deviceTs, marker, taggedGameplayId });
         });
     }
 
@@ -539,12 +607,32 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
         if (a.row.source_artifact_index !== b.row.source_artifact_index) return a.row.source_artifact_index - b.row.source_artifact_index;
         return a.row.source_event_ordinal - b.row.source_event_ordinal;
     });
+    // Intervals come from every marker, including any past the row limit.
+    const gameplayKey = (id: string | null) => (id ? params.hash(`${params.projectKey}:gameplay:${id}`, 20) : null);
+    const lastElapsed = pending.reduce<number | null>((max, entry) => (
+        entry.row.elapsed_ms === null ? max : Math.max(max ?? entry.row.elapsed_ms, entry.row.elapsed_ms)
+    ), null);
+    const sessionEndElapsed = params.session.ended_at
+        ? Math.max(0, params.session.ended_at.getTime() - startedAtMs, lastElapsed ?? 0)
+        : lastElapsed;
+    const intervals = deriveGameplayIntervals(
+        pending.flatMap((entry) => (entry.marker ? [entry.marker] : [])),
+        { start: 0, end: sessionEndElapsed },
+    );
+    let gameplayEventCount = 0;
     for (const entry of pending) {
         if (rows.length >= maxRows) { rowLimitReached = true; break; }
         entry.row.index = rows.length;
+        const interval = gameplayIntervalAt(intervals, entry.row.elapsed_ms);
+        const segmentId = interval ? interval.gameplayId : entry.taggedGameplayId;
+        entry.row.in_gameplay = interval !== null || entry.taggedGameplayId !== null;
+        entry.row.gameplay_segment_index = interval ? interval.index : null;
+        entry.row.gameplay_key = entry.row.in_gameplay ? gameplayKey(segmentId) : null;
+        if (entry.row.in_gameplay) gameplayEventCount += 1;
         rows.push(entry.row);
         typeCounts[entry.row.type] = (typeCounts[entry.row.type] ?? 0) + 1;
     }
+    const gameplayIntervals = gameplayIntervalRows(intervals, params.projectKey, params.hash);
 
     const readCount = parsed.filter((entry) => entry.status === 'read').length;
     const status: SdkEventTimelineStatus = eventArtifacts.length === 0 || readCount === 0
@@ -563,9 +651,121 @@ export async function buildSdkEventTimeline(params: SdkEventTimelineParams): Pro
         navigation_timeline_present: rows.some((row) => row.type === 'navigation'),
         lifecycle_timeline_present: rows.some((row) => LIFECYCLE_TYPES.has(row.type)),
         network_timeline_present: rows.some((row) => row.type === 'network_request'),
+        gameplay_timeline_present: rows.some((row) => row.type === 'gameplay'),
+        gameplay_segment_count: gameplayIntervals.length,
+        gameplay_elapsed_ms: gameplayIntervals.reduce((total, interval) => total + interval.duration_ms, 0),
+        gameplay_event_count: gameplayEventCount,
         sdk_event_row_limit_reached: rowLimitReached,
     };
-    return { rows, summary, warnings: sdkEventTimelineWarnings(summary) };
+    return { rows, summary, warnings: sdkEventTimelineWarnings(summary), gameplayIntervals };
+}
+
+function gameplayIntervalRows(
+    intervals: readonly GameplayInterval[],
+    projectKey: string,
+    hash: (value: string, length?: number) => string,
+): SdkGameplayIntervalRow[] {
+    return intervals.map((interval) => ({
+        segment_index: interval.index,
+        gameplay_key: interval.gameplayId ? hash(`${projectKey}:gameplay:${interval.gameplayId}`, 20) : null,
+        gameplay_name_key: interval.name ? hash(`${projectKey}:gameplay-name:${interval.name}`, 20) : null,
+        start_elapsed_ms: Math.round(interval.start),
+        end_elapsed_ms: Math.round(interval.end),
+        duration_ms: Math.max(0, Math.round(interval.end - interval.start)),
+        outcome: normalizeGameplayOutcome(interval.outcome),
+        continued: interval.continued,
+        start_inferred: interval.startInferred,
+        end_inferred: interval.endInferred,
+    }));
+}
+
+/**
+ * Gameplay intervals from the markers stored on the session record, for
+ * samples whose SDK event timeline is unavailable. Timestamps are device epoch
+ * milliseconds, converted to the session-elapsed axis.
+ */
+export function buildGameplayIntervalsFromSessionEvents(params: {
+    events: readonly unknown[];
+    session: { started_at: Date; ended_at?: Date | null };
+    projectKey: string;
+    hash: (value: string, length?: number) => string;
+}): SdkGameplayIntervalRow[] {
+    const startedAtMs = params.session.started_at.getTime();
+    const markers: { marker: GameplayMarker; order: number }[] = [];
+    params.events.forEach((event, order) => {
+        const record = objectValue(event);
+        if (!record) return;
+        const deviceTs = deviceTimestampMs(record);
+        const marker = parseGameplayMarker(record, deviceTs === null ? null : deviceTs - startedAtMs);
+        if (marker) markers.push({ marker, order });
+    });
+    if (markers.length === 0) return [];
+    markers.sort((a, b) => (a.marker.at - b.marker.at) || (a.order - b.order));
+    const lastAt = markers[markers.length - 1].marker.at;
+    const end = params.session.ended_at ? Math.max(0, params.session.ended_at.getTime() - startedAtMs, lastAt) : lastAt;
+    return gameplayIntervalRows(
+        deriveGameplayIntervals(markers.map((entry) => entry.marker), { start: 0, end }),
+        params.projectKey,
+        params.hash,
+    );
+}
+
+export type ResearchGameplaySummary = {
+    status: 'observed' | 'not_marked' | 'unavailable';
+    source: 'sdk_events' | 'session_events' | null;
+    segment_count: number;
+    total_elapsed_ms: number;
+    intervals: SdkGameplayIntervalRow[];
+    intervals_truncated: boolean;
+};
+
+/**
+ * The sample's gameplay intervals: from the SDK event timeline when it was
+ * read, otherwise from the markers stored on the session record. `not_marked`
+ * means the timeline was read and holds no gameplay markers.
+ */
+export function researchGameplaySummary(
+    timeline: SdkEventTimeline,
+    sessionEventIntervals: readonly SdkGameplayIntervalRow[] = [],
+): ResearchGameplaySummary {
+    const timelineRead = timeline.summary.sdk_event_timeline !== 'unavailable';
+    const fromTimeline = timelineRead && timeline.gameplayIntervals.length > 0;
+    const intervals = fromTimeline ? timeline.gameplayIntervals : [...sessionEventIntervals];
+    const source = fromTimeline ? 'sdk_events' : intervals.length > 0 ? 'session_events' : timelineRead ? 'sdk_events' : null;
+    return {
+        status: intervals.length > 0 ? 'observed' : timelineRead ? 'not_marked' : 'unavailable',
+        source,
+        segment_count: intervals.length,
+        total_elapsed_ms: intervals.reduce((total, interval) => total + interval.duration_ms, 0),
+        intervals: intervals.slice(0, GAMEPLAY_MANIFEST_INTERVAL_LIMIT),
+        intervals_truncated: intervals.length > GAMEPLAY_MANIFEST_INTERVAL_LIMIT,
+    };
+}
+
+/**
+ * Whether a row at `elapsedMs` (or a row covering [elapsedMs, elapsedMs + spanMs)
+ * when only a time bucket is known) falls inside a gameplay interval.
+ */
+export function gameplayTagAt(
+    intervals: readonly SdkGameplayIntervalRow[],
+    elapsedMs: number | null | undefined,
+    spanMs = 0,
+): { in_gameplay: boolean; gameplay_segment_index: number | null } {
+    if (elapsedMs === null || elapsedMs === undefined || !Number.isFinite(elapsedMs) || intervals.length === 0) {
+        return { in_gameplay: false, gameplay_segment_index: null };
+    }
+    const rangeEnd = elapsedMs + Math.max(0, spanMs);
+    // Intervals do not overlap, so their ends ascend: find the first one ending at or after the row.
+    let low = 0;
+    let high = intervals.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (intervals[middle].end_elapsed_ms < elapsedMs) low = middle + 1;
+        else high = middle;
+    }
+    const interval = intervals[low];
+    const inside = interval !== undefined && interval.start_elapsed_ms <= (spanMs > 0 ? rangeEnd - 1 : rangeEnd);
+    return { in_gameplay: inside, gameplay_segment_index: inside ? interval.segment_index : null };
 }
 
 export function unavailableSdkEventTimeline(artifacts: SdkEventArtifact[], reason?: 'identifier_risk' | 'artifact_count_exceeded'): SdkEventTimeline {
@@ -583,12 +783,16 @@ export function unavailableSdkEventTimeline(artifacts: SdkEventArtifact[], reaso
         navigation_timeline_present: false,
         lifecycle_timeline_present: false,
         network_timeline_present: false,
+        gameplay_timeline_present: false,
+        gameplay_segment_count: 0,
+        gameplay_elapsed_ms: 0,
+        gameplay_event_count: 0,
         sdk_event_row_limit_reached: false,
     };
     const warnings = sdkEventTimelineWarnings(summary);
     if (reason === 'identifier_risk') warnings.push('sdk_event_timeline_identifier_risk_detected');
     if (reason === 'artifact_count_exceeded') warnings.push('sdk_event_artifact_count_exceeded');
-    return { rows: [], summary, warnings };
+    return { rows: [], summary, warnings, gameplayIntervals: [] };
 }
 
 export function sdkEventTimelineWarnings(summary: SdkEventTimelineSummary): string[] {
@@ -614,6 +818,10 @@ export function sdkEventTimelineQualityFields(summary: SdkEventTimelineSummary, 
         navigation_timeline_present: summary.navigation_timeline_present,
         lifecycle_timeline_present: summary.lifecycle_timeline_present,
         network_timeline_present: summary.network_timeline_present,
+        gameplay_timeline_present: summary.gameplay_timeline_present,
+        gameplay_segment_count: summary.gameplay_segment_count,
+        gameplay_elapsed_ms: summary.gameplay_elapsed_ms,
+        gameplay_event_count: summary.gameplay_event_count,
         sdk_events_zip_entry_present: zipEntryPresent,
     };
 }
@@ -628,6 +836,7 @@ export type SdkFlowEdgeRow = {
     action_elapsed_ms: number | null;
     transition_elapsed_ms: number | null;
     transition_elapsed_ms_bucket: number | null;
+    in_gameplay: boolean;
     evidence_source: 'observed_navigation_event';
 };
 
@@ -658,6 +867,7 @@ export function buildSdkFlowEdges(rows: SdkEventRow[]): SdkFlowEdgeRow[] {
                 action_elapsed_ms: action ? action.elapsed_ms : null,
                 transition_elapsed_ms: row.elapsed_ms,
                 transition_elapsed_ms_bucket: row.elapsed_ms === null ? null : Math.max(0, Math.floor(row.elapsed_ms / 500) * 500),
+                in_gameplay: row.in_gameplay,
                 evidence_source: 'observed_navigation_event',
             });
         }

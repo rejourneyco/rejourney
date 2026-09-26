@@ -39,16 +39,22 @@ import {
     SDK_EVENT_ARTIFACT_MAX_COUNT,
     SDK_EVENTS_FILE_NAME,
     SDK_EVENTS_ZIP_ENTRY_NAME,
+    buildGameplayIntervalsFromSessionEvents,
     buildSdkEventTimeline,
     buildSdkFlowEdges,
+    gameplayTagAt,
+    researchGameplaySummary,
     sdkEventTimelineQualityFields,
     sdkLifecycleEvidence,
     unavailableSdkEventTimeline,
+    type ResearchGameplaySummary,
     type SdkEventTimeline,
     type SdkEventTimelineSummary,
+    type SdkGameplayIntervalRow,
     type SdkLifecycleEvidence,
     type SdkPositionBuckets,
 } from './researchLakeSdkEvents.js';
+import { isGameplayMarkerEvent } from '../utils/gameplayIntervals.js';
 
 const RESEARCH_SCHEMA_VERSION = 1;
 const RESEARCH_SCHEMA_VERSION_V2 = 2;
@@ -138,7 +144,8 @@ export function unityResearchRuntime(metadata: unknown): Record<string, string> 
     if (data.scriptingBackend === 'il2cpp' || data.scriptingBackend === 'mono') result.scripting_backend = data.scriptingBackend;
     if (typeof data.graphicsApi === 'string' && ['Metal', 'Vulkan', 'OpenGLES3', 'OpenGLCore'].includes(data.graphicsApi)) result.graphics_api = data.graphicsApi;
     if (typeof data.renderPipeline === 'string' && ['built-in', 'UniversalRenderPipelineAsset', 'HDRenderPipelineAsset'].includes(data.renderPipeline)) result.render_pipeline = data.renderPipeline;
-    if (typeof data.buildIdentifier === 'string' && /^(?:[a-f\d]{32}|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i.test(data.buildIdentifier)) result.build_identifier = data.buildIdentifier.toLowerCase();
+    // Dashed UUIDs would trip the identifier gate and reject the sample; keep the 32-hex form.
+    if (typeof data.buildIdentifier === 'string' && /^(?:[a-f\d]{32}|[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i.test(data.buildIdentifier)) result.build_identifier = data.buildIdentifier.replace(/-/g, '').toLowerCase();
     return result;
 }
 
@@ -813,6 +820,7 @@ function coarseAppVersion(value: string | null): string {
 }
 
 function classifyEventKind(event: Record<string, unknown>): string {
+    if (isGameplayMarkerEvent(event)) return 'gameplay';
     const raw = stringValue(event.type) || stringValue(event.name) || stringValue(event.event) || 'event';
     const normalized = raw.toLowerCase();
     if (normalized.includes('touch') || normalized.includes('tap') || normalized.includes('click')) return 'tap';
@@ -1489,6 +1497,82 @@ function getFunnelTransition(eventName: string, customEventConfig?: any): string
     return FUNNEL_TRANSITION_ALIAS_MAP.get(name) ?? null;
 }
 
+/** Gameplay markers are keyed by phase, never by the developer's level or match name. */
+function gameplayMarkerEventName(event: Record<string, unknown>): string {
+    const phase = stringValue(event.phase).trim().toLowerCase();
+    return phase === 'start' || phase === 'end' ? `gameplay_${phase}` : 'gameplay';
+}
+
+type GameplayTag = { in_gameplay: boolean; gameplay_segment_index: number | null };
+type SessionGameplay = { summary: ResearchGameplaySummary; intervals: SdkGameplayIntervalRow[] };
+
+/**
+ * The session's gameplay intervals: from the SDK event timeline when it holds
+ * markers, otherwise from the markers stored on the session record.
+ */
+function sessionGameplay(session: SessionContext, timeline: SdkEventTimeline, projectKey: string): SessionGameplay {
+    const timelineIntervals = timeline.summary.sdk_event_timeline !== 'unavailable' ? timeline.gameplayIntervals : [];
+    const sessionEventIntervals = timelineIntervals.length > 0
+        ? []
+        : buildGameplayIntervalsFromSessionEvents({ events: asEvents(session.events), session, projectKey, hash: hmac });
+    return {
+        summary: researchGameplaySummary(timeline, sessionEventIntervals),
+        intervals: timelineIntervals.length > 0 ? timelineIntervals : sessionEventIntervals,
+    };
+}
+
+/** Rows built from the session's stored events, tagged by the exact source event time. */
+function interactionGameplayTags(
+    session: SessionContext,
+    interactions: ResearchInteractionRow[],
+    intervals: readonly SdkGameplayIntervalRow[],
+): GameplayTag[] {
+    const events = asEvents(session.events);
+    return interactions.map((interaction) => {
+        const exact = numberValue(interaction.elapsed_ms);
+        if (exact !== null) return gameplayTagAt(intervals, exact);
+        const event = events[interaction.index] ?? {};
+        const rawTimestamp = numberValue(event.timestamp ?? event.time ?? event.ts);
+        return gameplayTagAt(intervals, exactElapsedMs(rawTimestamp ?? numberValue(event.elapsedMs ?? event.elapsed_ms), session));
+    });
+}
+
+function withGameplayTags<T extends Record<string, unknown>>(rows: T[], tags: readonly GameplayTag[]): Array<T & GameplayTag> {
+    return rows.map((row, index) => ({ ...row, ...(tags[index] ?? { in_gameplay: false, gameplay_segment_index: null }) }));
+}
+
+/** Rows with exact timing use it; bucketed rows count if any gameplay overlaps their 500 ms bucket. */
+function timedRowGameplayTag(
+    row: Record<string, unknown>,
+    intervals: readonly SdkGameplayIntervalRow[],
+    exactField = 'elapsed_ms',
+    bucketField = 'elapsed_ms_bucket',
+): GameplayTag {
+    const exact = numberValue(row[exactField]);
+    return exact !== null
+        ? gameplayTagAt(intervals, exact)
+        : gameplayTagAt(intervals, numberValue(row[bucketField]), 500);
+}
+
+function tagTimedRows<T extends Record<string, unknown>>(
+    rows: T[],
+    intervals: readonly SdkGameplayIntervalRow[],
+    exactField?: string,
+    bucketField?: string,
+): Array<T & GameplayTag> {
+    return rows.map((row) => ({ ...row, ...timedRowGameplayTag(row, intervals, exactField, bucketField) }));
+}
+
+/** Manifest and quality fields describing the sample's gameplay intervals. */
+function gameplayQualityFields(gameplay: SessionGameplay): Record<string, unknown> {
+    return {
+        gameplay_status: gameplay.summary.status,
+        gameplay_source: gameplay.summary.source,
+        gameplay_segment_count: gameplay.summary.segment_count,
+        gameplay_elapsed_ms: gameplay.summary.total_elapsed_ms,
+    };
+}
+
 function buildInteractions(
     session: SessionContext,
     projectKey: string,
@@ -1505,7 +1589,10 @@ function buildInteractions(
             ?? objectValue(payload.deviceInfo)
             ?? objectValue(payload.device_info)
             ?? {};
-        const props = objectValue(event.properties) ?? payload;
+        // Gameplay markers carry developer properties and level names: never
+        // read them as commerce fields or funnel steps.
+        const gameplayMarker = isGameplayMarkerEvent(event);
+        const props = gameplayMarker ? {} : objectValue(event.properties) ?? payload;
         const rawScreen = rawScreenValue(event, session);
         const eventAt = numberValue(event.timestamp ?? event.time ?? event.ts);
         const elapsedMs = eventAt && eventAt > startedAtMs
@@ -1538,8 +1625,10 @@ function buildInteractions(
         const kind = classifyEventKind(event);
         const screen = screenKey(rawScreen, projectKey);
 
-        const eventName = stringValue(event.name ?? event.type ?? event.eventName ?? event.event_name);
-        const transition = getFunnelTransition(eventName, customEventConfig);
+        const eventName = gameplayMarker
+            ? gameplayMarkerEventName(event)
+            : stringValue(event.name ?? event.type ?? event.eventName ?? event.event_name);
+        const transition = gameplayMarker ? null : getFunnelTransition(eventName, customEventConfig);
         
         let cartValueBucket: number | null = null;
         let itemCountChange: number | null = null;
@@ -4608,6 +4697,7 @@ function hasMeaningfulBehavioralSignal(session: SessionContext, events: unknown[
 }
 
 function eventFamily(interaction: ResearchInteractionRow): string {
+    if (interaction.kind === 'gameplay') return 'gameplay';
     const transition = stringValue(interaction.funnel_transition);
     if (transition) return 'funnel';
     if (['tap', 'scroll', 'gesture', 'input'].includes(interaction.kind)) return 'interaction';
@@ -4623,12 +4713,17 @@ function buildBehavioralEvents(
     const events = asEvents(session.events);
     return interactions.map((interaction) => {
         const sourceEvent = events[interaction.index] ?? {};
-        const eventName = stringValue(sourceEvent.name ?? sourceEvent.type ?? sourceEvent.eventName ?? sourceEvent.event_name);
-        const props = sourceEvent.properties && typeof sourceEvent.properties === 'object' && !Array.isArray(sourceEvent.properties)
-            ? sourceEvent.properties as Record<string, unknown>
-            : sourceEvent.payload && typeof sourceEvent.payload === 'object' && !Array.isArray(sourceEvent.payload)
-                ? sourceEvent.payload as Record<string, unknown>
-                : {};
+        const gameplayMarker = isGameplayMarkerEvent(sourceEvent);
+        const eventName = gameplayMarker
+            ? gameplayMarkerEventName(sourceEvent)
+            : stringValue(sourceEvent.name ?? sourceEvent.type ?? sourceEvent.eventName ?? sourceEvent.event_name);
+        const props = gameplayMarker
+            ? {}
+            : sourceEvent.properties && typeof sourceEvent.properties === 'object' && !Array.isArray(sourceEvent.properties)
+                ? sourceEvent.properties as Record<string, unknown>
+                : sourceEvent.payload && typeof sourceEvent.payload === 'object' && !Array.isArray(sourceEvent.payload)
+                    ? sourceEvent.payload as Record<string, unknown>
+                    : {};
         return {
             event_index: interaction.index,
             elapsed_ms_bucket: interaction.elapsed_ms_bucket,
@@ -4790,6 +4885,9 @@ async function processInteractionJob(
     }
 
     const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const gameplay = sessionGameplay(session, sdkTimeline, projectKey);
+    const exportedInteractions = withGameplayTags(interactions, interactionGameplayTags(session, interactions, gameplay.intervals));
+    const exportedFrames = tagTimedRows(visualRows.frames, gameplay.intervals);
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const metrics = buildSessionMetrics(session);
@@ -4840,10 +4938,12 @@ async function processInteractionJob(
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
         labels,
+        gameplay: gameplay.summary,
         provenance: {
             interactions: 'observed_custom_events',
             screenshots: visualRows.frames.some((frame) => frame.source_kind === 'screenshots') ? 'observed' : 'unavailable',
             sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            gameplay: gameplay.summary.status,
         },
         files: {
             interactions: `${basePath}/interactions.jsonl.gz`,
@@ -4871,6 +4971,7 @@ async function processInteractionJob(
         capture_profile: captureProfile,
         ...interactionQualityMetrics(interactions),
         ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        ...gameplayQualityFields(gameplay),
         provenance: manifest.provenance,
         pii_scan: 'passed',
         warnings: qualityWarnings,
@@ -4879,8 +4980,8 @@ async function processInteractionJob(
     if (containsIdentifierRisk({
         manifest,
         quality,
-        interactions,
-        uiFrames: visualRows.frames,
+        interactions: exportedInteractions,
+        uiFrames: exportedFrames,
         skeleton,
         sdkEvents: sdkTimeline.rows,
     })) {
@@ -4897,8 +4998,8 @@ async function processInteractionJob(
 
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const interactionsJsonlBuf = jsonlBuffer(interactions);
-    const uiFramesJsonlBuf = jsonlBuffer(visualRows.frames);
+    const interactionsJsonlBuf = jsonlBuffer(exportedInteractions);
+    const uiFramesJsonlBuf = jsonlBuffer(exportedFrames);
     const uiSkeletonJsonlBuf = jsonlBuffer(skeleton);
     const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
     const zipFiles = [
@@ -4972,6 +5073,8 @@ async function processBehavioralJob(
     }
 
     const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const gameplay = sessionGameplay(session, sdkTimeline, projectKey);
+    const exportedEvents = withGameplayTags(events, interactionGameplayTags(session, interactions, gameplay.intervals));
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const qualityTier = events.length >= config.RESEARCH_LAKE_MIN_EVENT_COUNT ? 'usable' : 'metrics_only';
@@ -4990,10 +5093,12 @@ async function processBehavioralJob(
     });
     const manifest = {
         ...manifestBase,
+        gameplay: gameplay.summary,
         provenance: {
             events: events.length > 0 ? 'observed_custom_events' : 'unavailable',
             metrics: 'observed',
             sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            gameplay: gameplay.summary.status,
         },
         files: {
             ...manifestBase.files,
@@ -5008,6 +5113,7 @@ async function processBehavioralJob(
         metrics_only: qualityTier === 'metrics_only',
         ...interactionQualityMetrics(interactions),
         ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        ...gameplayQualityFields(gameplay),
         provenance: manifest.provenance,
         pii_scan: 'passed',
         warnings: [
@@ -5019,7 +5125,7 @@ async function processBehavioralJob(
     if (containsIdentifierRisk({
         manifest,
         quality,
-        events,
+        events: exportedEvents,
         sessionMetrics: metrics,
         labels,
         sdkEvents: sdkTimeline.rows,
@@ -5037,7 +5143,7 @@ async function processBehavioralJob(
 
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const eventsJsonlBuf = jsonlBuffer(events);
+    const eventsJsonlBuf = jsonlBuffer(exportedEvents);
     const metricsBuf = jsonBuffer(metrics);
     const labelsBuf = jsonBuffer(labels);
     const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
@@ -5466,9 +5572,16 @@ async function processV2InteractionJob(
     const skeleton = [...visualRows.skeleton, ...buildInteractionSkeleton(interactions)];
     const screenVersions = buildV2ScreenVersions(visualRows.frames, skeleton, projectKey);
     const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const gameplay = sessionGameplay(session, sdkTimeline, projectKey);
+    const exportedInteractions = withGameplayTags(interactions, interactionGameplayTags(session, interactions, gameplay.intervals));
+    const exportedFrames = tagTimedRows(visualRows.frames, gameplay.intervals);
+    const exportedFrameIndex = tagTimedRows(media.frameIndex, gameplay.intervals);
+    const exportedScreenVersions = tagTimedRows(screenVersions, gameplay.intervals);
     const sdkLifecycle = sdkLifecycleEvidence(sdkTimeline.rows, session);
     const sdkFlowEdges = sdkTimeline.summary.navigation_timeline_present ? buildSdkFlowEdges(sdkTimeline.rows) : [];
-    const flowEdges: Record<string, unknown>[] = sdkFlowEdges.length > 0 ? sdkFlowEdges : buildV2FlowEdges(interactions);
+    const flowEdges: Record<string, unknown>[] = sdkFlowEdges.length > 0
+        ? sdkFlowEdges
+        : tagTimedRows(buildV2FlowEdges(interactions), gameplay.intervals, 'transition_elapsed_ms', 'transition_elapsed_ms_bucket');
     const businessContext = buildBusinessContext(session, interactions, transactions, customEventConfig);
     const labels = buildBehavioralLabels(session, businessContext);
     const metrics = buildSessionMetrics(session);
@@ -5514,9 +5627,11 @@ async function processV2InteractionJob(
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
         labels,
+        gameplay: gameplay.summary,
         provenance: {
             interactions: 'observed_custom_events', screenshots: media.archives.length > 0 ? 'observed' : 'unavailable',
             sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            gameplay: gameplay.summary.status,
             screen_versions: 'derived', flow_edges: sdkFlowEdges.length > 0 ? 'observed_navigation_event' : 'derived',
             lifecycle: lifecycle.evidence === 'observed_app_background'
                 ? 'observed'
@@ -5548,9 +5663,10 @@ async function processV2InteractionJob(
         full_resolution_frame_index_count: media.frameIndex.length, ui_skeleton_element_count: skeleton.length,
         screen_version_count: screenVersions.length, flow_edge_count: flowEdges.length,
         ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        ...gameplayQualityFields(gameplay),
         capture_profile: captureProfile, provenance: manifest.provenance, warnings,
     };
-    if (containsIdentifierRisk({ manifest, quality, interactions, uiFrames: visualRows.frames, skeleton, screenVersions, flowEdges, frameIndex: media.frameIndex, sdkEvents: sdkTimeline.rows })) {
+    if (containsIdentifierRisk({ manifest, quality, interactions: exportedInteractions, uiFrames: exportedFrames, skeleton, screenVersions: exportedScreenVersions, flowEdges, frameIndex: exportedFrameIndex, sdkEvents: sdkTimeline.rows })) {
         await completeJob(job, {
             status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: artifacts.length,
             interactionEventCount: interactions.length, uiFrameCount: visualRows.frames.length, uiSkeletonElementCount: skeleton.length,
@@ -5560,12 +5676,12 @@ async function processV2InteractionJob(
 
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const interactionsJsonlBuf = jsonlBuffer(interactions);
-    const uiFramesJsonlBuf = jsonlBuffer(visualRows.frames);
+    const interactionsJsonlBuf = jsonlBuffer(exportedInteractions);
+    const uiFramesJsonlBuf = jsonlBuffer(exportedFrames);
     const uiSkeletonJsonlBuf = jsonlBuffer(skeleton);
-    const screenVersionsJsonlBuf = jsonlBuffer(screenVersions);
+    const screenVersionsJsonlBuf = jsonlBuffer(exportedScreenVersions);
     const flowEdgesJsonlBuf = jsonlBuffer(flowEdges);
-    const frameIndexJsonlBuf = jsonlBuffer(media.frameIndex);
+    const frameIndexJsonlBuf = jsonlBuffer(exportedFrameIndex);
     const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
     const [
         interactionsBuf,
@@ -5638,6 +5754,8 @@ async function processV2BehavioralJob(
     const screenPathKeys = (session.screens_visited || []).map((screen) => screenKey(screen, projectKey));
     const capture = await loadV2CaptureContext(session.id);
     const sdkTimeline = await buildSessionSdkEventTimeline(session, artifacts, projectKey);
+    const gameplay = sessionGameplay(session, sdkTimeline, projectKey);
+    const exportedEvents = withGameplayTags(events, interactionGameplayTags(session, interactions, gameplay.intervals));
     const sdkLifecycle = sdkLifecycleEvidence(sdkTimeline.rows, session);
     const lifecycle = buildV2Lifecycle(session, labels, sdkLifecycle);
     const date = datePart(session.started_at);
@@ -5675,9 +5793,11 @@ async function processV2BehavioralJob(
             funnel_steps_configured: businessContext.funnel_steps_configured,
         },
         labels,
+        gameplay: gameplay.summary,
         provenance: {
             events: events.length > 0 ? 'observed_custom_events' : 'unavailable', metrics: 'observed',
             sdk_events: sdkTimeline.summary.sdk_event_timeline,
+            gameplay: gameplay.summary.status,
             lifecycle: lifecycle.evidence === 'observed_app_background' ? 'observed' : 'inferred',
             experiment_assignment: 'unavailable',
         },
@@ -5692,6 +5812,7 @@ async function processV2BehavioralJob(
         metrics_only: qualityTier === 'metrics_only',
         metadata_only: qualityTier === 'metadata_only',
         ...sdkEventTimelineQualityFields(sdkTimeline.summary, true),
+        ...gameplayQualityFields(gameplay),
         pii_scan: 'passed',
         provenance: manifest.provenance,
         warnings: [
@@ -5700,7 +5821,7 @@ async function processV2BehavioralJob(
             ...sdkTimeline.warnings,
         ],
     };
-    if (containsIdentifierRisk({ manifest, quality, events, metrics, labels, sdkEvents: sdkTimeline.rows })) {
+    if (containsIdentifierRisk({ manifest, quality, events: exportedEvents, metrics, labels, sdkEvents: sdkTimeline.rows })) {
         await completeJob(job, {
             status: 'rejected', rejectReason: 'identifier_risk_detected_after_build', sourceArtifactCount: 0,
             interactionEventCount: events.length, uiFrameCount: 0, uiSkeletonElementCount: 0,
@@ -5709,7 +5830,7 @@ async function processV2BehavioralJob(
     }
     const manifestBuf = jsonBuffer(manifest);
     const qualityBuf = jsonBuffer(quality);
-    const eventsJsonlBuf = jsonlBuffer(events);
+    const eventsJsonlBuf = jsonlBuffer(exportedEvents);
     const metricsBuf = jsonBuffer(metrics);
     const labelsBuf = jsonBuffer(labels);
     const sdkEventsJsonlBuf = jsonlBuffer(sdkTimeline.rows);
@@ -5771,8 +5892,13 @@ function mergeSdkEventTimelineIntoSample(
             : { interactions: 'observed_custom_events' }),
         sdk_events: timeline.summary.sdk_event_timeline,
     };
+    // Rows exported before gameplay tagging carry no in_gameplay column; the
+    // intervals let readers derive it from each row's elapsed time.
+    const gameplay = objectValue(manifest.gameplay) ?? researchGameplaySummary(timeline);
+    provenance.gameplay = existingProvenance.gameplay ?? gameplay.status;
     const mergedManifest = {
         ...manifest,
+        gameplay,
         provenance,
         files: { ...existingFiles, sdk_events: sdkEventsObjectKey(lakePath) },
     };
@@ -5780,6 +5906,10 @@ function mergeSdkEventTimelineIntoSample(
     const mergedQuality = {
         ...(quality ?? { schema_version: manifest.schema_version ?? RESEARCH_SCHEMA_VERSION }),
         ...sdkEventTimelineQualityFields(timeline.summary, false),
+        gameplay_status: gameplay.status,
+        gameplay_source: gameplay.source,
+        gameplay_segment_count: gameplay.segment_count,
+        gameplay_elapsed_ms: gameplay.total_elapsed_ms,
         provenance,
         warnings: Array.from(new Set([...existingWarnings, ...timeline.warnings])),
     };
@@ -6618,6 +6748,10 @@ export const __researchLakeTestInternals = {
     buildV2FlowEdges,
     buildV2Lifecycle,
     mergeSdkEventTimelineIntoSample,
+    sessionGameplay,
+    interactionGameplayTags,
+    withGameplayTags,
+    tagTimedRows,
     sdkPositionBuckets,
     buildClaimV2JobsSql,
     v2RetryWindowExhausted,

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { __researchLakeTestInternals } from '../services/researchLake.js';
+import { unavailableSdkEventTimeline } from '../services/researchLakeSdkEvents.js';
 import {
     __researchLakeV2LifecycleTestInternals,
     researchLakeV2CaptureTier,
@@ -1321,6 +1322,11 @@ describe('research lake SDK event timeline integration', () => {
         const timeline = {
             rows: [],
             warnings: ['sdk_event_artifacts_partially_unavailable'],
+            gameplayIntervals: [{
+                segment_index: 0, gameplay_key: 'k'.repeat(20), gameplay_name_key: 'n'.repeat(20),
+                start_elapsed_ms: 1_000, end_elapsed_ms: 4_000, duration_ms: 3_000, outcome: 'completed' as const,
+                continued: false, start_inferred: false, end_inferred: false,
+            }],
             summary: {
                 sdk_event_timeline: 'partial' as const,
                 sdk_event_artifact_count: 4,
@@ -1334,6 +1340,10 @@ describe('research lake SDK event timeline integration', () => {
                 navigation_timeline_present: true,
                 lifecycle_timeline_present: false,
                 network_timeline_present: false,
+                gameplay_timeline_present: true,
+                gameplay_segment_count: 1,
+                gameplay_elapsed_ms: 3_000,
+                gameplay_event_count: 12,
                 sdk_event_row_limit_reached: false,
             },
         };
@@ -1352,11 +1362,17 @@ describe('research lake SDK event timeline integration', () => {
             interactions: 'v2/x/interactions.jsonl.gz', quality: 'v2/x/quality.json', sdk_events: 'v2/x/sdk_events.jsonl.gz',
         });
         expect(merged.manifest.provenance).toEqual({
-            interactions: 'observed_custom_events', screenshots: 'observed', flow_edges: 'derived', sdk_events: 'partial',
+            interactions: 'observed_custom_events', screenshots: 'observed', flow_edges: 'derived', sdk_events: 'partial', gameplay: 'observed',
+        });
+        // Samples exported before gameplay tagging gain the intervals, so readers can
+        // derive in_gameplay from each row's elapsed time.
+        expect(merged.manifest.gameplay).toMatchObject({
+            status: 'observed', source: 'sdk_events', segment_count: 1, total_elapsed_ms: 3_000, intervals_truncated: false,
         });
         expect(merged.quality).toMatchObject({
             quality_tier: 'usable', other: 1, sdk_event_timeline: 'partial', sdk_event_count: 120,
             touch_timeline_present: true, sdk_events_zip_entry_present: false,
+            gameplay_status: 'observed', gameplay_segment_count: 1, gameplay_elapsed_ms: 3_000, gameplay_event_count: 12,
             warnings: ['hierarchy_sparse_timeline', 'sdk_event_artifacts_partially_unavailable'],
         });
         expect(__researchLakeTestInternals.containsIdentifierRisk(merged)).toBe(false);
@@ -1369,6 +1385,16 @@ describe('research lake SDK event timeline integration', () => {
         );
         expect(behavioral.manifest.provenance).toMatchObject({ events: 'observed_custom_events', sdk_events: 'partial' });
         expect(behavioral.quality.schema_version).toBe(1);
+
+        // A sample that already carries gameplay keeps its own block.
+        const current = __researchLakeTestInternals.mergeSdkEventTimelineIntoSample(
+            { schema_version: 2, lake: 'interaction', gameplay: { status: 'not_marked', source: 'sdk_events', segment_count: 0 }, provenance: { gameplay: 'not_marked' }, files: {} },
+            null,
+            'v2/z',
+            timeline,
+        );
+        expect(current.manifest.gameplay).toEqual({ status: 'not_marked', source: 'sdk_events', segment_count: 0 });
+        expect(current.manifest.provenance).toMatchObject({ gameplay: 'not_marked' });
     });
 
     it('maps logical points onto the shared replay grid', () => {
@@ -1396,6 +1422,10 @@ describe('research lake SDK event timeline integration', () => {
         // Every export lane writes the timeline file and stamps its summary.
         expect((serviceSource.match(/sdkEventTimeline: sdkTimeline\.summary,/g) ?? []).length).toBe(4);
         expect((serviceSource.match(/key: sdkEventsObjectKey\(basePath\)/g) ?? []).length).toBe(4);
+        // Every export lane carries the gameplay intervals and their provenance.
+        expect((serviceSource.match(/gameplay: gameplay\.summary,/g) ?? []).length).toBe(4);
+        expect((serviceSource.match(/gameplay: gameplay\.summary\.status,/g) ?? []).length).toBe(4);
+        expect((serviceSource.match(/\.\.\.gameplayQualityFields\(gameplay\),/g) ?? []).length).toBe(4);
     });
 });
 
@@ -1406,6 +1436,76 @@ describe('Unity runtime export', () => {
         expect(unityResearchRuntime({ sdkFamily: 'unity', unityVersion: 'private arbitrary string' })).toEqual({ sdk_family: 'unity' });
         expect(unityResearchRuntime({ sdkFamily: 'unity', buildIdentifier: '0123456789abcdef0123456789ABCDEF' })).toEqual({ sdk_family: 'unity', build_identifier: '0123456789abcdef0123456789abcdef' });
         expect(unityResearchRuntime({ sdkFamily: 'unity', buildIdentifier: 'arbitrary player-entered identifier' })).toEqual({ sdk_family: 'unity' });
+        // A dashed UUID is stored without dashes so the sample passes the identifier gate.
+        const dashed = unityResearchRuntime({ sdkFamily: 'unity', buildIdentifier: '6F9619FF-8B86-4D11-B42D-00C04FC964FF' });
+        expect(dashed).toEqual({ sdk_family: 'unity', build_identifier: '6f9619ff8b864d11b42d00c04fc964ff' });
+        expect(__researchLakeTestInternals.containsIdentifierRisk(dashed)).toBe(false);
         expect(unityResearchRuntime(null)).toEqual({});
+    });
+});
+
+describe('Gameplay intervals in research exports', () => {
+    const startedAt = new Date('2026-09-25T10:00:00.000Z');
+    const at = (offsetMs: number) => startedAt.getTime() + offsetMs;
+    const gameplayId = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    const session = {
+        id: 'session-gameplay', project_id: 'project-gameplay', started_at: startedAt, ended_at: new Date(at(60_000)),
+        screens_visited: ['Menu'],
+        events: [
+            { type: 'custom', name: 'menu_opened', timestamp: at(1_000) },
+            { type: 'gameplay', phase: 'start', gameplayId, name: 'purchase', continued: false, startedAt: at(5_000), properties: { value: 99, currency: 'USD', sku: 'level-pack' }, timestamp: at(5_000) },
+            { type: 'custom', name: 'coin_collected', timestamp: at(7_000) },
+            { type: 'gameplay', phase: 'end', gameplayId, name: 'purchase', outcome: 'completed', durationMs: 5_000, properties: { score: 12 }, timestamp: at(10_000) },
+            { type: 'custom', name: 'results_viewed', timestamp: at(12_000) },
+        ],
+    } as any;
+
+    it('keys markers by phase and never reads them as commerce or funnel events', () => {
+        const interactions = __researchLakeTestInternals.buildInteractions(session, 'project-key');
+        expect(interactions.map((row) => row.kind)).toEqual(['event', 'gameplay', 'event', 'gameplay', 'event']);
+        expect(interactions[1]).toMatchObject({ funnel_transition: null, cart_value_bucket: null, currency: null, product_key: null });
+        const events = __researchLakeTestInternals.buildBehavioralEvents(session, interactions, 'project-key');
+        expect(events[1].event_family).toBe('gameplay');
+        expect(events[3].event_family).toBe('gameplay');
+        expect(events[1].event_name_key).not.toBe(events[3].event_name_key);
+        const renamed = { ...session, events: session.events.map((event: any) => (event.type === 'gameplay' ? { ...event, name: 'level_2' } : event)) };
+        const renamedEvents = __researchLakeTestInternals.buildBehavioralEvents(renamed, __researchLakeTestInternals.buildInteractions(renamed, 'project-key'), 'project-key');
+        expect(renamedEvents[1].event_name_key).toBe(events[1].event_name_key);
+        expect(renamedEvents[1].event_shape_key).toBe(events[1].event_shape_key);
+    });
+
+    it('falls back to stored markers and tags rows inside the interval', () => {
+        const gameplay = __researchLakeTestInternals.sessionGameplay(session, unavailableSdkEventTimeline([]), 'project-key');
+        expect(gameplay.summary).toMatchObject({ status: 'observed', source: 'session_events', segment_count: 1, total_elapsed_ms: 5_000, intervals_truncated: false });
+        expect(gameplay.intervals[0]).toMatchObject({ start_elapsed_ms: 5_000, end_elapsed_ms: 10_000, outcome: 'completed', continued: false, end_inferred: false });
+        const interactions = __researchLakeTestInternals.buildInteractions(session, 'project-key');
+        const tagged = __researchLakeTestInternals.withGameplayTags(
+            interactions,
+            __researchLakeTestInternals.interactionGameplayTags(session, interactions, gameplay.intervals),
+        );
+        expect(tagged.map((row) => row.in_gameplay)).toEqual([false, true, true, true, false]);
+        expect(tagged.map((row) => row.gameplay_segment_index)).toEqual([null, 0, 0, 0, null]);
+        const frames = __researchLakeTestInternals.tagTimedRows(
+            [{ elapsed_ms_bucket: 5_000 }, { elapsed_ms_bucket: 10_500 }, { elapsed_ms: 9_999 }, { elapsed_ms_bucket: 4_500 }, { elapsed_ms_bucket: 10_000 }],
+            gameplay.intervals,
+        );
+        expect(frames.map((frame) => frame.in_gameplay)).toEqual([true, false, true, false, true]);
+        const edges = __researchLakeTestInternals.tagTimedRows(
+            [{ transition_elapsed_ms: 6_000 }, { transition_elapsed_ms: null, transition_elapsed_ms_bucket: 11_000 }],
+            gameplay.intervals, 'transition_elapsed_ms', 'transition_elapsed_ms_bucket',
+        );
+        expect(edges.map((edge) => edge.in_gameplay)).toEqual([true, false]);
+        expect(__researchLakeTestInternals.containsIdentifierRisk({ gameplay: gameplay.summary, tagged })).toBe(false);
+    });
+
+    it('prefers the SDK timeline and reports when nothing can decide', () => {
+        const timeline = {
+            ...unavailableSdkEventTimeline([]),
+            summary: { ...unavailableSdkEventTimeline([]).summary, sdk_event_timeline: 'observed' as const },
+        };
+        const notMarked = __researchLakeTestInternals.sessionGameplay({ ...session, events: [] }, timeline, 'project-key');
+        expect(notMarked.summary).toMatchObject({ status: 'not_marked', source: 'sdk_events', segment_count: 0 });
+        const unavailable = __researchLakeTestInternals.sessionGameplay({ ...session, events: [] }, unavailableSdkEventTimeline([]), 'project-key');
+        expect(unavailable.summary).toMatchObject({ status: 'unavailable', source: null, segment_count: 0, intervals: [] });
     });
 });

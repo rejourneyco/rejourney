@@ -69,12 +69,15 @@ import {
     archiveKeysetMatchesRequest,
     archiveListSortNeedsMetricsJoin,
     archiveListSortSqlExpr,
+    buildArchiveExactIdSearchCondition,
     buildArchiveListKeysetCondition,
     buildArchiveTextSearchCondition,
     encodeArchiveListCursor,
     extractArchiveSortKeyFromRow,
+    isIdentifierLikeSearchQuery,
     normalizeArchiveListSortDir,
     normalizeArchiveListSortKey,
+    normalizeArchiveSearchQuery,
     parseArchiveListCursor,
 } from '../services/sessionArchiveListSort.js';
 import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
@@ -94,6 +97,7 @@ import {
     registerTapForMobileRageInference,
     type MobileTapPoint,
 } from '../utils/mobileFrustration.js';
+import { isGameplayTelemetryEvent } from '../utils/gameplayIntervals.js';
 import { shouldTrustClientFrustrationCountsForPlatform } from '../services/ingestSessionEnd.js';
 import {
     recordDashboardInvestigation,
@@ -261,6 +265,44 @@ function buildArchiveMetadataCondition(metaKey: string, metaValue?: string): SQL
     return sql`${sessions.metadata} ? ${metaKey}`;
 }
 
+type ArchiveReadClient = Pick<typeof db, 'select'>;
+
+/** Substring search can't use an index, so it gets a hard ceiling instead of hanging the request. */
+const ARCHIVE_TEXT_SEARCH_TIMEOUT_MS = 8000;
+
+function isStatementTimeoutError(err: unknown): boolean {
+    const error = err as { code?: string; cause?: { code?: string } } | null;
+    return (error?.code ?? error?.cause?.code) === '57014';
+}
+
+/**
+ * Runs an archive read, optionally under a statement timeout. A cancelled query becomes a 504
+ * the dashboard can explain, instead of a request that hangs until the edge gives up. Each call
+ * holds its own connection, so list and count reads still run in parallel.
+ */
+async function runArchiveRead<T>(
+    timeoutMs: number | null,
+    run: (client: ArchiveReadClient) => PromiseLike<T>,
+): Promise<T> {
+    if (timeoutMs === null) return await run(db);
+    try {
+        return await db.transaction(async (tx) => {
+            // SET does not accept bind parameters; the value is a constant integer.
+            await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${Math.round(timeoutMs)}`));
+            return await run(tx);
+        });
+    } catch (err) {
+        if (isStatementTimeoutError(err)) {
+            throw new ApiError(
+                'Search took too long. Paste a full user, session or device ID for an instant match.',
+                504,
+                'SEARCH_TIMEOUT',
+            );
+        }
+        throw err;
+    }
+}
+
 function buildSessionArchiveBaseConditions(
     filters: {
         timeRange?: string;
@@ -297,6 +339,12 @@ function buildSessionArchiveBaseConditions(
         conditionLogic?: string;
         /** Case-insensitive substring match across id, user display, device, model, anonymous fields */
         q?: string;
+        /** 'exact' matches q against the indexed identity columns only; defaults to substring. */
+        textSearchMode?: 'exact' | 'contains';
+        /** Exact SDK user ID, e.g. to list one user's recordings. */
+        userId?: string;
+        /** Exact device ID, the identity for users without an SDK user ID. */
+        deviceId?: string;
     },
     accessibleProjectIds: string[]
 ) {
@@ -330,6 +378,9 @@ function buildSessionArchiveBaseConditions(
         geoCity,
         conditionLogic,
         q,
+        textSearchMode,
+        userId,
+        deviceId,
     } = filters;
 
     const startedAfter = getTimeRangeFilter(timeRange);
@@ -337,6 +388,8 @@ function buildSessionArchiveBaseConditions(
     const baseConditions: (SQL | undefined)[] = [
         projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
     ];
+    if (userId) baseConditions.push(eq(sessions.userDisplayId, userId));
+    if (deviceId) baseConditions.push(eq(sessions.deviceId, deviceId));
     // User-defined filter conditions — combined with AND or OR per conditionLogic
     const userFilterConditions: (SQL | undefined)[] = [];
 
@@ -523,7 +576,9 @@ function buildSessionArchiveBaseConditions(
     }
 
     // Text search from the search bar is always AND'd (not part of the query builder)
-    const textSearch = typeof q === 'string' ? buildArchiveTextSearchCondition(q) : null;
+    const textSearch = typeof q === 'string'
+        ? (textSearchMode === 'exact' ? buildArchiveExactIdSearchCondition(q) : buildArchiveTextSearchCondition(q))
+        : null;
     if (textSearch) baseConditions.push(textSearch);
 
     // Combine user filter conditions with AND or OR depending on conditionLogic
@@ -1016,6 +1071,7 @@ function isReplayOnlyTimelineEvent(event: any): boolean {
         type.includes('gesture') ||
         type.includes('click') ||
         type.includes('scroll') ||
+        type === 'gameplay' ||
         type === 'app_foreground' ||
         type === 'app_background'
     );
@@ -1039,6 +1095,14 @@ function sanitizeReplayOnlyTimelineEvent(event: any): any {
         y: event?.y,
         count: event?.count,
         touches: event?.touches,
+        rageEligible: event?.rageEligible,
+        // Gameplay markers without their developer properties, and the segment
+        // tag on input recorded during play.
+        gameplayId: event?.gameplayId,
+        phase: event?.phase,
+        outcome: event?.outcome,
+        continued: event?.continued,
+        durationMs: event?.durationMs,
     };
 }
 
@@ -1912,6 +1976,10 @@ function synthesizeRageTapEventsForTimeline(normalizedEvents: any[]): any[] {
         }
         if (!isTapLikeTimelineEvent(event)) continue;
         if (event?.rageEligible === false || event?.properties?.rageEligible === false || event?.payload?.rageEligible === false) {
+            recentTaps.length = 0;
+            continue;
+        }
+        if (isGameplayTelemetryEvent(event)) {
             recentTaps.length = 0;
             continue;
         }
@@ -3235,6 +3303,8 @@ router.get(
             sortDir: sortDirRaw,
             includeTotal: includeTotalRaw,
             countOnly: countOnlyRaw,
+            userId: userIdRaw,
+            deviceId: deviceIdRaw,
         } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
         const includeTotal = includeTotalRaw !== 'false' && includeTotalRaw !== '0';
@@ -3267,7 +3337,8 @@ router.get(
             return;
         }
 
-        const { baseConditions, needsMetricsJoin } = buildSessionArchiveBaseConditions(
+        const searchQuery = typeof q === 'string' ? normalizeArchiveSearchQuery(q) : '';
+        const buildConditions = (textSearchMode: 'exact' | 'contains') => buildSessionArchiveBaseConditions(
             {
                 timeRange,
                 projectId,
@@ -3297,10 +3368,35 @@ router.get(
                 geoCountry: typeof geoCountry === 'string' ? geoCountry : undefined,
                 geoCity: typeof geoCity === 'string' ? geoCity : undefined,
                 conditionLogic,
-                q: typeof q === 'string' ? q : undefined,
+                q: searchQuery || undefined,
+                textSearchMode,
+                userId: typeof userIdRaw === 'string' && userIdRaw.trim() ? userIdRaw.trim() : undefined,
+                deviceId: typeof deviceIdRaw === 'string' && deviceIdRaw.trim() ? deviceIdRaw.trim() : undefined,
             },
             accessibleProjectIds
         );
+
+        // A pasted user, session or device ID resolves through indexed equality first; the
+        // substring scan over the whole project only runs when nothing matches exactly.
+        let textSearchMode: 'exact' | 'contains' = 'contains';
+        if (searchQuery && isIdentifierLikeSearchQuery(searchQuery)) {
+            const exact = buildConditions('exact');
+            const exactMatch = await runArchiveRead(ARCHIVE_TEXT_SEARCH_TIMEOUT_MS, (client) => exact.needsMetricsJoin
+                ? client
+                      .select({ id: sessions.id })
+                      .from(sessions)
+                      .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+                      .where(and(...exact.baseConditions))
+                      .limit(1)
+                : client
+                      .select({ id: sessions.id })
+                      .from(sessions)
+                      .where(and(...exact.baseConditions))
+                      .limit(1));
+            if (exactMatch.length > 0) textSearchMode = 'exact';
+        }
+        const { baseConditions, needsMetricsJoin } = buildConditions(textSearchMode);
+        const searchTimeoutMs = searchQuery && textSearchMode === 'contains' ? ARCHIVE_TEXT_SEARCH_TIMEOUT_MS : null;
 
         const needsMetricsJoinEffective = needsMetricsJoin || archiveListSortNeedsMetricsJoin(sortKey);
         const sortExpr = archiveListSortSqlExpr(sortKey);
@@ -3316,17 +3412,18 @@ router.get(
             }
         }
 
-        const runCountQuery = () =>
+        const buildCountQuery = (client: ArchiveReadClient) =>
             needsMetricsJoinEffective
-                ? db
+                ? client
                       .select({ count: sql<number>`count(*)::int` })
                       .from(sessions)
                       .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
                       .where(and(...baseConditions))
-                : db
+                : client
                       .select({ count: sql<number>`count(*)::int` })
                       .from(sessions)
                       .where(and(...baseConditions));
+        const runCountQuery = () => runArchiveRead(searchTimeoutMs, buildCountQuery);
 
         if (countOnly) {
             const countResult = await runCountQuery();
@@ -3340,7 +3437,7 @@ router.get(
         }
 
         // List payload: one correlated EXISTS for visitor supersession (stops false LIVE on old rows). Omit events/metadata JSONB.
-        const dataQuery = db
+        const buildDataQuery = (client: ArchiveReadClient) => client
             .select({
                 session: { ...sessionsArchiveListColumns },
                 metrics: sessionMetrics,
@@ -3361,10 +3458,11 @@ router.get(
             .orderBy(orderPrimary, orderSecondary)
             .limit(parsedLimit + 1)
             .offset(cursor ? 0 : parseInt(offset) || 0);
+        const runDataQuery = () => runArchiveRead(searchTimeoutMs, buildDataQuery);
 
         const [sessionsList, countRows] = includeTotal
-            ? await Promise.all([dataQuery, runCountQuery()])
-            : [await dataQuery, null];
+            ? await Promise.all([runDataQuery(), runCountQuery()])
+            : [await runDataQuery(), null];
 
         const totalCount = includeTotal ? (countRows![0]?.count ?? 0) : null;
 

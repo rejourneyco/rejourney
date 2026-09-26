@@ -11,6 +11,7 @@ import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../
 import { normalizeHeatmapScreenName } from '../utils/heatmapScreens.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
+import { isGameplayMarkerEvent, isGameplayTelemetryEvent } from '../utils/gameplayIntervals.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { extractSessionIdentityChange } from './sessionIdentityEvents.js';
 import { assignSessionVisitorById } from './visitorLedger.js';
@@ -54,6 +55,8 @@ export {
     registerTapForMobileRageInference as registerTapForIngestRageInference,
 } from '../utils/mobileFrustration.js';
 const MAX_SCREEN_PATH_LENGTH = 200;
+const SESSION_CUSTOM_EVENT_CAP = 2000;
+const SESSION_GAMEPLAY_MARKER_CAP = 2500;
 const WEB_ATTRIBUTION_METADATA_KEYS = [
     'webReferral',
     'webReferrer',
@@ -680,7 +683,10 @@ export async function processEventsArtifact(
         const type = (event.type || '').toLowerCase();
         const gestureType = (event.gestureType || '').toLowerCase();
         const rageEligible = event.rageEligible !== false && event.properties?.rageEligible !== false;
-        if (!rageEligible) recentTaps.length = 0;
+        // Input during a marked gameplay interval is game input: it counts as
+        // activity but never as frustration or heatmap evidence.
+        const inGameplay = isGameplayTelemetryEvent(event);
+        if (!rageEligible || inGameplay) recentTaps.length = 0;
 
         const rawPauseTransition = extractSdkPauseTransitionFromEvent(event);
         const pauseTransition = rawPauseTransition
@@ -708,7 +714,8 @@ export async function processEventsArtifact(
             latestSdkPauseTransition = pauseTransition;
         }
 
-        if (type === 'navigation') {
+        // Native cores send navigation; Unity sends screen_view.
+        if (type === 'navigation' || type === 'screen_view' || type === 'screen_change') {
             recordScreenSeen(normalizedScreenFromEvent(event), eventTimestampMs(event));
         }
 
@@ -725,7 +732,7 @@ export async function processEventsArtifact(
             const tapY = event.y || event.touches?.[0]?.y || 0;
             const tapTime = event.timestamp || 0;
 
-            if (isKeyboardTap) {
+            if (isKeyboardTap || inGameplay) {
                 recentTaps.length = 0;
             } else {
                 // Match native-package rage semantics for older tap-only
@@ -752,7 +759,7 @@ export async function processEventsArtifact(
 
             if (frustrationTapKind) {
                 if (isTapLikeGesture) touchCount++;
-                if (isKeyboardGesture) {
+                if (isKeyboardGesture || inGameplay) {
                     recentTaps.length = 0;
                 } else {
                     if (frustrationTapKind === 'rage_tap') rageTapCount++;
@@ -778,7 +785,7 @@ export async function processEventsArtifact(
                         const tapY = touch.y || 0;
                         const tapTime = touch.timestamp || event.timestamp || 0;
 
-                        if (isKeyboardGesture) {
+                        if (isKeyboardGesture || inGameplay) {
                             recentTaps.length = 0;
                         } else if (gestureScreen) {
                             // Track for old native tap streams that did not
@@ -794,13 +801,13 @@ export async function processEventsArtifact(
                     // Fallback: try to get coordinates from event directly
                     const tapX = event.x || 0;
                     const tapY = event.y || 0;
-                    if (!isKeyboardGesture) {
+                    if (!isKeyboardGesture && !inGameplay) {
                         addHeatmapTouch(gestureScreen, tapX, tapY, event, false, firstSeenMs);
                     }
                 }
             }
         } else if (type === 'rage_tap' || type === 'rage_click') {
-            if (isKeyboardAreaEventForIngest(event)) {
+            if (isKeyboardAreaEventForIngest(event) || inGameplay) {
                 recentTaps.length = 0;
                 continue;
             }
@@ -812,7 +819,7 @@ export async function processEventsArtifact(
             const tapY = event.y || event.touches?.[0]?.y || 0;
             addHeatmapTouch(rageScreen, tapX, tapY, event, true, firstSeenMs);
         } else if (type === 'dead_tap' || gestureType === 'dead_tap') {
-            if (isKeyboardAreaEventForIngest(event)) {
+            if (isKeyboardAreaEventForIngest(event) || inGameplay) {
                 recentTaps.length = 0;
                 continue;
             }
@@ -863,9 +870,11 @@ export async function processEventsArtifact(
             // Collect error details for batch insert
             const errorName = event.name || (type === 'resource_error' ? 'ResourceError' : 'Error');
             const errorMessage = event.message || 'Unknown error';
+            // Native and C# type names nearly all end in "Exception", so the name alone
+            // cannot mark one unhandled when the SDK says the app handled it.
             const errorType = type === 'resource_error' ? 'resource_error'
                 : errorName === 'UnhandledRejection' ? 'promise_rejection'
-                    : errorName.includes('Exception') ? 'unhandled_exception'
+                    : errorName.includes('Exception') && event.handled !== true ? 'unhandled_exception'
                         : 'js_error';
             errorEvents.push({
                 incidentId: normalizeStabilityIncidentId(event.incidentId) || undefined,
@@ -877,7 +886,8 @@ export async function processEventsArtifact(
                 isHandled: typeof event.handled === 'boolean' ? event.handled : undefined,
                 message: errorMessage,
                 stack: event.stack,
-                screenName: currentScreen || undefined,
+                // SDKs that batch small artifacts (Unity) send the screen with the error.
+                screenName: normalizedScreenFromEvent(event) || currentScreen || undefined,
             });
         } else if (type === 'anr' || type === 'long_task' || type === 'ui_freeze') {
             const durationMs = Math.max(0, Math.round(Number(event.durationMs) || 0));
@@ -901,7 +911,7 @@ export async function processEventsArtifact(
                 threadState: stackTrace || event.threadState || 'blocked',
                 stackTrace: stackTrace || undefined,
                 rawThreadState: typeof event.threadState === 'string' ? event.threadState : undefined,
-                screenName: currentScreen || undefined,
+                screenName: normalizedScreenFromEvent(event) || currentScreen || undefined,
             });
         } else if (['keyboard_typing', 'keyboard_show', 'keyboard_hide', 'input', 'text_input'].includes(type)) {
             inputCount++;
@@ -1127,6 +1137,7 @@ export async function processEventsArtifact(
                 errorName: canonicalErrorName,
                 message: errorEvent.message,
                 errorType: errorEvent.errorType,
+                isHandled: errorEvent.isHandled,
                 stack: errorEvent.stack,
                 screenName: errorEvent.screenName,
                 timestamp: errorEvent.timestamp,
@@ -1191,6 +1202,7 @@ export async function processEventsArtifact(
 
     // Process custom events and metadata
     const customEventsForStorage: any[] = [];
+    const gameplayMarkersForStorage: any[] = [];
     const metadataUpdates: Record<string, any> = {};
 
     for (const event of eventsData) {
@@ -1219,6 +1231,9 @@ export async function processEventsArtifact(
                 Object.assign(metadataUpdates, rest);
             }
         }
+        else if (isGameplayMarkerEvent(event)) {
+            gameplayMarkersForStorage.push(event);
+        }
         else if (type === 'custom' || (![
             'navigation', 'screen_view', 'motion', 'scroll_motion', 'pan_motion',
             'touch', 'tap', 'scroll', 'gesture', 'rage_tap', 'dead_tap',
@@ -1230,15 +1245,24 @@ export async function processEventsArtifact(
         }
     }
 
-    if (customEventsForStorage.length > 0 || Object.keys(metadataUpdates).length > 0) {
+    if (customEventsForStorage.length > 0 || gameplayMarkersForStorage.length > 0 || Object.keys(metadataUpdates).length > 0) {
         try {
             const updates: any = {};
 
-            if (customEventsForStorage.length > 0) {
+            if (customEventsForStorage.length > 0 || gameplayMarkersForStorage.length > 0) {
+                // Gameplay markers keep headroom past the custom-event cap: a long
+                // session's periodic events must not hide where play started or ended.
                 updates.events = sql`
                     CASE 
-                        WHEN jsonb_typeof(${sessions.events}) = 'array' AND jsonb_array_length(${sessions.events}) < 2000 THEN 
-                            ${sessions.events} || ${JSON.stringify(customEventsForStorage)}::jsonb
+                        WHEN jsonb_typeof(${sessions.events}) = 'array' THEN
+                            (CASE WHEN jsonb_array_length(${sessions.events}) < ${SESSION_CUSTOM_EVENT_CAP}
+                                THEN ${sessions.events} || ${JSON.stringify(customEventsForStorage)}::jsonb
+                                ELSE ${sessions.events}
+                            END)
+                            || (CASE WHEN jsonb_array_length(${sessions.events}) < ${SESSION_GAMEPLAY_MARKER_CAP}
+                                THEN ${JSON.stringify(gameplayMarkersForStorage)}::jsonb
+                                ELSE '[]'::jsonb
+                            END)
                         ELSE ${sessions.events}
                     END
                 `;

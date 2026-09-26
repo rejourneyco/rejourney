@@ -81,11 +81,55 @@ function getDateStr(date: Date): string {
     return date.toISOString().split('T')[0];
 }
 
+export function issueShortIdPrefix(projectName: string | null | undefined): string {
+    return (projectName || 'PROJECT').toUpperCase().replace(/[^A-Z0-9]/g, '-').slice(0, 20);
+}
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Serializes short-ID assignment for a project until the transaction ends. Issues are
+ * created concurrently (ingest tracks each error without waiting, and the sync route runs
+ * alongside), and `count(*) + 1` handed two issues the same ID.
+ */
+export async function lockIssueShortIds(tx: Transaction, projectId: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`issues:short_id:${projectId}`}, 0))`);
+}
+
+/** One past the highest number the project's short IDs use, whatever their prefix. */
+export async function nextIssueNumber(tx: Transaction, projectId: string): Promise<number> {
+    const [latest] = await tx
+        .select({ number: sql<string | null>`max(substring(${issues.shortId} from '-([0-9]+)$')::bigint)` })
+        .from(issues)
+        .where(eq(issues.projectId, projectId));
+    return Number(latest?.number ?? 0) + 1;
+}
+
+/**
+ * Inserts a new issue under the project's next short ID (`PREFIX-n`). Returns null when an
+ * issue with this fingerprint already exists.
+ */
+export async function insertIssueWithShortId(
+    values: Omit<typeof issues.$inferInsert, 'shortId'>,
+    prefix: string,
+): Promise<{ id: string; shortId: string } | null> {
+    return db.transaction(async (tx) => {
+        await lockIssueShortIds(tx, values.projectId);
+        const shortId = `${prefix}-${await nextIssueNumber(tx, values.projectId)}`;
+        const [inserted] = await tx
+            .insert(issues)
+            .values({ ...values, shortId })
+            .onConflictDoNothing({ target: [issues.projectId, issues.fingerprint] })
+            .returning({ id: issues.id });
+        return inserted ? { id: inserted.id, shortId } : null;
+    });
+}
+
 /**
  * Upsert an issue - create if new, update if exists
  * This is called from ingest when processing errors, crashes, ANRs
  */
-export async function trackIssue(data: IssueData): Promise<string | null> {
+export async function trackIssue(data: IssueData, attempt = 0): Promise<string | null> {
     try {
         const now = new Date();
         const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -195,15 +239,6 @@ export async function trackIssue(data: IssueData): Promise<string | null> {
                 .where(eq(projects.id, data.projectId))
                 .limit(1);
 
-            const projectName = (project?.name || 'PROJECT').toUpperCase().replace(/[^A-Z0-9]/g, '-').slice(0, 20);
-
-            // Get next short ID
-            const nextIdResult = await db
-                .select({ count: sql<number>`count(*)` })
-                .from(issues)
-                .where(eq(issues.projectId, data.projectId));
-            const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-            const shortId = `${projectName}-${nextNum}`;
 
             const dailyEvents: Record<string, number> = { [dateStr]: 1 };
             const affectedVersions: Record<string, number> = data.appVersion ? { [data.appVersion]: 1 } : {};
@@ -211,9 +246,8 @@ export async function trackIssue(data: IssueData): Promise<string | null> {
 
             const isRecent = data.timestamp >= cutoff24h;
 
-            const newIssue = await db.insert(issues).values({
+            const newIssue = await insertIssueWithShortId({
                 projectId: data.projectId,
-                shortId,
                 fingerprint: data.fingerprint,
                 issueType: data.issueType,
                 title: data.title,
@@ -238,25 +272,26 @@ export async function trackIssue(data: IssueData): Promise<string | null> {
                 sampleDeviceModel: data.deviceModel,
                 sampleOsVersion: data.osVersion,
                 sampleAppVersion: data.appVersion,
-            }).returning({ id: issues.id });
+            }, issueShortIdPrefix(project?.name));
+
+            // Another tracker created this fingerprint after the lookup above; count this
+            // occurrence on that issue instead.
+            if (!newIssue) return attempt === 0 ? trackIssue(data, attempt + 1) : null;
 
             // Create issue_event record for this first occurrence
-            if (newIssue && newIssue[0]) {
-                await db.insert(issueEvents).values({
-                    issueId: newIssue[0].id,
-                    sessionId: data.sessionId || null,
-                    timestamp: data.timestamp,
-                    screenName: data.screenName,
-                    userId: data.userId,
-                    deviceModel: data.deviceModel,
-                    osVersion: data.osVersion,
-                    appVersion: data.appVersion,
-                    errorMessage: data.subtitle,
-                    stackTrace: data.stackTrace,
-                });
-                return newIssue[0].id;
-            }
-            return null;
+            await db.insert(issueEvents).values({
+                issueId: newIssue.id,
+                sessionId: data.sessionId || null,
+                timestamp: data.timestamp,
+                screenName: data.screenName,
+                userId: data.userId,
+                deviceModel: data.deviceModel,
+                osVersion: data.osVersion,
+                appVersion: data.appVersion,
+                errorMessage: data.subtitle,
+                stackTrace: data.stackTrace,
+            });
+            return newIssue.id;
         }
     } catch (error) {
         // Log but don't throw - issue tracking shouldn't break ingest
@@ -273,6 +308,8 @@ export async function trackErrorAsIssue(params: {
     errorName: string;
     message: string;
     errorType: string;
+    /** The SDK's handled flag; when absent, the error type decides. */
+    isHandled?: boolean;
     stack?: string;
     screenName?: string;
     componentName?: string;
@@ -294,7 +331,7 @@ export async function trackErrorAsIssue(params: {
         culprit: params.componentName || params.screenName,
         screenName: params.screenName,
         componentName: params.componentName,
-        isHandled: params.errorType !== 'unhandled_exception',
+        isHandled: params.isHandled === true || params.errorType !== 'unhandled_exception',
         fingerprint,
         timestamp: params.timestamp,
         sessionId: params.sessionId,

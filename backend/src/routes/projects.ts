@@ -1,3 +1,4 @@
+import { identitySearchFromPrompt } from '../services/identitySearchPrompt.js';
 /**
  * Projects Routes
  * 
@@ -2233,6 +2234,11 @@ router.post(
         }
         if (prompt.length > QUERY_BUILDER_MAX_PROMPT_LENGTH) {
             throw ApiError.badRequest(`Filter description must be ${QUERY_BUILDER_MAX_PROMPT_LENGTH} characters or fewer.`);
+        }
+        const identitySearch = identitySearchFromPrompt(prompt);
+        if (identitySearch) {
+            res.json({ groups: [], searchQuery: identitySearch, explanation: 'Searching recordings by ID.' });
+            return;
         }
         if (!config.QUERY_BUILDER_KEY) {
             throw ApiError.serviceUnavailable('AI query builder is not configured.');

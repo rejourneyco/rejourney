@@ -311,3 +311,113 @@ describe('SDK event timeline builder', () => {
         expect(stale.ended_in_background).toBe(false);
     });
 });
+
+describe('SDK event timeline gameplay intervals', () => {
+    const gameplayId = '4f7d1c2e9b8a4d6c8e1f2a3b4c5d6e7f';
+    const nextId = '0a1b2c3d4e5f40718293a4b5c6d7e8f9';
+    const gameplayEvents = [
+        { type: 'navigation', screen: 'Menu', entering: true, timestamp: t(100) },
+        { type: 'touch', gestureType: 'tap', label: 'Play', x: 10, y: 10, timestamp: t(900) },
+        { type: 'gameplay', phase: 'start', gameplayId, name: 'Boss Arena', continued: false, startedAt: t(1_000), properties: { difficulty: 'hard' }, timestamp: t(1_000) },
+        { type: 'touch', gestureType: 'tap', label: 'HUD/Fire', x: 20, y: 20, rageEligible: false, gameplayId, timestamp: t(1_500) },
+        { type: 'log', level: 'info', message: 'wave 2', timestamp: t(2_000) },
+        { type: 'gameplay', phase: 'end', gameplayId, name: 'Boss Arena', outcome: 'Failed', durationMs: 2_000, properties: { score: 90 }, timestamp: t(3_000) },
+        { type: 'navigation', screen: 'Results', entering: true, timestamp: t(3_100) },
+        { type: 'gameplay', phase: 'start', gameplayId: nextId, name: 'Boss Arena', continued: true, startedAt: t(4_000), timestamp: t(4_000) },
+        { type: 'touch', gestureType: 'tap', x: 30, y: 30, gameplayId: nextId, timestamp: t(4_500) },
+    ];
+
+    async function build(events: unknown[], endedAtOffset: number | null = 6_000) {
+        return buildSdkEventTimeline({
+            session: { started_at: startedAt, ended_at: endedAtOffset === null ? null : new Date(t(endedAtOffset)) },
+            artifacts: [artifact('g')],
+            projectKey: 'projkey',
+            hash,
+            positionBuckets,
+            download: async () => gzipSync(envelope(events)),
+        });
+    }
+
+    it('exports markers with keyed ids and names and a closed outcome vocabulary', async () => {
+        const timeline = await build(gameplayEvents);
+        const markers = timeline.rows.filter((row) => row.type === 'gameplay');
+        expect(markers.map((row) => row.gameplay_phase)).toEqual(['start', 'end', 'start']);
+        expect(markers[0]).toMatchObject({
+            gameplay_continued: false,
+            gameplay_name_key: hash('projkey:gameplay-name:Boss Arena', 20),
+            gameplay_key: hash(`projkey:gameplay:${gameplayId}`, 20),
+            in_gameplay: true,
+            gameplay_segment_index: 0,
+            elapsed_ms: 1_000,
+        });
+        expect(markers[1]).toMatchObject({ gameplay_outcome: 'failed', duration_ms: 2_000, gameplay_continued: null, in_gameplay: true });
+        expect(markers[2]).toMatchObject({ gameplay_continued: true, gameplay_segment_index: 1 });
+        const serialized = JSON.stringify(timeline);
+        for (const raw of [gameplayId, nextId, 'Boss Arena', 'difficulty', 'score']) expect(serialized).not.toContain(raw);
+        expect(__researchLakeTestInternals.containsIdentifierRisk({ rows: timeline.rows, intervals: timeline.gameplayIntervals })).toBe(false);
+        expect(timeline.summary.sdk_event_unrecognized_count).toBe(0);
+    });
+
+    it('marks every row inside an interval and runs an open interval to the session end', async () => {
+        const timeline = await build(gameplayEvents);
+        expect(timeline.rows.map((row) => [row.type, row.elapsed_ms, row.in_gameplay])).toEqual([
+            ['navigation', 100, false],
+            ['touch', 900, false],
+            ['gameplay', 1_000, true],
+            ['touch', 1_500, true],
+            ['log', 2_000, true],
+            ['gameplay', 3_000, true],
+            ['navigation', 3_100, false],
+            ['gameplay', 4_000, true],
+            ['touch', 4_500, true],
+        ]);
+        expect(timeline.gameplayIntervals).toEqual([
+            {
+                segment_index: 0, gameplay_key: hash(`projkey:gameplay:${gameplayId}`, 20), gameplay_name_key: hash('projkey:gameplay-name:Boss Arena', 20),
+                start_elapsed_ms: 1_000, end_elapsed_ms: 3_000, duration_ms: 2_000, outcome: 'failed', continued: false, start_inferred: false, end_inferred: false,
+            },
+            {
+                segment_index: 1, gameplay_key: hash(`projkey:gameplay:${nextId}`, 20), gameplay_name_key: hash('projkey:gameplay-name:Boss Arena', 20),
+                start_elapsed_ms: 4_000, end_elapsed_ms: 6_000, duration_ms: 2_000, outcome: null, continued: true, start_inferred: false, end_inferred: true,
+            },
+        ]);
+        expect(timeline.summary).toMatchObject({
+            gameplay_timeline_present: true, gameplay_segment_count: 2, gameplay_elapsed_ms: 4_000, gameplay_event_count: 6,
+        });
+        expect(sdkEventTimelineQualityFields(timeline.summary, true)).toMatchObject({ gameplay_segment_count: 2, gameplay_event_count: 6 });
+
+        // Without a session end the open interval stops at the last observed row.
+        const live = await build(gameplayEvents, null);
+        expect(live.gameplayIntervals[1]).toMatchObject({ end_elapsed_ms: 4_500, end_inferred: true });
+    });
+
+    it('trusts the input tag when a start marker is missing', async () => {
+        const timeline = await build([
+            { type: 'touch', gestureType: 'tap', x: 1, y: 1, timestamp: t(100) },
+            { type: 'touch', gestureType: 'tap', x: 2, y: 2, gameplayId, timestamp: t(200) },
+        ]);
+        expect(timeline.rows.map((row) => row.in_gameplay)).toEqual([false, true]);
+        expect(timeline.rows[1]).toMatchObject({ gameplay_key: hash(`projkey:gameplay:${gameplayId}`, 20), gameplay_segment_index: null });
+        expect(timeline.gameplayIntervals).toEqual([]);
+        expect(timeline.summary).toMatchObject({ gameplay_timeline_present: false, gameplay_segment_count: 0, gameplay_event_count: 1 });
+    });
+
+    it('marks flow edges taken during play', async () => {
+        const timeline = await build([
+            { type: 'navigation', screen: 'Menu', entering: true, timestamp: t(100) },
+            { type: 'gameplay', phase: 'start', gameplayId, timestamp: t(200) },
+            { type: 'navigation', screen: 'Pause', entering: true, timestamp: t(300) },
+            { type: 'gameplay', phase: 'end', gameplayId, outcome: 'quit', timestamp: t(400) },
+            { type: 'navigation', screen: 'Menu', entering: true, timestamp: t(500) },
+        ]);
+        expect(buildSdkFlowEdges(timeline.rows).map((edge) => edge.in_gameplay)).toEqual([true, false]);
+    });
+
+    it('reports no gameplay fields for sessions without markers', async () => {
+        const timeline = await buildFixture();
+        expect(timeline.rows.every((row) => row.in_gameplay === false && row.gameplay_key === null)).toBe(true);
+        expect(timeline.gameplayIntervals).toEqual([]);
+        expect(timeline.summary).toMatchObject({ gameplay_timeline_present: false, gameplay_segment_count: 0, gameplay_elapsed_ms: 0, gameplay_event_count: 0 });
+        expect(unavailableSdkEventTimeline([]).gameplayIntervals).toEqual([]);
+    });
+});

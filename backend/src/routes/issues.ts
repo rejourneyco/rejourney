@@ -10,7 +10,7 @@ import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes,
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { generateANRFingerprintFromStackTrace, resolveAnrStackTrace } from '../services/anrStack.js';
-import { generateFingerprint } from '../services/issueTracker.js';
+import { generateFingerprint, insertIssueWithShortId } from '../services/issueTracker.js';
 import { querySlowApiEndpointsFromClickHouse } from '../services/apiEndpointStatsClickHouse.js';
 import { queryScreenTouchHeatmapsFromClickHouse } from '../services/productRollupsClickHouse.js';
 
@@ -831,18 +831,9 @@ router.post(
                     .where(eq(issues.id, existing.id));
                 updated++;
             } else {
-                // Generate short ID
-                const nextIdResult = await db
-                    .select({ count: sql<number>`count(*)` })
-                    .from(issues)
-                    .where(eq(issues.projectId, projectId));
-                const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                const shortId = `${projectName}-${nextNum}`;
-
                 // Create new issue
-                await db.insert(issues).values({
+                await insertIssueWithShortId({
                     projectId,
-                    shortId,
                     fingerprint: agg.fingerprint,
                     issueType: agg.issueType,
                     title: agg.title,
@@ -867,7 +858,7 @@ router.post(
                     sampleDeviceModel: agg.sampleDeviceModel,
                     sampleOsVersion: agg.sampleOsVersion,
                     sampleAppVersion: agg.sampleAppVersion,
-                });
+                }, projectName);
                 created++;
             }
         }
@@ -903,16 +894,8 @@ router.post(
                     .limit(1);
 
                 if (!existing) {
-                    const nextIdResult = await db
-                        .select({ count: sql<number>`count(*)` })
-                        .from(issues)
-                        .where(eq(issues.projectId, projectId));
-                    const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                    const shortId = `${projectName}-${nextNum}`;
-
-                    await db.insert(issues).values({
+                    await insertIssueWithShortId({
                         projectId,
-                        shortId,
                         fingerprint,
                         issueType: 'api_latency' as any,
                         title: isHighError ? `High Error Rate: ${api.endpoint}` : `Slow API: ${api.endpoint}`,
@@ -927,7 +910,7 @@ router.post(
                         userCount: 0,
                         events24h: 0,
                         events90d: Number(api.totalCalls) || 0,
-                    });
+                    }, projectName);
                     insightsCreated++;
                 }
             }
@@ -956,16 +939,8 @@ router.post(
                     .limit(1);
 
                 if (!existing) {
-                    const nextIdResult = await db
-                        .select({ count: sql<number>`count(*)` })
-                        .from(issues)
-                        .where(eq(issues.projectId, projectId));
-                    const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                    const shortId = `${projectName}-${nextNum}`;
-
-                    await db.insert(issues).values({
+                    await insertIssueWithShortId({
                         projectId,
-                        shortId,
                         fingerprint,
                         issueType: 'ux_friction' as any,
                         title: `Rage Clicks: ${screen.screenName}`,
@@ -980,7 +955,7 @@ router.post(
                         userCount: 0,
                         events24h: 0,
                         events90d: Number(screen.totalRageTaps) || 0,
-                    });
+                    }, projectName);
                     insightsCreated++;
                 }
             }
@@ -1092,19 +1067,11 @@ router.post(
                             .set(deviceCorrelationValues)
                             .where(eq(issues.id, existing.id));
                     } else {
-                        const nextIdResult = await db
-                            .select({ count: sql<number>`count(*)` })
-                            .from(issues)
-                            .where(eq(issues.projectId, projectId));
-                        const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                        const shortId = `${projectName}-${nextNum}`;
-
-                        await db.insert(issues).values({
+                        await insertIssueWithShortId({
                             projectId,
-                            shortId,
                             fingerprint,
                             ...deviceCorrelationValues,
-                        });
+                        }, projectName);
                         insightsCreated++;
                     }
                 }
@@ -1234,19 +1201,11 @@ router.post(
                             .set(osCorrelationValues)
                             .where(eq(issues.id, existing.id));
                     } else {
-                        const nextIdResult = await db
-                            .select({ count: sql<number>`count(*)` })
-                            .from(issues)
-                            .where(eq(issues.projectId, projectId));
-                        const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                        const shortId = `${projectName}-${nextNum}`;
-
-                        await db.insert(issues).values({
+                        await insertIssueWithShortId({
                             projectId,
-                            shortId,
                             fingerprint,
                             ...osCorrelationValues,
-                        });
+                        }, projectName);
                         insightsCreated++;
                     }
                 }
@@ -1352,19 +1311,11 @@ router.post(
                             .set(versionCorrelationValues)
                             .where(eq(issues.id, existing.id));
                     } else {
-                        const nextIdResult = await db
-                            .select({ count: sql<number>`count(*)` })
-                            .from(issues)
-                            .where(eq(issues.projectId, projectId));
-                        const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                        const shortId = `${projectName}-${nextNum}`;
-
-                        await db.insert(issues).values({
+                        await insertIssueWithShortId({
                             projectId,
-                            shortId,
                             fingerprint,
                             ...versionCorrelationValues,
-                        });
+                        }, projectName);
                         insightsCreated++;
                     }
                 }
@@ -1399,16 +1350,8 @@ router.post(
                     .limit(1);
 
                 if (!existing) {
-                    const nextIdResult = await db
-                        .select({ count: sql<number>`count(*)` })
-                        .from(issues)
-                        .where(eq(issues.projectId, projectId));
-                    const nextNum = (Number(nextIdResult[0]?.count) || 0) + 1;
-                    const shortId = `${projectName}-${nextNum}`;
-
-                    await db.insert(issues).values({
+                    await insertIssueWithShortId({
                         projectId,
-                        shortId,
                         fingerprint,
                         issueType: 'performance' as any,
                         title: 'Slow App Startup',
@@ -1423,7 +1366,7 @@ router.post(
                         userCount: 0,
                         events24h: 0,
                         events90d: startupMetrics.sessionCount,
-                    });
+                    }, projectName);
                     insightsCreated++;
                 }
             }

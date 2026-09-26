@@ -7,10 +7,12 @@
   },
   "events": [
     {"type":"screen_view","screen":"Privacy","timestamp":1770000000100},
-    {"type":"touch","x":100,"y":200,"rageEligible":false,"gestureType":"tap","screenWidth":1080,"screenHeight":1920,"touches":[{"x":100,"y":200,"timestamp":1770000000200}],"timestamp":1770000000200},
+    {"type":"gameplay","phase":"start","gameplayId":"9f1c2b7e4d5a4c3b8a716e5f4d3c2b1a","name":"arena","continued":false,"startedAt":1770000000150,"properties":{"testRunId":"unity-fixture"},"timestamp":1770000000150},
+    {"type":"touch","x":100,"y":200,"rageEligible":false,"gestureType":"tap","screenWidth":1080,"screenHeight":1920,"touches":[{"x":100,"y":200,"timestamp":1770000000200}],"gameplayId":"9f1c2b7e4d5a4c3b8a716e5f4d3c2b1a","timestamp":1770000000200},
     {"type":"custom","name":"unity_performance","payload":"{\"frameTimeP95Ms\":16.7,\"fps\":60,\"managedMemoryBytes\":8388608}","timestamp":1770000000300},
-    {"type":"error","name":"System.InvalidOperationException","message":"Synthetic handled exception","handled":true,"source":"unity","exceptionCategory":"managed","timestamp":1770000000400},
-    {"type":"anr","source":"unity_game_loop","threadState":"unity_game_loop_stalled","stackAvailable":false,"durationMs":5000,"timestamp":1770000000500}
+    {"type":"gameplay","phase":"end","gameplayId":"9f1c2b7e4d5a4c3b8a716e5f4d3c2b1a","name":"arena","outcome":"completed","durationMs":200,"properties":{"score":3},"timestamp":1770000000350},
+    {"type":"error","name":"System.InvalidOperationException","message":"InvalidOperationException: Synthetic handled exception","handled":true,"source":"unity_capture","exceptionCategory":"InvalidOperationException","screen":"Privacy","incidentId":"2b1c9f7e-4d5a-4c3b-8a71-6e5f4d3c2b1a","timestamp":1770000000400},
+    {"type":"anr","source":"unity_game_loop","threadState":"unity_game_loop_stalled","stackAvailable":false,"durationMs":5000,"screen":"Privacy","incidentId":"5b0fbd09-e8fa-4f7a-b8a0-e34d5e1626a2","timestamp":1770000000500}
   ],
   "hierarchy": {
     "timestamp":1770000000200,"screen":{"width":1080,"height":1920,"scale":1},

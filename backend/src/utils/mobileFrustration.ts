@@ -1,3 +1,5 @@
+import { isGameplayTelemetryEvent } from './gameplayIntervals.js';
+
 export type MobileTapPoint = {
     x: number;
     y: number;
@@ -115,6 +117,12 @@ export function computeMobileFrustrationCounts(events: any[]): { rageTapCount: n
         // Unity gameplay taps are not frustration signals. Only explicitly
         // eligible actionable UI taps may seed an inferred rage cluster.
         if (event?.rageEligible === false || event?.properties?.rageEligible === false || event?.payload?.rageEligible === false) {
+            recentTaps.length = 0;
+            continue;
+        }
+        // Input inside a marked gameplay interval is game input, including any
+        // frustration shape an SDK reports for it.
+        if (isGameplayTelemetryEvent(event)) {
             recentTaps.length = 0;
             continue;
         }

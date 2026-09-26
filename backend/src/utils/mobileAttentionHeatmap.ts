@@ -1,5 +1,6 @@
 import { gunzipSync } from 'zlib';
 import { normalizeHeatmapScreenName } from './heatmapScreens.js';
+import { isGameplayTelemetryEvent } from './gameplayIntervals.js';
 
 const FIXATION_MIN_MS = 150;
 const ENGAGED_DWELL_CAP_MS = 5_000;
@@ -303,6 +304,8 @@ function isScrollLikeEvent(event: any): boolean {
 }
 
 function touchWeightForEvent(event: any): { weight: number; kind: 'touch' | 'rage' } | null {
+    // Game input during a marked gameplay interval is not interface attention.
+    if (isGameplayTelemetryEvent(event)) return null;
     const type = String(event?.type ?? '').toLowerCase();
     const gestureType = String(event?.gestureType ?? event?.payload?.gestureType ?? '').toLowerCase();
     const combined = `${type}:${gestureType}`;

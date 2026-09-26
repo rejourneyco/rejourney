@@ -1,4 +1,5 @@
 import { normalizeHeatmapScreenName } from './heatmapScreens.js';
+import { isGameplayTelemetryEvent } from './gameplayIntervals.js';
 
 export type HeatmapPreviewEventEntry = {
     event: any;
@@ -103,6 +104,8 @@ function isPreferredScreenTransitionEvent(event: any): boolean {
 }
 
 function isHeatmapInteractionEvent(event: any): boolean {
+    // Heatmaps leave out game input recorded during a marked gameplay interval.
+    if (isGameplayTelemetryEvent(event)) return false;
     const type = String(event?.type || '').toLowerCase();
     const gestureType = String(event?.gestureType || event?.payload?.gestureType || event?.properties?.gestureType || '').toLowerCase();
     return (

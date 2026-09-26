@@ -47,6 +47,13 @@ function enumValue(value: unknown, allowed: readonly string[]): string | undefin
     return typeof value === 'string' && allowed.includes(value) ? value : undefined;
 }
 
+// Event artifacts count these too, and the summary can know less: Unity forwards C#
+// errors and touches to native as opaque events, and crash recovery sends no counts.
+// The summary may raise a counter but never lower it.
+function atLeast(column: typeof sessionMetrics.touchCount, value: number) {
+    return sql`GREATEST(COALESCE(${column}, 0), ${value})`;
+}
+
 function postgresCounterValue(value: unknown): number | undefined {
     const parsed = toNonNegativeInt(value);
     return parsed !== undefined && parsed <= 2_147_483_647 ? parsed : undefined;
@@ -81,25 +88,25 @@ export function buildSessionEndMetricsMergeSet(
     }
 
     const touchCount = toNonNegativeInt(metrics.touchCount);
-    if (touchCount !== undefined) updates.touchCount = touchCount;
+    if (touchCount !== undefined) updates.touchCount = atLeast(sessionMetrics.touchCount, touchCount);
     const scrollCount = toNonNegativeInt(metrics.scrollCount);
-    if (scrollCount !== undefined) updates.scrollCount = scrollCount;
+    if (scrollCount !== undefined) updates.scrollCount = atLeast(sessionMetrics.scrollCount, scrollCount);
     const gestureCount = toNonNegativeInt(metrics.gestureCount);
-    if (gestureCount !== undefined) updates.gestureCount = gestureCount;
+    if (gestureCount !== undefined) updates.gestureCount = atLeast(sessionMetrics.gestureCount, gestureCount);
     const inputCount = toNonNegativeInt(metrics.inputCount);
-    if (inputCount !== undefined) updates.inputCount = inputCount;
+    if (inputCount !== undefined) updates.inputCount = atLeast(sessionMetrics.inputCount, inputCount);
     const errorCount = toNonNegativeInt(metrics.errorCount);
-    if (errorCount !== undefined) updates.errorCount = errorCount;
+    if (errorCount !== undefined) updates.errorCount = atLeast(sessionMetrics.errorCount, errorCount);
     if (options.trustClientFrustrationCounts !== false) {
         const rageTapCount = toNonNegativeInt(metrics.rageTapCount);
         if (rageTapCount !== undefined) updates.rageTapCount = rageTapCount;
     }
     const apiSuccessCount = toNonNegativeInt(metrics.apiSuccessCount);
-    if (apiSuccessCount !== undefined) updates.apiSuccessCount = apiSuccessCount;
+    if (apiSuccessCount !== undefined) updates.apiSuccessCount = atLeast(sessionMetrics.apiSuccessCount, apiSuccessCount);
     const apiErrorCount = toNonNegativeInt(metrics.apiErrorCount);
-    if (apiErrorCount !== undefined) updates.apiErrorCount = apiErrorCount;
+    if (apiErrorCount !== undefined) updates.apiErrorCount = atLeast(sessionMetrics.apiErrorCount, apiErrorCount);
     const apiTotalCount = toNonNegativeInt(metrics.apiTotalCount);
-    if (apiTotalCount !== undefined) updates.apiTotalCount = apiTotalCount;
+    if (apiTotalCount !== undefined) updates.apiTotalCount = atLeast(sessionMetrics.apiTotalCount, apiTotalCount);
     const framesCaptured = postgresCounterValue(metrics.framesCaptured);
     if (framesCaptured !== undefined) updates.framesCaptured = framesCaptured;
     const framesSkippedDuplicate = postgresCounterValue(metrics.framesSkippedDuplicate);
@@ -165,8 +172,15 @@ export function buildSessionEndMetricsMergeSet(
     }
     if (typeof metrics.chargingStateChanged === 'boolean') updates.chargingStateChanged = metrics.chargingStateChanged;
     if (typeof metrics.lowPowerModeObserved === 'boolean') updates.lowPowerModeObserved = metrics.lowPowerModeObserved;
-    if (Array.isArray(metrics.screensVisited)) {
-        updates.screensVisited = metrics.screensVisited;
+    // Event artifacts build the same path in order. The longer path wins, so a summary can
+    // fill or extend it but an empty one (crash recovery, Unity) cannot erase it.
+    const screensVisited = Array.isArray(metrics.screensVisited)
+        ? metrics.screensVisited.filter((screen: unknown): screen is string => typeof screen === 'string' && screen.length > 0)
+        : [];
+    if (screensVisited.length > 0) {
+        const summaryPath = sql`ARRAY[${sql.join(screensVisited.map((screen: string) => sql`${screen}`), sql`, `)}]::text[]`;
+        updates.screensVisited = sql`CASE WHEN COALESCE(cardinality(${sessionMetrics.screensVisited}), 0) < ${screensVisited.length}
+            THEN ${summaryPath} ELSE ${sessionMetrics.screensVisited} END`;
     }
     const interactionScore = toFiniteNumber(metrics.interactionScore);
     if (interactionScore !== undefined) updates.interactionScore = interactionScore;
@@ -176,13 +190,9 @@ export function buildSessionEndMetricsMergeSet(
     if (uxScore !== undefined) updates.uxScore = uxScore;
 
     const reportedCrashCount = toNonNegativeInt(metrics.crashCount);
-    if (reportedCrashCount !== undefined) {
-        updates.crashCount = sql`GREATEST(COALESCE(${sessionMetrics.crashCount}, 0), ${reportedCrashCount})`;
-    }
+    if (reportedCrashCount !== undefined) updates.crashCount = atLeast(sessionMetrics.crashCount, reportedCrashCount);
     const reportedAnrCount = toNonNegativeInt(metrics.anrCount);
-    if (reportedAnrCount !== undefined) {
-        updates.anrCount = sql`GREATEST(COALESCE(${sessionMetrics.anrCount}, 0), ${reportedAnrCount})`;
-    }
+    if (reportedAnrCount !== undefined) updates.anrCount = atLeast(sessionMetrics.anrCount, reportedAnrCount);
 
     return updates;
 }
