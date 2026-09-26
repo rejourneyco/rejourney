@@ -5,6 +5,7 @@ import {
   AlertCircle,
   AlertTriangle,
   BarChart3,
+  Bot,
   Check,
   ChevronDown,
   Clock,
@@ -30,7 +31,6 @@ import {
   Trash2,
   TrendingDown,
   UserCheck,
-  WandSparkles,
   X,
   Zap,
   CheckCircle,
@@ -38,6 +38,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Modal } from '~/shared/ui/core/Modal';
+import {
+  dashboardButtonClass,
+  dashboardCardClass,
+  type DashboardChipTone,
+} from '~/shared/ui/core/dashboardStyles';
 import {
   buildSessionQueryFromPrompt,
   updateProjectSmartCaptureConfig,
@@ -110,15 +115,31 @@ type RuleOption = {
   hidden?: boolean;
 };
 
+/**
+ * A rule's color marks its note in the replay list, which renders it as one of the dashboard's
+ * chip tones. Similar hues share a tone (cyan and blue are both info, rose and pink both danger).
+ */
+export const SMART_CAPTURE_RULE_COLOR_TONES: Record<string, DashboardChipTone> = {
+  cyan: 'info',
+  emerald: 'success',
+  amber: 'warning',
+  rose: 'danger',
+  violet: 'purple',
+  blue: 'info',
+  pink: 'danger',
+  slate: 'neutral',
+};
+
+// Swatches preview the tone the note will use.
 const RULE_COLOR_OPTIONS = [
-  { value: 'cyan', label: 'Cyan', className: 'bg-[#67e8f9]' },
-  { value: 'emerald', label: 'Emerald', className: 'bg-[#86efac]' },
-  { value: 'amber', label: 'Amber', className: 'bg-[#fcd34d]' },
-  { value: 'rose', label: 'Rose', className: 'bg-[#fda4af]' },
-  { value: 'violet', label: 'Violet', className: 'bg-[#c4b5fd]' },
-  { value: 'blue', label: 'Blue', className: 'bg-[#93c5fd]' },
-  { value: 'pink', label: 'Pink', className: 'bg-[#f9a8d4]' },
-  { value: 'slate', label: 'Slate', className: 'bg-slate-300' },
+  { value: 'cyan', label: 'Cyan', className: 'bg-[#1a73e8]' },
+  { value: 'emerald', label: 'Emerald', className: 'bg-[#1e8e3e]' },
+  { value: 'amber', label: 'Amber', className: 'bg-[#f9ab00]' },
+  { value: 'rose', label: 'Rose', className: 'bg-[#d93025]' },
+  { value: 'violet', label: 'Violet', className: 'bg-[#9334e6]' },
+  { value: 'blue', label: 'Blue', className: 'bg-[#1a73e8]' },
+  { value: 'pink', label: 'Pink', className: 'bg-[#d93025]' },
+  { value: 'slate', label: 'Slate', className: 'bg-[#80868b]' },
 ] as const;
 
 const GROUP_DEFAULT_COLOR: Record<RuleOptionGroup, string> = {
@@ -1317,8 +1338,9 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
     onClose();
   };
 
-  const selectClass = 'appearance-none rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-base font-medium text-slate-700 shadow-sm outline-none transition-all duration-200 cursor-pointer hover:border-cyan-300 hover:bg-slate-50 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 sm:text-sm';
-  const inputClass = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-base font-medium text-slate-700 shadow-sm outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-cyan-300 hover:bg-slate-50 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 sm:text-sm';
+  const selectClass = 'smart-capture-select h-9 cursor-pointer appearance-none rounded-none border border-[#dadce0] bg-white pl-3 pr-8 text-base text-[#202124] outline-none transition-colors hover:bg-[#f8fafd] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:bg-[#f8fafd] disabled:text-[#80868b] sm:text-sm';
+  const inputClass = 'h-9 rounded-none border border-[#dadce0] bg-white px-3 text-base text-[#202124] outline-none transition-colors placeholder:text-[#80868b] hover:bg-[#f8fafd] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:bg-[#f8fafd] disabled:text-[#80868b] sm:text-sm';
+  const connectorClass = 'text-xs font-medium text-[#5f6368]';
 
   const renderConditionControls = (
     draftRule: SmartCaptureRule,
@@ -1474,13 +1496,13 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
               />
             )}
             {valueSuffix(valueType) && (
-              <span className="text-xs font-black uppercase text-slate-400">{valueSuffix(valueType)}</span>
+              <span className={connectorClass}>{valueSuffix(valueType)}</span>
             )}
           </>
         )}
         {scopedMetric && (
           <>
-            <span className="text-xs font-black uppercase text-slate-400">on</span>
+            <span className={connectorClass}>on</span>
             <select
               value={scopeAttribute}
               disabled={controlsDisabled}
@@ -1525,7 +1547,7 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
         )}
         {option.value === 'new_user' && (
           <>
-            <span className="text-xs font-black uppercase text-slate-400">within first</span>
+            <span className={connectorClass}>within first</span>
             <input
               type="number"
               min={1}
@@ -1535,12 +1557,12 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
               onChange={(event) => onPatch({ maxVisits: Number(event.target.value) })}
               className={`${inputClass} w-full text-center sm:w-20`}
             />
-            <span className="text-xs font-black uppercase text-slate-400">sessions</span>
+            <span className={connectorClass}>sessions</span>
           </>
         )}
         {supportsReturnWindow && (
           <>
-            <span className="text-xs font-black uppercase text-slate-400">after at least</span>
+            <span className={connectorClass}>after at least</span>
             <input
               type="number"
               min={1}
@@ -1550,12 +1572,9 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
               onChange={(event) => onPatch({ minVisits: Number(event.target.value) })}
               className={`${inputClass} w-full text-center sm:w-20`}
             />
-            <span className="text-xs font-black uppercase text-slate-400">visits</span>
+            <span className={connectorClass}>visits</span>
             <span className="basis-full" aria-hidden="true" />
-            <span className="text-xs font-black uppercase text-slate-400">And</span>
-            <span className="rounded-full border-2 border-black bg-white px-3 py-2 text-xs font-black uppercase text-black shadow-neo-sm">
-              if no return in
-            </span>
+            <span className={connectorClass}>and if no return in</span>
             <input
               type="number"
               min={1}
@@ -1582,7 +1601,7 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
 
   const renderCaptureRateControls = (rule: SmartCaptureRule, blankRule: boolean) => (
     <>
-      <span className="sm:ml-2 text-xs font-black uppercase text-slate-400">Save</span>
+      <span className={`${connectorClass} sm:ml-2`}>Save</span>
       <input
         type="number"
         min={0}
@@ -1592,7 +1611,7 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
         onChange={(event) => updateRule(rule.id, { captureRate: event.target.value === '' ? undefined : Number(event.target.value) })}
         className={`${inputClass} w-full text-center sm:w-20`}
       />
-      <span className="text-xs font-black uppercase text-slate-400">% of occurrences</span>
+      <span className={connectorClass}>% of occurrences</span>
     </>
   );
 
@@ -1605,18 +1624,18 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
       size="xl"
       variant="modern"
       bodyClassName="!p-0"
-      panelClassName="!h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-none !rounded-lg border border-slate-200 bg-white shadow-2xl sm:!h-auto sm:!w-[calc(100vw-2rem)] sm:!rounded-xl lg:!max-w-6xl"
+      panelClassName="!h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-none sm:!h-auto sm:!w-[calc(100vw-2rem)] lg:!max-w-6xl"
     >
-      <div className="flex h-full min-h-0 flex-col bg-white font-sans text-slate-900 sm:max-h-[90vh]">
-        <div className="shrink-0 border-b-2 border-black bg-white px-4 py-4 sm:px-6 sm:py-5">
+      <div className="flex h-full min-h-0 flex-col bg-white font-sans text-[#202124] sm:max-h-[90vh]">
+        <div className="shrink-0 border-b border-[#e8eaed] bg-white px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-4">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center border-2 border-black bg-white shadow-neo-sm sm:h-10 sm:w-10">
-                <ScanEye className="h-5 w-5" strokeWidth={2.4} />
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#f1f3f4] text-[#5f6368]">
+                <ScanEye className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <h2 className="text-lg font-black tracking-tight text-black uppercase sm:text-xl">Smart Capture</h2>
-                <p className="mt-1.5 text-sm font-medium leading-5 text-slate-500">Use the same rule style as replay search to decide which users are recorded.</p>
+                <h2 className="text-lg font-medium leading-6 text-[#202124]">Smart Capture</h2>
+                <p className="mt-0.5 text-sm leading-5 text-[#5f6368]">Use the same rule style as replay search to decide which users are recorded.</p>
               </div>
             </div>
 
@@ -1624,41 +1643,42 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
               <button
                 type="button"
                 onClick={handleClose}
-                className="inline-flex h-9 w-9 items-center justify-center border-2 border-black bg-white shadow-neo-sm transition-colors hover:bg-slate-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
+                aria-label="Close"
               >
-                <X className="h-5 w-5" strokeWidth={2.2} />
+                <X className="h-5 w-5" />
               </button>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-slate-50 px-3 py-3 sm:px-6 sm:py-6">
+        <div className="flex-1 overflow-y-auto bg-[#f8fafd] px-3 py-3 sm:px-6 sm:py-5">
           {locked && (
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-              <Info className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2.2} />
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2 text-sm text-[#1967d2]">
+              <Info className="h-4 w-4 shrink-0" />
               <span>Smart Capture rules are available on Scale. You can preview this setup, but editing is locked on your current plan.</span>
-              <Link to={`${pathPrefix}/billing`} className="ml-auto font-bold text-slate-900 underline underline-offset-2">
+              <Link to={`${pathPrefix}/billing`} className="ml-auto font-medium underline underline-offset-2 hover:text-[#1a73e8]">
                 View billing
               </Link>
             </div>
           )}
           {error && (
-            <div className="mb-3 flex items-center gap-2 border-2 border-black bg-[#fee2e2] px-4 py-3 text-sm font-black text-black shadow-neo-sm">
-              <AlertCircle className="h-4 w-4 shrink-0 text-black" strokeWidth={2} />
+            <div className="mb-3 flex items-center gap-2 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               {error}
             </div>
           )}
 
           <div className="space-y-3">
-            <div className="border-2 border-black bg-white shadow-neo-sm">
-              <div className="flex flex-col gap-3 p-3 sm:p-5 xl:flex-row xl:items-center">
-                <div className="flex min-w-0 items-center gap-3 xl:w-64">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center border-2 border-black bg-[#ecfeff] text-black shadow-neo-sm">
-                    <WandSparkles className="h-5 w-5" strokeWidth={2.5} />
+            <div className={dashboardCardClass}>
+              <div className="flex flex-col gap-3 p-3 sm:p-4 xl:flex-row xl:items-center">
+                <div className="flex min-w-0 items-center gap-2 xl:w-64">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-[#e8f0fe] text-[#1967d2]">
+                    <Bot className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-black uppercase text-black">AI rule builder</div>
-                    <div className="text-xs font-bold text-slate-500">{rules.length}/20 capture rules</div>
+                    <div className="text-sm font-medium text-[#202124]">AI rule builder</div>
+                    <div className="text-[11px] tabular-nums text-[#5f6368]">{rules.length}/20 capture rules</div>
                   </div>
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
@@ -1676,35 +1696,35 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                     rows={1}
                     disabled={controlsDisabled || isParsingRule}
                     placeholder="e.g. checkout sessions with API failures, rage taps, or slow payment screens"
-                    className="min-h-[68px] flex-1 resize-none border-2 border-black bg-white px-4 py-2.5 text-base font-bold text-black shadow-neo-sm outline-none transition-all placeholder:text-slate-400 focus:bg-[#ecfeff] focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[44px] sm:text-sm"
+                    className="min-h-[68px] flex-1 resize-none rounded-none border border-[#dadce0] bg-white px-3 py-2 text-base text-[#202124] outline-none transition-colors placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:bg-[#f8fafd] disabled:text-[#80868b] sm:min-h-10 sm:text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => void handlePromptSubmit()}
                     disabled={controlsDisabled || !prompt.trim() || isParsingRule}
-                    className="inline-flex h-[44px] items-center justify-center gap-2 border-2 border-black bg-[#86efac] px-5 text-sm font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:hover:translate-y-0 sm:w-36"
+                    className={`${dashboardButtonClass('primary', 'lg')} sm:w-36`}
                   >
-                    {isParsingRule && <Loader className="h-4 w-4 animate-spin" strokeWidth={2.5} />}
+                    {isParsingRule && <Loader className="h-4 w-4 animate-spin" />}
                     Generate
                   </button>
                 </div>
               </div>
               {builderExplanation && (
-                <div className="mx-4 mb-4 flex items-start gap-2 border-2 border-black bg-[#dcfce7] px-3 py-2 text-sm font-black text-black">
-                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-black" strokeWidth={2.3} />
+                <div className="mx-3 mb-3 flex items-start gap-2 rounded-none border border-[#ceead6] bg-[#e6f4ea] px-3 py-2 text-sm text-[#137333] sm:mx-4 sm:mb-4">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{builderExplanation}</span>
                 </div>
               )}
             </div>
 
-            <div className="overflow-hidden border-2 border-black bg-white shadow-neo-sm">
-              <div className="flex flex-col gap-3 border-b-2 border-black bg-[#f8fafc] px-3 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className={`overflow-hidden ${dashboardCardClass}`}>
+              <div className="flex flex-col gap-3 border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                  <div className="flex h-8 w-8 items-center justify-center border-2 border-black bg-white text-black shadow-neo-sm">
-                    <GitMerge className="h-4 w-4" strokeWidth={2.5} />
+                  <div className="flex items-center gap-2">
+                    <GitMerge className="h-4 w-4 shrink-0 text-[#5f6368]" />
+                    <span className="text-[15px] font-medium text-[#202124]">Capture rules</span>
                   </div>
-                  <span className="text-sm font-black uppercase text-black">Capture Rules</span>
-                  <div className="hidden h-4 w-0.5 bg-black sm:mx-2 sm:block" />
+                  <div className="hidden h-4 w-px bg-[#dadce0] sm:mx-1 sm:block" />
                   <button
                     type="button"
                     disabled={controlsDisabled}
@@ -1712,27 +1732,27 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                       setCaptureMode(smartCaptureEnabled ? 'record_all' : 'smart_capture');
                       markDraft();
                     }}
-                    className="group inline-flex h-8 w-auto items-center justify-start gap-2.5 text-sm font-black uppercase text-black transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-8 w-auto items-center justify-start gap-2 text-sm font-medium text-[#3c4043] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     role="switch"
                     aria-checked={smartCaptureEnabled}
                     aria-label="Toggle Smart Capture"
                   >
-                    <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200 ${smartCaptureEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                      <span className={`pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${smartCaptureEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                    <span className={`relative inline-flex h-5 w-9 shrink-0 rounded-none transition-colors duration-200 ${smartCaptureEnabled ? 'bg-[#1a73e8]' : 'bg-[#bdc1c6]'}`}>
+                      <span className={`pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-none bg-white transition-transform duration-200 ${smartCaptureEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
                     </span>
                     {smartCaptureEnabled ? 'Enabled' : 'Disabled'}
                   </button>
-                  <span className="text-sm font-black text-slate-400">{smartCaptureEnabled ? 'Matching rule rows are saved.' : 'All replays are saved.'}</span>
+                  <span className="text-sm text-[#5f6368]">{smartCaptureEnabled ? 'Matching rule rows are saved.' : 'All replays are saved.'}</span>
                 </div>
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                   <button
                     type="button"
                     disabled={controlsDisabled}
                     onClick={() => addRule()}
-                    className="inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 border-2 border-black bg-[#86efac] px-4 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 sm:h-9 sm:w-auto"
+                    className={`${dashboardButtonClass('secondary', 'md')} w-full sm:w-auto`}
                   >
-                    <Plus className="h-4 w-4" strokeWidth={2.5} />
-                    Add Rule
+                    <Plus className="h-4 w-4" />
+                    Add rule
                   </button>
                 </div>
               </div>
@@ -1741,7 +1761,7 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                 {rules.map((rule, ruleIndex) => {
                   const option = optionFor(rule.signal, rule.type, rule.condition);
                   const ruleColor = normalizeRuleColor(rule.color, GROUP_DEFAULT_COLOR[option.group]);
-                  const ruleColorClass = RULE_COLOR_OPTIONS.find((color) => color.value === ruleColor)?.className ?? 'bg-slate-300';
+                  const ruleColorClass = RULE_COLOR_OPTIONS.find((color) => color.value === ruleColor)?.className ?? 'bg-[#80868b]';
                   const compoundClauses = smartCaptureConditionClauses(rule);
                   const hasCompoundClauses = compoundClauses.length > 0;
                   const blankRule = option.value === '' && !hasCompoundClauses;
@@ -1751,17 +1771,17 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                     <React.Fragment key={rule.id}>
                       {ruleIndex > 0 && (
                         <div className="flex items-center gap-2 py-3">
-                          <div className="h-px flex-1 bg-slate-300" />
-                          <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-[10px] font-black uppercase text-black shadow-neo-sm">OR</span>
-                          <div className="h-px flex-1 bg-slate-300" />
+                          <div className="h-px flex-1 bg-[#dadce0]" />
+                          <span className="border border-[#dadce0] bg-white px-2.5 py-0.5 text-[11px] font-medium text-[#5f6368]">OR</span>
+                          <div className="h-px flex-1 bg-[#dadce0]" />
                         </div>
                       )}
                       <div
-                        className={`flex flex-col border-2 border-black bg-white shadow-neo-sm transition-opacity ${rule.enabled === false || !smartCaptureEnabled ? 'opacity-50' : ''}`}
+                        className={`flex flex-col border border-[#dadce0] bg-white transition-opacity ${rule.enabled === false || !smartCaptureEnabled ? 'opacity-50' : ''}`}
                       >
-                      <div className="flex flex-col gap-2 border-b-2 border-black bg-[#f8fafc] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-2">
+                      <div className="flex flex-col gap-2 border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-2">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="group relative h-8 w-12 shrink-0 overflow-hidden rounded-md border-2 border-black bg-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo focus-within:ring-2 focus-within:ring-cyan-500/25">
+                          <div className="group relative h-8 w-12 shrink-0 overflow-hidden rounded-none border border-[#dadce0] bg-white transition-colors hover:border-[#bdc1c6] focus-within:border-[#1a73e8] focus-within:ring-2 focus-within:ring-[#1a73e8]/20">
                             <select
                               value={ruleColor}
                               disabled={controlsDisabled}
@@ -1774,8 +1794,8 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                                 <option key={color.value} value={color.value}>{color.label}</option>
                               ))}
                             </select>
-                            <span className={`absolute left-1.5 top-1/2 h-4 w-5 -translate-y-1/2 rounded-sm ${ruleColorClass}`} />
-                            <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 transition-colors group-hover:text-black" strokeWidth={2.5} />
+                            <span className={`absolute left-1.5 top-1/2 h-4 w-5 -translate-y-1/2 rounded-none ${ruleColorClass}`} />
+                            <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5f6368] transition-colors group-hover:text-[#202124]" />
                           </div>
                           {editingRuleNameId === rule.id ? (
                             <input
@@ -1790,22 +1810,22 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                                   event.currentTarget.blur();
                                 }
                               }}
-                              className="h-9 min-w-0 max-w-sm border-b-2 border-black bg-white px-2 text-sm font-black text-black outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+                              className="h-8 min-w-0 max-w-sm rounded-none border border-[#dadce0] bg-white px-2 text-sm font-medium text-[#202124] outline-none placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed"
                               placeholder={option.label}
                               autoFocus
                             />
                           ) : (
                             <div className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-sm font-black text-black">{ruleDisplayName}</span>
+                              <span className="truncate text-sm font-medium text-[#202124]">{ruleDisplayName}</span>
                               <button
                                 type="button"
                                 disabled={controlsDisabled}
                                 onClick={() => setEditingRuleNameId(rule.id)}
-                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] disabled:cursor-not-allowed disabled:opacity-40"
                                 aria-label={ruleDisplayName ? `Edit ${ruleDisplayName} rule name` : 'Edit rule name'}
                                 title="Edit rule name"
                               >
-                                <Pencil className="h-4 w-4" strokeWidth={2.4} />
+                                <Pencil className="h-4 w-4" />
                               </button>
                             </div>
                           )}
@@ -1816,15 +1836,17 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                             type="button"
                             disabled={controlsDisabled}
                             onClick={() => updateRule(rule.id, { enabled: rule.enabled === false })}
-                            className={`relative inline-flex h-8 w-14 shrink-0 rounded-full transition-colors sm:h-6 sm:w-11 ${rule.enabled !== false ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            className={`relative inline-flex h-8 w-14 shrink-0 rounded-none transition-colors disabled:cursor-not-allowed sm:h-5 sm:w-9 ${rule.enabled !== false ? 'bg-[#1a73e8]' : 'bg-[#bdc1c6]'}`}
+                            aria-label={rule.enabled !== false ? 'Pause rule' : 'Enable rule'}
                           >
-                            <span className={`pointer-events-none absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-sm transition-transform sm:left-0.5 sm:top-0.5 sm:h-5 sm:w-5 ${rule.enabled !== false ? 'translate-x-6 sm:translate-x-5' : 'translate-x-0'}`} />
+                            <span className={`pointer-events-none absolute left-1 top-1 h-6 w-6 rounded-none bg-white transition-transform sm:left-0.5 sm:top-0.5 sm:h-4 sm:w-4 ${rule.enabled !== false ? 'translate-x-6 sm:translate-x-4' : 'translate-x-0'}`} />
                           </button>
                           <button
                             type="button"
                             disabled={controlsDisabled}
                             onClick={() => removeRule(rule.id)}
-                            className="inline-flex h-10 w-10 items-center justify-center text-slate-400 hover:text-rose-600 sm:h-8 sm:w-8"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#fce8e6] hover:text-[#d93025] disabled:cursor-not-allowed disabled:opacity-40 sm:h-8 sm:w-8"
+                            aria-label="Delete rule"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -1833,17 +1855,17 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
 
                       <div className="bg-white px-3 py-3 sm:px-4 sm:py-4">
                         {hasCompoundClauses ? (
-                          <div className="space-y-2 rounded-lg bg-slate-50 px-3 py-3">
+                          <div className="space-y-2 bg-[#f8fafd] px-3 py-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <span className="text-xs font-black uppercase text-slate-400">Save replay when all clauses match</span>
+                              <span className={connectorClass}>Save replay when all clauses match</span>
                               <button
                                 type="button"
                                 disabled={controlsDisabled}
                                 onClick={() => addRuleClause(rule.id)}
-                                className="inline-flex h-8 items-center justify-center gap-1.5 border-2 border-black bg-white px-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                                className={dashboardButtonClass('secondary', 'sm')}
                               >
-                                <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-                                Add Clause
+                                <Plus className="h-3.5 w-3.5" />
+                                Add clause
                               </button>
                             </div>
                             {compoundClauses.map((clause, clauseIndex) => {
@@ -1852,8 +1874,8 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
 
                               return (
                                 <React.Fragment key={`${rule.id}-clause-${clauseIndex}`}>
-                                  <div className="flex flex-wrap items-stretch gap-x-2 gap-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3 sm:items-center">
-                                    <span className="text-xs font-black uppercase text-slate-400">Clause {clauseIndex + 1}</span>
+                                  <div className="flex flex-wrap items-stretch gap-x-2 gap-y-3 rounded-none border border-[#e8eaed] bg-white px-3 py-3 sm:items-center">
+                                    <span className={connectorClass}>Clause {clauseIndex + 1}</span>
                                     {renderConditionControls(
                                       clauseRule,
                                       clauseOption,
@@ -1864,17 +1886,17 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                                       type="button"
                                       disabled={controlsDisabled || compoundClauses.length <= 1}
                                       onClick={() => removeRuleClause(rule.id, clauseIndex)}
-                                      className="inline-flex h-10 w-10 items-center justify-center text-slate-400 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+                                      className="inline-flex h-9 w-9 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] disabled:cursor-not-allowed disabled:opacity-30"
                                       aria-label={`Remove clause ${clauseIndex + 1}`}
                                     >
-                                      <X className="h-4 w-4" strokeWidth={2.4} />
+                                      <X className="h-4 w-4" />
                                     </button>
                                   </div>
                                   {clauseIndex < compoundClauses.length - 1 && (
                                     <div className="flex items-center gap-2 px-4">
-                                      <div className="h-px flex-1 bg-slate-300" />
-                                      <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-[10px] font-black uppercase text-black shadow-neo-sm">AND</span>
-                                      <div className="h-px flex-1 bg-slate-300" />
+                                      <div className="h-px flex-1 bg-[#dadce0]" />
+                                      <span className="border border-[#dadce0] bg-white px-2 py-0.5 text-[11px] font-medium text-[#5f6368]">AND</span>
+                                      <div className="h-px flex-1 bg-[#dadce0]" />
                                     </div>
                                   )}
                                 </React.Fragment>
@@ -1885,8 +1907,8 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                             </div>
                           </div>
                         ) : (
-                          <div className="flex flex-wrap items-stretch gap-x-2 gap-y-3 rounded-lg bg-slate-50 px-3 py-3 sm:items-center">
-                            <span className="text-xs font-black uppercase text-slate-400">Save replay when</span>
+                          <div className="flex flex-wrap items-stretch gap-x-2 gap-y-3 bg-[#f8fafd] px-3 py-3 sm:items-center">
+                            <span className={connectorClass}>Save replay when</span>
                             {renderConditionControls(
                               rule,
                               option,
@@ -1897,10 +1919,10 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
                               type="button"
                               disabled={controlsDisabled}
                               onClick={() => addRuleClause(rule.id)}
-                              className="inline-flex h-10 items-center justify-center gap-1.5 border-2 border-black bg-white px-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                              className={dashboardButtonClass('secondary', 'md')}
                             >
-                              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-                              Add Clause
+                              <Plus className="h-3.5 w-3.5" />
+                              Add clause
                             </button>
                           </div>
                         )}
@@ -1914,26 +1936,26 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col gap-3 border-t-2 border-black bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
-          <div className="flex items-center gap-3 text-sm font-black uppercase">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-[#e8eaed] bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3">
             {dirty ? (
-              <span className="flex w-full items-center gap-2 border-2 border-black bg-[#fef3c7] px-3 py-2 sm:w-auto sm:py-1.5">
-                <AlertTriangle className="h-4 w-4" />
+              <span className="inline-flex w-full items-center gap-1.5 rounded-none bg-[#fef7e0] px-2.5 py-1 text-xs font-medium text-[#b06000] sm:w-auto">
+                <AlertTriangle className="h-3.5 w-3.5" />
                 Unsaved project changes
               </span>
             ) : (
-              <span className="flex w-full items-center gap-2 border-2 border-black bg-[#dcfce7] px-3 py-2 sm:w-auto sm:py-1.5">
-                <Check className="h-4 w-4" />
+              <span className="inline-flex w-full items-center gap-1.5 rounded-none bg-[#e6f4ea] px-2.5 py-1 text-xs font-medium text-[#137333] sm:w-auto">
+                <Check className="h-3.5 w-3.5" />
                 Saved to project
               </span>
             )}
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <button
               type="button"
               onClick={handleClose}
               disabled={isSaving}
-              className="inline-flex h-11 w-full items-center justify-center border-2 border-black bg-white px-6 text-sm font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-50 sm:h-[42px] sm:w-auto"
+              className={`${dashboardButtonClass('secondary', 'md')} w-full sm:w-auto`}
             >
               Cancel
             </button>
@@ -1941,10 +1963,10 @@ export const SmartCaptureModal: React.FC<SmartCaptureModalProps> = ({
               type="button"
               onClick={() => void saveConfig()}
               disabled={isSaving || locked || !dirty}
-              className="inline-flex h-11 w-full items-center justify-center gap-2 border-2 border-black bg-[#67e8f9] px-6 text-sm font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 sm:h-[42px] sm:w-auto"
+              className={`${dashboardButtonClass('primary', 'md')} w-full sm:w-auto`}
             >
-              <Save className="h-4 w-4" strokeWidth={2.5} />
-              {isSaving ? 'Saving...' : 'Save Rules'}
+              <Save className="h-4 w-4" />
+              {isSaving ? 'Saving…' : 'Save rules'}
             </button>
           </div>
         </div>

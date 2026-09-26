@@ -68,13 +68,13 @@ export const SessionLoadingOverlay: React.FC<SessionLoadingOverlayProps> = ({
             aria-label={message}
         >
             <div className="flex flex-col items-center gap-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#e8f0fe]">
+                    <Loader2 className="h-5 w-5 animate-spin text-[#1a73e8]" />
                 </div>
                 <p className="text-sm font-medium text-slate-500">{message}</p>
-                <div className="h-1 w-48 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-1 w-48 overflow-hidden rounded-none bg-[#e8eaed]">
                     <div
-                        className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                        className="h-full rounded-none bg-[#1a73e8] transition-[width] duration-500 ease-out"
                         style={{ width: `${progress}%` }}
                     />
                 </div>

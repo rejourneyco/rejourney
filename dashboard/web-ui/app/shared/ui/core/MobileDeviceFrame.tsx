@@ -25,13 +25,13 @@ export const MobileDeviceFrame: React.FC<MobileDeviceFrameProps> = ({
         <div className={`relative ${config.width} ${className}`}>
             {/* Device shell */}
             <div
-                className={`${config.height} rounded-[1.25rem] bg-black ${config.bezel} relative overflow-hidden shadow-lg ring-1 ring-black/20 transition-all duration-300 ease-out hover:shadow-xl`}
+                className={`${config.height} rounded-[1.25rem] bg-[#202124] ${config.bezel} relative overflow-hidden ring-1 ring-black/10`}
             >
                 {/* Screen */}
                 <div className="relative w-full h-full rounded-[1.1rem] overflow-hidden bg-white">
                     {/* Camera cutout */}
                     <div
-                        className="absolute top-2 left-1/2 -translate-x-1/2 bg-black rounded-full z-20 pointer-events-none"
+                        className="absolute top-2 left-1/2 -translate-x-1/2 bg-[#202124] rounded-full z-20 pointer-events-none"
                         style={{ width: config.cutoutWidth, height: config.cutoutHeight }}
                     />
 
@@ -41,7 +41,7 @@ export const MobileDeviceFrame: React.FC<MobileDeviceFrameProps> = ({
                     </div>
 
                     {/* Gesture indicator */}
-                    <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-[35%] h-[4px] bg-black rounded-full z-20 pointer-events-none" />
+                    <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-[35%] h-[4px] bg-[#202124] rounded-full z-20 pointer-events-none" />
                 </div>
             </div>
         </div>

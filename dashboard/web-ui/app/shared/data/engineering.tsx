@@ -4,6 +4,7 @@ import { mapsPerformanceArticle } from "./engineeringArticles/mapsPerformance";
 import { mobileSessionReplayCostArticle } from "./engineeringArticles/mobileSessionReplayCost";
 import { rejourney13MillionSessionReplaysArticle } from "./engineeringArticles/rejourney13MillionSessionReplays";
 import { swiftPackageOpenBetaArticle } from "./engineeringArticles/swiftPackageOpenBeta";
+import { unitySdkOpenBetaArticle } from "./engineeringArticles/unitySdkOpenBeta";
 import { markdownEngineeringArticles } from "./engineeringMarkdown";
 import type { Article } from "./engineeringTypes";
 
@@ -21,6 +22,7 @@ export function getAbsoluteArticleImage(article: Pick<Article, "image">): string
 }
 
 export const ENGINEERING_ARTICLES: Article[] = [
+    unitySdkOpenBetaArticle,
     flutterSdkOpenBetaArticle,
     mobileSessionReplayCostArticle,
     swiftPackageOpenBetaArticle,

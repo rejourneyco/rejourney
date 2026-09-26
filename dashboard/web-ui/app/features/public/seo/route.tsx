@@ -1080,11 +1080,11 @@ function ValueBadge({ value }: { value: SeoComparisonValue }) {
 function SectionHeader({ eyebrow, title, copy }: { eyebrow: string; title: string; copy?: string }) {
   return (
     <div className="mx-auto max-w-4xl text-center">
-      <p className="inline-flex border-2 border-black bg-[#67e8f9] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
+      <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a73e8]">
         {eyebrow}
       </p>
-      <h2 className="mt-4 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-5xl">{title}</h2>
-      {copy ? <p className="mt-5 text-base font-semibold leading-7 text-slate-600 sm:text-lg">{copy}</p> : null}
+      <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">{title}</h2>
+      {copy ? <p className="mt-5 text-base font-normal leading-7 text-[#5f6368] sm:text-lg">{copy}</p> : null}
     </div>
   );
 }
@@ -1095,9 +1095,9 @@ function CategoryHeroBullets({ page }: { page: SeoPage }) {
   const display = featureDisplay(page);
 
   return (
-    <ul className="mt-8 grid max-w-2xl gap-3 border-l-2 border-black pl-5">
+    <ul className="mt-8 grid max-w-2xl gap-3 border-l-2 border-[#1a73e8] pl-5">
       {display.heroBullets.map((item) => (
-        <li key={item} className="text-base font-black leading-6 text-slate-900">
+        <li key={item} className="text-base font-semibold leading-6 text-[#202124]">
           {item}
         </li>
       ))}
@@ -1110,10 +1110,10 @@ function CategoryAvailability({ page }: { page: SeoPage }) {
 
   return (
     <div className="mt-7">
-      <p className="font-mono text-[10px] font-black uppercase text-slate-500">Available for</p>
-      <div className="mt-3 flex flex-wrap gap-3">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Available for</p>
+      <div className="mt-3 flex flex-wrap gap-2.5">
         {display.available.map((item) => (
-          <span key={item} className="rounded-lg border-2 border-black bg-white px-4 py-2 text-xs font-bold text-slate-800">
+          <span key={item} className="rounded-none border border-[#dadce0] bg-white px-3.5 py-1.5 text-xs font-medium text-[#3c4043] shadow-sm">
             {item}
           </span>
         ))}
@@ -1125,7 +1125,7 @@ function CategoryAvailability({ page }: { page: SeoPage }) {
 function HeroVisual({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative") {
     return (
-      <figure className="rounded-lg border-2 border-black bg-[#dbeafe] p-4 lg:justify-self-end">
+      <figure className="rounded-none border border-[#dadce0] bg-white p-4 shadow-sm lg:justify-self-end">
         <img
           src={optimizedMarketingImage(page.image)}
           alt={page.imageAlt}
@@ -1138,9 +1138,8 @@ function HeroVisual({ page }: { page: SeoPage }) {
 
   return (
     <div className="relative">
-      <div className="absolute -right-3 -top-3 h-16 w-24 rotate-[5deg] border-2 border-black bg-[#86efac] shadow-neo-sm" aria-hidden />
-      <div className="relative overflow-hidden border-2 border-black bg-white p-3 shadow-neo">
-        <div className="border-2 border-black bg-[#ecfeff] p-2">
+      <div className="relative overflow-hidden rounded-none border border-[#dadce0] bg-white p-3 shadow-sm">
+        <div className="border border-[#dadce0] bg-[#f8fafd] p-2">
           <img
             src={optimizedMarketingImage(page.image)}
             alt={page.imageAlt}
@@ -1158,17 +1157,17 @@ function AlternativeQuickScan({ page }: { page: SeoPage }) {
   const quickScanImage = alternativeQuickScanImage(page);
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-10 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-stretch">
-        <div className="border-2 border-black bg-[#86efac] p-6 shadow-neo-sm sm:p-8">
-          <p className="font-mono text-[10px] font-black uppercase text-slate-700">TLDR</p>
-          <p className="mt-3 max-w-5xl text-2xl font-black leading-tight text-slate-950 sm:text-3xl">
+        <div className="rounded-none border border-[#dadce0] bg-[#f8fafd] p-6 shadow-sm sm:p-8">
+          <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#1a73e8]">TLDR</p>
+          <p className="mt-3 max-w-5xl text-2xl font-bold leading-tight text-[#202124] sm:text-3xl">
             {tldr}
           </p>
 
         </div>
 
-        <div className="hidden overflow-hidden border-2 border-black bg-[#ecfeff] p-3 shadow-neo-sm lg:block">
+        <div className="hidden overflow-hidden rounded-none border border-[#dadce0] bg-[#f8fafd] p-3 shadow-sm lg:block">
           <img
             src={optimizedMarketingImage(quickScanImage.src)}
             alt={quickScanImage.alt}
@@ -1186,34 +1185,34 @@ function AlternativeFeatureDifferences({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative" || !page.featureDifferences?.length) return null;
 
   return (
-    <section className="border-b-2 border-black bg-[#f8fafc] px-4 py-14 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-8 lg:grid-cols-[0.42fr_1fr] lg:items-start">
           <div>
-            <p className="inline-flex border-2 border-black bg-[#fef08a] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
+            <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a73e8]">
               Feature differences
             </p>
-            <h2 className="mt-4 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-5xl">
+            <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">
               Core
             </h2>
-            <p className="mt-5 text-base font-semibold leading-8 text-slate-600">
+            <p className="mt-5 text-base font-normal leading-8 text-[#5f6368]">
               Core usage, team needs, and product mentality. 
             </p>
           </div>
 
-          <div className="overflow-hidden border-2 border-black bg-white shadow-neo-sm">
-            <div className="grid grid-cols-[0.5fr_1fr_1fr] border-b-2 border-black bg-slate-950 text-white">
-              <div className="p-3 font-mono text-[10px] font-black uppercase sm:p-4">Area</div>
-              <div className="border-l-2 border-black p-3 font-mono text-[10px] font-black uppercase sm:p-4">Rejourney</div>
-              <div className="border-l-2 border-black p-3 font-mono text-[10px] font-black uppercase sm:p-4">{page.otherColumnTitle}</div>
+          <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm">
+            <div className="grid grid-cols-[0.5fr_1fr_1fr] border-b border-[#dadce0] bg-[#f8fafd] text-[#202124]">
+              <div className="p-3 text-[11px] font-bold uppercase tracking-wider text-[#5f6368] sm:p-4">Area</div>
+              <div className="border-l border-[#dadce0] p-3 text-[11px] font-bold uppercase tracking-wider text-[#1a73e8] sm:p-4">Rejourney</div>
+              <div className="border-l border-[#dadce0] p-3 text-[11px] font-bold uppercase tracking-wider text-[#5f6368] sm:p-4">{page.otherColumnTitle}</div>
             </div>
             {page.featureDifferences.map((row, index) => (
-              <div key={row.feature} className={`grid grid-cols-[0.5fr_1fr_1fr] ${index < page.featureDifferences!.length - 1 ? "border-b border-slate-200" : ""}`}>
-                <div className="p-3 text-sm font-black uppercase leading-tight text-slate-900 sm:p-4">{row.feature}</div>
-                <div className="border-l border-slate-200 p-3 text-sm font-semibold leading-6 text-slate-700 sm:p-4">
+              <div key={row.feature} className={`grid grid-cols-[0.5fr_1fr_1fr] ${index < page.featureDifferences!.length - 1 ? "border-b border-[#dadce0]" : ""}`}>
+                <div className="p-3 text-sm font-bold uppercase leading-tight text-[#202124] sm:p-4">{row.feature}</div>
+                <div className="border-l border-[#dadce0] p-3 text-sm font-normal leading-6 text-[#3c4043] sm:p-4">
                   {row.rejourney}
                 </div>
-                <div className="border-l border-slate-200 p-3 text-sm font-semibold leading-6 text-slate-700 sm:p-4">
+                <div className="border-l border-[#dadce0] p-3 text-sm font-normal leading-6 text-[#5f6368] sm:p-4">
                   {row.other}
                 </div>
               </div>
@@ -1227,23 +1226,23 @@ function AlternativeFeatureDifferences({ page }: { page: SeoPage }) {
 
 function WhySection({ page }: { page: SeoPage }) {
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-14 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.65fr)] lg:items-start">
         <div>
-          <p className="inline-flex border-2 border-black bg-[#c4b5fd] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
+          <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a73e8]">
             {page.kind === "alternative" ? "Why Rejourney" : "Why switch"}
           </p>
-          <h2 className="mt-4 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-5xl">
+          <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">
             {page.whyTitle}
           </h2>
-          <div className="mt-6 space-y-5 text-base font-semibold leading-8 text-slate-600">
+          <div className="mt-6 space-y-5 text-base font-normal leading-8 text-[#3c4043]">
             {page.whyParagraphs.map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
             ))}
           </div>
         </div>
-        <div className="border-2 border-black bg-[#f8fafc] p-5 shadow-neo-sm">
-          <p className="font-mono text-[10px] font-black uppercase text-slate-500">Included advantages</p>
+        <div className="rounded-none border border-[#dadce0] bg-[#f8fafd] p-5 shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Included advantages</p>
           <div className="mt-5 grid gap-3">
             {[
               "Replay-first session review",
@@ -1252,9 +1251,9 @@ function WhySection({ page }: { page: SeoPage }) {
               "Crash, ANR, and API context",
               "Privacy controls for replay capture",
             ].map((item) => (
-              <div key={item} className="flex items-start gap-3 border-2 border-black bg-white p-3">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" strokeWidth={3} aria-hidden />
-                <span className="text-sm font-black uppercase leading-5 text-slate-800">{item}</span>
+              <div key={item} className="flex items-start gap-3 rounded-none border border-[#dadce0] bg-white p-3 shadow-sm">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#137333]" strokeWidth={2.5} aria-hidden />
+                <span className="text-sm font-semibold uppercase leading-5 text-[#202124]">{item}</span>
               </div>
             ))}
           </div>
@@ -1272,31 +1271,31 @@ function ComparisonSection({ page }: { page: SeoPage }) {
     : page.comparisonIntro;
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-14 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <SectionHeader eyebrow={isAlternative ? "Core features" : "Comparison"} title={title} copy={copy} />
-        <div className="mt-10 overflow-hidden border-2 border-black bg-white shadow-neo-sm">
+        <div className="mt-10 overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm">
           <div className="overflow-x-auto">
             <div className="min-w-[680px]">
-              <div className="grid grid-cols-[minmax(260px,1.15fr)_minmax(170px,0.72fr)_minmax(170px,0.72fr)] border-b-2 border-black bg-slate-950 text-white">
-                <div className="px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">Capability</div>
-                <div className="border-l-2 border-black px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">Rejourney</div>
-                <div className="border-l-2 border-black px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">{page.otherColumnTitle}</div>
+              <div className="grid grid-cols-[minmax(260px,1.15fr)_minmax(170px,0.72fr)_minmax(170px,0.72fr)] border-b border-[#dadce0] bg-[#f8fafd] text-[#202124]">
+                <div className="px-4 py-4 text-sm font-bold uppercase leading-none text-[#5f6368] sm:px-5">Capability</div>
+                <div className="border-l border-[#dadce0] px-4 py-4 text-sm font-bold uppercase leading-none text-[#1a73e8] sm:px-5">Rejourney</div>
+                <div className="border-l border-[#dadce0] px-4 py-4 text-sm font-bold uppercase leading-none text-[#5f6368] sm:px-5">{page.otherColumnTitle}</div>
               </div>
               {page.comparisonRows.map((row, index) => (
                 <div
                   key={row.feature}
                   className={`grid grid-cols-[minmax(260px,1.15fr)_minmax(170px,0.72fr)_minmax(170px,0.72fr)] items-stretch ${
-                    index < page.comparisonRows.length - 1 ? "border-b border-slate-200" : ""
-                  } ${index % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
+                    index < page.comparisonRows.length - 1 ? "border-b border-[#dadce0]" : ""
+                  } ${index % 2 === 0 ? "bg-white" : "bg-[#f8fafd]/50"}`}
                 >
-                  <div className="flex items-center px-4 py-4 text-base font-bold leading-6 text-slate-950 sm:px-5">
+                  <div className="flex items-center px-4 py-4 text-base font-bold leading-6 text-[#202124] sm:px-5">
                     {row.feature}
                   </div>
-                  <div className="flex items-center border-l border-slate-200 px-4 py-4 sm:px-5">
+                  <div className="flex items-center border-l border-[#dadce0] px-4 py-4 sm:px-5">
                     <ValueBadge value={row.rejourney} />
                   </div>
-                  <div className="flex items-center border-l border-slate-200 px-4 py-4 sm:px-5">
+                  <div className="flex items-center border-l border-[#dadce0] px-4 py-4 sm:px-5">
                     <ValueBadge value={row.other} />
                   </div>
                 </div>
@@ -1315,65 +1314,65 @@ function PricingSection({ page }: { page: SeoPage }) {
     const pricingBullets = page.pricingBullets.slice(0, 4);
 
     return (
-      <section className="border-b-2 border-black bg-[#ecfeff] px-4 py-14 sm:px-6 lg:px-8">
+      <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-14 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="grid gap-8 lg:grid-cols-[0.46fr_1fr] lg:items-start">
             <div>
-              <p className="inline-flex border-2 border-black bg-[#fef08a] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
+              <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a73e8]">
                 Pricing comparison
               </p>
-              <h2 className="mt-4 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-5xl">Pricing Comparison</h2>
-              <p className="mt-5 text-base font-semibold leading-8 text-slate-700">{page.pricingIntro}</p>
+              <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">Pricing Comparison</h2>
+              <p className="mt-5 text-base font-normal leading-8 text-[#3c4043]">{page.pricingIntro}</p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link
                   to="/pricing"
-                  className="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-black bg-white px-4 py-2 text-xs font-black uppercase text-black shadow-neo-sm transition hover:bg-[#86efac]"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-4 py-2 text-xs font-semibold uppercase text-white shadow-sm transition hover:bg-[#1765cc]"
                 >
                   Rejourney pricing
-                  <ArrowRight className="h-4 w-4" strokeWidth={3} aria-hidden />
+                  <ArrowRight className="h-4 w-4" strokeWidth={2.5} aria-hidden />
                 </Link>
                 {page.officialSources?.map((source) => (
                   <a
                     key={source.href}
                     href={source.href}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-black bg-white px-4 py-2 text-xs font-black uppercase text-black shadow-neo-sm transition hover:bg-[#fef08a]"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-4 py-2 text-xs font-semibold uppercase text-[#3c4043] shadow-sm transition hover:bg-[#f8fafd] hover:text-[#202124]"
                     target="_blank"
                     rel="noreferrer"
                   >
                     {source.label}
-                    <ExternalLink className="h-4 w-4" strokeWidth={3} aria-hidden />
+                    <ExternalLink className="h-4 w-4" strokeWidth={2.5} aria-hidden />
                   </a>
                 ))}
               </div>
             </div>
 
-            <div className="overflow-hidden border-2 border-black bg-white shadow-neo-sm">
+            <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm">
               <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(280px,0.82fr)]">
                 <div className="flex min-h-full flex-col">
-                  <div className="border-b-2 border-black bg-slate-950 px-4 py-4 text-sm font-extrabold uppercase leading-none text-white sm:px-5">
+                  <div className="border-b border-[#dadce0] bg-[#f8fafd] px-4 py-4 text-sm font-bold uppercase leading-none text-[#202124] sm:px-5">
                     Competitor facts
                   </div>
-                  <div className="flex-1 divide-y divide-slate-200">
+                  <div className="flex-1 divide-y divide-[#dadce0]">
                     {competitorFacts.map((fact, index) => (
-                      <div key={fact} className={`flex gap-4 p-4 sm:p-5 ${index % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
-                        <span className="grid h-8 w-8 shrink-0 place-items-center border-2 border-black bg-[#fef08a] text-sm font-black leading-none text-black">
+                      <div key={fact} className={`flex gap-4 p-4 sm:p-5 ${index % 2 === 0 ? "bg-white" : "bg-[#f8fafd]/50"}`}>
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-none border border-[#dadce0] bg-[#e8f0fe] text-xs font-bold leading-none text-[#1a73e8]">
                           {index + 1}
                         </span>
-                        <p className="text-base font-semibold leading-7 text-slate-900">{fact}</p>
+                        <p className="text-base font-medium leading-7 text-[#202124]">{fact}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex min-h-full flex-col border-t-2 border-black md:border-l-2 md:border-t-0">
-                  <div className="border-b-2 border-black bg-slate-950 px-4 py-4 text-sm font-extrabold uppercase leading-none text-white sm:px-5">
+                <div className="flex min-h-full flex-col border-t border-[#dadce0] md:border-l md:border-t-0">
+                  <div className="border-b border-[#dadce0] bg-[#f8fafd] px-4 py-4 text-sm font-bold uppercase leading-none text-[#1a73e8] sm:px-5">
                     Rejourney model
                   </div>
-                  <div className="flex-1 bg-[#fff7df] p-4 sm:p-5">
+                  <div className="flex-1 bg-white p-4 sm:p-5">
                     <ul className="grid gap-4">
                       {pricingBullets.map((bullet) => (
-                        <li key={bullet} className="flex items-start gap-3 text-base font-semibold leading-7 text-slate-950">
-                          <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-700" strokeWidth={3} aria-hidden />
+                        <li key={bullet} className="flex items-start gap-3 text-base font-medium leading-7 text-[#202124]">
+                          <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-[#137333]" strokeWidth={2.5} aria-hidden />
                           <span>{bullet}</span>
                         </li>
                       ))}
@@ -1389,31 +1388,31 @@ function PricingSection({ page }: { page: SeoPage }) {
   }
 
   return (
-    <section className="border-b-2 border-black bg-[#ecfeff] px-4 py-14 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.75fr_1fr] lg:items-start">
         <div>
-          <p className="inline-flex border-2 border-black bg-[#fef08a] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
+          <p className="inline-flex border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#1a73e8]">
             Pricing
           </p>
-          <h2 className="mt-4 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-5xl">{page.pricingTitle}</h2>
-          <p className="mt-5 text-base font-semibold leading-8 text-slate-700">{page.pricingIntro}</p>
+          <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">{page.pricingTitle}</h2>
+          <p className="mt-5 text-base font-normal leading-8 text-[#3c4043]">{page.pricingIntro}</p>
           <Link
             to="/pricing"
-            className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 border-2 border-black bg-white px-5 py-3 text-sm font-black uppercase text-black shadow-neo-sm transition hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#86efac] hover:shadow-neo active:translate-x-0 active:translate-y-0 active:shadow-none"
+            className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 py-3 text-sm font-semibold uppercase text-white shadow-sm transition hover:bg-[#1765cc] active:bg-[#1967d2]"
           >
             Compare pricing
-            <ArrowRight className="h-4 w-4" strokeWidth={3} aria-hidden />
+            <ArrowRight className="h-4 w-4" strokeWidth={2.5} aria-hidden />
           </Link>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {page.pricingBullets.map((bullet, index) => {
             const Icon = [Infinity, ShieldCheck, Users, Layers3][index % 4];
             return (
-              <div key={bullet} className="border-2 border-black bg-white p-5 shadow-neo-sm">
-                <div className="grid h-11 w-11 place-items-center border-2 border-black bg-[#c4b5fd]">
-                  <Icon className="h-5 w-5" strokeWidth={3} aria-hidden />
+              <div key={bullet} className="rounded-none border border-[#dadce0] bg-white p-5 shadow-sm">
+                <div className="grid h-11 w-11 place-items-center rounded-none border border-[#d2e3fc] bg-[#e8f0fe] text-[#1a73e8]">
+                  <Icon className="h-5 w-5" strokeWidth={2.5} aria-hidden />
                 </div>
-                <p className="mt-4 text-[15px] font-bold leading-7 text-slate-700">{bullet}</p>
+                <p className="mt-4 text-[15px] font-medium leading-7 text-[#3c4043]">{bullet}</p>
               </div>
             );
           })}
@@ -1428,16 +1427,16 @@ function CategoryNarrativeSection({ page }: { page: SeoPage }) {
   const display = featureDisplay(page);
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.42fr_1fr] lg:items-start">
         <div>
-          <p className="font-mono text-xs font-black uppercase text-slate-500">Why it matters</p>
-          <h2 className="mt-4 max-w-lg text-3xl font-black leading-tight text-slate-950 sm:text-5xl">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Why it matters</p>
+          <h2 className="mt-4 max-w-lg text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">
             {display.guideTitle}
           </h2>
         </div>
 
-        <div className="max-w-4xl space-y-6 text-lg font-semibold leading-9 text-slate-700">
+        <div className="max-w-4xl space-y-6 text-lg font-normal leading-9 text-[#3c4043]">
           {page.whyParagraphs.map((paragraph) => (
             <p key={paragraph}>{paragraph}</p>
           ))}
@@ -1451,14 +1450,14 @@ function CategoryShowcaseSection({ page }: { page: SeoPage }) {
   const display = featureDisplay(page);
 
   return (
-    <section className="border-b-2 border-black bg-[#edf4ff] px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <div className="flex gap-x-4 gap-y-2 overflow-x-auto border-b border-slate-300 pb-4 text-xs font-black uppercase sm:flex-wrap sm:overflow-visible">
+        <div className="flex gap-x-4 gap-y-2 overflow-x-auto border-b border-[#dadce0] pb-4 text-xs font-bold uppercase sm:flex-wrap sm:overflow-visible">
           {display.showcaseTabs.map((tab, index) => (
             <span
               key={tab}
               className={`whitespace-nowrap ${
-                index === 0 ? "text-slate-950" : "border-l border-slate-300 pl-4 text-slate-500"
+                index === 0 ? "text-[#1a73e8]" : "border-l border-[#dadce0] pl-4 text-[#5f6368]"
               }`}
             >
               {tab}
@@ -1467,7 +1466,7 @@ function CategoryShowcaseSection({ page }: { page: SeoPage }) {
         </div>
 
         <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
-          <div className="rounded-lg border-2 border-black bg-[#dbeafe] p-5">
+          <div className="rounded-none border border-[#dadce0] bg-white p-5 shadow-sm">
             <img
               src={optimizedMarketingImage(page.image)}
               alt={page.imageAlt}
@@ -1477,19 +1476,19 @@ function CategoryShowcaseSection({ page }: { page: SeoPage }) {
             />
           </div>
 
-          <div className="rounded-lg border-2 border-black bg-white p-7 sm:p-10">
-            <h2 className="max-w-xl text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+          <div className="rounded-none border border-[#dadce0] bg-white p-7 shadow-sm sm:p-10">
+            <h2 className="max-w-xl text-3xl font-extrabold leading-tight text-[#202124] sm:text-4xl">
               {display.showcaseTitle}
             </h2>
-            <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-slate-700">
+            <p className="mt-4 max-w-2xl text-base font-normal leading-7 text-[#3c4043]">
               {display.showcaseCopy}
             </p>
-            <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-slate-700">
+            <p className="mt-4 max-w-2xl text-base font-normal leading-7 text-[#3c4043]">
               {page.comparisonIntro}
             </p>
             <ul className="mt-7 grid gap-4">
               {display.showcaseBullets.map((item) => (
-                <li key={item} className="border-l-2 border-black pl-4 text-base font-semibold leading-7 text-slate-800">
+                <li key={item} className="border-l-2 border-[#1a73e8] pl-4 text-base font-medium leading-7 text-[#202124]">
                   {item}
                 </li>
               ))}
@@ -1505,14 +1504,14 @@ function CategoryImageGallerySection({ page }: { page: SeoPage }) {
   const supportingImages = featureImages(page);
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="max-w-3xl">
-          <p className="font-mono text-xs font-black uppercase text-slate-500">Product views</p>
-          <h2 className="mt-4 text-3xl font-black leading-tight text-slate-950 sm:text-5xl">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Product views</p>
+          <h2 className="mt-4 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">
             More context than a recording.
           </h2>
-          <p className="mt-5 text-base font-semibold leading-7 text-slate-700 sm:text-lg sm:leading-8">
+          <p className="mt-5 text-base font-normal leading-7 text-[#3c4043] sm:text-lg sm:leading-8">
             A session is the starting point. Rejourney keeps the adjacent views close so the team can
             understand whether the issue is visual friction, a repeated journey, a crash, or a slow
             request.
@@ -1522,7 +1521,7 @@ function CategoryImageGallerySection({ page }: { page: SeoPage }) {
         <div className="mt-10 grid gap-8 lg:grid-cols-3">
           {supportingImages.map((image) => (
             <article key={image.src} className="min-w-0">
-              <div className="border-2 border-black bg-[#dbeafe] p-4">
+              <div className="rounded-none border border-[#dadce0] bg-[#f8fafd] p-4 shadow-sm">
                 <img
                   src={optimizedMarketingImage(image.src)}
                   alt={image.alt}
@@ -1531,9 +1530,9 @@ function CategoryImageGallerySection({ page }: { page: SeoPage }) {
                   decoding="async"
                 />
               </div>
-              <div className="mt-4 border-t-2 border-black pt-4">
-                <h3 className="text-2xl font-black leading-tight text-slate-950">{image.title}</h3>
-                <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">{image.copy}</p>
+              <div className="mt-4 border-t border-[#dadce0] pt-4">
+                <h3 className="text-xl font-bold leading-tight text-[#202124]">{image.title}</h3>
+                <p className="mt-3 text-sm font-normal leading-6 text-[#5f6368]">{image.copy}</p>
               </div>
             </article>
           ))}
@@ -1547,14 +1546,14 @@ function CategoryDecisionSection({ page }: { page: SeoPage }) {
   const display = featureDisplay(page);
 
   return (
-    <section className="border-b-2 border-black bg-[#fafafa] px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.42fr_1fr] lg:items-start">
         <div>
-          <p className="font-mono text-xs font-black uppercase text-slate-500">How to decide</p>
-          <h2 className="mt-4 max-w-lg text-3xl font-black leading-tight text-slate-950 sm:text-5xl">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">How to decide</p>
+          <h2 className="mt-4 max-w-lg text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-5xl">
             Where Rejourney fits
           </h2>
-          <p className="mt-5 max-w-md text-base font-semibold leading-7 text-slate-600">
+          <p className="mt-5 max-w-md text-base font-normal leading-7 text-[#5f6368]">
             The goal is not to collect more recordings. It is to help the team move from a real
             user moment to a product decision, support answer, or engineering fix.
           </p>
@@ -1562,12 +1561,12 @@ function CategoryDecisionSection({ page }: { page: SeoPage }) {
 
         <div className="grid gap-8 lg:grid-cols-2">
           <div>
-            <h3 className="border-b-2 border-black pb-3 text-2xl font-black leading-tight text-slate-950">
+            <h3 className="border-b border-[#dadce0] pb-3 text-xl font-bold leading-tight text-[#202124]">
               {display.fitTitle}
             </h3>
-            <div className="divide-y divide-slate-300">
+            <div className="divide-y divide-[#dadce0]">
               {page.chooseRejourney.map((item) => (
-                <p key={item} className="py-4 text-base font-semibold leading-7 text-slate-700">
+                <p key={item} className="py-4 text-base font-normal leading-7 text-[#3c4043]">
                   {item}
                 </p>
               ))}
@@ -1575,12 +1574,12 @@ function CategoryDecisionSection({ page }: { page: SeoPage }) {
           </div>
 
           <div>
-            <h3 className="border-b-2 border-black pb-3 text-2xl font-black leading-tight text-slate-950">
+            <h3 className="border-b border-[#dadce0] pb-3 text-xl font-bold leading-tight text-[#202124]">
               {display.tradeoffTitle}
             </h3>
-            <div className="divide-y divide-slate-300">
+            <div className="divide-y divide-[#dadce0]">
               {page.chooseOther.map((item) => (
-                <p key={item} className="py-4 text-base font-semibold leading-7 text-slate-700">
+                <p key={item} className="py-4 text-base font-normal leading-7 text-[#3c4043]">
                   {item}
                 </p>
               ))}
@@ -1596,15 +1595,15 @@ function CategoryGettingStartedSection({ page }: { page: SeoPage }) {
   const display = featureDisplay(page);
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-8 lg:grid-cols-[0.42fr_1fr] lg:items-start">
           <div>
-            <p className="font-mono text-xs font-black uppercase text-slate-500">Getting started</p>
-            <h2 className="mt-3 text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Getting started</p>
+            <h2 className="mt-3 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-4xl">
               Easy to try. Easy to share.
             </h2>
-            <p className="mt-5 max-w-md text-base font-semibold leading-7 text-slate-600">
+            <p className="mt-5 max-w-md text-base font-normal leading-7 text-[#5f6368]">
               Rejourney is built for teams that want replay to become part of the weekly product
               workflow, not a separate tool people forget to open.
             </p>
@@ -1612,10 +1611,10 @@ function CategoryGettingStartedSection({ page }: { page: SeoPage }) {
 
           <div className="grid gap-4 md:grid-cols-3">
             {display.steps.map((step, index) => (
-              <div key={step} className="rounded-lg border-2 border-black bg-[#fff7df] p-5">
-                <p className="font-mono text-sm font-black text-slate-500">0{index + 1}</p>
-                <p className="mt-4 text-xl font-black leading-tight text-slate-950">{step}</p>
-                <p className="mt-4 text-sm font-semibold leading-6 text-slate-700">
+              <div key={step} className="rounded-none border border-[#dadce0] bg-[#f8fafd] p-5 shadow-sm">
+                <p className="text-xs font-bold text-[#1a73e8]">0{index + 1}</p>
+                <p className="mt-4 text-lg font-bold leading-tight text-[#202124]">{step}</p>
+                <p className="mt-4 text-sm font-normal leading-6 text-[#5f6368]">
                   {index === 0
                     ? "Add the SDK to the product surface you want to understand first."
                     : index === 1
@@ -1635,35 +1634,35 @@ function CategoryLimitsSection({ page }: { page: SeoPage }) {
   const limits = ["Unlimited events", "Unlimited retention", "Unlimited team members", "Unlimited projects"];
 
   return (
-    <section className="border-b-2 border-black bg-[#ecfeff] px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.42fr_1fr] lg:items-center">
         <div>
-          <p className="font-mono text-xs font-black uppercase text-slate-500">Pricing</p>
-          <h2 className="mt-3 text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Pricing</p>
+          <h2 className="mt-3 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-4xl">
             Simple limits.
           </h2>
           <Link
             to="/pricing"
-            className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border-2 border-black bg-white px-5 py-2.5 text-sm font-black text-black transition hover:bg-[#86efac]"
+            className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 py-2.5 text-sm font-semibold uppercase text-white shadow-sm transition hover:bg-[#1765cc]"
           >
             View pricing
           </Link>
         </div>
 
         <div>
-          <p className="max-w-3xl text-base font-semibold leading-7 text-slate-700">
+          <p className="max-w-3xl text-base font-normal leading-7 text-[#3c4043]">
             {page.pricingIntro}
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {limits.map((limit) => (
-              <div key={limit} className="rounded-lg border-2 border-black bg-white px-5 py-4 text-base font-black text-slate-950">
+              <div key={limit} className="rounded-none border border-[#dadce0] bg-white px-5 py-4 text-base font-bold text-[#202124] shadow-sm">
                 {limit}
               </div>
             ))}
           </div>
           <div className="mt-6 grid gap-3">
             {page.pricingBullets.slice(0, 2).map((bullet) => (
-              <p key={bullet} className="border-l-2 border-black pl-4 text-sm font-semibold leading-6 text-slate-700">
+              <p key={bullet} className="border-l-2 border-[#1a73e8] pl-4 text-sm font-medium leading-6 text-[#3c4043]">
                 {bullet}
               </p>
             ))}
@@ -2628,11 +2627,11 @@ function CategoryFeatureArticlePage({ page }: { page: SeoPage }) {
   };
 
   return (
-    <main className="engineering-article-page flex-grow bg-[#fbfbf8] pt-16" aria-label={page.title}>
+    <main className="engineering-article-page flex-grow bg-[var(--dashboard-canvas,#f8fafd)] pt-16" aria-label={page.title}>
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
         <article className="mx-auto max-w-[760px]">
-          <header className="mb-14 border-b border-slate-200 pb-10">
-            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-sky-700">
+          <header className="mb-14 border-b border-[#dadce0] pb-10">
+            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-[#1a73e8]">
               <span>{page.eyebrow}</span>
               <span className="h-1 w-1 rounded-full bg-slate-300" />
               <span>{page.badge}</span>
@@ -2764,13 +2763,13 @@ function ArticleValueBadge({ value }: { value: SeoComparisonValue }) {
   const label = valueLabel(value);
   const className =
     value === "yes"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      ? "border-[#ceead6] bg-[#e6f4ea] text-[#137333]"
       : value === "partial"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-slate-200 bg-slate-100 text-slate-600";
+        ? "border-[#feefc3] bg-[#fef7e0] text-[#b06000]"
+        : "border-[#dadce0] bg-[#f1f3f4] text-[#5f6368]";
 
   return (
-    <span className={`inline-flex min-h-8 items-center rounded-full border px-3 text-xs font-semibold ${className}`}>
+    <span className={`inline-flex min-h-7 items-center rounded-none border px-2.5 py-0.5 text-xs font-semibold ${className}`}>
       {label}
     </span>
   );
@@ -2778,24 +2777,24 @@ function ArticleValueBadge({ value }: { value: SeoComparisonValue }) {
 
 function AlternativeArticleComparisonTable({ page }: { page: SeoPage }) {
   return (
-    <div className="my-8 overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="grid grid-cols-[minmax(180px,1.25fr)_minmax(110px,0.55fr)_minmax(110px,0.55fr)] border-b border-slate-200 bg-slate-950 text-white">
-        <div className="px-4 py-3 text-sm font-semibold">Capability</div>
-        <div className="border-l border-slate-700 px-4 py-3 text-sm font-semibold">Rejourney</div>
-        <div className="border-l border-slate-700 px-4 py-3 text-sm font-semibold">{page.otherColumnTitle}</div>
+    <div className="my-8 overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-xs">
+      <div className="grid grid-cols-[minmax(180px,1.25fr)_minmax(110px,0.55fr)_minmax(110px,0.55fr)] border-b border-[#dadce0] bg-[#f8fafd] text-[#202124]">
+        <div className="px-4 py-3 text-xs font-bold uppercase tracking-wider">Capability</div>
+        <div className="border-l border-[#dadce0] px-4 py-3 text-xs font-bold uppercase tracking-wider">Rejourney</div>
+        <div className="border-l border-[#dadce0] px-4 py-3 text-xs font-bold uppercase tracking-wider">{page.otherColumnTitle}</div>
       </div>
       <div className="overflow-x-auto">
-        <div className="min-w-[620px] divide-y divide-slate-100">
+        <div className="min-w-[620px] divide-y divide-[#e8eaed]">
           {page.comparisonRows.map((row) => (
             <div
               key={`${row.feature}-${row.rejourney}-${row.other}`}
               className="grid grid-cols-[minmax(180px,1.25fr)_minmax(110px,0.55fr)_minmax(110px,0.55fr)] items-center bg-white"
             >
-              <div className="px-4 py-4 text-sm font-semibold leading-6 text-slate-900">{row.feature}</div>
-              <div className="border-l border-slate-100 px-4 py-4">
+              <div className="px-4 py-4 text-sm font-semibold leading-6 text-[#202124]">{row.feature}</div>
+              <div className="border-l border-[#e8eaed] px-4 py-4">
                 <ArticleValueBadge value={row.rejourney} />
               </div>
-              <div className="border-l border-slate-100 px-4 py-4">
+              <div className="border-l border-[#e8eaed] px-4 py-4">
                 <ArticleValueBadge value={row.other} />
               </div>
             </div>
@@ -2816,11 +2815,11 @@ function AlternativeComparisonArticlePage({ page }: { page: SeoPage }) {
   };
 
   return (
-    <main className="engineering-article-page flex-grow bg-[#fbfbf8] pt-16" aria-label={page.title}>
+    <main className="engineering-article-page flex-grow bg-[var(--dashboard-canvas,#f8fafd)] pt-16" aria-label={page.title}>
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
         <article className="mx-auto max-w-[760px]">
-          <header className="mb-14 border-b border-slate-200 pb-10">
-            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-sky-700">
+          <header className="mb-14 border-b border-[#dadce0] pb-10">
+            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-[#1a73e8]">
               <span>{page.eyebrow}</span>
               <span className="h-1 w-1 rounded-full bg-slate-300" />
               <span>{page.otherColumnTitle}</span>
@@ -2984,27 +2983,24 @@ function AlternativeComparisonArticlePage({ page }: { page: SeoPage }) {
 }
 
 function FaqSection({ page }: { page: SeoPage }) {
-  const containerClass =
-    page.kind !== "alternative"
-      ? "mt-10 divide-y-2 divide-black border-y-2 border-black bg-white"
-      : "mt-10 divide-y-2 divide-black border-2 border-black bg-white shadow-neo-sm";
+  const containerClass = "mt-10 divide-y divide-[#dadce0] border border-[#dadce0] bg-white shadow-sm";
   const title = page.kind !== "alternative" ? "FAQ" : "Frequently asked questions";
 
   return (
-    <section className="border-b-2 border-black bg-white px-4 py-12 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-white px-4 py-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
         <SectionHeader eyebrow="FAQ" title={title} />
         <div className={containerClass}>
           {page.faq.map((item) => (
             <details key={item.question} className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden sm:p-7">
-                <h3 className="text-left text-lg font-black uppercase leading-tight text-slate-950 sm:text-xl">{item.question}</h3>
-                <span className="grid h-9 w-9 shrink-0 place-items-center border-2 border-black bg-[#fef08a] transition group-open:rotate-180">
-                  <ChevronDown className="h-5 w-5" strokeWidth={3} aria-hidden />
+                <h3 className="text-left text-lg font-bold uppercase leading-tight text-[#202124] sm:text-xl">{item.question}</h3>
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-none border border-[#dadce0] bg-[#f8fafd] text-[#5f6368] transition group-open:rotate-180">
+                  <ChevronDown className="h-4 w-4" strokeWidth={2} aria-hidden />
                 </span>
               </summary>
               <div className="px-5 pb-5 pt-0 sm:px-7 sm:pb-7">
-                <p className="border-t border-slate-200 pt-4 text-[15px] font-semibold leading-7 text-slate-600">{item.answer}</p>
+                <p className="border-t border-[#dadce0] pt-4 text-[15px] font-normal leading-7 text-[#3c4043]">{item.answer}</p>
               </div>
             </details>
           ))}
@@ -3017,28 +3013,28 @@ function FaqSection({ page }: { page: SeoPage }) {
 function RelatedResourcesSection({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative") {
     return (
-      <section className="border-b-2 border-black bg-[#fff7df] px-4 py-12 sm:px-6 lg:px-8">
+      <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[260px_1fr] lg:items-start">
           <div>
-            <p className="font-mono text-xs font-black uppercase text-slate-500">Resources</p>
-            <h2 className="mt-3 text-3xl font-black uppercase leading-tight text-slate-950 sm:text-4xl">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#5f6368]">Resources</p>
+            <h2 className="mt-3 text-3xl font-extrabold uppercase leading-tight text-[#202124] sm:text-4xl">
               Helpful Links
             </h2>
           </div>
-          <div className="divide-y-2 divide-black border-y-2 border-black">
+          <div className="divide-y divide-[#dadce0] border-y border-[#dadce0]">
             {page.related.map((item) => (
               <Link
                 key={item.href}
                 to={item.href}
                 className="group flex items-center justify-between gap-4 py-4"
               >
-                <span className="text-lg font-black uppercase leading-tight text-slate-950">{item.label}</span>
-                <span className="inline-flex items-center gap-2 text-xs font-black uppercase text-slate-950">
+                <span className="text-base font-bold uppercase leading-tight text-[#202124] group-hover:text-[#1a73e8] transition-colors">{item.label}</span>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase text-[#1a73e8]">
                   Open
                   {item.href.startsWith("http") ? (
-                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
+                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
                   ) : (
-                    <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" strokeWidth={3} aria-hidden />
+                    <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" strokeWidth={2} aria-hidden />
                   )}
                 </span>
               </Link>
@@ -3050,7 +3046,7 @@ function RelatedResourcesSection({ page }: { page: SeoPage }) {
   }
 
   return (
-    <section className="border-b-2 border-black bg-[#fff7df] px-4 py-14 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-14 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <SectionHeader eyebrow="Resources" title="Related resources" />
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -3058,16 +3054,16 @@ function RelatedResourcesSection({ page }: { page: SeoPage }) {
             <Link
               key={item.href}
               to={item.href}
-              className="group flex min-h-44 flex-col border-2 border-black bg-white p-5 shadow-neo-sm transition hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+              className="group flex min-h-44 flex-col rounded-none border border-[#dadce0] bg-white p-5 shadow-sm transition hover:border-[#1a73e8] hover:bg-[#f8fafd]"
             >
-              <span className="text-lg font-black uppercase leading-tight text-slate-950">{item.label}</span>
-              <span className="mt-3 text-sm font-semibold leading-6 text-slate-600">{item.description}</span>
-              <span className="mt-auto inline-flex items-center gap-2 pt-5 text-xs font-black uppercase text-slate-950">
+              <span className="text-base font-bold uppercase leading-tight text-[#202124] group-hover:text-[#1a73e8] transition-colors">{item.label}</span>
+              <span className="mt-3 text-sm font-normal leading-6 text-[#5f6368]">{item.description}</span>
+              <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-semibold uppercase text-[#1a73e8]">
                 Open
                 {item.href.startsWith("http") ? (
-                  <ExternalLink className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
+                  <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
                 ) : (
-                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" strokeWidth={3} aria-hidden />
+                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" strokeWidth={2} aria-hidden />
                 )}
               </span>
             </Link>
@@ -3150,16 +3146,16 @@ const AD_LANDING_HERO_IMAGES: Record<string, string> = {
 
 function AdHeader() {
   return (
-    <header className="fixed inset-x-0 top-0 z-[100] border-b border-slate-200/80 bg-white/90 py-3 backdrop-blur-md">
+    <header className="fixed inset-x-0 top-0 z-[100] border-b border-[#dadce0] bg-white/95 py-3 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link to="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
           <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney logo" className="h-8 w-8 object-contain" />
-          <span className="text-lg font-black uppercase tracking-tight text-slate-950">Rejourney</span>
-          <span className="hidden border-l border-slate-200 pl-3 text-xs font-bold text-slate-500 md:inline">Lightweight Product Analytics</span>
+          <span className="text-lg font-black uppercase tracking-tight text-[#202124]">Rejourney</span>
+          <span className="hidden border-l border-[#dadce0] pl-3 text-xs font-medium text-[#5f6368] md:inline">Lightweight Product Analytics</span>
         </Link>
         <Link
           to="/login"
-          className="group inline-flex min-h-[40px] items-center justify-center rounded-md border border-slate-950 bg-[#86efac] px-5 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none"
+          className="group inline-flex min-h-[38px] items-center justify-center rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2]"
         >
           Start free
         </Link>
@@ -3181,35 +3177,35 @@ function AdHero({ page }: { page: SeoPage }) {
         : "Lightweight product analytics";
 
   return (
-    <section className="relative overflow-hidden bg-[#fdfbf7] pb-20 pt-28 px-4 sm:px-6 lg:px-8">
+    <section className="relative overflow-hidden bg-[var(--dashboard-canvas,#f8fafd)] pb-20 pt-28 px-4 sm:px-6 lg:px-8">
       {/* Soft Ambient Glows */}
       <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-indigo-200/15 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-emerald-200/15 blur-[120px] pointer-events-none" />
 
       <div className="relative z-10 mx-auto max-w-7xl grid gap-12 lg:grid-cols-12 lg:items-center">
         <div className="lg:col-span-6 flex flex-col items-start text-left">
-          <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-6 flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+          <span className="text-xs font-bold uppercase text-[#1a73e8] tracking-wider mb-6 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-[#1a73e8] animate-pulse" />
             {eyebrow}
           </span>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight text-slate-950 leading-[0.98] mb-6">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tight text-[#202124] leading-[0.98] mb-6">
             {headline}
           </h1>
-          <p className="text-lg sm:text-xl font-bold leading-relaxed text-slate-600 mb-8 max-w-xl">
+          <p className="text-lg sm:text-xl font-normal leading-relaxed text-[#5f6368] mb-8 max-w-xl">
             {subheadline}
           </p>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto mb-8">
             <Link
               to="/login"
-              className="group inline-flex min-h-[52px] min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-8 text-[0.95rem] font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center"
+              className="group inline-flex min-h-[48px] min-w-[190px] items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-8 text-[0.95rem] font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2] text-center"
             >
               <span>Start Free</span>
               <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
             </Link>
             <Link
               to="/demo"
-              className="group inline-flex min-h-[52px] min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-8 text-[0.95rem] font-extrabold uppercase text-black shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-slate-350 hover:bg-[#ecfeff] hover:shadow-md active:translate-y-0 text-center"
+              className="group inline-flex min-h-[48px] min-w-[190px] items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-8 text-[0.95rem] font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124] text-center"
             >
               Open live demo
             </Link>
@@ -3250,18 +3246,18 @@ function AdHero({ page }: { page: SeoPage }) {
               <img
                 src={optimizedMarketingImage(heroImage)}
                 alt={page.imageAlt}
-                className="h-auto max-h-[460px] w-full rounded-lg object-contain"
+                className="h-auto max-h-[460px] w-full rounded-none object-contain"
                 decoding="async"
               />
             </div>
             {page.kind === "alternative" ? (
-              <div className="absolute -bottom-10 -right-2 z-20 rounded-full bg-[#fff19c] p-1.5 shadow-[3px_4px_0_#0f172a] sm:-right-6">
+              <div className="absolute -bottom-8 -right-2 z-20 rounded-none border border-[#dadce0] bg-white p-1.5 shadow-sm sm:-right-6">
                 <img
                   src="/images/rejourney-cat.webp"
                   alt="Rejourney cat mascot"
                   width={288}
                   height={288}
-                  className="h-20 w-20 drop-shadow-[0_8px_8px_rgba(15,23,42,0.14)] sm:h-24 sm:w-24"
+                  className="h-20 w-20 object-contain sm:h-24 sm:w-24"
                   decoding="async"
                 />
               </div>
@@ -3277,15 +3273,15 @@ function AdTrustBanner() {
   const [activeStory, setActiveStory] = React.useState<'burst' | 'merch'>('burst');
 
   return (
-    <section className="border-y border-slate-200/80 bg-[#fafafa] py-16 px-4 sm:px-6 lg:px-8">
+    <section className="border-y border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] py-16 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-6 mb-10">
           <div className="text-left">
-            <span className="text-xs font-black uppercase text-indigo-600 tracking-wider mb-3 flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            <span className="text-xs font-bold uppercase text-[#1a73e8] tracking-wider mb-3 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#1a73e8] animate-pulse" />
               Success Stories
             </span>
-            <h2 className="text-2xl sm:text-4xl font-black uppercase text-slate-950 leading-none">
+            <h2 className="text-2xl sm:text-4xl font-extrabold uppercase text-[#202124] leading-none">
               Real Teams. Real Revenue Recovered.
             </h2>
           </div>
@@ -3295,26 +3291,26 @@ function AdTrustBanner() {
           {/* Side Gallery Navigation */}
           <button
             onClick={() => setActiveStory(activeStory === 'burst' ? 'merch' : 'burst')}
-            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] shadow-sm hover:bg-[#f8fafd] hover:text-[#202124] transition-all active:scale-95 shrink-0"
             aria-label="Previous story"
           >
-            <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
+            <ChevronLeft className="h-5 w-5 stroke-[2px]" />
           </button>
           <button
             onClick={() => setActiveStory(activeStory === 'burst' ? 'merch' : 'burst')}
-            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] shadow-sm hover:bg-[#f8fafd] hover:text-[#202124] transition-all active:scale-95 shrink-0"
             aria-label="Next story"
           >
-            <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
+            <ChevronRight className="h-5 w-5 stroke-[2px]" />
           </button>
 
           {/* Case study card */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm">
+          <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-6 sm:p-10 shadow-sm">
             {activeStory === 'burst' ? (
               <div>
                 {/* Top: logo circle + headline */}
-                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
-                  <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1.5">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-[#dadce0]">
+                  <div className="h-16 w-16 rounded-none overflow-hidden border border-[#dadce0] bg-white shadow-sm shrink-0 flex items-center justify-center p-1.5">
                     <img
                       src="/images/burst-creatine-logo-red.webp"
                       alt="Burst Creatine"
@@ -3324,10 +3320,10 @@ function AdTrustBanner() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <h3 className="font-sans text-xl sm:text-2xl font-black uppercase leading-tight tracking-tight text-slate-955">
+                    <h3 className="font-sans text-xl sm:text-2xl font-bold uppercase leading-tight tracking-tight text-[#202124]">
                       Burst Creatine Increased Sales by 103%
                     </h3>
-                    <p className="text-sm font-bold leading-relaxed text-slate-500 max-w-xl">
+                    <p className="text-sm font-medium leading-relaxed text-[#5f6368] max-w-xl">
                       Rejourney surfaced the UX friction points causing checkout drop-offs. Simple fixes, no guesswork.
                     </p>
                   </div>
@@ -3356,15 +3352,15 @@ function AdTrustBanner() {
                 </div>
 
                 {/* Result line */}
-                <p className="mt-8 text-center text-sm font-extrabold text-slate-700">
-                  Same Meta Ads Budget. <span className="text-emerald-600 font-black">+2,189 more checkouts</span> from fixing easy UX leaks.
+                <p className="mt-8 text-center text-sm font-medium text-[#3c4043]">
+                  Same Meta Ads Budget. <span className="text-[#137333] font-bold">+2,189 more checkouts</span> from fixing easy UX leaks.
                 </p>
               </div>
             ) : (
               <div>
                 {/* Top: logo circle + headline */}
-                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-slate-100">
-                  <div className="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm shrink-0 flex items-center justify-center p-1">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5 mb-10 pb-10 border-b border-[#dadce0]">
+                  <div className="h-16 w-16 rounded-none overflow-hidden border border-[#dadce0] bg-white shadow-sm shrink-0 flex items-center justify-center p-1">
                     <img
                       src="/images/customer-onboarding-logo.webp"
                       alt="Campus Merch Live"
@@ -3374,10 +3370,10 @@ function AdTrustBanner() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <h3 className="font-sans text-xl sm:text-2xl font-black uppercase leading-tight tracking-tight text-slate-955">
+                    <h3 className="font-sans text-xl sm:text-2xl font-bold uppercase leading-tight tracking-tight text-[#202124]">
                       Campus Merch Live Increased Onboarding to 93%
                     </h3>
-                    <p className="text-sm font-bold leading-relaxed text-slate-500 max-w-xl">
+                    <p className="text-sm font-medium leading-relaxed text-[#5f6368] max-w-xl">
                       Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
                     </p>
                   </div>
@@ -3410,8 +3406,8 @@ function AdTrustBanner() {
                 </div>
 
                 {/* Result line */}
-                <p className="mt-8 text-center text-sm font-extrabold text-slate-700">
-                  Same Onboarding Traffic. <span className="text-emerald-600 font-black">+630 more verified users</span> from fixing safari layout bug.
+                <p className="mt-8 text-center text-sm font-medium text-[#3c4043]">
+                  Same Onboarding Traffic. <span className="text-[#137333] font-bold">+630 more verified users</span> from fixing safari layout bug.
                 </p>
               </div>
             )}
@@ -3613,30 +3609,30 @@ function WebsiteAnalyticsInstallation() {
   ];
 
   return (
-    <section className="border-b border-slate-200/80 bg-[#fffaf0] px-4 py-20 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-20 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="mx-auto mb-12 max-w-3xl text-center">
-          <span className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-800">
+          <span className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-[#1a73e8]">
             One lightweight web SDK
           </span>
-          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+          <h2 className="text-balance font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-[#202124] sm:text-5xl">
             Three lines from install to insight
           </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-base font-bold leading-relaxed text-slate-600 sm:text-lg">
+          <p className="mx-auto mt-5 max-w-2xl text-base font-normal leading-relaxed text-[#5f6368] sm:text-lg">
             Install the browser package once, initialize Rejourney, and start capturing website analytics with replay, heatmaps, journeys, and technical context attached.
           </p>
         </div>
 
-        <div className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)] lg:grid-cols-[0.8fr_1.2fr]">
-          <div className="flex flex-col justify-between border-b border-slate-200 bg-[#fdfbf7] p-6 sm:p-8 lg:border-b-0 lg:border-r">
+        <div className="grid overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm lg:grid-cols-[0.8fr_1.2fr]">
+          <div className="flex flex-col justify-between border-b border-[#dadce0] bg-[#f8fafd] p-6 sm:p-8 lg:border-b-0 lg:border-r border-r-[#dadce0]">
             <div>
-              <span className="text-sm font-semibold text-emerald-800">
+              <span className="text-sm font-semibold text-[#1a73e8]">
                 One package
               </span>
-              <h3 className="mt-4 text-2xl font-black leading-tight text-slate-950 sm:text-3xl">
+              <h3 className="mt-4 text-2xl font-black leading-tight text-[#202124] sm:text-3xl">
                 Add it without rebuilding your stack
               </h3>
-              <p className="mt-4 text-base font-bold leading-relaxed text-slate-600">
+              <p className="mt-4 text-base font-normal leading-relaxed text-[#5f6368]">
                 The same web SDK works across modern frameworks and traditional browser apps. Your analytics events stay connected to the session that explains them.
               </p>
               <div className="mt-6 space-y-3">
@@ -3751,15 +3747,15 @@ function AdInstallation({ page }: { page: SeoPage }) {
       : ["Web SDK", "React Native", "Expo Plugin", "Flutter", "Swift iOS", "CocoaPods"];
 
   return (
-    <section className="border-b border-slate-200/80 bg-[#fdfbf7] px-4 py-16 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl text-center">
-        <span className="mb-4 flex items-center justify-center text-sm font-semibold text-amber-800">
+        <span className="mb-4 flex items-center justify-center text-sm font-semibold text-[#1a73e8]">
           {installationCopy.eyebrow}
         </span>
-        <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl mb-4">
+        <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-[#202124] sm:text-5xl mb-4">
           {installationCopy.title}
         </h2>
-        <p className="text-base sm:text-lg font-bold text-slate-500 mb-10 max-w-2xl mx-auto">
+        <p className="text-base sm:text-lg font-normal text-[#5f6368] mb-10 max-w-2xl mx-auto">
           {installationCopy.description}
         </p>
 
@@ -4083,22 +4079,22 @@ function AdReplayPricingCalculator({ page, localizedPage }: { page: SeoPage; loc
     : competitor.detail;
 
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto max-w-5xl">
         <div className="mx-auto mb-9 max-w-3xl text-center">
-          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-emerald-800">
+          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-[#137333]">
             <BadgeDollarSign className="h-4 w-4" aria-hidden />
             {labels.replayCalculator}
           </span>
-          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+          <h2 className="text-balance font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-[#202124] sm:text-5xl">
             {labels.priceSessions(formatReplayVolume(sessions))}
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-7 text-slate-500">
+          <p className="mx-auto mt-4 max-w-2xl text-base font-normal leading-7 text-[#5f6368]">
             {labels.replayIntro}
           </p>
         </div>
 
-        <div className="border-y border-slate-300 bg-white px-1 py-7 sm:px-5">
+        <div className="border-y border-[#dadce0] bg-white px-1 py-7 sm:px-5">
           <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
             <label className="block">
               <span className="flex items-center justify-between gap-4 text-sm font-bold text-slate-900">
@@ -4371,19 +4367,19 @@ function AnalyticsPricingCalculator({ page, localizedPage }: { page: SeoPage; lo
   ];
 
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-20 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-20 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="mx-auto mb-10 max-w-3xl text-center">
-          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-emerald-800">
+          <span className="mb-5 flex items-center justify-center gap-1.5 text-sm font-semibold text-[#137333]">
             <BadgeDollarSign className="h-4 w-4" aria-hidden />
             {labels.analyticsCalculator}
           </span>
-          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">{heading}</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-7 text-slate-500">{intro}</p>
+          <h2 className="text-balance font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-[#202124] sm:text-5xl">{heading}</h2>
+          <p className="mx-auto mt-4 max-w-2xl text-base font-normal leading-7 text-[#5f6368]">{intro}</p>
         </div>
 
-        <div className="border-y border-slate-300 bg-white">
-          <div className="grid gap-6 border-b border-slate-200 p-5 sm:p-7 lg:grid-cols-3">
+        <div className="border-y border-[#dadce0] bg-white">
+          <div className="grid gap-6 border-b border-[#dadce0] p-5 sm:p-7 lg:grid-cols-3">
             {sliderRows.map((row) => (
               <label key={row.label} className="block">
                 <span className="flex items-start justify-between gap-3 text-xs font-bold leading-5 text-slate-900">
@@ -4589,21 +4585,18 @@ function AdRepeatedCTA({ page, isBottom = false }: { page: SeoPage; isBottom?: b
         };
 
   return (
-    <section className={`relative overflow-hidden border-b border-slate-200/80 py-20 px-4 sm:px-6 lg:px-8 text-center ${isBottom ? "bg-gradient-to-br from-[#ecfeff]/40 to-[#fff7df]/40" : "bg-white"}`}>
-      {/* Background visual element */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[350px] w-[350px] rounded-full bg-indigo-300/10 blur-[80px] pointer-events-none" />
-      
+    <section className={`relative overflow-hidden border-b border-[#dadce0] py-20 px-4 sm:px-6 lg:px-8 text-center ${isBottom ? "bg-[var(--dashboard-canvas,#f8fafd)]" : "bg-white"}`}>
       <div className="relative z-10 mx-auto max-w-4xl">
-        <h2 className="text-3xl sm:text-5xl font-black uppercase text-slate-950 mb-4 leading-none">
+        <h2 className="text-3xl sm:text-5xl font-extrabold uppercase text-[#202124] mb-4 leading-none">
           {copy.title}
         </h2>
-        <p className="text-base sm:text-lg font-bold text-slate-500 mb-8 max-w-2xl mx-auto">
+        <p className="text-base sm:text-lg font-normal text-[#5f6368] mb-8 max-w-2xl mx-auto">
           {copy.description}
         </p>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 max-w-md mx-auto">
           <Link
             to="/login"
-            className="group inline-flex min-h-[52px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-8 text-base font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none text-center w-full sm:w-auto"
+            className="group inline-flex min-h-[48px] items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-8 text-base font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2] text-center w-full sm:w-auto"
           >
             Start free now
             <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
@@ -4617,19 +4610,19 @@ function AdRepeatedCTA({ page, isBottom = false }: { page: SeoPage; isBottom?: b
 function AdFaq({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   const ui = localizedPage?.ui;
   return (
-    <section className="border-b border-black/10 bg-[#fdfbf7] px-5 py-20 sm:px-6 lg:px-8">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-20 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <div className="text-center mb-12">
-          <span className="mb-4 block text-sm font-semibold text-emerald-800">
+          <span className="mb-4 block text-sm font-semibold text-[#1a73e8]">
             {ui?.faqEyebrow ?? "FAQ"}
           </span>
-          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+          <h2 className="text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.04em] text-[#202124] sm:text-5xl">
             {ui?.questionsAnswered ?? "Questions, answered."}
           </h2>
         </div>
-        <div className="border-t border-black/10">
+        <div className="border-t border-[#dadce0]">
           {page.faq.map((item) => (
-            <details key={item.question} className="group border-b border-black/10 bg-transparent">
+            <details key={item.question} className="group border-b border-[#dadce0] bg-transparent">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden sm:p-6 focus:outline-none">
                 <h3 className="text-start text-base font-black leading-tight text-slate-900 transition-colors group-hover:text-black sm:text-lg">
                   {item.question}
@@ -4753,33 +4746,33 @@ function LightweightLandingHero({ page, localizedPage }: { page: SeoPage; locali
   const isRtl = localizedPage?.locale.dir === "rtl";
 
   return (
-    <section className="border-b border-black/10 bg-[#fdfbf7] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20">
       <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-14">
         <div className="max-w-2xl">
-          <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-emerald-800">
-            <span className="h-px w-6 bg-emerald-600" aria-hidden />
+          <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-[#1a73e8]">
+            <span className="h-px w-6 bg-[#1a73e8]" aria-hidden />
             {localizedPage?.ui.eyebrow ?? page.hero.eyebrow}
           </p>
-          <h1 className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-6xl">
+          <h1 className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-[#202124] sm:text-5xl lg:text-6xl">
             {headlineParts.map((part, index) => part.toLowerCase() === "lightweight"
               ? <span key={`${part}-${index}`} className="font-semibold">{part}</span>
               : part)}
           </h1>
-          <p className="mt-6 max-w-xl text-pretty text-lg font-medium leading-8 text-slate-600 sm:text-xl">
+          <p className="mt-6 max-w-xl text-pretty text-lg font-normal leading-8 text-[#5f6368] sm:text-xl">
             {subheadline}
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link
               to={primaryHref}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-7 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-7 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
             >
               {localizedPage?.ui.startFree ?? page.cta.primaryLabel}
               <ArrowRight className={`h-4 w-4 ${isRtl ? "rotate-180" : ""}`} strokeWidth={2.75} aria-hidden />
             </Link>
             <Link
               to={secondaryHref}
-              className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-7 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+              className="inline-flex min-h-11 items-center justify-center rounded-none border border-[#dadce0] bg-white px-7 text-sm font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
             >
               {localizedPage?.ui.liveDemo ?? page.cta.secondaryLabel}
             </Link>
@@ -4901,35 +4894,35 @@ function LandingKeywordSections({ page, localizedPage }: { page: SeoPage; locali
   if (!page.keywordSections?.length) return null;
 
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20" aria-labelledby={`${page.path.slice(1)}-questions`}>
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-6 lg:px-8 lg:py-20" aria-labelledby={`${page.path.slice(1)}-questions`}>
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.investigationEyebrow ?? "Questions Rejourney can answer"}</p>
-            <h2 id={`${page.path.slice(1)}-questions`} className="mt-3 text-balance font-display text-4xl font-black leading-[1.04] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+            <p className="text-sm font-semibold text-[#1a73e8]">{localizedPage?.ui.investigationEyebrow ?? "Questions Rejourney can answer"}</p>
+            <h2 id={`${page.path.slice(1)}-questions`} className="mt-3 text-balance font-display text-4xl font-extrabold leading-[1.04] tracking-[-0.04em] text-[#202124] sm:text-5xl">
               {localizedPage?.ui.benefitsHeading ?? "Start with the signal. Leave with evidence."}
             </h2>
           </div>
           <Link
             to="/demo"
-            className="group inline-flex w-fit items-center gap-2 text-sm font-black text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
+            className="group inline-flex w-fit items-center gap-2 text-sm font-semibold text-[#1a73e8] hover:text-[#1765cc]"
           >
             {localizedPage?.ui.liveDemo ?? "Open live demo"}
             <ArrowRight className={`h-4 w-4 transition-transform ${localizedPage?.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`} aria-hidden />
           </Link>
         </div>
 
-        <div className="mt-10 grid border-y border-black/10 lg:grid-cols-3">
+        <div className="mt-10 grid border-y border-[#dadce0] lg:grid-cols-3">
           {page.keywordSections.map((section, index) => (
             <article
               key={section.title}
-              className="border-b border-black/10 py-7 last:border-b-0 lg:border-b-0 lg:border-r lg:px-7 lg:first:pl-0 lg:last:border-r-0 lg:last:pr-0"
+              className="border-b border-[#dadce0] py-7 last:border-b-0 lg:border-b-0 lg:border-r border-r-[#dadce0] lg:px-7 lg:first:pl-0 lg:last:border-r-0 lg:last:pr-0"
             >
-              <p className="font-mono text-xs font-bold tracking-[0.12em] text-emerald-700" aria-hidden>
+              <p className="font-mono text-xs font-bold tracking-[0.12em] text-[#1a73e8]" aria-hidden>
                 {String(index + 1).padStart(2, "0")}
               </p>
-              <h3 className="mt-4 text-balance text-2xl font-black leading-tight tracking-[-0.025em] text-slate-950">{section.title}</h3>
-              <p className="mt-4 max-w-sm text-base font-medium leading-7 text-slate-600">{section.description}</p>
+              <h3 className="mt-4 text-balance text-2xl font-bold leading-tight tracking-[-0.025em] text-[#202124]">{section.title}</h3>
+              <p className="mt-4 max-w-sm text-base font-normal leading-7 text-[#5f6368]">{section.description}</p>
             </article>
           ))}
         </div>
@@ -4941,13 +4934,13 @@ function LandingKeywordSections({ page, localizedPage }: { page: SeoPage; locali
 function LandingOutcomeSections({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   const images = landingOutcomeImages(page);
   return (
-    <section className="border-b border-black/10 bg-white px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+    <section className="border-b border-[#dadce0] bg-white px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
       <div className="mx-auto max-w-6xl">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm font-semibold text-emerald-800">
+          <p className="text-sm font-semibold text-[#1a73e8]">
             {localizedPage?.ui.outcomesEyebrow ?? (page.kind === "educational" ? "From idea to evidence" : page.kind === "alternative" ? "Why teams switch" : "From signal to answer")}
           </p>
-          <h2 className="mt-3 text-balance font-display text-4xl font-black leading-[1.04] tracking-[-0.04em] text-slate-950 sm:text-5xl">
+          <h2 className="mt-3 text-balance font-display text-4xl font-extrabold leading-[1.04] tracking-[-0.04em] text-[#202124] sm:text-5xl">
             {page.kind === "alternative" ? "What changes when the stack gets lighter." : page.whyTitle}
           </h2>
         </div>
@@ -4959,16 +4952,16 @@ function LandingOutcomeSections({ page, localizedPage }: { page: SeoPage; locali
             return (
               <article key={`${image.src}-${index}`} className="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
                 <div className={index % 2 ? "lg:order-2" : undefined}>
-                  <p className="text-sm font-semibold text-emerald-800">{index + 1}. {outcome?.title ?? image.title}</p>
-                  <h3 className="mt-4 text-balance text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-4xl">
+                  <p className="text-sm font-semibold text-[#1a73e8]">{index + 1}. {outcome?.title ?? image.title}</p>
+                  <h3 className="mt-4 text-balance text-3xl font-extrabold leading-tight tracking-[-0.035em] text-[#202124] sm:text-4xl">
                     {outcome?.title ?? image.title}
                   </h3>
-                  <p className="mt-5 text-pretty text-lg font-medium leading-8 text-slate-600">
+                  <p className="mt-5 text-pretty text-lg font-normal leading-8 text-[#5f6368]">
                     {outcome?.description ?? image.copy}
                   </p>
                 </div>
                 <div className={index % 2 ? "lg:order-1" : undefined}>
-                  <figure className="overflow-hidden rounded-xl border border-black/10 bg-[#fafaf8] p-3">
+                  <figure className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-3 shadow-sm">
                     <img
                       src={optimizedMarketingImage(image.src)}
                       alt={outcome?.title ?? image.alt}
@@ -4993,18 +4986,18 @@ function LandingOutcomeSections({ page, localizedPage }: { page: SeoPage; locali
 function EducationalAnswerSection({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   if (page.kind !== "educational") return null;
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.75fr_1.25fr]">
         <div>
-          <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.shortAnswer ?? "The short answer"}</p>
-          <h2 className="mt-4 text-balance text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-4xl">{page.whyTitle}</h2>
+          <p className="text-sm font-semibold text-[#1a73e8]">{localizedPage?.ui.shortAnswer ?? "The short answer"}</p>
+          <h2 className="mt-4 text-balance text-3xl font-extrabold leading-tight tracking-[-0.035em] text-[#202124] sm:text-4xl">{page.whyTitle}</h2>
         </div>
-        <div className="space-y-5 text-lg font-medium leading-8 text-slate-700">
+        <div className="space-y-5 text-lg font-normal leading-8 text-[#3c4043]">
           {page.whyParagraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-          <div className="grid border-t border-black/10 pt-2 sm:grid-cols-2 sm:gap-x-8">
+          <div className="grid border-t border-[#dadce0] pt-2 sm:grid-cols-2 sm:gap-x-8">
             {page.chooseRejourney.slice(0, 4).map((item) => (
-              <div key={item} className="flex gap-3 border-b border-black/10 py-4 text-sm font-semibold leading-6 text-slate-700">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+              <div key={item} className="flex gap-3 border-b border-[#dadce0] py-4 text-sm font-medium leading-6 text-[#3c4043]">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#137333]" aria-hidden />
                 {item}
               </div>
             ))}
@@ -5018,16 +5011,16 @@ function EducationalAnswerSection({ page, localizedPage }: { page: SeoPage; loca
 function AlternativeAtAGlance({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative") return null;
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto max-w-6xl">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
           <div>
-            <p className="text-sm font-semibold text-emerald-800">At a glance</p>
-            <h2 className="mt-4 text-balance text-4xl font-black leading-[1.02] tracking-[-0.04em] text-slate-950">A fair first comparison.</h2>
+            <p className="text-sm font-semibold text-[#1a73e8]">At a glance</p>
+            <h2 className="mt-4 text-balance text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-[#202124]">A fair first comparison.</h2>
           </div>
-          <div className="border-y border-black/10 py-6">
-            <p className="text-lg font-medium leading-8 text-slate-700">{alternativeTldrByPath[page.path] ?? page.comparisonIntro}</p>
-            <p className="mt-5 text-sm font-medium text-slate-500">Capabilities and public pricing reviewed {page.lastReviewed ?? "recently"}.</p>
+          <div className="border-y border-[#dadce0] py-6">
+            <p className="text-lg font-normal leading-8 text-[#3c4043]">{alternativeTldrByPath[page.path] ?? page.comparisonIntro}</p>
+            <p className="mt-5 text-sm font-normal text-[#5f6368]">Capabilities and public pricing reviewed {page.lastReviewed ?? "recently"}.</p>
           </div>
         </div>
       </div>
@@ -5038,21 +5031,21 @@ function AlternativeAtAGlance({ page }: { page: SeoPage }) {
 function AlternativeFitSection({ page }: { page: SeoPage }) {
   if (page.kind !== "alternative") return null;
   return (
-    <section className="border-b border-black/10 bg-white px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+    <section className="border-b border-[#dadce0] bg-white px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
-        <article className="border-l-2 border-emerald-600 bg-emerald-50/35 p-7 sm:p-9">
-          <p className="text-sm font-semibold text-emerald-800">Choose Rejourney when</p>
+        <article className="border border-[#dadce0] border-l-4 border-l-[#137333] bg-[#f8fafd] p-7 sm:p-9 shadow-sm">
+          <p className="text-sm font-semibold text-[#137333]">Choose Rejourney when</p>
           <ul className="mt-6 space-y-4">
             {alternativeRejourneyChecklist(page).slice(0, 4).map((item) => (
-              <li key={item} className="flex gap-3 text-base font-bold leading-7 text-slate-800"><Check className="mt-1 h-5 w-5 shrink-0 text-emerald-700" strokeWidth={3} />{item}</li>
+              <li key={item} className="flex gap-3 text-base font-medium leading-7 text-[#202124]"><Check className="mt-1 h-5 w-5 shrink-0 text-[#137333]" strokeWidth={2.5} />{item}</li>
             ))}
           </ul>
         </article>
-        <article className="border-l-2 border-slate-300 bg-[#f7f6f1] p-7 sm:p-9">
-          <p className="text-sm font-semibold text-slate-600">{page.chooseOtherTitle}</p>
+        <article className="border border-[#dadce0] border-l-4 border-l-[#dadce0] bg-white p-7 sm:p-9 shadow-sm">
+          <p className="text-sm font-semibold text-[#5f6368]">{page.chooseOtherTitle}</p>
           <ul className="mt-6 space-y-4">
             {page.chooseOther.slice(0, 4).map((item) => (
-              <li key={item} className="flex gap-3 text-base font-bold leading-7 text-slate-700"><CircleMinus className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{item}</li>
+              <li key={item} className="flex gap-3 text-base font-normal leading-7 text-[#3c4043]"><CircleMinus className="mt-1 h-5 w-5 shrink-0 text-[#5f6368]" />{item}</li>
             ))}
           </ul>
         </article>
@@ -5109,13 +5102,13 @@ function LandingRelatedPages({ page, localizedPage }: { page: SeoPage; localized
             <Link
               key={related.href}
               to={related.href}
-              className="group flex min-h-40 flex-col justify-between border-b border-black/10 p-6 transition-colors hover:bg-[#fdfbf7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500 lg:border-r lg:last:border-r-0"
+              className="group flex min-h-40 flex-col justify-between border-b border-[#dadce0] p-6 transition-colors hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1a73e8] lg:border-r lg:border-r-[#dadce0] lg:last:border-r-0"
             >
               <div>
-                <h3 className="text-xl font-black tracking-[-0.025em] text-slate-950">{related.label}</h3>
-                <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{related.description}</p>
+                <h3 className="text-xl font-bold tracking-[-0.025em] text-[#202124]">{related.label}</h3>
+                <p className="mt-3 text-sm font-normal leading-6 text-[#5f6368]">{related.description}</p>
               </div>
-              <span className="mt-6 inline-flex items-center gap-2 text-sm font-black text-emerald-800">
+              <span className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#1a73e8]">
                 {localizedPage?.ui.readNext ?? "Read next"} <ArrowRight className={`h-4 w-4 transition ${localizedPage?.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`} aria-hidden />
               </span>
             </Link>
@@ -5131,16 +5124,16 @@ function LandingFinalCta({ page, localizedPage }: { page: SeoPage; localizedPage
   const primaryHref = landingHrefWithAttribution(page.cta.primaryHref, location.search);
   const secondaryHref = landingHrefWithAttribution(page.cta.secondaryHref, location.search);
   return (
-    <section className="border-b border-black/10 bg-[#f7f6f1] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
+    <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
       <div className="mx-auto max-w-4xl text-center">
-        <p className="text-sm font-semibold text-emerald-800">{localizedPage?.ui.startProduct ?? "Start with a real product"}</p>
-        <h2 className="mt-4 text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.045em] text-slate-950 sm:text-6xl">{localizedPage?.ui.finalHeading ?? "Turn product behavior into an answer."}</h2>
-        <p className="mx-auto mt-6 max-w-2xl text-lg font-medium leading-8 text-slate-600">{localizedPage?.ui.finalCopy ?? "Start free with 5,000 monthly sessions, unlimited analytics events, and no credit card."}</p>
+        <p className="text-sm font-semibold text-[#1a73e8]">{localizedPage?.ui.startProduct ?? "Start with a real product"}</p>
+        <h2 className="mt-4 text-balance font-display text-4xl font-black leading-[1.02] tracking-[-0.045em] text-[#202124] sm:text-6xl">{localizedPage?.ui.finalHeading ?? "Turn product behavior into an answer."}</h2>
+        <p className="mx-auto mt-6 max-w-2xl text-lg font-normal leading-8 text-[#5f6368]">{localizedPage?.ui.finalCopy ?? "Start free with 5,000 monthly sessions, unlimited analytics events, and no credit card."}</p>
         <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-          <Link to={primaryHref} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-8 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+          <Link to={primaryHref} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-8 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2]">
             {localizedPage?.ui.startFree ?? page.cta.primaryLabel}<ArrowRight className={`h-4 w-4 ${localizedPage?.locale.dir === "rtl" ? "rotate-180" : ""}`} strokeWidth={3} />
           </Link>
-          <Link to={secondaryHref} className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-8 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-400 hover:bg-slate-50">
+          <Link to={secondaryHref} className="inline-flex min-h-11 items-center justify-center rounded-none border border-[#dadce0] bg-white px-8 text-sm font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124]">
             {localizedPage?.ui.liveDemo ?? page.cta.secondaryLabel}
           </Link>
         </div>
@@ -5228,7 +5221,7 @@ export function buildLocalizedSeoRenderPage(localizedPage: LocalizedSeoPage, eng
 function PaidAdLandingPage({ page, localizedPage }: { page: SeoPage; localizedPage?: LocalizedSeoPage }) {
   return (
     <div
-      className="public-readable-scope flex min-h-screen flex-col bg-[#fdfbf7] text-slate-950"
+      className="public-readable-scope flex min-h-screen flex-col bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]"
       lang={localizedPage?.locale.languageTag ?? "en-US"}
       dir={localizedPage?.locale.dir ?? "ltr"}
     >
@@ -5436,30 +5429,30 @@ function LocalizedSeoLandingPage({ page, englishPage }: { page: LocalizedSeoPage
   const isRevenuePage = englishPage.path.includes("funnel") || englishPage.path.includes("revenue");
   return (
     <div
-      className="public-readable-scope flex min-h-screen flex-col bg-[#fdfbf7] text-slate-950"
+      className="public-readable-scope flex min-h-screen flex-col bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]"
       lang={page.locale.languageTag}
       dir={page.locale.dir}
     >
       <AttributionLinkPreserver />
       <Header />
       <main className="flex-grow">
-        <section className="border-b border-black/10 bg-[#fdfbf7] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20" aria-labelledby="localized-seo-title">
+        <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 pb-14 pt-16 sm:px-6 sm:pb-16 sm:pt-20 lg:px-8 lg:pb-20" aria-labelledby="localized-seo-title">
           <div className="mx-auto max-w-6xl">
             <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-14">
               <div className="max-w-2xl">
-                <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-emerald-800">
-                  <span className="h-px w-6 bg-emerald-600" aria-hidden />
+                <p className="mb-4 inline-flex items-center gap-3 text-sm font-semibold text-[#1a73e8]">
+                  <span className="h-px w-6 bg-[#1a73e8]" aria-hidden />
                   {page.ui.eyebrow}
                 </p>
-                <h1 id="localized-seo-title" className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-6xl">
+                <h1 id="localized-seo-title" className="text-balance font-display text-4xl font-black leading-[1.01] tracking-[-0.045em] text-[#202124] sm:text-5xl lg:text-6xl">
                   {page.h1}
                 </h1>
-                <p className="mt-6 max-w-xl text-pretty text-lg font-medium leading-8 text-slate-600 sm:text-xl">{page.intro}</p>
+                <p className="mt-6 max-w-xl text-pretty text-lg font-normal leading-8 text-[#5f6368] sm:text-xl">{page.intro}</p>
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                  <Link to={primaryHref} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#86efac] px-7 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+                  <Link to={primaryHref} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-7 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2]">
                     {page.ui.startFree}<ArrowRight className={`h-4 w-4 ${page.locale.dir === "rtl" ? "rotate-180" : ""}`} aria-hidden />
                   </Link>
-                  <Link to={secondaryHref} className="inline-flex min-h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-7 text-sm font-extrabold text-slate-950 transition-colors hover:border-slate-500">
+                  <Link to={secondaryHref} className="inline-flex min-h-11 items-center justify-center rounded-none border border-[#dadce0] bg-white px-7 text-sm font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124]">
                     {page.ui.liveDemo}
                   </Link>
                 </div>
@@ -5524,58 +5517,58 @@ function LocalizedSeoLandingPage({ page, englishPage }: { page: LocalizedSeoPage
           </section>
         ) : null}
 
-        <section className="border-b border-slate-200 bg-[#f7f6f1] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-benefits-title">
+        <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-benefits-title">
           <div className="mx-auto max-w-6xl">
-            <h2 id="localized-benefits-title" className="max-w-4xl text-balance font-display text-3xl font-black tracking-[-0.035em] sm:text-5xl">
+            <h2 id="localized-benefits-title" className="max-w-4xl text-balance font-display text-3xl font-extrabold tracking-[-0.035em] text-[#202124] sm:text-5xl">
               {page.ui.benefitsHeading}
             </h2>
             <div className="mt-10 grid gap-5 lg:grid-cols-3">
               {page.benefits.map((benefit) => (
-                <article key={benefit.title} className="border border-slate-200 bg-white p-7">
-                  <h3 className="text-2xl font-black tracking-[-0.025em]">{benefit.title}</h3>
-                  <p className="mt-4 text-base font-medium leading-7 text-slate-600">{benefit.description}</p>
+                <article key={benefit.title} className="rounded-none border border-[#dadce0] bg-white p-7 shadow-sm">
+                  <h3 className="text-2xl font-bold tracking-[-0.025em] text-[#202124]">{benefit.title}</h3>
+                  <p className="mt-4 text-base font-normal leading-7 text-[#5f6368]">{benefit.description}</p>
                 </article>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="border-b border-slate-200 bg-white px-5 py-16 sm:px-8 lg:py-20">
+        <section className="border-b border-[#dadce0] bg-white px-5 py-16 sm:px-8 lg:py-20">
           <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-2 lg:gap-14">
-            <article className="border-s-4 border-emerald-400 ps-6">
-              <h2 className="text-3xl font-black tracking-[-0.03em]">{page.ui.evidenceHeading}</h2>
-              <p className="mt-5 text-lg font-medium leading-8 text-slate-600">{page.evidence}</p>
+            <article className="border-s-4 border-[#137333] ps-6">
+              <h2 className="text-3xl font-bold tracking-[-0.03em] text-[#202124]">{page.ui.evidenceHeading}</h2>
+              <p className="mt-5 text-lg font-normal leading-8 text-[#5f6368]">{page.evidence}</p>
             </article>
-            <article className="border-s-4 border-sky-400 ps-6">
-              <h2 className="text-3xl font-black tracking-[-0.03em]">{page.ui.platformHeading}</h2>
-              <p className="mt-5 text-lg font-medium leading-8 text-slate-600">{page.platforms}</p>
+            <article className="border-s-4 border-[#1a73e8] ps-6">
+              <h2 className="text-3xl font-bold tracking-[-0.03em] text-[#202124]">{page.ui.platformHeading}</h2>
+              <p className="mt-5 text-lg font-normal leading-8 text-[#5f6368]">{page.platforms}</p>
             </article>
           </div>
         </section>
 
-        <section className="border-b border-slate-200 bg-[#f7f6f1] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-faq-title">
+        <section className="border-b border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-16 sm:px-8 lg:py-20" aria-labelledby="localized-faq-title">
           <div className="mx-auto max-w-4xl">
-            <h2 id="localized-faq-title" className="text-4xl font-black tracking-[-0.04em]">{page.ui.faqHeading}</h2>
-            <div className="mt-8 divide-y divide-slate-200 border-y border-slate-200">
+            <h2 id="localized-faq-title" className="text-4xl font-extrabold tracking-[-0.04em] text-[#202124]">{page.ui.faqHeading}</h2>
+            <div className="mt-8 divide-y divide-[#dadce0] border-y border-[#dadce0]">
               {faq.map((item) => (
                 <details key={item.question} className="group py-6">
-                  <summary className="cursor-pointer list-none text-xl font-black">{item.question}</summary>
-                  <p className="mt-4 text-base font-medium leading-7 text-slate-600">{item.answer}</p>
+                  <summary className="cursor-pointer list-none text-xl font-bold text-[#202124]">{item.question}</summary>
+                  <p className="mt-4 text-base font-normal leading-7 text-[#5f6368]">{item.answer}</p>
                 </details>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="border-b border-slate-200 bg-white px-5 py-16 sm:px-8" aria-labelledby="localized-related-title">
+        <section className="border-b border-[#dadce0] bg-white px-5 py-16 sm:px-8" aria-labelledby="localized-related-title">
           <div className="mx-auto max-w-6xl">
-            <h2 id="localized-related-title" className="text-3xl font-black tracking-[-0.03em]">{page.ui.relatedHeading}</h2>
+            <h2 id="localized-related-title" className="text-3xl font-extrabold tracking-[-0.03em] text-[#202124]">{page.ui.relatedHeading}</h2>
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               {relatedPages.map((relatedPage) => (
-                <Link key={relatedPage.localizedPath} to={relatedPage.localizedPath} className="group border border-slate-200 bg-[#f7f6f1] p-6 transition-colors hover:border-slate-500">
-                  <h3 className="text-xl font-black">{relatedPage.h1}</h3>
-                  <p className="mt-3 text-sm font-medium leading-6 text-slate-600">{relatedPage.intro}</p>
-                  <ArrowRight className={`mt-5 h-5 w-5 transition-transform group-hover:translate-x-1 ${page.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-1" : ""}`} aria-hidden />
+                <Link key={relatedPage.localizedPath} to={relatedPage.localizedPath} className="group rounded-none border border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] p-6 transition-colors hover:border-[#1a73e8]">
+                  <h3 className="text-xl font-bold text-[#202124] group-hover:text-[#1a73e8] transition-colors">{relatedPage.h1}</h3>
+                  <p className="mt-3 text-sm font-normal leading-6 text-[#5f6368]">{relatedPage.intro}</p>
+                  <ArrowRight className={`mt-5 h-5 w-5 text-[#1a73e8] transition-transform group-hover:translate-x-1 ${page.locale.dir === "rtl" ? "rotate-180 group-hover:-translate-x-1" : ""}`} aria-hidden />
                 </Link>
               ))}
             </div>
@@ -5586,7 +5579,7 @@ function LocalizedSeoLandingPage({ page, englishPage }: { page: LocalizedSeoPage
           <div className="mx-auto max-w-4xl text-center">
             <h2 className="text-balance text-4xl font-black tracking-[-0.04em] sm:text-5xl">{page.ui.finalHeading}</h2>
             <p className="mx-auto mt-5 max-w-2xl text-lg font-medium leading-8 text-slate-300">{page.ui.finalCopy}</p>
-            <Link to={primaryHref} className="mt-8 inline-flex min-h-12 items-center justify-center rounded-lg bg-[#86efac] px-8 text-sm font-extrabold text-slate-950 transition-colors hover:bg-[#74e89c]">
+            <Link to={primaryHref} className="mt-8 inline-flex min-h-11 items-center justify-center rounded-none border border-[#1a73e8] bg-[#1a73e8] px-8 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2]">
               {page.ui.startFree}
             </Link>
           </div>
@@ -5610,7 +5603,7 @@ export default function SeoLandingPage() {
   const renderPage = localizedPage ? buildLocalizedSeoRenderPage(localizedPage, page) : page;
 
   return (
-    <div className="public-readable-scope min-h-screen bg-[#fdfbf7] text-slate-950" lang={localizedPage?.locale.languageTag ?? "en-US"} dir={localizedPage?.locale.dir ?? "ltr"}>
+    <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]" lang={localizedPage?.locale.languageTag ?? "en-US"} dir={localizedPage?.locale.dir ?? "ltr"}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

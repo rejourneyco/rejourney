@@ -154,22 +154,14 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
     };
   }, []);
 
-  const cleanPath = location.pathname.replace(/\/$/, "");
-  const isBrutalistPage = cleanPath === "" ||
-                          cleanPath.endsWith("/pricing") ||
-                          cleanPath.endsWith("/login") ||
-                          cleanPath === "/en" ||
-                          cleanPath === "/es" ||
-                          cleanPath === "/fr";
-
   return (
-    <div className={`${isBrutalistPage ? "" : "soft-border-scope"} max-w-full overflow-x-clip lg:overflow-visible`}>
+    <div className="soft-border-scope max-w-full overflow-x-clip lg:overflow-visible">
       <header
         aria-label={copy.ariaLabel}
         className={
           variant === 'floating'
-            ? "fixed inset-x-0 top-4 z-[100] mx-auto w-[92%] max-w-7xl rounded-none border border-black/25 bg-white px-4 py-2 shadow-neo transition-all duration-200 hover:shadow-neo-lg"
-            : "relative z-[100] w-full border-b border-slate-200/90 bg-white/95 px-4 py-1.5 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl transition-colors duration-200 sm:fixed sm:inset-x-0 sm:top-0 sm:px-6"
+            ? "fixed inset-x-0 top-4 z-[100] mx-auto w-[92%] max-w-7xl rounded-none border border-[#dadce0] bg-white px-4 py-2 shadow-sm transition-all duration-200"
+            : "relative z-[100] w-full border-b border-[#dadce0] bg-white/95 px-4 py-1.5 shadow-[0_1px_2px_rgba(60,64,67,0.08)] backdrop-blur-xl transition-colors duration-200 sm:fixed sm:inset-x-0 sm:top-0 sm:px-6"
         }
       >
         <div
@@ -280,10 +272,10 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
               onClick={handleAuthNavigation('desktop-primary')}
               aria-busy={pendingAuthLink === 'desktop-primary'}
               aria-disabled={pendingAuthLink !== null}
-              className={`hidden min-h-10 items-center justify-center gap-2 rounded-none border px-5 py-2 font-sans text-sm font-semibold text-white transition-[transform,background-color,border-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none sm:inline-flex ${
+              className={`hidden min-h-10 items-center justify-center gap-2 rounded-none border px-5 py-2 font-sans text-sm font-semibold text-white transition-[background-color,border-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 sm:inline-flex ${
                 pendingAuthLink !== null
-                  ? 'pointer-events-none cursor-wait translate-y-px border-slate-700 bg-slate-700 shadow-none'
-                  : 'border-slate-900 bg-slate-900 shadow-[0_2px_0_rgba(15,23,42,0.35)] hover:-translate-y-0.5 hover:border-slate-700 hover:bg-slate-700 hover:shadow-[0_5px_0_rgba(15,23,42,0.28)] active:translate-y-px active:scale-[0.98] active:shadow-none'
+                  ? 'pointer-events-none cursor-wait border-[#1765cc] bg-[#1765cc] shadow-none'
+                  : 'border-[#1a73e8] bg-[#1a73e8] shadow-sm hover:border-[#1765cc] hover:bg-[#1765cc] active:bg-[#1967d2] active:shadow-none'
               }`}
             >
               {pendingAuthLink === 'desktop-primary' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
@@ -388,7 +380,7 @@ export const Header: React.FC<{ variant?: 'floating' | 'full'; noSpacer?: boolea
                   onClick={handleAuthNavigation('mobile-primary', true)}
                   aria-busy={pendingAuthLink === 'mobile-primary'}
                   aria-disabled={pendingAuthLink !== null}
-                  className="flex min-h-10 items-center justify-center gap-2 rounded-none border border-slate-900 bg-slate-900 px-5 py-2 font-sans text-sm font-semibold text-white shadow-[0_2px_0_rgba(15,23,42,0.35)] transition-[transform,background-color,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-slate-700 hover:bg-slate-700 hover:shadow-[0_5px_0_rgba(15,23,42,0.28)] active:translate-y-px active:scale-[0.98] active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 motion-reduce:transform-none"
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 py-2 font-sans text-sm font-semibold text-white shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:border-[#1765cc] hover:bg-[#1765cc] active:bg-[#1967d2] active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
                 >
                   {pendingAuthLink === 'mobile-primary' && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                   <span>

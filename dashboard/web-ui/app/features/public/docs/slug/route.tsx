@@ -71,6 +71,8 @@ function getPromptIdForDocPath(path?: string): AIPromptId | null {
     if (path === "web/getting-started") return "web";
     if (path === "reactnative/overview") return "react-native";
     if (path === "swift/overview") return "swift";
+    if (path === "flutter/overview") return "flutter";
+    if (path === "unity/overview") return "unity";
     return null;
 }
 
@@ -218,8 +220,8 @@ function DocPageContent({ loaderData }: Route.ComponentProps) {
         return (
             <DocsLayout sidebar={<DocsSidebar />}>
                 <div className="text-center py-12">
-                    <h1 className="text-2xl font-bold text-black mb-4">{copy.documentationNotFoundHeading}</h1>
-                    <p className="text-gray-600">{copy.documentationNotFoundCopy}</p>
+                    <h1 className="text-2xl font-normal text-[#202124] mb-3">{copy.documentationNotFoundHeading}</h1>
+                    <p className="text-sm text-[#5f6368]">{copy.documentationNotFoundCopy}</p>
                 </div>
             </DocsLayout>
         );
@@ -275,30 +277,30 @@ function DocPageContent({ loaderData }: Route.ComponentProps) {
                     })
                 }}
             />
-            <header className="mb-10 border border-slate-200 bg-white p-6 rounded-2xl shadow-sm sm:p-7 lg:p-8">
-                <div className="mb-6 flex flex-wrap items-center gap-3">
+            <header className="mb-8 border border-[#dadce0] bg-white p-6 rounded-none sm:p-7 lg:p-8">
+                <div className="mb-5 flex flex-wrap items-center gap-2.5">
                     {localizedMetadata.category && (
-                        <p className="inline-flex items-center border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-xs font-bold uppercase text-indigo-700 rounded-md">
+                        <p className="inline-flex items-center rounded-none bg-[#e8f0fe] px-2.5 py-0.5 text-[11px] font-medium text-[#1967d2] leading-4 border border-[#dadce0]/60">
                             {localizedMetadata.category}
                         </p>
                     )}
-                    <p className="inline-flex items-center gap-2 border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold uppercase text-slate-600 rounded-md">
-                        <BookOpen className="h-3.5 w-3.5" />
+                    <p className="inline-flex items-center gap-1.5 rounded-none bg-[#f1f3f4] px-2.5 py-0.5 text-[11px] font-medium text-[#3c4043] leading-4 border border-[#dadce0]/60">
+                        <BookOpen className="h-3.5 w-3.5 text-[#5f6368]" />
                         {copy.docsBreadcrumb}
                     </p>
                 </div>
-                <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_330px] lg:items-end">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_330px] lg:items-end">
                     <div>
-                        <h1 className="text-balance text-4xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+                        <h1 className="text-balance text-3xl font-normal leading-tight tracking-tight text-[#202124] sm:text-4xl lg:text-5xl">
                             {localizedMetadata.title}
                         </h1>
                         {localizedMetadata.description && (
-                            <p className="mt-5 max-w-3xl text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
+                            <p className="mt-4 max-w-3xl text-base font-normal leading-relaxed text-[#5f6368] sm:text-lg">
                                 {localizedMetadata.description}
                             </p>
                         )}
                     </div>
-                    <div className="text-sm font-bold text-slate-800">
+                    <div className="text-sm text-[#202124]">
                         {aiPromptText && (
                             <DocsAIPromptCallout
                                 promptText={aiPromptText}

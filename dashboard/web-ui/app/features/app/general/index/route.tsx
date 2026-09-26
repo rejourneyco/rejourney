@@ -78,6 +78,13 @@ import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/h
 import { formatCountryDisplayName, formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
+import {
+    dashboardButtonClass,
+    dashboardChipClass,
+    dashboardFieldClass,
+    dashboardLabelClass,
+} from '~/shared/ui/core/dashboardStyles';
+import { formatSetupPlatform } from '~/features/app/setup/setupUtils';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
@@ -334,18 +341,18 @@ function formatWeekRange(weekStartKey: string): string {
 
 function getCohortCellStyle(value: number | null, weekIndex: number): React.CSSProperties {
     if (value === null) {
-        return { backgroundColor: '#f1f5f9', color: '#94a3b8' };
+        return { backgroundColor: '#f1f3f4', color: '#80868b' };
     }
 
     if (weekIndex === 0) {
-        return { backgroundColor: '#1d4ed8', color: '#ffffff' };
+        return { backgroundColor: '#1a73e8', color: '#ffffff' };
     }
 
     const clamped = Math.max(0, Math.min(100, value));
     const lightness = Math.max(42, 95 - (clamped * 0.48));
     return {
         backgroundColor: `hsl(214 76% ${lightness}%)`,
-        color: clamped >= 52 ? '#ffffff' : '#0f172a',
+        color: clamped >= 52 ? '#ffffff' : '#202124',
     };
 }
 
@@ -471,9 +478,9 @@ function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
 }
 
 const EmptyStateCard: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
-    <div className="border-2 border-dashed border-black bg-[#f8fafc] px-6 py-10 text-center shadow-neo-sm">
-        <p className="text-sm font-extrabold text-black">{title}</p>
-        <p className="mx-auto mt-2 max-w-sm text-xs font-semibold text-slate-600">{subtitle}</p>
+    <div className="border border-[#dadce0] bg-white px-6 py-10 text-center">
+        <p className="text-sm font-medium text-[#202124]">{title}</p>
+        <p className="mx-auto mt-2 max-w-sm text-xs text-[#5f6368]">{subtitle}</p>
     </div>
 );
 
@@ -482,9 +489,8 @@ const GA4Card: React.FC<{
     action?: React.ReactNode;
     children: React.ReactNode;
     className?: string;
-    accentClassName?: string;
     expandable?: boolean;
-}> = ({ title, action, children, className = '', accentClassName = 'bg-[#67e8f9]', expandable = true }) => {
+}> = ({ title, action, children, className = '', expandable = true }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const titleId = React.useId();
@@ -519,7 +525,7 @@ const GA4Card: React.FC<{
             aria-expanded={isExpanded}
             aria-controls={expandedDialogId}
             title={`Expand ${title}`}
-            className="inline-flex h-7 w-7 items-center justify-center text-slate-400 transition-colors duration-150 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+            className="inline-flex h-7 w-7 items-center justify-center text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
         >
             <Maximize2 className="h-3.5 w-3.5" aria-hidden />
         </button>
@@ -528,7 +534,6 @@ const GA4Card: React.FC<{
     return (
         <>
             <div className={`rejourney-general-card flex h-full min-w-0 flex-col overflow-hidden border border-[#dadce0] bg-white shadow-none ${className}`}>
-                <div className={`h-1 ${accentClassName}`} />
                 <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
                     <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-[#e8eaed] pb-3">
                         <h3 className="min-w-0 break-words text-[15px] font-medium text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">{title}</h3>
@@ -545,7 +550,7 @@ const GA4Card: React.FC<{
 
             {isExpanded && typeof document !== 'undefined' && createPortal(
                 <div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-[#202124]/50 p-3 sm:p-6"
                     onMouseDown={(event) => {
                         if (event.target === event.currentTarget) setIsExpanded(false);
                     }}
@@ -557,20 +562,16 @@ const GA4Card: React.FC<{
                         aria-modal="true"
                         aria-labelledby={`${titleId}-title`}
                         tabIndex={-1}
-                        className="flex h-[min(92dvh,900px)] w-full max-w-6xl min-h-0 flex-col overflow-hidden rounded-2xl border border-white/15 bg-white shadow-[0_32px_96px_rgba(0,0,0,0.45)] outline-none"
+                        className="flex h-[min(92dvh,900px)] w-full max-w-6xl min-h-0 flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white text-[13px] text-[#202124] shadow-[0_12px_32px_rgba(60,64,67,0.28)] outline-none sm:text-sm"
                     >
-                        <div className={`h-1.5 shrink-0 ${accentClassName}`} />
-                        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-slate-50/85 px-5 py-4 backdrop-blur-sm sm:px-6">
-                            <div className="min-w-0">
-                                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Expanded view</p>
-                                <h2 id={`${titleId}-title`} className="truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">{title}</h2>
-                            </div>
+                        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[#e8eaed] px-5 py-4 sm:px-6">
+                            <h2 id={`${titleId}-title`} className="min-w-0 truncate text-lg font-medium text-[#202124]">{title}</h2>
                             <div className="flex shrink-0 items-center gap-2">
                                 {action ? <div className="hidden items-center gap-1.5 sm:flex">{action}</div> : null}
                                 <button
                                     type="button"
                                     onClick={() => setIsExpanded(false)}
-                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                                    className={dashboardButtonClass('secondary', 'sm')}
                                 >
                                     <X className="h-3.5 w-3.5" aria-hidden />
                                     Close
@@ -619,24 +620,22 @@ function buildGeneralSectionStatuses(status: LoadStatus): Record<GeneralSectionK
 const GhostBlock: React.FC<{ className?: string }> = ({ className = '' }) => (
     <div
         aria-hidden="true"
-        className={`animate-pulse rounded-none border border-white/80 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] ${className}`.trim()}
+        className={`dashboard-ghost-block rounded-none ${className}`.trim()}
     />
 );
 
 const GA4CardGhost: React.FC<{
     title: string;
     className?: string;
-    accentClassName?: string;
     minHeight?: string;
     rows?: number;
 }> = ({
     title,
     className = '',
-    accentClassName = 'bg-[#67e8f9]',
     minHeight = '240px',
     rows = 4,
 }) => (
-    <GA4Card title={title} className={className} accentClassName={accentClassName} expandable={false}>
+    <GA4Card title={title} className={className} expandable={false}>
         <div className="flex flex-1 flex-col justify-between gap-4" style={{ minHeight }} aria-busy="true">
             <div className="space-y-3">
                 {Array.from({ length: rows }).map((_, index) => (
@@ -736,15 +735,16 @@ type RevenueCustomEventOption = {
 };
 
 const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; color: string }> = [
-    { key: 'bouncers', label: 'Bouncers', color: '#ef4444' },
-    { key: 'casuals', label: 'Casuals', color: '#f9a8d4' },
-    { key: 'explorers', label: 'Explorers', color: '#3b82f6' },
-    { key: 'loyalists', label: 'Loyalists', color: '#10b981' },
+    { key: 'bouncers', label: 'Bouncers', color: '#ea4335' },
+    { key: 'casuals', label: 'Casuals', color: '#f9ab00' },
+    { key: 'explorers', label: 'Explorers', color: '#1a73e8' },
+    { key: 'loyalists', label: 'Loyalists', color: '#34a853' },
 ];
 
-const CUSTOM_EVENT_TREND_COLORS = ['#1a73e8', '#1e8e3e', '#9334e6', '#f9a8d4', '#0f766e', '#f59e0b'];
+const CUSTOM_EVENT_TREND_COLORS = ['#1a73e8', '#1e8e3e', '#9334e6', '#e52592', '#12b5cb', '#e8710a'];
+const VERSION_MARKER_STROKE = '#80868b';
+const REVENUE_REFUND_COLOR = '#ea4335';
 
-const RETRO_CARD_ACCENTS = ['#67e8f9', '#86efac', '#f9a8d4', '#c4b5fd'];
 const DIRECT_REFERRAL_LABEL = 'Direct / none';
 const NO_UTM_LABEL = 'No UTM tag';
 const CUSTOM_EVENT_SELECTION_STORAGE_PREFIX = 'rejourney.general.customEventSelection';
@@ -758,7 +758,7 @@ const REVENUE_PROVIDER_META: Record<RevenueProvider, {
     logo?: string;
 }> = {
     custom_events: {
-        label: 'Custom Events',
+        label: 'Custom events',
         shortLabel: 'Custom events',
         description: 'Map Rejourney purchase and lifecycle events.',
         logo: '/rejourneyIcon-removebg-preview.png',
@@ -1245,13 +1245,12 @@ function buildVersionReleaseLineLabel(version: string, index: number) {
                     y={textY - 8.5}
                     width={textWidth + 6}
                     height={11}
-                    rx={2}
                     fill="#ffffff"
                     fillOpacity={0.92}
-                    stroke="#334155"
+                    stroke="#dadce0"
                     strokeWidth={0.85}
                 />
-                <text x={textX} y={textY} fill="#334155" fontSize={9.5} fontWeight={700}>
+                <text x={textX} y={textY} fill="#3c4043" fontSize={9.5} fontWeight={500}>
                     {text}
                 </text>
             </g>
@@ -1314,19 +1313,19 @@ function VersionAwareChartTooltip({
     if (entries.length === 0 && releases.length === 0) return null;
 
     return (
-        <div className="pointer-events-none max-w-[260px] rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
-            <div className="mb-1 font-semibold text-slate-800">{formatDateLabel(labelKey)}</div>
+        <div className="pointer-events-none max-w-[260px] rounded-none border border-[#dadce0] bg-white px-3 py-2 text-xs text-[#3c4043] shadow-[0_1px_2px_rgba(60,64,67,0.3),0_2px_6px_2px_rgba(60,64,67,0.15)]">
+            <div className="mb-1 font-medium text-[#202124]">{formatDateLabel(labelKey)}</div>
 
             {releases.length > 0 && (
-                <div className={entries.length > 0 ? 'mb-2 border-b border-slate-100 pb-2' : ''}>
-                    <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">
+                <div className={entries.length > 0 ? 'mb-2 border-b border-[#e8eaed] pb-2' : ''}>
+                    <div className="mb-1 text-[11px] font-medium text-[#5f6368]">
                         Version introduced
                     </div>
                     <div className="space-y-1">
                         {releases.map((marker) => (
                             <div key={`${marker.version}-${marker.dateKey}`} className="flex items-center gap-1.5">
-                                <span className="h-3 border-l border-dashed border-slate-600" />
-                                <span className="break-all font-mono font-semibold text-slate-800">v{marker.version}</span>
+                                <span className="h-3 border-l border-dashed border-[#80868b]" />
+                                <span className="break-all font-medium tabular-nums text-[#202124]">v{marker.version}</span>
                             </div>
                         ))}
                     </div>
@@ -1337,14 +1336,14 @@ function VersionAwareChartTooltip({
                 <div className="space-y-1">
                     {entries.map((entry, index) => (
                         <div key={`${String(entry.name)}-${index}`} className="flex items-center justify-between gap-4">
-                            <span className="flex min-w-0 items-center gap-1.5 text-slate-500">
+                            <span className="flex min-w-0 items-center gap-1.5 text-[#5f6368]">
                                 <span
                                     className="h-2 w-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: entry.color || '#64748b' }}
+                                    style={{ backgroundColor: entry.color || '#80868b' }}
                                 />
                                 <span className="truncate">{entry.name}</span>
                             </span>
-                            <span className="font-semibold text-slate-900">{entry.value}</span>
+                            <span className="font-medium tabular-nums text-[#202124]">{entry.value}</span>
                         </div>
                     ))}
                 </div>
@@ -1381,53 +1380,53 @@ function RevenueImpactTooltip({
         });
 
     return (
-        <div className="pointer-events-none max-w-[280px] rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
-            <div className="mb-2 font-semibold text-slate-800">{formatDateLabel(dateKey)}</div>
+        <div className="pointer-events-none max-w-[280px] rounded-none border border-[#dadce0] bg-white px-3 py-2 text-xs text-[#3c4043] shadow-[0_1px_2px_rgba(60,64,67,0.3),0_2px_6px_2px_rgba(60,64,67,0.15)]">
+            <div className="mb-2 font-medium text-[#202124]">{formatDateLabel(dateKey)}</div>
             <div className="space-y-1">
                 <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Gross revenue</span>
-                    <span className="font-semibold text-slate-950">{formatCurrencyMinor(row.grossAmountCents, currency)}</span>
+                    <span className="text-[#5f6368]">Gross revenue</span>
+                    <span className="font-medium tabular-nums text-[#202124]">{formatCurrencyMinor(row.grossAmountCents, currency)}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Transactions</span>
-                    <span className="font-semibold text-slate-950">{formatCompact(row.transactionCount)}</span>
+                    <span className="text-[#5f6368]">Transactions</span>
+                    <span className="font-medium tabular-nums text-[#202124]">{formatCompact(row.transactionCount)}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Refunds</span>
-                    <span className="font-semibold text-slate-950">{formatCurrencyMinor(row.refundAmountCents, currency)}</span>
+                    <span className="text-[#5f6368]">Refunds</span>
+                    <span className="font-medium tabular-nums text-[#202124]">{formatCurrencyMinor(row.refundAmountCents, currency)}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Net</span>
-                    <span className="font-semibold text-slate-950">{formatCurrencyMinor(row.netAmountCents, currency)}</span>
+                    <span className="text-[#5f6368]">Net</span>
+                    <span className="font-medium tabular-nums text-[#202124]">{formatCurrencyMinor(row.netAmountCents, currency)}</span>
                 </div>
                 {row.subscriberCount > 0 && (
                     <div className="flex justify-between gap-4">
-                        <span className="text-slate-500">Subscribers</span>
-                        <span className="font-semibold text-slate-950">{formatCompact(row.subscriberCount)}</span>
+                        <span className="text-[#5f6368]">Subscribers</span>
+                        <span className="font-medium tabular-nums text-[#202124]">{formatCompact(row.subscriberCount)}</span>
                     </div>
                 )}
                 {row.trialCount > 0 && (
                     <div className="flex justify-between gap-4">
-                        <span className="text-slate-500">Trials</span>
-                        <span className="font-semibold text-slate-950">{formatCompact(row.trialCount)}</span>
+                        <span className="text-[#5f6368]">Trials</span>
+                        <span className="font-medium tabular-nums text-[#202124]">{formatCompact(row.trialCount)}</span>
                     </div>
                 )}
                 {row.cancellationCount > 0 && (
                     <div className="flex justify-between gap-4">
-                        <span className="text-slate-500">Cancellations</span>
-                        <span className="font-semibold text-slate-950">{formatCompact(row.cancellationCount)}</span>
+                        <span className="text-[#5f6368]">Cancellations</span>
+                        <span className="font-medium tabular-nums text-[#202124]">{formatCompact(row.cancellationCount)}</span>
                     </div>
                 )}
             </div>
 
             {nearbyVersions.length > 0 && (
-                <div className="mt-2 border-t border-slate-100 pt-2">
-                    <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Nearby versions</div>
+                <div className="mt-2 border-t border-[#e8eaed] pt-2">
+                    <div className="mb-1 text-[11px] font-medium text-[#5f6368]">Nearby versions</div>
                     <div className="space-y-1">
                         {nearbyVersions.map((marker) => (
                             <div key={`${marker.version}-${marker.dateKey}`} className="flex items-center justify-between gap-3">
-                                <span className="break-all font-mono font-semibold text-slate-800">v{marker.version}</span>
-                                <span className="text-slate-500">{formatDateLabel(marker.dateKey)}</span>
+                                <span className="break-all font-medium tabular-nums text-[#202124]">v{marker.version}</span>
+                                <span className="text-[#5f6368]">{formatDateLabel(marker.dateKey)}</span>
                             </div>
                         ))}
                     </div>
@@ -1648,13 +1647,13 @@ function RevenueEventSelectField({
 
     return (
         <label className="min-w-0 space-y-1">
-            <span className="dashboard-label">{label}</span>
+            <span className={`block ${dashboardLabelClass}`}>{label}</span>
             <div className="relative">
                 <select
                     required={required}
                     value={normalizedValue}
                     onChange={(event) => onChange(event.target.value)}
-                    className="h-9 w-full appearance-none border border-[#dadce0] bg-white py-0 pl-2 pr-8 text-sm font-semibold text-slate-800 outline-none transition hover:border-[#1a73e8] hover:bg-[#f8fafc] focus:border-black focus:ring-2 focus:ring-cyan-100"
+                    className={`${dashboardFieldClass} appearance-none py-0 pr-8 transition-colors hover:border-[#bdc1c6]`}
                 >
                     <option value="">{options.length > 0 ? placeholder : 'No captured events yet'}</option>
                     {hasCurrentCustomValue && (
@@ -1666,10 +1665,10 @@ function RevenueEventSelectField({
                         </option>
                     ))}
                 </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5f6368]" aria-hidden />
             </div>
             {description && (
-                <span className="block text-[11px] font-semibold leading-4 text-slate-500">{description}</span>
+                <span className="block text-xs leading-4 text-[#5f6368]">{description}</span>
             )}
         </label>
     );
@@ -1805,10 +1804,10 @@ const RevenueImpactSection: React.FC<{
         || actionState?.kind === 'connect_revenuecat'
         || actionState?.kind === 'save_custom_events';
     const changeClass = grossChange === null || grossChange === 0
-        ? 'text-slate-600'
+        ? 'text-[#5f6368]'
         : grossChange > 0
-            ? 'text-emerald-700'
-            : 'text-rose-700';
+            ? 'text-[#137333]'
+            : 'text-[#c5221f]';
 
     const statusLabel = isLoading
         ? 'Loading'
@@ -1831,18 +1830,18 @@ const RevenueImpactSection: React.FC<{
     const activeProviderMeta = activeProvider ? REVENUE_PROVIDER_META[activeProvider] : null;
     const accountLabel = connection?.accountName || connection?.accountId || activeProviderMeta?.shortLabel || 'Revenue source';
     const statusClass = isLoading
-        ? 'border-cyan-300 bg-[#cffafe] text-slate-950'
+        ? dashboardChipClass('info')
         : isDisconnectPending
-        ? 'border-amber-300 bg-[#fef3c7] text-amber-950'
+        ? dashboardChipClass('warning')
         : actionMessage
-            ? 'border-cyan-300 bg-[#cffafe] text-slate-950'
+            ? dashboardChipClass('info')
         : status === 'error'
-        ? 'border-rose-300 bg-[#fecaca] text-rose-950'
+        ? dashboardChipClass('danger')
         : status === 'syncing'
-            ? 'border-cyan-300 bg-[#cffafe] text-slate-950'
+            ? dashboardChipClass('info')
             : status === 'connected'
-                ? 'border-emerald-300 bg-[#dcfce7] text-slate-950'
-                : 'border-[#dadce0] bg-[#f8fafc] text-slate-700';
+                ? dashboardChipClass('success')
+                : dashboardChipClass('neutral');
     const revenueBodyId = 'general-revenue-impact-body';
     const providerStatuses = revenue?.providers?.length
         ? revenue.providers
@@ -2056,7 +2055,7 @@ const RevenueImpactSection: React.FC<{
             );
         }
         return (
-            <span className="text-[15px] font-black tracking-tight text-[#202124]">
+            <span className="text-[15px] font-medium text-[#202124]">
                 {meta.shortLabel}
             </span>
         );
@@ -2083,16 +2082,15 @@ const RevenueImpactSection: React.FC<{
                         ? selected ? 'Active' : 'Linked'
                         : 'Set up';
                 const setupLabelClass = isProviderPending
-                    ? 'border-cyan-300 bg-[#cffafe] text-slate-950'
+                    ? dashboardChipClass('info')
                     : !configured
-                    ? 'border-amber-300 bg-[#fef3c7] text-amber-950'
+                    ? dashboardChipClass('warning')
                     : providerConnected
-                        ? 'border-emerald-300 bg-[#dcfce7] text-slate-950'
-                        : 'border-[#dadce0] bg-[#f8fafc] text-slate-600';
+                        ? dashboardChipClass('success')
+                        : dashboardChipClass('neutral');
+                // Superwall's logo is white, so it keeps its dark brand plate.
                 const markSurfaceClass = provider === 'superwall'
                     ? 'border-[#111827] bg-[#111827]'
-                    : provider === 'revenuecat'
-                        ? 'border-[#1f1f47] bg-white'
                     : 'border-[#dadce0] bg-white';
                 const markSizeClass = provider === 'custom_events'
                     ? 'w-16'
@@ -2107,25 +2105,25 @@ const RevenueImpactSection: React.FC<{
                         type="button"
                         onClick={() => handleProviderClick(provider)}
                         disabled={!canManage || isActionLoading}
-                        className={`min-h-[116px] border p-3 text-left transition ${
+                        className={`min-h-[116px] border p-3 text-left transition-colors ${
                             selected
-                                ? 'border-[#1a73e8] bg-[#eff6ff]'
-                                : 'border-[#dadce0] bg-white hover:border-[#1a73e8] hover:bg-[#f8fafc]'
+                                ? 'border-[#1a73e8] bg-[#e8f0fe]'
+                                : 'border-[#dadce0] bg-white hover:border-[#bdc1c6] hover:bg-[#f8fafd]'
                         } disabled:cursor-not-allowed disabled:opacity-60`}
                     >
                         <div className="flex items-start justify-between gap-3">
                             <div className={`flex shrink-0 items-center justify-center border ${markPaddingClass} ${markSurfaceClass} ${markSizeClass} ${markHeightClass}`}>
                                 {renderProviderMark(provider)}
                             </div>
-                            <span className={`border px-1.5 py-0.5 text-[9px] font-bold uppercase ${setupLabelClass}`}>
-                                {isProviderPending && <RefreshCw className="mr-1 inline h-2.5 w-2.5 animate-spin align-[-1px]" />}
+                            <span className={setupLabelClass}>
+                                {isProviderPending && <RefreshCw className="h-3 w-3 animate-spin" />}
                                 {setupLabel}
                             </span>
                         </div>
-                        <div className="mt-3 text-xs font-semibold text-[#202124]">{meta.label}</div>
-                        <div className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">{meta.description}</div>
+                        <div className="mt-3 text-sm font-medium text-[#202124]">{meta.label}</div>
+                        <div className="mt-1 text-xs leading-5 text-[#5f6368]">{meta.description}</div>
                         {!configured && (
-                            <div className="mt-2 text-[10px] font-bold uppercase text-amber-700">Deployment setup required</div>
+                            <div className="mt-2 text-xs font-medium text-[#b06000]">Deployment setup required</div>
                         )}
                     </button>
                 );
@@ -2140,16 +2138,16 @@ const RevenueImpactSection: React.FC<{
         const customRevenueAmountField = normalizeCustomRevenueFieldName(customConfig.revenueAmountProperty, 'amount');
 
         return (
-            <div className="mb-4 border border-[#dadce0] bg-[#f8fafc] p-3">
+            <div className="mb-4 border border-[#dadce0] bg-[#f8fafd] p-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
-                        <div className="text-xs font-bold uppercase text-slate-500">Revenue source</div>
-                        <div className="mt-1 text-sm font-semibold text-[#202124]">{selectedMeta.label}</div>
+                        <div className={dashboardLabelClass}>Revenue source</div>
+                        <div className="mt-1 text-sm font-medium text-[#202124]">{selectedMeta.label}</div>
                     </div>
                     <button
                         type="button"
                         onClick={() => setIsSettingsOpen(false)}
-                        className="inline-flex h-7 w-7 items-center justify-center border border-[#dadce0] bg-white text-slate-600 transition hover:border-black hover:text-black"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-[#dadce0] bg-white text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
                     >
                         <X className="h-3.5 w-3.5" />
                         <span className="sr-only">Close revenue source settings</span>
@@ -2173,8 +2171,8 @@ const RevenueImpactSection: React.FC<{
                                 });
                             }}
                         >
-                            <div className="md:col-span-2 border border-[#dadce0] bg-white p-3 text-[11px] font-semibold leading-5 text-slate-600">
-                                <div className="text-xs font-bold uppercase text-slate-700">Superwall setup checklist</div>
+                            <div className="md:col-span-2 border border-[#dadce0] bg-white p-3 text-xs leading-5 text-[#3c4043]">
+                                <div className="text-sm font-medium text-[#202124]">Superwall setup checklist</div>
                                 <div className="mt-1">
                                     Create a scoped organization API key with projects:read and data:read, then paste it here. Avoid SDK keys, admin keys, unrestricted keys, or keys that can mutate paywalls, products, users, or campaigns.
                                 </div>
@@ -2183,15 +2181,15 @@ const RevenueImpactSection: React.FC<{
                                 </div>
                             </div>
                             <label className="space-y-1 md:col-span-2">
-                                <span className="dashboard-label">projects:read + data:read API key</span>
+                                <span className={`block ${dashboardLabelClass}`}>projects:read + data:read API key</span>
                                 <input
                                     value={superwallApiKey}
                                     onChange={(event) => setSuperwallApiKey(event.target.value)}
                                     type="password"
                                     required
-                                    className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                    className={dashboardFieldClass}
                                 />
-                                <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                <span className="block text-xs leading-4 text-[#5f6368]">
                                     Use a secret organization key that starts with sk_.
                                 </span>
                             </label>
@@ -2199,7 +2197,7 @@ const RevenueImpactSection: React.FC<{
                                 <button
                                     type="submit"
                                     disabled={isActionLoading}
-                                    className="inline-flex h-8 items-center gap-1.5 border border-black bg-black px-3 text-[10px] font-black uppercase text-white transition hover:bg-[#1a73e8] disabled:cursor-wait disabled:opacity-70"
+                                    className={dashboardButtonClass('primary', 'sm')}
                                 >
                                     <Check className="h-3.5 w-3.5" />
                                     Connect Superwall
@@ -2225,14 +2223,14 @@ const RevenueImpactSection: React.FC<{
                                 });
                             }}
                         >
-                            <div className="md:col-span-2 border border-[#dadce0] bg-white p-3 text-[11px] font-semibold leading-5 text-slate-600">
+                            <div className="md:col-span-2 border border-[#dadce0] bg-white p-3 text-xs leading-5 text-[#3c4043]">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="text-xs font-bold uppercase text-slate-700">RevenueCat setup checklist</div>
+                                    <div className="text-sm font-medium text-[#202124]">RevenueCat setup checklist</div>
                                     <a
                                         href="https://www.revenuecat.com/docs/api-v2"
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-[#576cdb] hover:text-black"
+                                        className="inline-flex items-center gap-1 text-xs font-medium text-[#1a73e8] hover:text-[#1765cc] hover:underline"
                                     >
                                         API v2 docs
                                         <ExternalLink className="h-3 w-3" />
@@ -2246,30 +2244,30 @@ const RevenueImpactSection: React.FC<{
                                 </div>
                             </div>
                             <label className="space-y-1">
-                                <span className="dashboard-label">RevenueCat project ID</span>
+                                <span className={`block ${dashboardLabelClass}`}>RevenueCat project ID</span>
                                 <input
                                     value={revenueCatProjectId}
                                     onChange={(event) => setRevenueCatProjectId(event.target.value)}
                                     type="text"
                                     required
                                     placeholder="proj..."
-                                    className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                    className={dashboardFieldClass}
                                 />
-                                <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                <span className="block text-xs leading-4 text-[#5f6368]">
                                     Find it in RevenueCat Project settings or the RevenueCat API URL.
                                 </span>
                             </label>
                             <label className="space-y-1 md:col-span-2">
-                                <span className="dashboard-label">V2 charts_metrics:overview:read + charts_metrics:charts:read API key</span>
+                                <span className={`block ${dashboardLabelClass}`}>V2 charts_metrics:overview:read + charts_metrics:charts:read API key</span>
                                 <input
                                     value={revenueCatApiKey}
                                     onChange={(event) => setRevenueCatApiKey(event.target.value)}
                                     type="password"
                                     required
                                     placeholder="sk_..."
-                                    className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                    className={dashboardFieldClass}
                                 />
-                                <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                <span className="block text-xs leading-4 text-[#5f6368]">
                                     Use a server-side secret key only; it stays encrypted in Rejourney.
                                 </span>
                             </label>
@@ -2277,7 +2275,7 @@ const RevenueImpactSection: React.FC<{
                                 <button
                                     type="submit"
                                     disabled={isActionLoading}
-                                    className="inline-flex h-8 items-center gap-1.5 border border-black bg-black px-3 text-[10px] font-black uppercase text-white transition hover:bg-[#576cdb] disabled:cursor-wait disabled:opacity-70"
+                                    className={dashboardButtonClass('primary', 'sm')}
                                 >
                                     <Check className="h-3.5 w-3.5" />
                                     Connect RevenueCat
@@ -2298,12 +2296,12 @@ const RevenueImpactSection: React.FC<{
                         >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
-                                    <div className="text-xs font-bold uppercase text-slate-500">Custom revenue mapping</div>
-                                    <div className="mt-1 text-xs font-semibold text-slate-500">
+                                    <div className="text-sm font-medium text-[#202124]">Custom revenue mapping</div>
+                                    <div className="mt-1 text-xs text-[#5f6368]">
                                         Match the purchase event from your SDK docs example to the fields below.
                                     </div>
                                 </div>
-                                <span className="border border-[#dadce0] bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">
+                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                     {customEventOptions.length} detected
                                 </span>
                             </div>
@@ -2321,15 +2319,15 @@ const RevenueImpactSection: React.FC<{
                                             description="Defaults to the AI setup prompt. Change this only if your app already emits a different money-collected event."
                                         />
                                         <label className="space-y-1">
-                                            <span className="dashboard-label">Amount property</span>
+                                            <span className={`block ${dashboardLabelClass}`}>Amount property</span>
                                             <input
                                                 value={customConfig.revenueAmountProperty}
                                                 onChange={(event) => setCustomConfig((current) => ({ ...current, revenueAmountProperty: event.target.value }))}
                                                 required
                                                 placeholder="amount"
-                                                className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                                className={dashboardFieldClass}
                                             />
-                                            <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                            <span className="block text-xs leading-4 text-[#5f6368]">
                                                 The numeric property on that event, usually amount.
                                             </span>
                                         </label>
@@ -2337,45 +2335,45 @@ const RevenueImpactSection: React.FC<{
 
                                     <div className="grid gap-3 md:grid-cols-3">
                                     <label className="space-y-1">
-                                        <span className="dashboard-label">Currency property</span>
+                                        <span className={`block ${dashboardLabelClass}`}>Currency property</span>
                                         <input
                                             value={customConfig.revenueCurrencyProperty}
                                             onChange={(event) => setCustomConfig((current) => ({ ...current, revenueCurrencyProperty: event.target.value }))}
                                             required
                                             placeholder="currency"
-                                            className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                            className={dashboardFieldClass}
                                         />
-                                        <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                        <span className="block text-xs leading-4 text-[#5f6368]">
                                             Leave as currency if your event sends USD, EUR, etc.
                                         </span>
                                     </label>
                                     <label className="space-y-1">
-                                        <span className="dashboard-label">Default currency</span>
+                                        <span className={`block ${dashboardLabelClass}`}>Default currency</span>
                                         <input
                                             value={customConfig.defaultCurrency}
                                             onChange={(event) => setCustomConfig((current) => ({ ...current, defaultCurrency: event.target.value }))}
                                             required
                                             placeholder="usd"
-                                            className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold uppercase outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                            className={`${dashboardFieldClass} uppercase`}
                                         />
-                                        <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                        <span className="block text-xs leading-4 text-[#5f6368]">
                                             Used when the event has no currency property.
                                         </span>
                                     </label>
                                     <label className="space-y-1">
-                                        <span className="dashboard-label">Amount unit</span>
+                                        <span className={`block ${dashboardLabelClass}`}>Amount unit</span>
                                         <div className="relative">
                                             <select
                                                 value={customConfig.amountUnit}
                                                 onChange={(event) => setCustomConfig((current) => ({ ...current, amountUnit: event.target.value === 'minor' ? 'minor' : 'major' }))}
-                                                className="h-9 w-full appearance-none border border-[#dadce0] bg-white py-0 pl-2 pr-8 text-sm font-semibold outline-none focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                                className={`${dashboardFieldClass} appearance-none py-0 pr-8`}
                                             >
                                                 <option value="major">Dollars (29.99)</option>
                                                 <option value="minor">Cents (2999)</option>
                                             </select>
-                                            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+                                            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5f6368]" aria-hidden />
                                         </div>
-                                        <span className="block text-[11px] font-semibold leading-4 text-slate-500">
+                                        <span className="block text-xs leading-4 text-[#5f6368]">
                                             Use dollars for 29.99, cents for 2999.
                                         </span>
                                     </label>
@@ -2384,34 +2382,34 @@ const RevenueImpactSection: React.FC<{
 
                                 <div className="border border-[#dadce0] bg-white p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="text-xs font-bold uppercase text-slate-500">Expected event shape</div>
+                                        <div className="text-sm font-medium text-[#202124]">Expected event shape</div>
                                     </div>
-                                    <div className="mt-2 border border-[#1a73e8] bg-[#eff6ff] p-2">
-                                        <div className="text-[11px] font-bold uppercase text-[#174ea6]">Need help wiring this into your app?</div>
-                                        <div className="mt-1 text-[11px] font-semibold leading-5 text-slate-600">
+                                    <div className="mt-2 border border-[#d2e3fc] bg-[#e8f0fe] p-3">
+                                        <div className="text-xs font-medium text-[#1967d2]">Need help wiring this into your app?</div>
+                                        <div className="mt-1 text-xs leading-5 text-[#3c4043]">
                                             Copy a setup prompt for an AI coding tool. It includes Web, React Native, and Swift examples plus purchase, refund, trial, subscription, cancellation, and per-user conversion events.
                                         </div>
                                         <button
                                             type="button"
                                             onClick={handleCopyCustomRevenueAiPrompt}
-                                            className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 border border-[#1a73e8] bg-[#1a73e8] px-3 text-[10px] font-black uppercase text-white transition hover:border-black hover:bg-black disabled:cursor-wait disabled:opacity-70"
+                                            className={`${dashboardButtonClass('primary', 'sm')} mt-2 w-full`}
                                             title="Copy a setup prompt for AI coding tools"
                                         >
                                             <Copy className="h-3.5 w-3.5" />
-                                            {copiedCustomSetupPrompt ? 'Prompt copied' : 'Copy setup prompt for Web, React Native, Swift'}
+                                            {copiedCustomSetupPrompt ? 'Prompt copied' : 'Copy setup prompt'}
                                         </button>
                                     </div>
-                                    <pre className="mt-2 overflow-x-auto whitespace-pre rounded-none border border-[#e8eaed] bg-[#f8fafc] p-3 font-mono text-[11px] font-semibold leading-5 text-slate-800">
+                                    <pre className="mt-2 overflow-x-auto whitespace-pre border border-[#e8eaed] bg-[#f8fafd] p-3 font-mono text-[11px] leading-5 text-[#202124]">
                                         {customRevenueSnippet}
                                     </pre>
-                                    <div className="mt-2 text-[11px] font-semibold leading-5 text-slate-500">
+                                    <div className="mt-2 text-xs leading-5 text-[#5f6368]">
                                         Revenue reads {customRevenueAmountField} from event properties or payload. With the selected unit, the example amount is {customRevenueAmountExample}.
                                     </div>
                                 </div>
                             </div>
 
                             <details className="border-t border-[#e8eaed] pt-3">
-                                <summary className="cursor-pointer select-none text-xs font-bold uppercase text-slate-500">
+                                <summary className="cursor-pointer select-none text-sm font-medium text-[#3c4043] hover:text-[#202124]">
                                     Optional refund and lifecycle counters
                                 </summary>
                                 <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -2428,7 +2426,7 @@ const RevenueImpactSection: React.FC<{
                                 </div>
                             </details>
 
-                            <div className="border border-[#dadce0] bg-white px-3 py-2 text-[11px] font-semibold leading-5 text-slate-600">
+                            <div className="border border-[#dadce0] bg-white px-3 py-2 text-xs leading-5 text-[#5f6368]">
                                 Matching is case-insensitive for event names. Property names must match your SDK event payload exactly.
                             </div>
 
@@ -2436,7 +2434,7 @@ const RevenueImpactSection: React.FC<{
                                 <button
                                     type="submit"
                                     disabled={isActionLoading}
-                                    className="inline-flex h-8 items-center gap-1.5 border border-black bg-black px-3 text-[10px] font-black uppercase text-white transition hover:bg-[#1a73e8] disabled:cursor-wait disabled:opacity-70"
+                                    className={dashboardButtonClass('primary', 'sm')}
                                 >
                                     <Check className="h-3.5 w-3.5" />
                                     Save revenue mapping
@@ -2454,14 +2452,14 @@ const RevenueImpactSection: React.FC<{
 
         return (
             <div className="border-t border-[#e8eaed] pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold text-slate-500">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#5f6368]">
                     <div className="min-w-0">
-                        <span className="font-bold uppercase text-slate-600">Starting revenue</span>
-                        <span className="mx-2 text-slate-300">/</span>
+                        <span className="font-medium text-[#3c4043]">Starting revenue</span>
+                        <span className="mx-2 text-[#dadce0]">/</span>
                         {startingRevenueEntry ? (
-                            <span className="text-slate-700">
+                            <span className="font-medium tabular-nums text-[#202124]">
                                 {formatCurrencyMinor(startingRevenueAmountCents, startingRevenueCurrency)}
-                                <span className="ml-1 text-slate-400">baseline before Rejourney tracking</span>
+                                <span className="ml-1 font-normal text-[#5f6368]">baseline before Rejourney tracking</span>
                             </span>
                         ) : (
                             <span>Add one baseline amount if you already had revenue before tracking.</span>
@@ -2473,7 +2471,7 @@ const RevenueImpactSection: React.FC<{
                                 type="button"
                                 onClick={() => handleOpenManualEntryForm(startingRevenueEntry ?? undefined)}
                                 disabled={isActionLoading}
-                                className="inline-flex h-7 items-center gap-1 border border-[#dadce0] bg-white px-2 text-[10px] font-black uppercase text-slate-700 transition hover:border-black hover:text-black disabled:cursor-wait disabled:opacity-70"
+                                className={dashboardButtonClass('secondary', 'sm')}
                             >
                                 {startingRevenueEntry ? <Pencil className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                                 {startingRevenueEntry ? 'Adjust' : 'Set'}
@@ -2483,7 +2481,7 @@ const RevenueImpactSection: React.FC<{
                                     type="button"
                                     onClick={() => handleDeleteManualEntry(startingRevenueEntry)}
                                     disabled={isActionLoading}
-                                    className="inline-flex h-7 items-center gap-1 border border-transparent bg-white px-2 text-[10px] font-black uppercase text-slate-400 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-wait disabled:opacity-70"
+                                    className={dashboardButtonClass('secondary', 'sm')}
                                 >
                                     <Trash2 className="h-3 w-3" />
                                     Clear
@@ -2494,39 +2492,39 @@ const RevenueImpactSection: React.FC<{
                 </div>
 
                 {isManualFormOpen && canManage && (
-                    <form className="mt-3 grid gap-3 border border-[#dadce0] bg-[#f8fafc] p-3 md:grid-cols-[minmax(0,1fr)_120px] lg:grid-cols-[minmax(0,220px)_120px_minmax(0,1fr)_auto]" onSubmit={handleSubmitManualEntry}>
+                    <form className="mt-3 grid gap-3 border border-[#dadce0] bg-[#f8fafd] p-3 md:grid-cols-[minmax(0,1fr)_120px] lg:grid-cols-[minmax(0,220px)_120px_minmax(0,1fr)_auto]" onSubmit={handleSubmitManualEntry}>
                         <label className="space-y-1">
-                            <span className="dashboard-label">Starting revenue</span>
+                            <span className={`block ${dashboardLabelClass}`}>Starting revenue</span>
                             <input
                                 value={manualEntryAmount}
                                 onChange={(event) => setManualEntryAmount(event.target.value)}
                                 placeholder="1299.00"
                                 inputMode="decimal"
                                 required
-                                className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                className={`${dashboardFieldClass} tabular-nums`}
                             />
                         </label>
                         <label className="space-y-1">
-                            <span className="dashboard-label">Currency</span>
+                            <span className={`block ${dashboardLabelClass}`}>Currency</span>
                             <input
                                 value={manualEntryCurrency}
                                 onChange={(event) => setManualEntryCurrency(event.target.value.toUpperCase())}
                                 maxLength={3}
                                 required
-                                className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold uppercase outline-none focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                className={`${dashboardFieldClass} uppercase`}
                             />
                         </label>
                         <label className="space-y-1 md:col-span-2 lg:col-span-1">
-                            <span className="dashboard-label">Note</span>
+                            <span className={`block ${dashboardLabelClass}`}>Note</span>
                             <input
                                 value={manualEntryNote}
                                 onChange={(event) => setManualEntryNote(event.target.value)}
                                 placeholder="Initial revenue before Rejourney tracking"
-                                className="h-9 w-full border border-[#dadce0] bg-white px-2 text-sm font-semibold outline-none placeholder:text-slate-400 focus:border-black focus:ring-2 focus:ring-cyan-100"
+                                className={dashboardFieldClass}
                             />
                         </label>
                         {manualEntryError && (
-                            <div className="border border-rose-300 bg-[#fecaca] px-3 py-2 text-xs font-bold text-rose-950 md:col-span-2 lg:col-span-4">
+                            <div className="border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-xs text-[#a50e0e] md:col-span-2 lg:col-span-4">
                                 {manualEntryError}
                             </div>
                         )}
@@ -2534,7 +2532,7 @@ const RevenueImpactSection: React.FC<{
                             <button
                                 type="submit"
                                 disabled={isActionLoading}
-                                className="inline-flex h-8 items-center gap-1.5 border border-black bg-black px-3 text-[10px] font-black uppercase text-white transition hover:bg-[#1a73e8] disabled:cursor-wait disabled:opacity-70"
+                                className={dashboardButtonClass('primary', 'sm')}
                             >
                                 <Check className="h-3.5 w-3.5" />
                                 Save baseline
@@ -2542,7 +2540,7 @@ const RevenueImpactSection: React.FC<{
                             <button
                                 type="button"
                                 onClick={handleCancelManualEntry}
-                                className="inline-flex h-8 items-center gap-1.5 border border-[#dadce0] bg-white px-3 text-[10px] font-black uppercase text-slate-700 transition hover:border-black hover:text-black"
+                                className={dashboardButtonClass('secondary', 'sm')}
                             >
                                 Cancel
                             </button>
@@ -2555,7 +2553,6 @@ const RevenueImpactSection: React.FC<{
 
     return (
         <section className="rejourney-general-card flex min-w-0 flex-col border border-[#dadce0] bg-white shadow-none">
-            <div className="h-1 bg-[#67e8f9] rounded-t-[7px]" />
             <div className="flex min-h-0 flex-col p-4 sm:p-5">
                 <div
                     className={`flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${isCollapsed ? '' : 'mb-4 border-b border-[#e8eaed] pb-3'}`}
@@ -2566,16 +2563,16 @@ const RevenueImpactSection: React.FC<{
                                 Revenue impact
                             </h2>
                             {activeProviderMeta && (
-                                <span className="border border-[#dadce0] bg-[#f8fafc] px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                                <span className={dashboardChipClass('neutral')}>
                                     {activeProviderMeta.shortLabel}
                                 </span>
                             )}
-                            <span className={`border px-2 py-0.5 text-[10px] font-bold uppercase leading-none ${statusClass}`}>
+                            <span className={statusClass}>
                                 {statusLabel}
                             </span>
                         </div>
                         {showRevenueDataView && (
-                            <div className="mt-1 truncate text-[11px] font-semibold text-slate-500" title={accountLabel}>
+                            <div className="mt-1 truncate text-xs text-[#5f6368]" title={accountLabel}>
                                 {accountLabel}
                             </div>
                         )}
@@ -2592,7 +2589,7 @@ const RevenueImpactSection: React.FC<{
                                         value={currency ?? ''}
                                         onChange={(event) => onCurrencyChange(event.target.value || null)}
                                         aria-label="Revenue currency"
-                                        className="min-h-7 border border-black bg-white px-2 text-[10px] font-black uppercase text-black outline-none transition hover:bg-[#f8fafc] focus:ring-2 focus:ring-black"
+                                        className="h-8 rounded-none border border-[#dadce0] bg-white px-2 text-xs font-medium text-[#3c4043] outline-none transition-colors hover:bg-[#f8fafd] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                                     >
                                         {revenue.currencies.map((row) => (
                                             <option key={row.currency} value={row.currency}>
@@ -2612,7 +2609,7 @@ const RevenueImpactSection: React.FC<{
                                                 onSync(activeProvider);
                                             }}
                                             disabled={isActionLoading || status === 'syncing' || isSyncPending}
-                                            className="inline-flex min-h-7 items-center gap-1.5 border border-black bg-white px-2.5 text-[10px] font-black uppercase text-black transition hover:bg-[#ecfeff] disabled:cursor-not-allowed disabled:opacity-50"
+                                            className={dashboardButtonClass('secondary', 'sm')}
                                         >
                                             <RefreshCw className={`h-3.5 w-3.5 ${status === 'syncing' || isSyncPending ? 'animate-spin' : ''}`} />
                                             {status === 'syncing' || isSyncPending ? 'Syncing' : 'Sync'}
@@ -2625,7 +2622,7 @@ const RevenueImpactSection: React.FC<{
                                                 onDisconnect(activeProvider);
                                             }}
                                             disabled={isActionLoading || isDisconnectPending}
-                                            className="inline-flex min-h-7 items-center gap-1.5 border border-black bg-white px-2.5 text-[10px] font-black uppercase text-black transition hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-50"
+                                            className={dashboardButtonClass('secondary', 'sm')}
                                         >
                                             {isDisconnectPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
                                             {isDisconnectPending ? 'Disconnecting' : 'Disconnect'}
@@ -2640,7 +2637,11 @@ const RevenueImpactSection: React.FC<{
                                 onClick={() => setIsSettingsOpen((current) => !current)}
                                 aria-pressed={isSettingsOpen}
                                 title="Revenue source settings"
-                                className="inline-flex h-7 w-7 items-center justify-center border border-black bg-white text-black transition hover:bg-[#ecfeff]"
+                                className={`inline-flex h-8 w-8 items-center justify-center border transition-colors ${
+                                    isSettingsOpen
+                                        ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+                                        : 'border-[#dadce0] bg-white text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'
+                                }`}
                             >
                                 <Settings className="h-3.5 w-3.5" aria-hidden />
                                 <span className="sr-only">Revenue source settings</span>
@@ -2652,7 +2653,7 @@ const RevenueImpactSection: React.FC<{
                             aria-expanded={!isCollapsed}
                             aria-controls={revenueBodyId}
                             title={isCollapsed ? 'Expand revenue impact' : 'Collapse revenue impact'}
-                            className="inline-flex h-7 w-7 items-center justify-center border border-black bg-white text-black transition hover:bg-[#ecfeff]"
+                            className="inline-flex h-8 w-8 items-center justify-center border border-[#dadce0] bg-white text-[#5f6368] transition-colors hover:bg-[#f8fafd] hover:text-[#202124]"
                         >
                             <ChevronDown className={`h-4 w-4 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} aria-hidden />
                             <span className="sr-only">{isCollapsed ? 'Expand revenue impact' : 'Collapse revenue impact'}</span>
@@ -2679,15 +2680,15 @@ const RevenueImpactSection: React.FC<{
                                 </div>
                             </div>
                         ) : error ? (
-                            <div className="border-2 border-black bg-[#fecaca] px-3 py-2 text-sm font-bold text-black">
+                            <div className="border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-sm text-[#a50e0e]">
                                 {error}
                             </div>
                         ) : !showRevenueDataView ? (
                             <div className="space-y-4">
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                     <div>
-                                        <div className="text-sm font-semibold text-[#202124]">Revenue tracking is not connected</div>
-                                        <div className="mt-1 text-xs font-semibold text-slate-500">
+                                        <div className="text-sm font-medium text-[#202124]">Revenue tracking is not connected</div>
+                                        <div className="mt-1 text-xs text-[#5f6368]">
                                             {canManage ? 'Choose one source for the General revenue chart.' : 'Ask an admin to connect revenue tracking.'}
                                         </div>
                                     </div>
@@ -2699,23 +2700,23 @@ const RevenueImpactSection: React.FC<{
                         ) : (
                             <div className="space-y-4">
                                 {actionMessage && (
-                                    <div className="flex items-center gap-2 border border-cyan-300 bg-[#cffafe] px-3 py-2 text-xs font-bold text-slate-950" aria-live="polite">
+                                    <div className="flex items-center gap-2 border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2 text-xs font-medium text-[#1967d2]" aria-live="polite">
                                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                                         {actionMessage}
                                     </div>
                                 )}
                                 {isSettingsOpen && canManage && renderSettingsPanel()}
 
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-[#e8eaed] pb-4 sm:grid-cols-3 lg:grid-cols-6">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-[#e8eaed] pb-4 sm:grid-cols-3 xl:grid-cols-6">
                                     <div className="col-span-2 min-w-0 sm:col-span-1">
                                         <span className="dashboard-label">Gross revenue</span>
-                                        <div className="mt-1 whitespace-nowrap text-2xl font-medium leading-tight text-[#202124]">
+                                        <div className="mt-1 whitespace-nowrap text-2xl font-medium leading-tight tabular-nums text-[#202124]">
                                             {formatCurrencyMinor(revenue?.summary.grossAmountCents ?? 0, currency)}
                                         </div>
                                     </div>
                                     <div className="min-w-0">
                                         <span className="dashboard-label">Change</span>
-                                        <div className={`mt-1 break-words text-[1.35rem] font-medium leading-tight ${changeClass}`}>
+                                        <div className={`mt-1 break-words text-[1.35rem] font-medium leading-tight tabular-nums ${changeClass}`}>
                                             {formatRevenueChange(grossChange)}
                                         </div>
                                     </div>
@@ -2725,7 +2726,7 @@ const RevenueImpactSection: React.FC<{
                                     </div>
                                     <div className="min-w-0">
                                         <span className="dashboard-label">Refunds</span>
-                                        <div className="dashboard-value-md mt-1 break-words">
+                                        <div className="dashboard-value-md mt-1 whitespace-nowrap">
                                             {formatCurrencyMinor(revenue?.summary.refundAmountCents ?? 0, currency)}
                                         </div>
                                     </div>
@@ -2735,46 +2736,46 @@ const RevenueImpactSection: React.FC<{
                                     </div>
                                     <div className="min-w-0">
                                         <span className="dashboard-label">Synced</span>
-                                        <div className="mt-1 break-words text-sm font-semibold text-[#202124]">
+                                        <div className="mt-1 break-words text-sm font-medium text-[#202124]">
                                             {formatSyncTime(revenue?.connection.lastSyncCompletedAt ?? revenue?.connection.lastSyncStartedAt)}
                                         </div>
                                     </div>
                                 </div>
 
                                 {status === 'syncing' && (
-                                    <div className="border border-cyan-300 bg-[#cffafe] px-3 py-2 text-xs font-bold text-slate-950">
+                                    <div className="border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2 text-xs font-medium text-[#1967d2]">
                                         Revenue sync is running in the background. You can refresh, switch pages, or leave this page; the import will continue.
                                         {syncPreviewLabel && (
-                                            <span className="mt-1 block text-slate-700">{syncPreviewLabel}. {syncScanLabel}.</span>
+                                            <span className="mt-1 block font-normal text-[#3c4043]">{syncPreviewLabel}. {syncScanLabel}.</span>
                                         )}
                                     </div>
                                 )}
 
                                 {status === 'disconnected' && (
-                                    <div className="border border-amber-300 bg-[#fef3c7] px-3 py-2 text-xs font-bold text-amber-950">
+                                    <div className="border border-[#feefc3] bg-[#fef7e0] px-3 py-2 text-xs font-medium text-[#b06000]">
                                         Revenue source is disconnected. Historical revenue remains visible.
                                     </div>
                                 )}
 
                                 {status === 'error' && revenue?.connection.lastSyncError && (
-                                    <div className="border-2 border-black bg-[#fecaca] px-3 py-2 text-sm font-bold text-black">
+                                    <div className="border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-sm text-[#a50e0e]">
                                         {revenue.connection.lastSyncError}
                                     </div>
                                 )}
 
                                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                                     <div className="flex min-w-0 items-center gap-2">
-                                        <span className="text-sm font-semibold text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">Revenue trend</span>
+                                        <span className="text-sm font-medium text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">Revenue trend</span>
                                         {currency && (
-                                            <span className="border border-[#dadce0] bg-[#f8fafc] px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">
-                                                {currency}
+                                            <span className={dashboardChipClass('neutral')}>
+                                                {currency.toUpperCase()}
                                             </span>
                                         )}
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5f6368]">
                                         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#1a73e8]" /> Gross</span>
                                         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#34a853]" /> Net</span>
-                                        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#f9a8d4]" /> Refunds</span>
+                                        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: REVENUE_REFUND_COLOR }} /> Refunds</span>
                                     </div>
                                 </div>
 
@@ -2801,13 +2802,13 @@ const RevenueImpactSection: React.FC<{
                                                     cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '4 4' }}
                                                     content={<RevenueImpactTooltip currency={currency} releaseMarkers={releaseMarkers} />}
                                                 />
-                                                <Bar dataKey="refundAmountCents" name="Refunds" fill="#f9a8d4" barSize={8} isAnimationActive={false} />
+                                                <Bar dataKey="refundAmountCents" name="Refunds" fill={REVENUE_REFUND_COLOR} barSize={8} isAnimationActive={false} />
                                                 <Area
                                                     type="monotone"
                                                     dataKey="grossAmountCents"
                                                     name="Gross revenue"
                                                     stroke="#1a73e8"
-                                                    fill="#dbeafe"
+                                                    fill="#e8f0fe"
                                                     strokeWidth={2.4}
                                                     dot={false}
                                                     activeDot={{ r: 4, stroke: '#ffffff', strokeWidth: 2, fill: '#1a73e8' }}
@@ -2827,7 +2828,7 @@ const RevenueImpactSection: React.FC<{
                                                     <ReferenceLine
                                                         key={`revenue-version-${marker.version}-${marker.dateKey}`}
                                                         x={marker.dateKey}
-                                                        stroke="#334155"
+                                                        stroke={VERSION_MARKER_STROKE}
                                                         strokeDasharray="4 4"
                                                         strokeWidth={1.4}
                                                         ifOverflow="extendDomain"
@@ -2837,25 +2838,25 @@ const RevenueImpactSection: React.FC<{
                                             </ComposedChart>
                                         </ResponsiveContainer>
                                     ) : isRevenueSyncInProgress ? (
-                                        <div className="flex h-full items-center justify-center border-2 border-dashed border-cyan-300 bg-[#ecfeff] p-4 text-center">
+                                        <div className="flex h-full items-center justify-center border border-dashed border-[#dadce0] bg-[#f8fafd] p-4 text-center">
                                             <div className="max-w-lg">
                                                 <RefreshCw className="mx-auto h-6 w-6 animate-spin text-[#1a73e8]" />
-                                                <div className="mt-3 text-sm font-bold text-slate-950">Syncing revenue data</div>
-                                                <div className="mt-1 text-xs font-semibold leading-5 text-slate-600">
+                                                <div className="mt-3 text-sm font-medium text-[#202124]">Syncing revenue data</div>
+                                                <div className="mt-1 text-xs leading-5 text-[#3c4043]">
                                                     {syncPreviewLabel || (activeProvider === 'custom_events'
                                                         ? 'Looking for mapped purchase events in your sessions.'
                                                         : 'Backfilling provider revenue rows.')}
                                                 </div>
                                                 {syncScanLabel && (
-                                                    <div className="mt-1 text-[11px] font-semibold text-slate-500">{syncScanLabel}.</div>
+                                                    <div className="mt-1 text-xs text-[#5f6368]">{syncScanLabel}.</div>
                                                 )}
-                                                <div className="mt-2 text-[11px] font-bold text-slate-700">
+                                                <div className="mt-2 text-xs text-[#5f6368]">
                                                     Safe to refresh, switch projects, or leave this page. Sync continues in the background.
                                                 </div>
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="flex h-full items-center justify-center border-2 border-dashed border-[#dadce0] bg-[#f8fafc] p-4 text-center text-sm font-semibold text-slate-500">
+                                        <div className="flex h-full items-center justify-center border border-dashed border-[#dadce0] bg-[#f8fafd] p-4 text-center text-sm text-[#5f6368]">
                                             {revenueSyncEmptyText}
                                         </div>
                                     )}
@@ -3335,7 +3336,7 @@ export const GeneralOverview: React.FC = () => {
         return Object.keys(versionChartData[0]).filter((key) => key !== 'dateKey');
     }, [versionChartData]);
 
-    const versionColors = ['#1a73e8', '#5dadec', '#f9a8d4', '#1e8e3e', '#9334e6', '#0f766e'];
+    const versionColors = ['#1a73e8', '#12b5cb', '#e52592', '#1e8e3e', '#9334e6', '#e8710a'];
 
     const trendVersionMarkers = useMemo(
         () => buildVersionReleaseMarkersForDateKeys(
@@ -4005,13 +4006,13 @@ export const GeneralOverview: React.FC = () => {
 
             <div className="mx-auto w-full max-w-[1560px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6">
                 {!selectedProject?.id && (
-                    <div className="border-2 border-black bg-[#f9a8d4] p-4 text-sm font-extrabold text-black shadow-neo">
+                    <div className="border border-[#d2e3fc] bg-[#e8f0fe] px-4 py-3 text-sm text-[#1967d2]">
                         Select a project to view general diagnostics.
                     </div>
                 )}
 
                 {partialError && (
-                    <div className="border-2 border-black bg-[#f9a8d4] p-4 text-sm font-bold text-black shadow-neo-sm">
+                    <div className="border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
                         {partialError}
                     </div>
                 )}
@@ -4041,14 +4042,14 @@ export const GeneralOverview: React.FC = () => {
                 )}
 
                 {showSetupEmptyState && (
-                    <div className="dashboard-surface overflow-hidden rounded-lg border border-[#dadce0] bg-white shadow-sm">
+                    <div className="dashboard-surface overflow-hidden rounded-none border border-[#dadce0] bg-white">
                         <div className="border-b border-[#dadce0] bg-[#e6f4ea] px-4 py-4 sm:px-5">
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase text-[#137333]">
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-[#137333]">
                                 <Info className="h-4 w-4 shrink-0" aria-hidden />
                                 New project setup
                             </div>
-                            <h3 className="mt-2 text-lg font-semibold text-[#202124]">No analytics yet - connect your project first</h3>
-                            <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[#3c4043]">
+                            <h3 className="mt-2 text-lg font-medium text-[#202124]">No analytics yet. Connect your project first.</h3>
+                            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#3c4043]">
                                 Once your first SDK sends data, this General dashboard will populate automatically.
                                 Open the guided setup page to invite teammates, create a handoff, or copy the AI prompt.
                             </p>
@@ -4057,16 +4058,15 @@ export const GeneralOverview: React.FC = () => {
                         <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-[1.1fr,0.9fr,0.8fr]">
                             <Link
                                 to={`${pathPrefix}/setup`}
-                                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#1d4ed8] bg-[#1a73e8] px-4 py-3 text-center text-sm font-bold leading-snug !text-white shadow-sm transition-colors hover:border-[#1e40af] hover:bg-[#2563eb]"
-                                style={{ color: '#ffffff' }}
+                                className={`${dashboardButtonClass('primary', 'lg')} min-h-12 px-4 py-3 text-center leading-snug`}
                             >
-                                <Wrench className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                                <span className="text-white">Open setup wizard</span>
+                                <Wrench className="h-4 w-4 shrink-0" aria-hidden />
+                                Open setup wizard
                             </Link>
                             <button
                                 type="button"
                                 onClick={handleCopyIntegrationPrompt}
-                                className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#202124] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                className={`${dashboardButtonClass('secondary', 'lg')} min-h-12 px-4 py-3 text-center leading-snug`}
                             >
                                 <BookOpen className="h-4 w-4 shrink-0" />
                                 {copiedDocsPrompt ? 'AI prompt copied' : 'Copy AI prompt'}
@@ -4075,7 +4075,7 @@ export const GeneralOverview: React.FC = () => {
                                 href="/docs"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-4 py-3 text-center text-sm font-semibold leading-snug text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                className={`${dashboardButtonClass('secondary', 'lg')} min-h-12 px-4 py-3 text-center leading-snug`}
                             >
                                 <ExternalLink className="h-4 w-4 shrink-0" />
                                 Docs
@@ -4089,9 +4089,9 @@ export const GeneralOverview: React.FC = () => {
                         <div className="soft-border-scope space-y-4 sm:space-y-5">
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                                 {isTrendsLoading ? (
-                                    <GA4CardGhost title="User activity over time" className="xl:col-span-5" accentClassName="bg-[#67e8f9]" minHeight="210px" />
+                                    <GA4CardGhost title="User activity over time" className="xl:col-span-5" minHeight="210px" />
                                 ) : (
-                                <GA4Card title="User activity over time" className="xl:col-span-5" accentClassName="bg-[#67e8f9]">
+                                <GA4Card title="User activity over time" className="xl:col-span-5">
                                 <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
                                         <span className="dashboard-label">Latest DAU</span>
@@ -4119,14 +4119,14 @@ export const GeneralOverview: React.FC = () => {
                                                 wrapperStyle={VERSION_TOOLTIP_WRAPPER_STYLE}
                                                 content={<VersionAwareChartTooltip releaseMarkers={trendVersionMarkers} />}
                                             />
-                                            <Line type="monotone" dataKey="sessions" stroke="#f9a8d4" strokeWidth={1.75} dot={false} name="Sessions" isAnimationActive={false} />
+                                            <Line type="monotone" dataKey="sessions" stroke="#12b5cb" strokeWidth={1.75} dot={false} name="Sessions" isAnimationActive={false} />
                                             <Line type="monotone" dataKey="dau" stroke="#1a73e8" strokeWidth={2} dot={false} name="DAU" isAnimationActive={false} />
                                             <Line type="monotone" dataKey="mau" stroke="#34a853" strokeWidth={1.5} dot={false} name="MAU" isAnimationActive={false} />
                                             {trendVersionMarkers.map((marker, index) => (
                                                 <ReferenceLine
                                                     key={`activity-version-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
-                                                    stroke="#334155"
+                                                    stroke={VERSION_MARKER_STROKE}
                                                     strokeDasharray="4 4"
                                                     strokeWidth={1.4}
                                                     ifOverflow="extendDomain"
@@ -4140,13 +4140,13 @@ export const GeneralOverview: React.FC = () => {
                                 )}
 
                                 {isTrendsLoading ? (
-                                    <GA4CardGhost title="Active users snapshot" className="xl:col-span-3" accentClassName="bg-[#86efac]" minHeight="210px" rows={3} />
+                                    <GA4CardGhost title="Active users snapshot" className="xl:col-span-3" minHeight="210px" rows={3} />
                                 ) : (
-                                <GA4Card title="Active users snapshot" className="xl:col-span-3" accentClassName="bg-[#86efac]">
+                                <GA4Card title="Active users snapshot" className="xl:col-span-3">
                                 <div className="mt-1 text-center">
-                                    <div className="text-3xl font-extrabold leading-none text-black">{formatCompact(activitySummary.latestDau)}</div>
+                                    <div className="text-3xl font-normal leading-none tabular-nums text-[#202124]">{formatCompact(activitySummary.latestDau)}</div>
                                     <div className="dashboard-label mt-2">Latest daily active users</div>
-                                    <div className="mt-1 text-[11px] font-bold text-slate-500">Estimated {activeUsersPerMinuteLabel} {activeUsersPerMinuteUnit}/min</div>
+                                    <div className="mt-1 text-xs text-[#5f6368]">Estimated {activeUsersPerMinuteLabel} {activeUsersPerMinuteUnit}/min</div>
                                 </div>
 
                                 <div className="mt-3 h-[80px]">
@@ -4158,15 +4158,15 @@ export const GeneralOverview: React.FC = () => {
                                                 labelFormatter={(value) => formatDateLabel(String(value))}
                                                 formatter={(value: number | undefined) => [formatCompact(value ?? 0), 'DAU']}
                                             />
-                                            <Area type="monotone" dataKey="dau" stroke="#1a73e8" fill="#dbeafe" strokeWidth={2} isAnimationActive={false} />
+                                            <Area type="monotone" dataKey="dau" stroke="#1a73e8" fill="#e8f0fe" strokeWidth={2} isAnimationActive={false} />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 </div>
 
-                                <div className="mt-3 border-t border-slate-100 pt-3">
-                                    <div className="mb-2 flex justify-between text-[10px] font-bold uppercase text-slate-400">
-                                        <span>TOP COUNTRIES</span>
-                                        <span>SESSIONS</span>
+                                <div className="mt-3 border-t border-[#e8eaed] pt-3">
+                                    <div className="mb-2 flex justify-between text-[11px] font-medium uppercase text-[#5f6368]">
+                                        <span>Top countries</span>
+                                        <span>Sessions</span>
                                     </div>
                                     {isGeoLoading ? (
                                         <div className="space-y-1.5">
@@ -4178,17 +4178,17 @@ export const GeneralOverview: React.FC = () => {
                                             ))}
                                         </div>
                                     ) : topCountries.length > 0 ? topCountries.map((country) => (
-                                        <div key={country.country} className="flex justify-between text-xs font-bold text-slate-700 py-0.5">
+                                        <div key={country.country} className="flex justify-between py-0.5 text-xs text-[#3c4043]">
                                             <span>{country.country}</span>
-                                            <span className="font-extrabold text-black">{formatCompact(country.count)}</span>
+                                            <span className="font-medium tabular-nums text-[#202124]">{formatCompact(country.count)}</span>
                                         </div>
                                     )) : (
-                                        <div className="text-[10px] font-bold text-slate-400">No geographic activity available for this filter.</div>
+                                        <div className="text-xs text-[#5f6368]">No geographic activity available for this filter.</div>
                                     )}
                                 </div>
 
                                 <div className="mt-3 text-right">
-                                    <Link to={`${pathPrefix}/geo`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
+                                    <Link to={`${pathPrefix}/geo`} className="text-xs font-medium text-[#1a73e8] transition-colors hover:text-[#1765cc] hover:underline">
                                         View geographic activity →
                                     </Link>
                                 </div>
@@ -4198,10 +4198,9 @@ export const GeneralOverview: React.FC = () => {
                                 <GA4Card
                                     title="Referral sources"
                                     className="xl:col-span-4"
-                                    accentClassName="bg-[#f9a8d4]"
                                     action={(
                                         <div className="flex flex-wrap items-center justify-end gap-2">
-                                            <div className="inline-flex overflow-hidden border border-black bg-white text-[10px] font-black uppercase">
+                                            <div className="inline-flex overflow-hidden border border-[#dadce0] bg-white text-xs font-medium">
                                                 {([
                                                     ['referrer', 'Referrers'],
                                                     ['utm', 'UTM'],
@@ -4211,7 +4210,7 @@ export const GeneralOverview: React.FC = () => {
                                                         type="button"
                                                         aria-pressed={referralSourceMode === mode}
                                                         onClick={() => setReferralSourceMode(mode)}
-                                                        className={`min-h-7 px-2.5 transition ${referralSourceMode === mode ? 'bg-black text-white' : 'text-black hover:bg-[#f8fafc]'}`}
+                                                        className={`h-7 border-l border-[#dadce0] px-2.5 transition-colors first:border-l-0 ${referralSourceMode === mode ? 'bg-[#e8f0fe] text-[#1967d2]' : 'text-[#3c4043] hover:bg-[#f1f3f4]'}`}
                                                     >
                                                         {label}
                                                     </button>
@@ -4223,37 +4222,37 @@ export const GeneralOverview: React.FC = () => {
                                                         value={referralUtmDimension}
                                                         onChange={(event) => setReferralUtmDimension(event.target.value as ReferralUtmDimension)}
                                                         aria-label="UTM dimension"
-                                                        className="min-h-7 appearance-none border border-black bg-white pl-2.5 pr-7 text-[10px] font-black uppercase text-black outline-none transition hover:bg-[#f8fafc] focus:ring-2 focus:ring-black"
+                                                        className="h-7 appearance-none rounded-none border border-[#dadce0] bg-white pl-2.5 pr-7 text-xs font-medium text-[#3c4043] outline-none transition-colors hover:bg-[#f8fafd] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                                                     >
                                                         {REFERRAL_UTM_DIMENSIONS.map((dimension) => (
                                                             <option key={dimension.key} value={dimension.key}>{dimension.label}</option>
                                                         ))}
                                                     </select>
-                                                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500" />
+                                                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#5f6368]" />
                                                 </div>
                                             ) : null}
                                         </div>
                                     )}
                                 >
                                 {isMobileLens ? (
-                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-[#5f6368]">
                                         Referral sources are only captured for web sessions. Mobile attribution will appear in the appropriate acquisition view.
                                     </div>
                                 ) : isReferralLoading && referralSummary.rows.length === 0 ? (
                                     <div className="space-y-2.5">
                                         {Array.from({ length: 8 }, (_, index) => (
                                             <div key={index} className="flex items-center gap-3">
-                                                <div className="h-8 w-8 animate-pulse border border-[#dadce0] bg-[#eef4ff]" />
-                                                <div className="h-5 flex-1 animate-pulse bg-[#f1f5f9]" />
+                                                <GhostBlock className="h-8 w-8 shrink-0" />
+                                                <GhostBlock className="h-5 flex-1" />
                                             </div>
                                         ))}
                                     </div>
                                 ) : referralSummary.rows.length > 0 ? (
                                     <div className="space-y-2">
                                         {referralSummary.rows.map((row) => (
-                                            <div key={row.key} className="group min-w-0">
+                                            <div key={row.key} className="min-w-0">
                                                 <div className="flex min-w-0 items-center gap-3">
-                                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-black bg-[#eef4ff] text-xs font-black uppercase text-black">
+                                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center bg-[#f1f3f4] text-xs font-medium uppercase text-[#5f6368]">
                                                         {row.source === DIRECT_REFERRAL_LABEL || row.source.startsWith('No UTM') ? (
                                                             <Globe2 className="h-4 w-4" />
                                                         ) : (
@@ -4262,15 +4261,15 @@ export const GeneralOverview: React.FC = () => {
                                                     </span>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex min-w-0 items-center justify-between gap-3">
-                                                            <span className="truncate text-sm font-semibold text-[#202124]" title={row.source}>{row.source}</span>
-                                                            <span className="shrink-0 font-mono text-xs font-semibold text-slate-500">{formatCompact(row.count)}</span>
+                                                            <span className="truncate text-sm text-[#202124]" title={row.source}>{row.source}</span>
+                                                            <span className="shrink-0 text-xs font-medium tabular-nums text-[#3c4043]">{formatCompact(row.count)}</span>
                                                         </div>
                                                         {row.detail ? (
-                                                            <div className="mt-0.5 truncate text-[10px] font-semibold uppercase text-slate-400" title={row.detail}>
+                                                            <div className="mt-0.5 truncate text-[11px] text-[#5f6368]" title={row.detail}>
                                                                 {row.detail}
                                                             </div>
                                                         ) : null}
-                                                        <div className="mt-1 h-1.5 border border-[#dadce0] bg-white">
+                                                        <div className="mt-1 h-1.5 bg-[#f1f3f4]">
                                                             <div className="h-full bg-[#1a73e8]" style={{ width: `${Math.max(6, row.share)}%` }} />
                                                         </div>
                                                     </div>
@@ -4279,7 +4278,7 @@ export const GeneralOverview: React.FC = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-[#5f6368]">
                                         {referralSourceMode === 'utm'
                                             ? `No web UTM ${REFERRAL_UTM_DIMENSION_META[referralUtmDimension].label.toLowerCase()} observed for this filter.`
                                             : 'No web referral sources observed for this filter.'}
@@ -4288,9 +4287,9 @@ export const GeneralOverview: React.FC = () => {
                                 </GA4Card>
 
                                 {isTrendsLoading ? (
-                                    <GA4CardGhost title="Active users by version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]" minHeight="210px" rows={3} />
+                                    <GA4CardGhost title="Active users by version" className="xl:col-span-4" minHeight="210px" rows={3} />
                                 ) : (
-                                <GA4Card title="Active users by version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]">
+                                <GA4Card title="Active users by version" className="xl:col-span-4">
                                 <div className="h-[180px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <LineChart data={versionChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -4316,18 +4315,18 @@ export const GeneralOverview: React.FC = () => {
                                 {versionKeys.length > 0 ? (
                                     <div className="mt-2 flex flex-wrap gap-3">
                                         {versionKeys.map((version, index) => (
-                                            <span key={version} className="flex items-center gap-1 text-[10px] text-slate-500">
+                                            <span key={version} className="flex items-center gap-1 text-[11px] text-[#5f6368]">
                                                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: versionColors[index % versionColors.length] }} />
                                                 {version}
                                             </span>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="mt-2 text-xs text-slate-400">No version data for this filter.</div>
+                                    <div className="mt-2 text-xs text-[#5f6368]">No version data for this filter.</div>
                                 )}
 
                                 <div className="mt-2 text-right">
-                                    <Link to={`${pathPrefix}/devices`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
+                                    <Link to={`${pathPrefix}/devices`} className="text-xs font-medium text-[#1a73e8] transition-colors hover:text-[#1765cc] hover:underline">
                                         View versions →
                                     </Link>
                                 </div>
@@ -4335,9 +4334,9 @@ export const GeneralOverview: React.FC = () => {
                                 )}
 
                                 {isEngagementLoading ? (
-                                    <GA4CardGhost title="User engagement mix" className="xl:col-span-8" accentClassName="bg-[#67e8f9]" minHeight="250px" />
+                                    <GA4CardGhost title="User engagement mix" className="xl:col-span-8" minHeight="250px" />
                                 ) : (
-                                <GA4Card title="User engagement mix" className="xl:col-span-8" accentClassName="bg-[#67e8f9]">
+                                <GA4Card title="User engagement mix" className="xl:col-span-8">
                                 <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
                                         <span className="dashboard-label">Latest tracked users</span>
@@ -4401,7 +4400,7 @@ export const GeneralOverview: React.FC = () => {
                                                         <ReferenceLine
                                                             key={`engagement-version-${marker.version}-${marker.dateKey}`}
                                                             x={marker.dateKey}
-                                                            stroke="#334155"
+                                                            stroke={VERSION_MARKER_STROKE}
                                                             strokeDasharray="4 4"
                                                             strokeWidth={1.4}
                                                             ifOverflow="extendDomain"
@@ -4414,7 +4413,7 @@ export const GeneralOverview: React.FC = () => {
 
                                         <div className="mt-3 flex flex-wrap gap-3">
                                             {ENGAGEMENT_SEGMENTS.slice().reverse().map((segment) => (
-                                                <span key={segment.key} className="flex items-center gap-1 text-[10px] text-slate-500">
+                                                <span key={segment.key} className="flex items-center gap-1 text-[11px] text-[#5f6368]">
                                                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: segment.color }} />
                                                     {segment.label}
                                                 </span>
@@ -4422,13 +4421,13 @@ export const GeneralOverview: React.FC = () => {
                                         </div>
 
                                         <div className="mt-2 text-right">
-                                            <Link to={`${pathPrefix}/journeys`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
+                                            <Link to={`${pathPrefix}/journeys`} className="text-xs font-medium text-[#1a73e8] transition-colors hover:text-[#1765cc] hover:underline">
                                                 View journey analytics →
                                             </Link>
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-[#5f6368]">
                                         No engagement segment rollups for this filter.
                                     </div>
                                 )}
@@ -4438,40 +4437,40 @@ export const GeneralOverview: React.FC = () => {
 
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                             {isDeepMetricsLoading ? (
-                                <GA4CardGhost title="Stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]" minHeight="120px" rows={3} />
+                                <GA4CardGhost title="Stability overview" className="xl:col-span-4" minHeight="120px" rows={3} />
                             ) : (
-                            <GA4Card title="Stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
+                            <GA4Card title="Stability overview" className="xl:col-span-4">
                                 <div className="-mx-1 overflow-x-auto px-1">
-                                    <table className="mt-1 min-w-[360px] w-full text-xs">
+                                    <table className="mt-1 w-full text-xs">
                                         <thead>
-                                            <tr className="border-b border-slate-200 text-[11px] text-black">
-                                                <th className="py-2 text-left font-medium">PROJECT</th>
-                                                <th className="py-2 text-right font-medium">CRASH-FREE</th>
-                                                <th className="py-2 text-right font-medium">ANR-FREE</th>
+                                            <tr className="border-b border-[#e8eaed] text-[11px] text-[#5f6368]">
+                                                <th className="py-2 pr-2 text-left font-medium">Project</th>
+                                                <th className="whitespace-nowrap py-2 pl-2 text-right font-medium">Crash-free</th>
+                                                <th className="whitespace-nowrap py-2 pl-2 text-right font-medium">ANR-free</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {platformBreakdown.length > 0 ? (
                                                 platformBreakdown.map((platformData) => (
-                                                    <tr key={platformData.platform} className="border-b border-slate-50">
-                                                        <td className="py-2 text-slate-700 capitalize">
-                                                            {selectedProject?.name ?? 'Project'} ({platformData.platform})
+                                                    <tr key={platformData.platform} className="border-b border-[#e8eaed] last:border-b-0">
+                                                        <td className="whitespace-normal break-words py-2 pr-2 text-[#3c4043]">
+                                                            {selectedProject?.name ?? 'Project'} ({formatSetupPlatform(platformData.platform)})
                                                         </td>
-                                                        <td className="py-2 text-right text-slate-700 font-medium">
+                                                        <td className="whitespace-nowrap py-2 pl-2 text-right font-medium tabular-nums text-[#202124]">
                                                             {platformData.crashFreeSessionRate !== null ? `${platformData.crashFreeSessionRate.toFixed(1)}%` : 'N/A'}
                                                         </td>
-                                                        <td className="py-2 text-right text-slate-700 font-medium">
+                                                        <td className="whitespace-nowrap py-2 pl-2 text-right font-medium tabular-nums text-[#202124]">
                                                             {platformData.anrFreeSessionRate !== null ? `${platformData.anrFreeSessionRate.toFixed(1)}%` : 'N/A'}
                                                         </td>
                                                     </tr>
                                                 ))
                                             ) : (
-                                                <tr className="border-b border-slate-50">
-                                                    <td className="py-2 text-slate-700">{selectedProject?.name ?? 'Project'}</td>
-                                                    <td className="py-2 text-right text-slate-700 font-medium">
+                                                <tr>
+                                                    <td className="whitespace-normal break-words py-2 pr-2 text-[#3c4043]">{selectedProject?.name ?? 'Project'}</td>
+                                                    <td className="whitespace-nowrap py-2 pl-2 text-right font-medium tabular-nums text-[#202124]">
                                                         {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
                                                     </td>
-                                                    <td className="py-2 text-right text-slate-700 font-medium">
+                                                    <td className="whitespace-nowrap py-2 pl-2 text-right font-medium tabular-nums text-[#202124]">
                                                         {anrFreeRate !== null ? `${anrFreeRate.toFixed(1)}%` : 'N/A'}
                                                     </td>
                                                 </tr>
@@ -4483,9 +4482,9 @@ export const GeneralOverview: React.FC = () => {
                             )}
 
                             {isTrendsLoading ? (
-                                <GA4CardGhost title="Average engagement time per active user" className="xl:col-span-4" accentClassName="bg-[#67e8f9]" minHeight="160px" rows={2} />
+                                <GA4CardGhost title="Average engagement time per active user" className="xl:col-span-4" minHeight="160px" rows={2} />
                             ) : (
-                            <GA4Card title="Average engagement time per active user" className="xl:col-span-4" accentClassName="bg-[#67e8f9]">
+                            <GA4Card title="Average engagement time per active user" className="xl:col-span-4">
                                 <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
                                     <div>
                                         <div className="dashboard-value-lg">{avgEngagementTime}</div>
@@ -4518,7 +4517,7 @@ export const GeneralOverview: React.FC = () => {
                                                 <ReferenceLine
                                                     key={`avg-engagement-version-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
-                                                    stroke="#334155"
+                                                    stroke={VERSION_MARKER_STROKE}
                                                     strokeDasharray="4 4"
                                                     strokeWidth={1.4}
                                                     ifOverflow="extendDomain"
@@ -4532,9 +4531,9 @@ export const GeneralOverview: React.FC = () => {
                             )}
 
                             {isTrendsLoading ? (
-                                <GA4CardGhost title="User retention" className="xl:col-span-4" accentClassName="bg-[#86efac]" minHeight="210px" rows={2} />
+                                <GA4CardGhost title="User retention" className="xl:col-span-4" minHeight="210px" rows={2} />
                             ) : (
-                            <GA4Card title="User retention" className="xl:col-span-4" accentClassName="bg-[#86efac]">
+                            <GA4Card title="User retention" className="xl:col-span-4">
                                 <div className="h-[180px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={retentionChartData} margin={{ top: 28, right: 8, left: -20, bottom: 0 }}>
@@ -4555,7 +4554,7 @@ export const GeneralOverview: React.FC = () => {
                                                 <ReferenceLine
                                                     key={`retention-version-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
-                                                    stroke="#334155"
+                                                    stroke={VERSION_MARKER_STROKE}
                                                     strokeDasharray="4 4"
                                                     strokeWidth={1.4}
                                                     ifOverflow="extendDomain"
@@ -4565,23 +4564,23 @@ export const GeneralOverview: React.FC = () => {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <div className="mt-1 text-center text-[10px] text-slate-400">
+                                <div className="mt-1 text-center text-[11px] text-[#5f6368]">
                                     Last {retentionChartData.length} points
                                 </div>
                             </GA4Card>
                             )}
 
                             {isRetentionLoading ? (
-                                <GA4CardGhost title="Retention cohorts" className="xl:col-span-12" accentClassName="bg-[#c4b5fd]" minHeight="190px" rows={4} />
+                                <GA4CardGhost title="Retention cohorts" className="xl:col-span-12" minHeight="190px" rows={4} />
                             ) : (
-                            <GA4Card title="Retention cohorts" className="xl:col-span-12" accentClassName="bg-[#c4b5fd]">
-                                <div className="mb-2 text-[10px] text-slate-400">
+                            <GA4Card title="Retention cohorts" className="xl:col-span-12">
+                                <div className="mb-2 text-xs text-[#5f6368]">
                                     Weekly user retention by first active week (Week 0 to Week 5)
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full border-separate border-spacing-0 text-[11px]">
                                         <thead>
-                                            <tr className="text-slate-500">
+                                            <tr className="text-[#5f6368]">
                                                 <th className="whitespace-nowrap py-1 pr-2 text-left font-medium">Cohort</th>
                                                 {Array.from({ length: RETENTION_COHORT_WEEKS }, (_, i) => (
                                                     <th key={`cohort-week-${i}`} className="whitespace-nowrap px-1 py-1 text-center font-medium">
@@ -4593,14 +4592,14 @@ export const GeneralOverview: React.FC = () => {
                                         <tbody>
                                             {retentionCohortTableRows.map((row) => (
                                                 <tr key={row.weekStartKey}>
-                                                    <td className="whitespace-nowrap py-1 pr-2 align-middle text-slate-700">
-                                                        <div className="font-semibold">{row.label}</div>
-                                                        <div className="text-[10px] text-slate-500">{formatCompact(row.users)} users</div>
+                                                    <td className="whitespace-nowrap py-1 pr-2 align-middle text-[#3c4043]">
+                                                        <div className="font-medium text-[#202124]">{row.label}</div>
+                                                        <div className="text-[11px] tabular-nums text-[#5f6368]">{formatCompact(row.users)} users</div>
                                                     </td>
                                                     {row.retention.map((value, weekIdx) => (
                                                         <td key={`${row.weekStartKey}-${weekIdx}`} className="px-1 py-1">
                                                             <div
-                                                                className="flex h-8 min-w-[62px] items-center justify-center border border-black text-[10px] font-bold"
+                                                                className="flex h-8 min-w-[62px] items-center justify-center text-[11px] font-medium tabular-nums"
                                                                 style={getCohortCellStyle(value, weekIdx)}
                                                             >
                                                                 {value === null ? '—' : `${value.toFixed(1)}%`}
@@ -4611,7 +4610,7 @@ export const GeneralOverview: React.FC = () => {
                                             ))}
                                             {retentionCohortTableRows.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={RETENTION_COHORT_WEEKS + 1} className="py-5 text-center text-slate-400">
+                                                    <td colSpan={RETENTION_COHORT_WEEKS + 1} className="py-5 text-center text-[#5f6368]">
                                                         Not enough user-level replay sessions for cohort retention yet.
                                                     </td>
                                                 </tr>
@@ -4619,7 +4618,7 @@ export const GeneralOverview: React.FC = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                                <div className="mt-2 text-[10px] text-slate-400">
+                                <div className="mt-2 text-xs text-[#5f6368]">
                                     Week 0 = first active week for that cohort
                                 </div>
                             </GA4Card>
@@ -4628,9 +4627,9 @@ export const GeneralOverview: React.FC = () => {
 
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                             {isObservabilityLoading ? (
-                                <GA4CardGhost title="Custom Events" className="xl:col-span-5" accentClassName="bg-[#f9a8d4]" minHeight="210px" rows={5} />
+                                <GA4CardGhost title="Custom events" className="xl:col-span-5" minHeight="210px" rows={5} />
                             ) : (
-                            <GA4Card title="Custom Events" className="xl:col-span-5" accentClassName="bg-[#f9a8d4]">
+                            <GA4Card title="Custom events" className="xl:col-span-5">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
                                         {customEvents.map((event) => {
@@ -4640,19 +4639,19 @@ export const GeneralOverview: React.FC = () => {
 
                                             return (
                                                 <div key={event.name} className="py-1">
-                                                    <div className="mb-1 flex justify-between text-xs">
-                                                        <span className="truncate text-slate-700" title={event.name}>{event.name}</span>
-                                                        <span className="font-semibold text-slate-900">{formatCompact(event.count)}</span>
+                                                    <div className="mb-1 flex justify-between gap-3 text-xs">
+                                                        <span className="truncate text-[#3c4043]" title={event.name}>{event.name}</span>
+                                                        <span className="shrink-0 font-medium tabular-nums text-[#202124]">{formatCompact(event.count)}</span>
                                                     </div>
-                                                    <div className="h-2 border border-black bg-white">
-                                                        <div className="h-full bg-[#5dadec]" style={{ width: `${width}%` }} />
+                                                    <div className="h-2 bg-[#f1f3f4]">
+                                                        <div className="h-full bg-[#1a73e8]" style={{ width: `${width}%` }} />
                                                     </div>
                                                 </div>
                                             );
                                         })}
                                     </div>
                                 ) : (
-                                    <div className="py-4 text-center text-xs text-slate-400">
+                                    <div className="py-4 text-center text-xs text-[#5f6368]">
                                         No custom events observed for this filter.
                                     </div>
                                 )}
@@ -4660,19 +4659,13 @@ export const GeneralOverview: React.FC = () => {
                             )}
 
                             {isObservabilityLoading ? (
-                                <GA4CardGhost title="Custom event usage over time" className="xl:col-span-7" accentClassName="bg-[#c4b5fd]" minHeight="300px" rows={4} />
+                                <GA4CardGhost title="Custom event usage over time" className="xl:col-span-7" minHeight="300px" rows={4} />
                             ) : (
                             <GA4Card
                                 title="Custom event usage over time"
                                 className="xl:col-span-7"
-                                accentClassName="bg-[#c4b5fd]"
                                 action={customEvents.length > 0 ? (
-                                    <span className={`border px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                                        selectedCustomEvents.length > 0
-                                            ? 'border-emerald-700 bg-emerald-50 text-emerald-700'
-                                            : 'border-[#dadce0] bg-[#f8fafc] text-slate-600'
-                                    }`}
-                                    >
+                                    <span className={`${dashboardChipClass(selectedCustomEvents.length > 0 ? 'info' : 'neutral')} tabular-nums`}>
                                         {selectedCustomEvents.length} selected
                                     </span>
                                 ) : null}
@@ -4682,34 +4675,34 @@ export const GeneralOverview: React.FC = () => {
                                         <div className="mb-3 space-y-2">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <label className="relative min-w-[220px] flex-1">
-                                                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5f6368]" />
                                                     <input
                                                         type="search"
                                                         value={customEventSearchQuery}
                                                         onChange={(event) => setCustomEventSearchQuery(event.target.value)}
                                                         placeholder="Search events"
                                                         aria-label="Search custom events"
-                                                        className="h-7 w-full border border-[#dadce0] bg-white pl-7 pr-8 text-[11px] font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 hover:border-emerald-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                                                        className="h-8 w-full rounded-none border border-[#dadce0] bg-white pl-8 pr-8 text-xs text-[#202124] outline-none transition-colors placeholder:text-[#80868b] hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                                                     />
                                                     {customEventSearchQuery ? (
                                                         <button
                                                             type="button"
                                                             onClick={() => setCustomEventSearchQuery('')}
                                                             aria-label="Clear custom event search"
-                                                            className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center border border-transparent text-slate-400 transition hover:border-[#dadce0] hover:text-slate-700"
+                                                            className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
                                                         >
                                                             <X className="h-3.5 w-3.5" />
                                                         </button>
                                                     ) : null}
                                                 </label>
-                                                <span className="inline-flex h-7 items-center border border-[#dadce0] bg-[#f8fafc] px-2 text-[10px] font-semibold uppercase text-slate-500">
+                                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                     {customEventPickerOptions.length}/{customEvents.length} events
                                                 </span>
                                                 {selectedCustomEvents.length > 0 ? (
                                                     <button
                                                         type="button"
                                                         onClick={handleClearCustomEventSelection}
-                                                        className="inline-flex h-7 items-center gap-1.5 border border-[#dadce0] bg-white px-2 text-[10px] font-semibold uppercase text-slate-600 transition hover:border-emerald-600 hover:text-emerald-700"
+                                                        className={dashboardButtonClass('secondary', 'sm')}
                                                     >
                                                         <X className="h-3 w-3" />
                                                         Clear
@@ -4729,34 +4722,34 @@ export const GeneralOverview: React.FC = () => {
                                                                 type="button"
                                                                 aria-pressed={isSelected}
                                                                 onClick={() => handleToggleCustomEvent(event.name)}
-                                                                className={`inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 border px-2 text-left text-[10px] font-semibold transition-colors ${
+                                                                className={`inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 border px-2 text-left text-[11px] font-medium transition-colors ${
                                                                     isSelected
-                                                                        ? 'border-emerald-700 bg-emerald-600 text-white'
-                                                                        : 'border-[#dadce0] bg-white text-slate-600 hover:border-emerald-600 hover:bg-emerald-50 hover:text-emerald-800'
+                                                                        ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+                                                                        : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                                 }`}
                                                                 title={event.name}
                                                             >
                                                                 <span className="flex min-w-0 items-center gap-1.5">
                                                                     <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${
-                                                                        isSelected ? 'border-white/70 bg-emerald-500' : 'border-slate-300 bg-white'
+                                                                        isSelected ? 'border-[#1a73e8] bg-[#1a73e8]' : 'border-[#80868b] bg-white'
                                                                     }`}
                                                                     >
                                                                         {isSelected ? <Check className="h-2.5 w-2.5 text-white" /> : null}
                                                                     </span>
                                                                     <span
-                                                                        className={`h-2 w-2 shrink-0 border ${isSelected ? 'border-white/70' : 'border-black'}`}
+                                                                        className="h-2 w-2 shrink-0 rounded-full"
                                                                         style={{ backgroundColor: eventColor }}
                                                                     />
                                                                     <span className="max-w-[12rem] truncate sm:max-w-[14rem]">{event.name}</span>
                                                                 </span>
-                                                                <span className={isSelected ? 'shrink-0 text-emerald-100' : 'shrink-0 text-slate-400'}>
+                                                                <span className={`shrink-0 tabular-nums ${isSelected ? 'text-[#1967d2]' : 'text-[#5f6368]'}`}>
                                                                     {formatCompact(event.count)}
                                                                 </span>
                                                             </button>
                                                         );
                                                     })}
                                                     {customEventPickerOptions.length === 0 ? (
-                                                        <div className="flex h-14 w-full items-center justify-center border border-dashed border-[#dadce0] bg-[#f8fafc] text-xs text-slate-400">
+                                                        <div className="flex h-14 w-full items-center justify-center border border-dashed border-[#dadce0] bg-[#f8fafd] text-xs text-[#5f6368]">
                                                             No matching events.
                                                         </div>
                                                     ) : null}
@@ -4796,7 +4789,7 @@ export const GeneralOverview: React.FC = () => {
                                                             <ReferenceLine
                                                                 key={`custom-event-version-${marker.version}-${marker.dateKey}`}
                                                                 x={marker.dateKey}
-                                                                stroke="#334155"
+                                                                stroke={VERSION_MARKER_STROKE}
                                                                 strokeDasharray="4 4"
                                                                 strokeWidth={1.4}
                                                                 ifOverflow="extendDomain"
@@ -4807,22 +4800,22 @@ export const GeneralOverview: React.FC = () => {
                                                 </ResponsiveContainer>
                                             </div>
                                         ) : (
-                                            <div className="flex h-[220px] items-center justify-center text-center text-xs text-slate-400">
+                                            <div className="flex h-[220px] items-center justify-center text-center text-xs text-[#5f6368]">
                                                 {selectedCustomEvents.length === 0 ? 'No custom events selected.' : 'No daily event trend data.'}
                                             </div>
                                         )}
 
                                         <div className="mt-3 flex flex-wrap gap-3">
                                             {selectedCustomEvents.map((eventName, index) => (
-                                                <span key={eventName} className="flex min-w-0 items-center gap-1 text-[10px] text-slate-500">
-                                                    <span className="h-2 w-2 shrink-0" style={{ backgroundColor: CUSTOM_EVENT_TREND_COLORS[index % CUSTOM_EVENT_TREND_COLORS.length] }} />
+                                                <span key={eventName} className="flex min-w-0 items-center gap-1 text-[11px] text-[#5f6368]">
+                                                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CUSTOM_EVENT_TREND_COLORS[index % CUSTOM_EVENT_TREND_COLORS.length] }} />
                                                     <span className="truncate">{eventName}</span>
                                                 </span>
                                             ))}
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-[#5f6368]">
                                         No custom events observed for this filter.
                                     </div>
                                 )}
@@ -4833,15 +4826,23 @@ export const GeneralOverview: React.FC = () => {
                             <section className="space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="border-2 border-black bg-[#86efac] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Top Users</h2>
+                                    <h2 className="text-[15px] font-medium text-[#202124]">Top users</h2>
                                 </div>
-                                <NeoBadge variant="info" size="sm" className="rounded-none border-black bg-white text-black shadow-neo-sm">
+                                <NeoBadge variant="neutral" size="sm" className="tabular-nums">
                                     {isTopUsersSectionLoading ? '...' : `${topUsers.length}/20 users`}
                                 </NeoBadge>
                             </div>
 
                             {isTopUsersSectionLoading ? (
-                                <div className="h-[180px] animate-pulse border-2 border-black bg-white shadow-neo" />
+                                <div className="h-[180px] border border-[#dadce0] bg-white p-4" aria-busy="true">
+                                    <div className="flex items-center gap-2">
+                                        <GhostBlock className="h-8 w-8 shrink-0" />
+                                        <GhostBlock className="h-6 w-40" />
+                                    </div>
+                                    <GhostBlock className="mt-4 h-3 w-3/4" />
+                                    <GhostBlock className="mt-2 h-3 w-1/2" />
+                                    <GhostBlock className="mt-4 h-12 w-full" />
+                                </div>
                             ) : topUsers.length === 0 ? (
                                 <EmptyStateCard
                                     title="No top users yet"
@@ -4849,10 +4850,10 @@ export const GeneralOverview: React.FC = () => {
                                 />
                             ) : (
                                 <div className="relative">
-                                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-12 bg-gradient-to-l from-[#f8fafc] via-[#f8fafc]/80 to-transparent sm:block" />
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-12 bg-gradient-to-l from-[#f8fafd] via-[#f8fafd]/80 to-transparent sm:block" />
                                     <div className="overflow-x-auto pb-3">
                                         <div className="flex min-w-full snap-x snap-mandatory gap-3 pl-1 pr-2 sm:min-w-max sm:pl-3 sm:pr-4">
-                                            {topUsers.map((user, index) => {
+                                            {topUsers.map((user) => {
                                         const session = user.latestSession;
                                         const firstSession = user.firstSession;
                                         const displayName = truncateUserLabel(user.displayName);
@@ -4863,16 +4864,15 @@ export const GeneralOverview: React.FC = () => {
                                         const platforms = [...new Set(user.sessions.map((s) => s.platform).filter(Boolean))];
                                         const appVersions = [...new Set(user.sessions.map((s) => s.appVersion).filter(Boolean))];
                                         const devices = [...new Set(user.sessions.map((s) => s.deviceModel).filter(Boolean).map((model) => formatDeviceModel(model, 'Unknown device')))];
-                                        const platformLabel = platforms.length > 1 ? `${platforms.length} platforms` : (platforms[0] || 'unknown');
-                                        const versionLabel = appVersions.length > 1 ? `${appVersions.length} versions` : (appVersions[0] ? `v${appVersions[0]}` : 'unknown version');
+                                        const platformLabel = platforms.length > 1 ? `${platforms.length} platforms` : (platforms[0] ? formatSetupPlatform(platforms[0]) : 'Unknown platform');
+                                        const versionLabel = appVersions.length > 1 ? `${appVersions.length} versions` : (appVersions[0] ? `v${appVersions[0]}` : 'Unknown version');
                                         const deviceLabel = devices.length > 1 ? `${devices.length} devices` : (devices[0] || 'Unknown device');
 
                                         return (
                                             <article
                                                 key={user.userKey}
-                                                className="group min-w-[320px] w-[calc(100vw-4rem)] max-w-[420px] snap-start border-2 border-black bg-white p-3 shadow-neo transition-all hover:-translate-y-1 hover:shadow-neo-lg sm:w-[360px] lg:w-[400px]"
+                                                className="min-w-[320px] w-[calc(100vw-4rem)] max-w-[420px] snap-start border border-[#dadce0] bg-white p-4 sm:w-[360px] lg:w-[400px]"
                                             >
-                                                <div className="mb-3 h-2 border-2 border-black" style={{ backgroundColor: RETRO_CARD_ACCENTS[index % RETRO_CARD_ACCENTS.length] }} />
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex items-center gap-2">
@@ -4880,77 +4880,77 @@ export const GeneralOverview: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleCopyTopUser(user.copyValue, user.userKey)}
-                                                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 border-2 border-black bg-white px-2 py-1 text-left font-mono text-[11px] font-black text-slate-900 shadow-neo-sm transition hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+                                                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 bg-[#f1f3f4] px-2 py-1 text-left font-mono text-[11px] font-medium text-[#202124] transition-colors hover:bg-[#e8eaed]"
                                                                 title={`Copy ${user.displayName}`}
                                                                 aria-label={`Copy ${user.displayName}`}
                                                             >
                                                                 <span className="truncate">{displayName}</span>
-                                                                {isCopied ? <Check size={13} className="shrink-0 text-emerald-600" /> : <Copy size={13} className="shrink-0 text-slate-400" />}
+                                                                {isCopied ? <Check size={13} className="shrink-0 text-[#137333]" /> : <Copy size={13} className="shrink-0 text-[#5f6368]" />}
                                                             </button>
                                                         </div>
-                                                        <div className="mt-2 text-[11px] text-slate-500">
+                                                        <div className="mt-2 text-xs text-[#5f6368]">
                                                             Last seen {formatLastSeen(session.startedAt)}
                                                         </div>
                                                     </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
-                                                        className="inline-flex items-center gap-1.5 border-2 border-black bg-black px-3 py-2 text-[11px] font-bold text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0"
+                                                        className={dashboardButtonClass('secondary', 'sm')}
                                                     >
                                                         Open latest
                                                         <ChevronRight size={13} className="shrink-0" />
                                                     </button>
                                                 </div>
 
-                                                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] text-slate-600">
+                                                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs text-[#3c4043]">
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">Country</div>
-                                                        <div className="mt-0.5 flex items-center gap-2 truncate font-semibold text-slate-800" title={geoDisplay.fullLabel}>
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">Country</div>
+                                                        <div className="mt-0.5 flex items-center gap-2 truncate font-medium text-[#202124]" title={geoDisplay.fullLabel}>
                                                             <CountryFlag countryCode={geoDisplay.countryCode} countryLabel={geoDisplay.countryLabel} decorative />
                                                             <span className="truncate">{geoDisplay.fullLabel}</span>
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">Total Sessions</div>
-                                                        <div className="mt-0.5 font-semibold text-slate-800">{user.replayCount.toLocaleString()}</div>
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">Total sessions</div>
+                                                        <div className="mt-0.5 font-medium tabular-nums text-[#202124]">{user.replayCount.toLocaleString()}</div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">First Appeared</div>
-                                                        <div className="mt-0.5 font-semibold text-slate-800">
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">First appeared</div>
+                                                        <div className="mt-0.5 font-medium tabular-nums text-[#202124]">
                                                             {new Date(user.userFirstSeenAt ?? firstSession.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">Last Appeared</div>
-                                                        <div className="mt-0.5 font-semibold text-slate-800">
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">Last appeared</div>
+                                                        <div className="mt-0.5 font-medium tabular-nums text-[#202124]">
                                                             {new Date(session.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">Total Time</div>
-                                                        <div className="mt-0.5 font-semibold text-slate-800">{formatDuration(user.totalDurationSeconds)}</div>
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">Total time</div>
+                                                        <div className="mt-0.5 font-medium tabular-nums text-[#202124]">{formatDuration(user.totalDurationSeconds)}</div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-[10px] font-semibold uppercase text-slate-400">Latest Device</div>
-                                                        <div className="mt-0.5 truncate font-semibold text-slate-800" title={deviceLabel}>
+                                                        <div className="text-[11px] font-medium text-[#5f6368]">Latest device</div>
+                                                        <div className="mt-0.5 truncate font-medium text-[#202124]" title={deviceLabel}>
                                                             {deviceLabel}
                                                         </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="mt-3 flex flex-col gap-3 border-t-2 border-black pt-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="mt-4 flex flex-col gap-3 border-t border-[#e8eaed] pt-3 sm:flex-row sm:items-start sm:justify-between">
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-[11px] font-bold text-[#2563eb]" title={deviceLabel}>
+                                                        <div className="truncate text-xs font-medium text-[#1a73e8]" title={deviceLabel}>
                                                             {deviceLabel}
                                                         </div>
-                                                        <div className="mt-1 text-[10px] text-slate-500">
+                                                        <div className="mt-1 text-[11px] text-[#5f6368]">
                                                             First seen {formatLastSeen(user.userFirstSeenAt ?? firstSession.startedAt)} and last seen {formatLastSeen(session.startedAt)}
                                                         </div>
                                                         <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
-                                                            <span className="inline-flex items-center border border-black bg-[#f4f4f5] px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-700">
+                                                            <span className={dashboardChipClass('neutral')}>
                                                                 {platformLabel}
                                                             </span>
-                                                            <span className="inline-flex items-center border border-black bg-[#f4f4f5] px-1.5 py-0.5 text-[10px] font-bold text-slate-700">
+                                                            <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                                 {versionLabel}
                                                             </span>
                                                         </div>

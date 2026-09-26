@@ -298,15 +298,15 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
               offset={14}
               className="geo-hover-popup"
             >
-              <div className="border-2 border-black bg-white px-2.5 py-2 text-[11px] text-slate-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] backdrop-blur-[2px]">
-                <div className="mb-0.5 font-semibold text-slate-900">
+              <div className="rounded-none border border-[#dadce0] bg-white px-2.5 py-2 text-[11px] text-[#3c4043] shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
+                <div className="mb-0.5 font-medium text-[#202124]">
                   {hoveredMarker.city}, {formatCountryDisplayName(hoveredMarker.country, hoveredMarker.countryCode) || hoveredMarker.country}
                 </div>
-                <div className="flex items-center gap-2 text-slate-600">
+                <div className="flex items-center gap-2 tabular-nums text-[#5f6368]">
                   <span>{hoveredMarker.uniqueUsers.toLocaleString()} unique users</span>
-                  <span className="h-1 w-1 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1 rounded-full bg-[#bdc1c6]" />
                   <span>{hoveredMarker.sessions.toLocaleString()} sessions</span>
-                  <span className="h-1 w-1 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1 rounded-full bg-[#bdc1c6]" />
                   <span style={{ color: hoveredMarker.style.solid }}>{formatLatency(hoveredMarker.avgLatencyMs)}</span>
                 </div>
               </div>

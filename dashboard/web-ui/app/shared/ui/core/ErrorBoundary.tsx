@@ -35,15 +35,15 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className={fallbackClassName}>
           <div className="max-w-md w-full">
-            <div className="border-2 border-red-500 bg-red-50 p-6 rounded-lg">
-              <h1 className="text-xl font-bold text-red-800 mb-4">Something went wrong</h1>
-              <p className="text-sm text-red-700 mb-4">
+            <div className="rounded-none border border-[#dadce0] bg-white p-6 shadow-[0_1px_3px_rgba(60,64,67,0.12)]">
+              <h1 className="mb-2 text-xl font-normal text-[#202124]">Something went wrong</h1>
+              <p className="mb-4 text-sm text-[#5f6368]">
                 {message}
               </p>
               {isDev && this.state.error?.stack && (
-                <details className="text-xs text-red-600 mb-4">
-                  <summary className="cursor-pointer mb-2">Error details (dev only)</summary>
-                  <pre className="whitespace-pre-wrap bg-red-100 p-2 rounded">
+                <details className="mb-4 text-xs text-[#5f6368]">
+                  <summary className="mb-2 cursor-pointer">Error details (dev only)</summary>
+                  <pre className="whitespace-pre-wrap rounded-none bg-[#f8fafd] p-2">
                     {this.state.error.stack}
                   </pre>
                 </details>
@@ -53,9 +53,9 @@ export class ErrorBoundary extends Component<Props, State> {
                   this.setState({ hasError: false, error: null });
                   window.location.reload();
                 }}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                className="rounded-none bg-[#1a73e8] px-4 py-2 text-sm font-medium text-white hover:bg-[#1765cc]"
               >
-                Reload Page
+                Reload page
               </button>
             </div>
           </div>

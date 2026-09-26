@@ -19,7 +19,9 @@ import {
     Calendar,
     ChevronRight,
     ExternalLink,
-    Download
+    Download,
+    Info,
+    Loader2
 } from 'lucide-react';
 import { PageHeader } from '~/shell/components/layout/PageHeader';
 import { api, IssueDetail as IssueDetailType } from '~/shared/api/client';
@@ -27,6 +29,7 @@ import { IssueSession } from '~/shared/types';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
+import { dashboardButtonClass, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
@@ -142,31 +145,36 @@ export const IssueDetail: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <div className="text-2xl font-semibold uppercase animate-pulse">Loading Issue...</div>
+            <div className="flex min-h-[50vh] flex-col items-center justify-center">
+                <div className="flex items-center gap-2 text-sm text-[#5f6368]">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading issue...
+                </div>
             </div>
         );
     }
 
     if (error || !issue) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] gap-6">
-                <AlertTriangle className="w-16 h-16 text-red-500" />
-                <div className="text-xl font-semibold text-red-600 uppercase">{error || 'Issue not found'}</div>
-                <NeoButton onClick={() => navigate(`${pathPrefix}/general`)}>
-                    <ArrowLeft size={16} className="mr-2" /> Back to General
+            <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4">
+                <div className="flex max-w-lg items-start gap-2 border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {error || 'Issue not found'}
+                </div>
+                <NeoButton variant="secondary" onClick={() => navigate(`${pathPrefix}/general`)} leftIcon={<ArrowLeft />}>
+                    Back to General
                 </NeoButton>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen p-6 md:p-12 font-sans bg-transparent">
-            <div className="max-w-[1800px] mx-auto space-y-8">
+        <div className="min-h-screen p-4 font-sans sm:p-6">
+            <div className="max-w-[1800px] mx-auto space-y-6">
                 {/* Navigation */}
                 <button
                     onClick={() => navigate(`${pathPrefix}/general`)}
-                    className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-500 hover:text-slate-900 transition-colors"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-[#5f6368] transition-colors hover:text-[#202124]"
                 >
                     <ArrowLeft className="w-4 h-4" /> Back to General
                 </button>
@@ -189,9 +197,9 @@ export const IssueDetail: React.FC = () => {
                         issue.sampleSessionId && (
                             <button
                                 onClick={() => navigate(`${pathPrefix}/sessions/${issue.sampleSessionId}`)}
-                                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-semibold rounded-md hover:bg-slate-800 transition-colors shadow-sm text-sm"
+                                className={dashboardButtonClass('primary', 'md')}
                             >
-                                <Play className="w-4 h-4" /> Replay Session
+                                <Play className="w-4 h-4" /> Replay session
                             </button>
                         )
                     }
@@ -205,81 +213,79 @@ export const IssueDetail: React.FC = () => {
                 />
 
                 {partialError && (
-                    <div className="rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                    <div className="border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
                         {partialError}
                     </div>
                 )}
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
-                        <div className="flex items-center gap-2 text-slate-500 mb-2">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <NeoCard variant="flat" disablePadding className="p-4">
+                        <div className="mb-2 flex items-center gap-2 text-[#5f6368]">
                             <Activity size={14} />
-                            <span className="text-xs font-bold uppercase">Events</span>
+                            <span className="text-xs font-medium">Events</span>
                         </div>
-                        <div className="text-2xl font-semibold">{issue.eventCount.toLocaleString()}</div>
+                        <div className="text-2xl font-normal tabular-nums text-[#202124]">{issue.eventCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
-                        <div className="flex items-center gap-2 text-slate-500 mb-2">
+                    <NeoCard variant="flat" disablePadding className="p-4">
+                        <div className="mb-2 flex items-center gap-2 text-[#5f6368]">
                             <Users size={14} />
-                            <span className="text-xs font-bold uppercase">Users</span>
+                            <span className="text-xs font-medium">Users</span>
                         </div>
-                        <div className="text-2xl font-semibold">{issue.userCount.toLocaleString()}</div>
+                        <div className="text-2xl font-normal tabular-nums text-[#202124]">{issue.userCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
-                        <div className="flex items-center gap-2 text-slate-500 mb-2">
+                    <NeoCard variant="flat" disablePadding className="p-4">
+                        <div className="mb-2 flex items-center gap-2 text-[#5f6368]">
                             <Calendar size={14} />
-                            <span className="text-xs font-bold uppercase">First Seen</span>
+                            <span className="text-xs font-medium">First seen</span>
                         </div>
-                        <div className="text-sm font-bold">{new Date(issue.firstSeen).toLocaleDateString()}</div>
+                        <div className="text-sm font-medium tabular-nums text-[#202124]">{new Date(issue.firstSeen).toLocaleDateString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
-                        <div className="flex items-center gap-2 text-slate-500 mb-2">
+                    <NeoCard variant="flat" disablePadding className="p-4">
+                        <div className="mb-2 flex items-center gap-2 text-[#5f6368]">
                             <Clock size={14} />
-                            <span className="text-xs font-bold uppercase">Last Seen</span>
+                            <span className="text-xs font-medium">Last seen</span>
                         </div>
-                        <div className="text-sm font-bold">{formatLastSeen(issue.lastSeen)}</div>
+                        <div className="text-sm font-medium text-[#202124]">{formatLastSeen(issue.lastSeen)}</div>
                     </NeoCard>
                 </div>
 
                 {/* Stack Trace - Prominent Display for Crash/Error/ANR */}
                 {(issue.issueType === 'crash' || issue.issueType === 'error' || issue.issueType === 'anr') && issue.sampleStackTrace && (
-                    <div className="mb-8">
-                        <div className="bg-white border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
-                            <div className="flex items-center justify-between mb-4 border-b-2 border-black pb-4">
-                                <div className="flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-slate-900" />
-                                    <h2 className="text-xl font-semibold uppercase text-slate-900">
-                                        {issue.issueType === 'anr' ? 'Main Thread State' : 'Stack Trace'}
+                    <div>
+                        <div className="border border-[#dadce0] bg-white p-4 sm:p-6">
+                            <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[#e8eaed] pb-4">
+                                <div className="mr-auto flex items-center gap-2">
+                                    <Activity className="h-4 w-4 text-[#5f6368]" />
+                                    <h2 className="text-[15px] font-medium text-[#202124]">
+                                        {issue.issueType === 'anr' ? 'Main thread state' : 'Stack trace'}
                                     </h2>
                                 </div>
                                 <button
                                     onClick={handleCopyStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
+                                    className={dashboardButtonClass('secondary', 'sm')}
                                 >
-                                    {copied ? 'Copied to Clipboard' : 'Copy Trace'}
+                                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                    {copied ? 'Copied' : 'Copy trace'}
                                 </button>
                                 <button
                                     onClick={handleDownloadStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-[#f4f4f5] transition-all ml-2"
+                                    className={dashboardButtonClass('secondary', 'sm')}
                                 >
-                                    <Download className="w-3 h-3" />
-                                    Download Trace
+                                    <Download className="h-3.5 w-3.5" />
+                                    Download trace
                                 </button>
                             </div>
 
-                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border-2 border-black shadow-inner min-h-[400px] leading-relaxed">
+                            <div className="min-h-[400px] overflow-x-auto whitespace-pre border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs leading-relaxed text-[#202124]">
                                 {issue.sampleStackTrace || "No stack trace available for this issue."}
                             </div>
 
-                            <div className={`mt-4 p-4 border-2 text-sm font-bold flex items-start gap-3 ${issue.issueType === 'crash' ? 'bg-rose-50 border-rose-200 text-rose-900' :
-                                issue.issueType === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' :
-                                    'bg-purple-50 border-purple-200 text-purple-900'
-                                }`}>
-                                <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5" />
+                            <div className="mt-4 flex items-start gap-3 border border-[#d2e3fc] bg-[#e8f0fe] p-4 text-sm text-[#1967d2]">
+                                <Info className="mt-0.5 h-4 w-4 shrink-0" />
                                 <p>
                                     {issue.issueType === 'anr'
                                         ? 'This trace represents the state of the main thread when the freeze happened. Synchronous operations blocking the main thread will appear here.'
@@ -291,50 +297,50 @@ export const IssueDetail: React.FC = () => {
                 )}
 
                 {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Left Column - Details */}
                     <div className="space-y-6">
                         {/* Affected Devices & Versions */}
-                        <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
-                            <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Diagnostic Context</h3>
+                        <NeoCard variant="flat">
+                            <h3 className="mb-4 text-[15px] font-medium text-[#202124]">Diagnostic context</h3>
 
                             <div className="grid grid-cols-2 gap-6">
                                 {/* Affected Devices */}
                                 <div>
-                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Affected Devices</h4>
+                                    <h4 className="mb-3 text-xs font-medium text-[#5f6368]">Affected devices</h4>
                                     <div className="space-y-2">
                                         {issue.affectedDevices && Object.keys(issue.affectedDevices).length > 0 ? (
                                             Object.entries(issue.affectedDevices)
                                                 .sort(([, a], [, b]) => b - a)
                                                 .slice(0, 5)
                                                 .map(([device, count]) => (
-                                                    <div key={device} className="flex justify-between items-center text-sm">
-                                                        <span className="font-medium truncate max-w-[120px]">{device}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border-2 border-black">{count}</span>
+                                                    <div key={device} className="flex items-center justify-between gap-2 text-sm">
+                                                        <span className="max-w-[120px] truncate text-[#3c4043]">{device}</span>
+                                                        <span className={`${dashboardChipClass('neutral')} tabular-nums`}>{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
-                                            <span className="text-xs text-slate-400">No device data</span>
+                                            <span className="text-xs text-[#5f6368]">No device data</span>
                                         )}
                                     </div>
                                 </div>
 
                                 {/* Affected Versions */}
                                 <div>
-                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Affected Versions</h4>
+                                    <h4 className="mb-3 text-xs font-medium text-[#5f6368]">Affected versions</h4>
                                     <div className="space-y-2">
                                         {issue.affectedVersions && Object.keys(issue.affectedVersions).length > 0 ? (
                                             Object.entries(issue.affectedVersions)
                                                 .sort(([, a], [, b]) => b - a)
                                                 .slice(0, 5)
                                                 .map(([version, count]) => (
-                                                    <div key={version} className="flex justify-between items-center text-sm">
-                                                        <span className="font-medium">{version}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border-2 border-black">{count}</span>
+                                                    <div key={version} className="flex items-center justify-between gap-2 text-sm">
+                                                        <span className="text-[#3c4043]">{version}</span>
+                                                        <span className={`${dashboardChipClass('neutral')} tabular-nums`}>{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
-                                            <span className="text-xs text-slate-400">No version data</span>
+                                            <span className="text-xs text-[#5f6368]">No version data</span>
                                         )}
                                     </div>
                                 </div>
@@ -343,15 +349,15 @@ export const IssueDetail: React.FC = () => {
 
                         {/* Sample Device Info */}
                         {(issue.sampleDeviceModel || issue.sampleOsVersion || issue.sampleAppVersion) && (
-                            <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
-                                <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Sample Device</h3>
+                            <NeoCard variant="flat">
+                                <h3 className="mb-4 text-[15px] font-medium text-[#202124]">Sample device</h3>
                                 <div className="flex items-center gap-3">
-                                    <Smartphone size={24} className="text-slate-400" />
+                                    <Smartphone size={24} className="text-[#5f6368]" />
                                     <div>
-                                        <p className="font-bold" title={issue.sampleDeviceModel || undefined}>
+                                        <p className="font-medium text-[#202124]" title={issue.sampleDeviceModel || undefined}>
                                             {formatDeviceModel(issue.sampleDeviceModel)}
                                         </p>
-                                        <p className="text-sm text-slate-500">
+                                        <p className="text-sm text-[#5f6368]">
                                             {issue.sampleOsVersion && `OS ${issue.sampleOsVersion}`}
                                             {issue.sampleOsVersion && issue.sampleAppVersion && ' • '}
                                             {issue.sampleAppVersion && `App v${issue.sampleAppVersion}`}
@@ -365,8 +371,8 @@ export const IssueDetail: React.FC = () => {
                     {/* Right Column - Sessions & Events */}
                     <div className="space-y-6">
                         {/* Related Sessions */}
-                        <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
-                            <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Related Sessions</h3>
+                        <NeoCard variant="flat">
+                            <h3 className="mb-4 text-[15px] font-medium text-[#202124]">Related sessions</h3>
 
                             {sessions.length > 0 ? (
                                 <div className="flex gap-4 overflow-x-auto pb-4">
@@ -379,37 +385,37 @@ export const IssueDetail: React.FC = () => {
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center py-8 text-slate-400">
+                                <div className="py-8 text-center text-[#5f6368]">
                                     <Play size={32} className="mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm font-bold">No sessions available</p>
+                                    <p className="text-sm">No sessions available</p>
                                 </div>
                             )}
                         </NeoCard>
 
                         {/* Recent Events */}
                         {issue.recentEvents && issue.recentEvents.length > 0 && (
-                            <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
-                                <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Recent Occurrences</h3>
+                            <NeoCard variant="flat">
+                                <h3 className="mb-4 text-[15px] font-medium text-[#202124]">Recent occurrences</h3>
 
                                 <div className="space-y-3 max-h-96 overflow-y-auto">
                                     {issue.recentEvents.map((event) => (
                                         <div
                                             key={event.id}
-                                            className="flex items-center justify-between p-3 bg-[#f4f4f5] border-2 border-black hover:bg-slate-100 transition-colors"
+                                            className="flex items-center justify-between border border-[#e8eaed] bg-white p-3 transition-colors hover:bg-[#f8fafd]"
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-mono text-slate-500">
+                                                    <span className="text-xs tabular-nums text-[#5f6368]">
                                                         {new Date(event.timestamp).toLocaleString()}
                                                     </span>
                                                     {event.deviceModel && (
-                                                        <span className="text-xs font-bold text-slate-600" title={event.deviceModel}>
+                                                        <span className="text-xs font-medium text-[#3c4043]" title={event.deviceModel}>
                                                             {formatDeviceModel(event.deviceModel)}
                                                         </span>
                                                     )}
                                                 </div>
                                                 {event.screenName && (
-                                                    <p className="text-sm text-slate-600 truncate">
+                                                    <p className="truncate text-sm text-[#3c4043]">
                                                         on {event.screenName}
                                                     </p>
                                                 )}
@@ -417,7 +423,7 @@ export const IssueDetail: React.FC = () => {
                                             {event.sessionId && (
                                                 <button
                                                     onClick={() => navigate(`${pathPrefix}/sessions/${event.sessionId}`)}
-                                                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
+                                                    className="inline-flex items-center gap-1 text-xs font-medium text-[#1a73e8] hover:text-[#1765cc]"
                                                 >
                                                     <Play size={12} fill="currentColor" /> View
                                                 </button>

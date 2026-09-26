@@ -285,25 +285,24 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     };
 
     return (
-        <section className="journey-sankey-card rejourney-general-card overflow-hidden border border-[#dadce0] bg-white shadow-none" aria-label="User journey paths">
-            <div className="journey-sankey-accent h-1" />
+        <section className="journey-sankey-card overflow-hidden rounded-none border border-[#dadce0] bg-white" aria-label="User journey paths">
             <header className="journey-sankey-header flex flex-col gap-4 border-b px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0 max-w-xl xl:max-w-[340px]">
                     <h2 className="text-[15px] font-medium text-[#202124]">Journey explorer</h2>
                     <p className="mt-1 text-sm font-medium text-[#5f6368]">Follow traffic between screens, then select connected lines to find exact replays.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-                    <div className="flex items-center gap-2 rounded-md bg-[#f8fafd] p-1">
-                        <label htmlFor={stepSelectId} className="pl-1 text-[11px] font-semibold text-[#5f6368]">Steps</label>
+                    <div className="flex items-center gap-2 rounded-none bg-[#f8fafd] p-1">
+                        <label htmlFor={stepSelectId} className="pl-1 text-xs font-medium text-[#5f6368]">Steps</label>
                         <div className="relative">
-                            <select id={stepSelectId} value={Math.min(stepCount, maxStepOption)} onChange={(event) => setStepCount(Number(event.target.value))} className="h-9 appearance-none rounded-md border border-[#dadce0] bg-white pl-3 pr-8 text-xs font-semibold text-[#3c4043] outline-none hover:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]">
+                            <select id={stepSelectId} value={Math.min(stepCount, maxStepOption)} onChange={(event) => setStepCount(Number(event.target.value))} className="h-9 appearance-none rounded-none border border-[#dadce0] bg-white pl-3 pr-8 text-xs font-medium text-[#3c4043] outline-none hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20">
                                 {Array.from({ length: maxStepOption - 2 }, (_, index) => index + 3).map((count) => <option key={count} value={count}>{count}</option>)}
                             </select>
                             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#5f6368]" />
                         </div>
-                        <label htmlFor={versionSelectId} className="pl-1 text-[11px] font-semibold text-[#5f6368]">Version</label>
+                        <label htmlFor={versionSelectId} className="pl-1 text-xs font-medium text-[#5f6368]">Version</label>
                         <div className="relative">
-                            <select id={versionSelectId} value={selectedAppVersion || ALL_APP_VERSIONS_VALUE} onChange={(event) => onAppVersionChange?.(event.target.value === ALL_APP_VERSIONS_VALUE ? null : event.target.value)} className="h-9 min-w-[150px] appearance-none rounded-md border border-[#dadce0] bg-white pl-3 pr-8 text-xs font-semibold text-[#3c4043] outline-none hover:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]">
+                            <select id={versionSelectId} value={selectedAppVersion || ALL_APP_VERSIONS_VALUE} onChange={(event) => onAppVersionChange?.(event.target.value === ALL_APP_VERSIONS_VALUE ? null : event.target.value)} className="h-9 min-w-[150px] appearance-none rounded-none border border-[#dadce0] bg-white pl-3 pr-8 text-xs font-medium text-[#3c4043] outline-none hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20">
                                 <option value={ALL_APP_VERSIONS_VALUE}>All versions</option>
                                 {appVersions.map((option) => <option key={option.version} value={option.version}>{option.version === 'UNKNOWN' ? 'Unknown version' : `v${option.version}`} ({formatCompact(option.count)})</option>)}
                             </select>
@@ -312,30 +311,30 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                     </div>
                     <span className="hidden h-6 w-px bg-[#e8eaed] sm:block" aria-hidden="true" />
                     <div className="flex items-center" role="group" aria-label="Move across journey steps">
-                        <button type="button" onClick={() => scrollJourney('left')} disabled={!horizontalScrollState.canScrollLeft} aria-label="Previous journey steps" title="Previous journey steps" className="grid h-9 w-9 place-items-center rounded-l-md border border-r-0 border-[#dadce0] bg-white text-[#3c4043] hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] disabled:cursor-not-allowed disabled:text-[#bdc1c6] disabled:hover:border-[#dadce0] disabled:hover:bg-white"><ChevronLeft className="h-4 w-4" /></button>
-                        <button type="button" onClick={() => scrollJourney('right')} disabled={!horizontalScrollState.canScrollRight} aria-label="Next journey steps" title="Next journey steps" className="grid h-9 w-9 place-items-center rounded-r-md border border-[#dadce0] bg-white text-[#3c4043] hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] disabled:cursor-not-allowed disabled:text-[#bdc1c6] disabled:hover:border-[#dadce0] disabled:hover:bg-white"><ChevronRight className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => scrollJourney('left')} disabled={!horizontalScrollState.canScrollLeft} aria-label="Previous journey steps" title="Previous journey steps" className="grid h-9 w-9 place-items-center rounded-none border border-r-0 border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:text-[#bdc1c6] disabled:hover:border-[#dadce0] disabled:hover:bg-white"><ChevronLeft className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => scrollJourney('right')} disabled={!horizontalScrollState.canScrollRight} aria-label="Next journey steps" title="Next journey steps" className="grid h-9 w-9 place-items-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:text-[#bdc1c6] disabled:hover:border-[#dadce0] disabled:hover:bg-white"><ChevronRight className="h-4 w-4" /></button>
                     </div>
-                    <button type="button" onClick={fitJourney} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"><Focus className="h-3.5 w-3.5" />Fit to width</button>
-                    <button type="button" onClick={resetJourney} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"><RotateCcw className="h-3.5 w-3.5" />Reset view</button>
+                    <button type="button" onClick={fitJourney} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"><Focus className="h-3.5 w-3.5" />Fit to width</button>
+                    <button type="button" onClick={resetJourney} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"><RotateCcw className="h-3.5 w-3.5" />Reset view</button>
                 </div>
             </header>
 
             {selectedTransitionIds.length > 0 && (
                 <div className="journey-sankey-selection flex flex-col gap-2 border-b px-4 py-3 text-xs sm:px-5 lg:flex-row lg:items-center lg:justify-between" aria-live="polite">
                     <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-                        <span className="shrink-0 font-semibold text-[#831843]">Selected path</span>
-                        <span className="shrink-0 rounded-full border border-[#fbcfe8] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9d174d]">{selectedTransitionIds.length} {selectedTransitionIds.length === 1 ? 'transition' : 'transitions'}</span>
+                        <span className="shrink-0 font-medium text-[#1967d2]">Selected path</span>
+                        <span className="shrink-0 rounded-none border border-[#d2e3fc] bg-white px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#1967d2]">{selectedTransitionIds.length} {selectedTransitionIds.length === 1 ? 'transition' : 'transitions'}</span>
                         {selectedPath.length > 0 ? selectedPath.map((screen, index) => (
                             <React.Fragment key={`${screen}:${index}`}>
-                                {index > 0 && <span className="shrink-0 text-[#db2777]">→</span>}
-                                <span className="max-w-44 shrink-0 truncate rounded-md border border-[#fbcfe8] bg-white px-2 py-1 font-medium text-[#831843]" title={screen}>{screen}</span>
+                                {index > 0 && <span className="shrink-0 text-[#1967d2]">→</span>}
+                                <span className="max-w-44 shrink-0 truncate rounded-none border border-[#d2e3fc] bg-white px-2 py-1 font-medium text-[#1967d2]" title={screen}>{screen}</span>
                             </React.Fragment>
-                        )) : <span className="text-[#9d174d]">This path is outside the current filter.</span>}
+                        )) : <span className="text-[#1967d2]">This path is outside the current filter.</span>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {selectedPathIsClipped && <button type="button" onClick={() => setStepCount(requiredSelectedSteps)} className="h-8 rounded-md border border-[#fbcfe8] bg-white px-3 font-semibold text-[#9d174d] hover:bg-[#fff7fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#db2777]">Show full path</button>}
-                        <button type="button" onClick={() => { setSelectionNotice(null); onUndoSelection?.(); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#fbcfe8] bg-white px-3 font-semibold text-[#9d174d] hover:bg-[#fff7fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#db2777]"><Minus className="h-3.5 w-3.5" />Remove end</button>
-                        <button type="button" onClick={() => { setSelectionNotice(null); onClearSelection?.(); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#f9a8d4] bg-white px-3 font-semibold text-[#9d174d] hover:bg-[#fff7fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#db2777]"><X className="h-3.5 w-3.5" />Clear path</button>
+                        {selectedPathIsClipped && <button type="button" onClick={() => setStepCount(requiredSelectedSteps)} className="h-8 rounded-none border border-[#dadce0] bg-white px-3 font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40">Show full path</button>}
+                        <button type="button" onClick={() => { setSelectionNotice(null); onUndoSelection?.(); }} className="inline-flex h-8 items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3 font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"><Minus className="h-3.5 w-3.5" />Remove end</button>
+                        <button type="button" onClick={() => { setSelectionNotice(null); onClearSelection?.(); }} className="inline-flex h-8 items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3 font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"><X className="h-3.5 w-3.5" />Clear path</button>
                     </div>
                 </div>
             )}
@@ -345,23 +344,23 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
             ) : (
                 <>
                     <div className="flex min-h-[54px] flex-wrap items-center gap-x-5 gap-y-1 border-b border-[#e8eaed] bg-white px-4 py-2.5 text-xs sm:px-5" aria-live={selectionNotice ? 'polite' : 'off'}>
-                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${selectionNotice ? 'bg-amber-50 text-amber-700' : hoveredLink ? 'bg-[#eef4ff] text-[#1a73e8]' : selectedLinks.length > 0 ? 'bg-[#fdf2f8] text-[#db2777]' : 'bg-[#f8fafd] text-[#5f6368]'}`}>
+                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-none ${selectionNotice ? 'bg-[#fef7e0] text-[#b06000]' : hoveredLink || selectedLinks.length > 0 ? 'bg-[#e8f0fe] text-[#1967d2]' : 'bg-[#f8fafd] text-[#5f6368]'}`}>
                             {selectionNotice ? <AlertTriangle className="h-3.5 w-3.5" /> : <MousePointerClick className="h-3.5 w-3.5" />}
                         </span>
                         {selectionNotice ? (
-                            <span className="font-medium text-amber-800">{selectionNotice}</span>
+                            <span className="font-medium text-[#b06000]">{selectionNotice}</span>
                         ) : hoveredLink ? (
                             <>
-                                <span className="font-semibold text-[#202124]">{hoveredLink.from} → {hoveredLink.to}</span>
+                                <span className="font-medium text-[#202124]">{hoveredLink.from} → {hoveredLink.to}</span>
                                 <span className="text-[#5f6368]"><strong className="tabular-nums text-[#202124]">{hoveredLink.count.toLocaleString()}</strong> sessions</span>
                                 <span className="text-[#5f6368]"><strong className="tabular-nums text-[#202124]">{(hoveredLink.trafficShare * 100).toFixed(1)}%</strong> of source</span>
                                 <span className="text-[#5f6368]"><strong className="tabular-nums text-[#202124]">{hoveredLink.replayCount.toLocaleString()}</strong> replay ready</span>
                                 <span className="ml-auto font-medium text-[#1a73e8]">{getFlowActionLabel(hoveredLink)}</span>
                             </>
                         ) : selectedLinks.length > 0 ? (
-                            <><span className="font-semibold text-[#831843]">Path selected</span><span className="text-[#5f6368]">Choose a highlighted connected line to continue, or use Remove end/Clear path above.</span></>
+                            <><span className="font-medium text-[#1967d2]">Path selected</span><span className="text-[#5f6368]">Choose a highlighted connected line to continue, or use Remove end/Clear path above.</span></>
                         ) : (
-                            <><span className="font-semibold text-[#202124]">Select a line to build a path</span><span className="text-[#5f6368]">Hover previews details here without covering the map.</span></>
+                            <><span className="font-medium text-[#202124]">Select a line to build a path</span><span className="text-[#5f6368]">Hover previews details here without covering the map.</span></>
                         )}
                     </div>
                     <div
@@ -394,7 +393,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                         <div style={{ width: canvasWidth * (fitScale || 1), height: canvasHeight * (fitScale || 1), minWidth: fitScale ? undefined : canvasWidth }}>
                             <div className="relative origin-top-left" style={{ width: canvasWidth, height: canvasHeight, transform: fitScale ? `scale(${fitScale})` : undefined }}>
                                 {Array.from(new Set(nodes.map((node) => node.step))).map((step) => (
-                                    <div key={step} className="absolute top-0 border-b border-[#e8eaed] pb-2 text-[11px] font-semibold text-[#5f6368]" style={{ left: CANVAS_PADDING_X + step * COLUMN_WIDTH, width: NODE_WIDTH }}>
+                                    <div key={step} className="absolute top-0 border-b border-[#e8eaed] pb-2 text-[11px] font-medium text-[#5f6368]" style={{ left: CANVAS_PADDING_X + step * COLUMN_WIDTH, width: NODE_WIDTH }}>
                                         {step === 0 ? 'Entry' : `Step ${step + 1}`}
                                     </div>
                                 ))}
@@ -412,7 +411,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                         const continuation = continuationLinkIds.has(link.id);
                                         const dimmed = hasVisibleSelection && !selected && !continuation && !related;
                                         const happy = happyLinkIds.has(link.id);
-                                        return <path key={link.id} d={d} fill="none" stroke={selected ? '#db2777' : happy ? '#1e8e3e' : link.isAggregate ? '#9aa0a6' : '#5dadec'} strokeWidth={selected ? link.thickness + 4 : related ? link.thickness + 2 : continuation && hasVisibleSelection ? link.thickness + 1 : link.thickness} strokeDasharray={link.isAggregate || link.isTerminal ? '7 5' : undefined} strokeLinecap="round" opacity={dimmed ? 0.17 : selected ? 0.92 : related ? 0.78 : continuation && hasVisibleSelection ? 0.5 : 0.34} style={{ transition: 'opacity 150ms ease, stroke-width 150ms ease, stroke 150ms ease' }} />;
+                                        return <path key={link.id} d={d} fill="none" stroke={selected ? '#1967d2' : happy ? '#188038' : link.isAggregate ? '#9aa0a6' : '#1a73e8'} strokeWidth={selected ? link.thickness + 4 : related ? link.thickness + 2 : continuation && hasVisibleSelection ? link.thickness + 1 : link.thickness} strokeDasharray={link.isAggregate || link.isTerminal ? '7 5' : undefined} strokeLinecap="round" opacity={dimmed ? 0.17 : selected ? 0.92 : related ? 0.78 : continuation && hasVisibleSelection ? 0.5 : 0.34} style={{ transition: 'opacity 150ms ease, stroke-width 150ms ease, stroke 150ms ease' }} />;
                                     })}
                                 </svg>
                                 <svg className="absolute inset-0 overflow-visible" width={canvasWidth} height={canvasHeight}>
@@ -440,16 +439,16 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                     const issueLabel = getIssueLabel(node);
                                     const terminal = node.kind === 'exit' || node.kind === 'continue';
                                     return (
-                                        <article key={node.id} style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT, opacity: dimmed ? 0.62 : 1 }} className={`journey-node absolute flex overflow-hidden border text-left transition ${selectedNode ? 'journey-node-selected' : ''} ${happyNodeIds.has(node.id) ? 'ring-1 ring-emerald-200' : ''} ${terminal ? 'border-dashed' : ''}`} onMouseEnter={() => setHoveredNodeId(node.id)} onMouseLeave={() => setHoveredNodeId(null)} aria-label={`${node.screen}, step ${node.step + 1}, ${node.count.toLocaleString()} sessions, ${(node.share * 100).toFixed(1)} percent share${issueLabel ? `, ${issueLabel}` : ''}`}>
-                                            <span className={`w-1 shrink-0 ${terminal ? 'bg-[#9aa0a6]' : selectedNode ? 'bg-[#db2777]' : happyNodeIds.has(node.id) ? 'bg-[#1e8e3e]' : 'bg-[#1a73e8]'}`} />
+                                        <article key={node.id} style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT, opacity: dimmed ? 0.62 : 1 }} className={`journey-node absolute flex overflow-hidden border text-left transition ${selectedNode ? 'journey-node-selected' : ''} ${happyNodeIds.has(node.id) ? 'ring-1 ring-[#ceead6]' : ''} ${terminal ? 'border-dashed' : ''}`} onMouseEnter={() => setHoveredNodeId(node.id)} onMouseLeave={() => setHoveredNodeId(null)} aria-label={`${node.screen}, step ${node.step + 1}, ${node.count.toLocaleString()} sessions, ${(node.share * 100).toFixed(1)} percent share${issueLabel ? `, ${issueLabel}` : ''}`}>
+                                            <span className={`w-1 shrink-0 ${terminal ? 'bg-[#9aa0a6]' : selectedNode ? 'bg-[#1967d2]' : happyNodeIds.has(node.id) ? 'bg-[#188038]' : 'bg-[#1a73e8]'}`} />
                                             <span className="flex min-w-0 flex-1 flex-col justify-center px-3">
                                                 <span className="flex min-w-0 items-center justify-between gap-2">
-                                                    <span className="truncate text-xs font-semibold text-[#202124]" title={node.screen}>{node.screen}</span>
-                                                    <span className="shrink-0 text-xs font-semibold tabular-nums text-[#202124]">{formatCompact(node.count)}</span>
+                                                    <span className="truncate text-xs font-medium text-[#202124]" title={node.screen}>{node.screen}</span>
+                                                    <span className="shrink-0 text-xs font-medium tabular-nums text-[#202124]">{formatCompact(node.count)}</span>
                                                 </span>
                                                 <span className="mt-1 flex items-center justify-between gap-2 text-[10px] font-medium text-[#5f6368]">
                                                     <span>{(node.share * 100).toFixed(1)}% at this step</span>
-                                                    {issueLabel && <span className={`inline-flex items-center gap-1 ${node.health === 'problematic' ? 'text-rose-700' : 'text-amber-700'}`}><AlertTriangle className="h-3 w-3" />{issueLabel}</span>}
+                                                    {issueLabel && <span className={`inline-flex items-center gap-1 ${node.health === 'problematic' ? 'text-[#c5221f]' : 'text-[#b06000]'}`}><AlertTriangle className="h-3 w-3" />{issueLabel}</span>}
                                                 </span>
                                             </span>
                                         </article>
@@ -462,10 +461,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
             )}
 
             <footer className="journey-sankey-footer flex flex-wrap items-center gap-x-5 gap-y-2 border-t px-4 py-3 text-[11px] font-medium sm:px-5">
-                <span><strong className="font-semibold text-[#202124]">{graph.sampledSessions.toLocaleString()}</strong> journey sessions sampled</span>
+                <span><strong className="font-medium tabular-nums text-[#202124]">{graph.sampledSessions.toLocaleString()}</strong> journey sessions sampled</span>
                 <span className="hidden lg:inline">Drag horizontally, use the arrows, or Shift + scroll to explore</span>
-                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-6 rounded-full bg-[#5dadec] opacity-70" />Width = traffic volume</span>
-                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded border border-[#1e8e3e] bg-white" />Happy path</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-6 rounded-none bg-[#1a73e8] opacity-40" />Width = traffic volume</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-none border border-[#188038] bg-white" />Happy path</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dashed border-[#9aa0a6]" />Exit or aggregate</span>
             </footer>
         </section>

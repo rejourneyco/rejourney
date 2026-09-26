@@ -13,9 +13,12 @@ export const Toast: React.FC<ToastProps> = ({ message, onClose, duration = 3000 
   }, [duration, onClose]);
 
   return (
-    <div className="fixed bottom-4 right-4 bg-white border-2 border-black p-3 shadow-lg z-50">
-      <div className="text-xs font-mono">{message}</div>
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-4 right-4 z-50 max-w-sm rounded-none bg-[#202124] px-4 py-3 font-sans text-sm text-white shadow-[0_3px_10px_rgba(60,64,67,0.3)]"
+    >
+      {message}
     </div>
   );
 };
-

@@ -1,3 +1,4 @@
+import { loadScreenshotImage, disposeScreenshotImage, screenshotImagesOnFallback } from '~/shared/lib/screenshotImageLoader';
 import { UnityRuntimeContext } from "./UnityRuntimeContext";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -34,6 +35,8 @@ import {
     Download,
     FileText,
     ListFilter,
+    ListVideo,
+    Loader2,
     Terminal,
     Code,
     Check,
@@ -44,8 +47,14 @@ import {
     Link2,
     Trash2,
     X,
+    Gamepad2,
+    Moon,
+    Minus,
+    Square,
 } from 'lucide-react';
 import { canOpenReplayFromSession } from '~/shared/lib/replayAvailability';
+import { dashboardButtonClass, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
+import { formatSetupPlatform } from '~/features/app/setup/setupUtils';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { api, type ReplayShareExpirationPreset, type ReplayShareLink, type ReplayShareVisibility } from '~/shared/api/client';
 import DOMInspector, { HierarchySnapshot } from '~/shared/ui/core/DOMInspector';
@@ -55,6 +64,7 @@ import { SessionLoadingOverlay } from '~/features/app/sessions/shared/SessionLoa
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
+import { mergeScreenshotFrameLists, screenshotFrameKey } from '~/shared/lib/screenshotFrameList';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
@@ -67,6 +77,13 @@ import {
     formatBackgroundGapDuration,
     isTimestampInsideCompressedBackgroundGap,
 } from '~/shared/lib/replayTimeCompression';
+import {
+    buildGameplayIntervals,
+    describeGameplayMarker,
+    gameplayMarkerPhase,
+    isGameplayInput,
+    isGameplayMarker,
+} from '~/shared/lib/gameplayIntervals';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import ReduxReplayPanel, { getReduxActionType, isReduxReplayEvent } from './ReduxReplayPanel';
@@ -100,6 +117,12 @@ interface SessionEvent {
     message?: string;
     stack?: string;
     rating?: number;
+    // Gameplay markers, and the segment tag on input recorded during play.
+    phase?: string;
+    gameplayId?: string;
+    outcome?: string;
+    continued?: boolean;
+    durationMs?: number;
 }
 
 interface NetworkRequest {
@@ -367,8 +390,8 @@ const EVENT_COLORS = {
     swipe: '#3b82f6',
     pinch: '#3b82f6',
     pan: '#3b82f6',
-    rotation: '#ec4899',
-    appBackground: '#db2777',
+    rotation: '#3b82f6',
+    appBackground: '#5f6368',
     appForeground: '#047857',
     sessionStart: '#06b6d4',
     navigation: '#8b5cf6',
@@ -376,6 +399,7 @@ const EVENT_COLORS = {
     log: '#2563eb',
     custom: '#8b5cf6',
     redux: '#0891b2',
+    gameplay: '#d97706',
     default: '#6b7280',
 } as const;
 
@@ -403,23 +427,23 @@ const getGestureDisplayLabel = (event: SessionEvent): string | null => {
     const kind = getEventGestureKind(event);
     if (!kind) return null;
 
-    if (kind === 'rage_tap') return 'Rage Tap';
-    if (kind === 'dead_tap') return 'Dead Tap';
-    if (kind.includes('double_tap')) return 'Double Tap';
-    if (kind.includes('long_press')) return 'Long Press';
+    if (kind === 'rage_tap') return 'Rage tap';
+    if (kind === 'dead_tap') return 'Dead tap';
+    if (kind.includes('double_tap')) return 'Double tap';
+    if (kind.includes('long_press')) return 'Long press';
     if (kind.includes('tap')) return 'Tap';
 
     const direction = ['up', 'down', 'left', 'right'].find((part) => kind.endsWith(`_${part}`));
-    const directionSuffix = direction ? ` ${titleCaseToken(direction)}` : '';
+    const directionSuffix = direction ? ` ${direction}` : '';
 
     if (kind.includes('scroll')) return `Scroll${directionSuffix}`;
     if (kind.includes('swipe')) return `Swipe${directionSuffix}`;
-    if (kind.includes('pinch') || kind.includes('zoom')) return 'Pinch Zoom';
+    if (kind.includes('pinch') || kind.includes('zoom')) return 'Pinch zoom';
     if (kind.includes('rotat')) return 'Rotate';
     if (kind.includes('pan') || kind.includes('drag')) return `Pan${directionSuffix}`;
     if (kind === 'touch') return 'Touch';
 
-    return kind.split('_').filter(Boolean).map(titleCaseToken).join(' ');
+    return titleCaseToken(kind.split('_').filter(Boolean).join(' '));
 };
 
 const isGestureEvent = (event: SessionEvent): boolean => {
@@ -449,6 +473,7 @@ const getEventColor = (event: SessionEvent): string => {
     const type = normalizeEventType(event.type);
     const gestureType = getEventGestureKind(event);
 
+    if (isGameplayMarker(event)) return EVENT_COLORS.gameplay;
     if (gestureType === 'dead_tap') return EVENT_COLORS.deadTap;
     if (gestureType === 'rage_tap') return EVENT_COLORS.rageTap;
     if (type === 'crash') return EVENT_COLORS.crash;
@@ -481,11 +506,13 @@ const getEventIcon = (event: SessionEvent) => {
     const type = normalizeEventType(event.type);
     const gestureType = getEventGestureKind(event);
 
+    if (isGameplayMarker(event)) return Gamepad2;
     if (type === 'crash' || type === 'error' || type === 'anr') return AlertCircle;
     if (type === 'network_request') return Globe;
     if (isLogEvent(event)) return FileText;
     if (isRouteNavigationEvent(event)) return RouteIcon;
-    if (isAppForegroundEvent(event) || type === 'app_background') return Play;
+    if (type === 'app_background') return Moon;
+    if (isAppForegroundEvent(event)) return Play;
     if (type === 'device_info') return Smartphone;
     if (isReduxReplayEvent(event)) return Database;
     if (type === 'custom') return Star;
@@ -583,6 +610,76 @@ const formatCountCompact = (count: number): string => {
 // absurd minute count (e.g. an epoch value formatting as "29667882:55").
 const MAX_PLAYBACK_CLOCK_SECONDS = 24 * 60 * 60; // 24h
 
+type UserRecordingsListProps = {
+    recordings: any[];
+    currentSessionId?: string;
+    isLoading: boolean;
+    onOpen: (sessionId: string) => void;
+    onLoadMore?: () => void;
+    error?: string | null;
+};
+
+/** One user's recordings, newest first, so a reviewer can move through them without the archive. */
+const UserRecordingsList: React.FC<UserRecordingsListProps> = ({ recordings, currentSessionId, isLoading, onOpen, onLoadMore, error }) => {
+    if (isLoading && recordings.length === 0) {
+        return (
+            <div className="flex items-center gap-2 px-3 py-4 text-sm text-[#5f6368]">
+                <Loader2 className="h-4 w-4 animate-spin text-[#1a73e8]" aria-hidden />
+                Loading recordings…
+            </div>
+        );
+    }
+    if (recordings.length === 0 && !error) {
+        return <p className="px-3 py-4 text-sm text-[#5f6368]">No other recordings from this user yet.</p>;
+    }
+    return (
+        <>
+        <ol className="divide-y divide-[#e8eaed]">
+            {recordings.map((recording) => {
+                const isCurrent = recording.id === currentSessionId;
+                const startedAt = recording.startedAt ? new Date(recording.startedAt) : null;
+                const screens = Array.isArray(recording.screensVisited) ? recording.screensVisited.length : 0;
+                const details = [
+                    formatPlaybackClock(Number(recording.durationSeconds) || 0),
+                    screens > 0 ? `${screens} screen${screens === 1 ? '' : 's'}` : null,
+                ].filter(Boolean).join(' · ');
+                return (
+                    <li key={recording.id}>
+                        <button
+                            type="button"
+                            onClick={() => onOpen(recording.id)}
+                            disabled={isCurrent}
+                            aria-current={isCurrent ? 'true' : undefined}
+                            className={`flex w-full items-center gap-3 px-3 py-3 text-left transition-colors ${isCurrent ? 'bg-[#e8f0fe]' : 'hover:bg-[#f8fafd] active:bg-[#f1f3f4]'}`}
+                        >
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center ${isCurrent ? 'bg-[#1a73e8] text-white' : 'bg-[#f1f3f4] text-[#5f6368]'}`}>
+                                <Play className="h-3.5 w-3.5" aria-hidden />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className={`block truncate text-sm ${isCurrent ? 'font-medium text-[#1967d2]' : 'text-[#202124]'}`}>
+                                    {startedAt
+                                        ? startedAt.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                        : 'Recording'}
+                                </span>
+                                <span className="block truncate text-xs tabular-nums text-[#5f6368]">{details}</span>
+                            </span>
+                            {isCurrent
+                                ? <span className={dashboardChipClass('info')}>Watching</span>
+                                : <ChevronRight className="h-4 w-4 shrink-0 text-[#80868b]" aria-hidden />}
+                        </button>
+                    </li>
+                );
+            })}
+        </ol>
+        {error ? <p role="alert" className="px-3 py-2 text-sm text-[#b3261e]">{error}</p> : null}
+        {onLoadMore ? <button type="button" onClick={onLoadMore} disabled={isLoading}
+            className="min-h-11 w-full px-3 py-3 text-sm font-medium text-[#1967d2] disabled:opacity-50">
+            {isLoading ? 'Loading…' : error ? 'Retry recordings' : 'Load more recordings'}
+        </button> : null}
+        </>
+    );
+};
+
 const formatPlaybackClock = (seconds: number): string => {
     if (!Number.isFinite(seconds)) return '00:00';
     // Clamp negatives to 0 and cap implausibly large values so a stray absolute
@@ -600,6 +697,26 @@ const formatPlaybackClock = (seconds: number): string => {
 
 const escapeRegExp = (value: string): string =>
     value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Module scope keeps the component identity stable; defined inside the route it remounted
+// every activity row on each playback tick.
+const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
+    if (!search.trim() || !text) return <>{text}</>;
+    const normalizedSearch = search.trim().toLowerCase();
+    const escaped = escapeRegExp(search.trim());
+    const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+    return (
+        <>
+            {parts.map((part, i) =>
+                part.toLowerCase() === normalizedSearch ? (
+                    <mark key={i} className="rounded-none bg-[#feefc3] px-0.5 text-[#202124]">{part}</mark>
+                ) : (
+                    part
+                )
+            )}
+        </>
+    );
+};
 
 const isFaultType = (type: string): boolean =>
     type === 'crash' || type === 'anr' || type === 'error';
@@ -658,16 +775,17 @@ const getFaultConsoleSummary = (event: SessionEvent): string => {
     return event.message || event.properties?.message || event.name || 'Log entry';
 };
 
-const getFaultBadgeStyles = (marker: 'CRASH' | 'ANR' | 'ERROR'): string => {
-    if (marker === 'CRASH') return 'bg-red-100 text-red-700 border-red-300';
-    if (marker === 'ANR') return 'bg-violet-100 text-violet-700 border-violet-300';
-    return 'bg-pink-100 text-pink-700 border-pink-300';
-};
+// Crashes and errors are failures (danger); ANRs keep the purple the rest of the dashboard uses.
+const getFaultBadgeStyles = (marker: 'CRASH' | 'ANR' | 'ERROR'): string =>
+    dashboardChipClass(marker === 'ANR' ? 'purple' : 'danger');
 
+const formatFaultMarkerLabel = (marker: 'CRASH' | 'ANR' | 'ERROR'): string =>
+    marker === 'ANR' ? 'ANR' : titleCaseToken(marker.toLowerCase());
+
+// Console text colors on the dark terminal surface.
 const getFaultTerminalClass = (marker: 'CRASH' | 'ANR' | 'ERROR'): string => {
-    if (marker === 'CRASH') return 'text-red-300';
-    if (marker === 'ANR') return 'text-violet-300';
-    return 'text-pink-300';
+    if (marker === 'ANR') return 'text-[#c58af9]';
+    return 'text-[#f28b82]';
 };
 
 const buildFaultEventDedupKey = (event: SessionEvent): string | null => {
@@ -780,7 +898,7 @@ const formatConsoleMessage = (event: SessionEvent): string => {
     if (type === 'app_terminated' || type === 'session_end') return 'Session ended';
 
     if (type === 'custom') {
-        const name = event.name || 'Custom Event';
+        const name = event.name || 'Custom event';
         const props = event.properties;
         if (props && Object.keys(props).length > 0) {
             return `${name} ${JSON.stringify(props)}`;
@@ -798,21 +916,22 @@ const formatConsoleMessage = (event: SessionEvent): string => {
 };
 
 const getActivityEventTitle = (event: SessionEvent): string => {
+    if (isGameplayMarker(event)) return gameplayMarkerPhase(event) === 'end' ? 'Gameplay ended' : 'Gameplay started';
     const type = normalizeEventType(event.type);
     const marker = getFaultMarker(event);
     const gestureLabel = getGestureDisplayLabel(event);
     if (gestureLabel) return gestureLabel;
 
     if (type === 'network_request') {
-        return `${event.name || event.properties?.method || 'API Request'}`;
+        return `${event.name || event.properties?.method || 'API request'}`;
     }
-    if (marker) return `Fault ${marker}`;
+    if (marker) return `Fault ${marker === 'ANR' ? 'ANR' : marker.toLowerCase()}`;
     if (isLogEvent(event)) return `Console ${getLogLevel(event)}`;
     if (isReduxReplayEvent(event)) return `Redux ${getReduxActionType(event)}`;
-    if (type === 'custom') return event.name || 'Custom Event';
+    if (type === 'custom') return event.name || 'Custom event';
     if (type === 'navigation' || type === 'screen_view') return 'Navigation';
-    if (type === 'app_foreground') return 'App Foreground';
-    if (type === 'app_background') return 'App Background';
+    if (type === 'app_foreground') return 'App foreground';
+    if (type === 'app_background') return 'App background';
 
     return (event.type || 'event').replace(/_/g, ' ');
 };
@@ -996,6 +1115,7 @@ const canNavigateToReplaySession = (session: any): boolean => {
 };
 
 const getActivityEventDetail = (event: SessionEvent): string | null => {
+    if (isGameplayMarker(event)) return describeGameplayMarker(event);
     const type = normalizeEventType(event.type);
     const marker = getFaultMarker(event);
     if (marker) return getFaultConsoleSummary(event);
@@ -1113,44 +1233,65 @@ const isFeedbackType = (type: string): boolean =>
     type === 'feedback' || type === 'user_feedback';
 
 const getLogBadgeStyles = (level: string): string => {
-    if (level === 'error') return 'bg-red-50 text-red-700 border-red-200';
-    if (level === 'warn' || level === 'warning') return 'bg-pink-50 text-pink-700 border-pink-200';
-    return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (level === 'error') return dashboardChipClass('danger');
+    if (level === 'warn' || level === 'warning') return dashboardChipClass('warning');
+    if (level === 'info') return dashboardChipClass('info');
+    return dashboardChipClass('neutral');
 };
 
-const getTerminalLevelClass = (level: string): string => {
-    if (level === 'error') return 'text-red-300';
-    if (level === 'warn' || level === 'warning') return 'text-pink-300';
-    if (level === 'event') return 'text-violet-300';
-    return 'text-emerald-300';
+const formatLogLevelLabel = (level: string): string => {
+    if (level === 'warn' || level === 'warning') return 'Warning';
+    return titleCaseToken(level || 'log');
 };
+
+// Console text colors on the dark terminal surface.
+const getTerminalLevelClass = (level: string): string => {
+    if (level === 'error') return 'text-[#f28b82]';
+    if (level === 'warn' || level === 'warning') return 'text-[#fdd663]';
+    if (level === 'event') return 'text-[#c58af9]';
+    if (level === 'info') return 'text-[#8ab4f8]';
+    return 'text-[#bdc1c6]';
+};
+
+// Panel header action that is switched on, such as the console's "Show all" mode.
+const REPLAY_PANEL_TOGGLE_ON_CLASS = 'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-3 text-xs font-medium text-[#1967d2] transition-colors hover:bg-[#d2e3fc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40';
 
 type InsightLevel = 'good' | 'warning' | 'critical' | 'neutral';
 
 const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string; bar: string }> = {
     good: {
-        badge: 'border-black bg-[#86efac] text-black',
-        value: 'text-black',
-        bar: 'bg-[#86efac]',
+        badge: dashboardChipClass('success'),
+        value: 'text-[#202124]',
+        bar: 'bg-[#1e8e3e]',
     },
     warning: {
-        badge: 'border-black bg-[#f9a8d4] text-black',
-        value: 'text-black',
-        bar: 'bg-[#f9a8d4]',
+        badge: dashboardChipClass('warning'),
+        value: 'text-[#202124]',
+        bar: 'bg-[#f9ab00]',
     },
     critical: {
-        badge: 'border-black bg-[#fecaca] text-black',
-        value: 'text-black',
-        bar: 'bg-[#fb7185]',
+        badge: dashboardChipClass('danger'),
+        value: 'text-[#202124]',
+        bar: 'bg-[#d93025]',
     },
     neutral: {
-        badge: 'border-black bg-white text-black',
-        value: 'text-slate-800',
-        bar: 'bg-black',
+        badge: dashboardChipClass('neutral'),
+        value: 'text-[#3c4043]',
+        bar: 'bg-[#80868b]',
     },
 };
 
-const PLAYBACK_STATE_COMMIT_INTERVAL_MS = 250;
+// Each commit re-renders this whole route; phones get half the rate so taps stay responsive.
+const PLAYBACK_STATE_COMMIT_INTERVAL_MS =
+    typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches ? 500 : 250;
+// Caps how far one animation frame can move the replay clock, so a long task or a
+// throttled tab can't jump playback forward.
+const MAX_PLAYBACK_TICK_ELAPSED_MS = 250;
+// Delays between replay-manifest attempts before the player shows a retry button.
+const REPLAY_MANIFEST_RETRY_DELAYS_MS = [1000, 3000];
+// While frames are still being prepared, playback waits at the last available frame for
+// new ones, but stops waiting once the list has not grown for this long.
+const PREPARING_FRAMES_HOLD_MS = 15000;
 const REPLAY_SKIP_SECONDS = 10;
 const PLAYBACK_SPEED_OPTIONS = [0.5, 1, 1.5, 2, 4] as const;
 const SPEED_MENU_WIDTH_PX = 92;
@@ -1159,6 +1300,8 @@ const SPEED_MENU_VIEWPORT_GAP_PX = 8;
 // Failsafe: if the next screenshot frame still hasn't decoded after this long while
 // buffering, resume playback anyway so a single broken/slow frame can't hang the replay.
 const MAX_BUFFER_STALL_MS = 8000;
+// Frame images currently retrying on their proxy URL after the signed URL failed.
+
 const MAX_TIMELINE_MARKERS = 36;
 const TIMELINE_MARKER_DEFAULT_TRACK_WIDTH_PX = 900;
 const TIMELINE_MARKER_BASE_SPACING_PX = 64;
@@ -1369,16 +1512,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const [isStatsLoading, setIsStatsLoading] = useState(false);
     const [isFramesLoading, setIsFramesLoading] = useState(false);
     const [isReplayManifestLoading, setIsReplayManifestLoading] = useState(false);
+    // Set once every replay-manifest attempt has failed; the player then offers a retry.
+    const [replayManifestFailed, setReplayManifestFailed] = useState(false);
     const [isReplayLoaderSettling, setIsReplayLoaderSettling] = useState(false);
     const [revealedReplaySessionId, setRevealedReplaySessionId] = useState<string | null>(null);
     const [sessionLoadError, setSessionLoadError] = useState<SessionLoadErrorKind | null>(null);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
-    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'redux' | 'inspector' | 'metadata'>('timeline');
+    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'redux' | 'inspector' | 'metadata' | 'recordings'>('timeline');
     const [revealAllLogs, setRevealAllLogs] = useState(false);
 
     // Replay player state
     const [isPlaying, setIsPlaying] = useState(false);
+    // Set when playback stops at the end because another recording from the same user is up next.
+    const [playbackFinished, setPlaybackFinished] = useState(false);
+    const upNextSessionIdRef = useRef<string | null>(null);
+    const [userRecordings, setUserRecordings] = useState<any[]>([]);
+    const [userRecordingsCursor, setUserRecordingsCursor] = useState<string | null>(null);
+    const [userRecordingsError, setUserRecordingsError] = useState<string | null>(null);
+    const userRecordingsAbortRef = useRef<AbortController | null>(null);
+    const userRecordingsScopeRef = useRef('');
+    const [isUserRecordingsLoading, setIsUserRecordingsLoading] = useState(false);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
     const [speedMenuPosition, setSpeedMenuPosition] = useState<{ top: number; left: number } | null>(null);
@@ -1429,6 +1583,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     // time. Failed images are evicted from the cache instead of being cached broken
     // forever; the timestamp gates re-tries to one every couple of seconds.
     const screenshotFrameFailureRef = useRef<Map<string, number>>(new Map());
+    // True once a real frame has been painted on the canvas; the frame-0 poster is then removed.
+    const [screenshotFramePainted, setScreenshotFramePainted] = useState(false);
+    const screenshotFramePaintedRef = useRef(false);
+    // When the frame list last grew, so playback stops waiting on a build that has stalled.
+    const screenshotFrameCountRef = useRef(0);
+    const screenshotFramesGrewAtRef = useRef(0);
     const screenshotAnimationRef = useRef<number | null>(null);
     const webReplayAnimationRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef<number>(0);
@@ -1575,6 +1735,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             setIsHierarchyLoading(true);
             setIsStatsLoading(true);
             setIsFramesLoading(false);
+            setReplayManifestFailed(false);
             setSessionLoadError(null);
             setHierarchySnapshots([]);
 
@@ -1626,7 +1787,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                             if (!currentMatchesLoadedSession(prev)) return prev;
                             return {
                                 ...prev,
-                                screenshotFrames: framesResult.screenshotFrames || prev.screenshotFrames || [],
+                                // Append-only: a rebuild can answer with an empty or partial list,
+                                // which must not take frames away from a replay already playing.
+                                screenshotFrames: mergeScreenshotFrameLists(prev.screenshotFrames, framesResult.screenshotFrames),
                                 screenshotFramesStatus: framesResult.screenshotFramesStatus,
                                 screenshotFrameCount: framesResult.screenshotFrameCount,
                                 screenshotFramesProcessedSegments: framesResult.screenshotFramesProcessedSegments,
@@ -1662,7 +1825,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     performance.measure(`replay:getSessionCore:${replayRequestLabel}`, coreMark);
                 }
 
-                setFullSession(coreResult as any);
+                setFullSession((prev) => {
+                    const next = coreResult as any;
+                    // The core response never carries replay frames. Re-fetching the same
+                    // session (manual refresh) keeps the frames already on screen until the
+                    // replay manifest answers, instead of blanking the player.
+                    if (!prev || !next || prev.id !== next.id || !(prev.screenshotFrames?.length)) return next;
+                    return {
+                        ...next,
+                        screenshotFrames: prev.screenshotFrames,
+                        screenshotFramesStatus: prev.screenshotFramesStatus,
+                        screenshotFrameCount: prev.screenshotFrameCount,
+                        screenshotFramesProcessedSegments: prev.screenshotFramesProcessedSegments,
+                        screenshotFramesTotalSegments: prev.screenshotFramesTotalSegments,
+                    };
+                });
                 setIsCoreLoading(false);
             } catch (err) {
                 if (requestSignal.aborted || isAbortError(err)) return;
@@ -1681,10 +1858,31 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             }
 
             setIsReplayManifestLoading(true);
-            const manifestPromise = activeShareToken
-                ? api.getSharedReplayManifest(activeShareToken, { signal: requestSignal })
-                : api.getSessionReplayManifest(id!, { frameUrlMode: 'signed', signal: requestSignal });
-            void manifestPromise
+            // The manifest is what turns the loader into a playable replay, so a transient
+            // failure is retried with backoff before the player offers a manual retry.
+            const loadReplayManifest = async () => {
+                for (let attempt = 0; ; attempt += 1) {
+                    try {
+                        return activeShareToken
+                            ? await api.getSharedReplayManifest(activeShareToken, { signal: requestSignal })
+                            : await api.getSessionReplayManifest(id!, { frameUrlMode: 'signed', signal: requestSignal });
+                    } catch (err) {
+                        const retryDelayMs = REPLAY_MANIFEST_RETRY_DELAYS_MS[attempt];
+                        if (
+                            retryDelayMs === undefined ||
+                            requestSignal.aborted ||
+                            isAbortError(err) ||
+                            activeReplayRequestRef.current !== requestId
+                        ) {
+                            throw err;
+                        }
+                        console.warn('Replay manifest request failed; retrying.', err);
+                        await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+                        if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) throw err;
+                    }
+                }
+            };
+            void loadReplayManifest()
                 .then((manifest) => {
                     if (activeReplayRequestRef.current !== requestId) return;
                     setFullSession((prev) => {
@@ -1696,7 +1894,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                             ...prev,
                             hasRecording: manifest.hasRecording,
                             playbackMode,
-                            screenshotFrames: manifest.screenshotFrames || [],
+                            screenshotFrames: mergeScreenshotFrameLists(prev.screenshotFrames, manifest.screenshotFrames),
                             screenshotFramesStatus: manifest.screenshotFramesStatus,
                             screenshotFrameCount: manifest.screenshotFrameCount,
                             screenshotFramesProcessedSegments: manifest.screenshotFramesProcessedSegments,
@@ -1717,6 +1915,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     if (requestSignal.aborted || isAbortError(err)) return;
                     if (activeReplayRequestRef.current !== requestId) return;
                     console.error('Failed to fetch replay manifest:', err);
+                    setReplayManifestFailed(true);
                 })
                 .finally(() => {
                     if (activeReplayRequestRef.current === requestId && !requestSignal.aborted) {
@@ -1863,10 +2062,83 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         };
     }, [contextSessions.length, fullSession?.projectId, id, isPublicShare, selectedProject?.id]);
 
+    // The same person's other recordings: SDK user ID when the app identified them, otherwise
+    // the device. Kept across navigation between that user's sessions so Next stays instant.
+    const replayUserIdentityId = (fullSession?.userId ?? '').trim();
+    const replayUserIdentity = replayUserIdentityId && replayUserIdentityId.toLowerCase() !== 'anonymous'
+        ? { userId: replayUserIdentityId }
+        : ((fullSession as any)?.deviceId ? { deviceId: String((fullSession as any).deviceId) } : null);
+    const replayUserIdentityKey = replayUserIdentity
+        ? ('userId' in replayUserIdentity ? `user:${replayUserIdentity.userId}` : `device:${replayUserIdentity.deviceId}`)
+        : '';
+    const replayUserProjectId = fullSession?.projectId || selectedProject?.id;
+
+    const loadUserRecordings = useCallback(async (cursor?: string | null) => {
+        if (isPublicShare || !replayUserIdentity || !replayUserProjectId) return;
+        userRecordingsAbortRef.current?.abort();
+        const controller = new AbortController();
+        userRecordingsAbortRef.current = controller;
+        const timeout = window.setTimeout(() => controller.abort(), 20000);
+        setIsUserRecordingsLoading(true);
+        setUserRecordingsError(null);
+        try {
+            const result = await api.getSessionsPaginated({
+                projectId: replayUserProjectId, ...replayUserIdentity,
+                cursor, limit: 50, timeRange: 'all', sort: 'date', sortDir: 'desc',
+                hasRecording: true, includeTotal: false,
+            }, { signal: controller.signal });
+            if (controller.signal.aborted) return;
+            const rows = result.sessions.filter(canNavigateToReplaySession);
+            setUserRecordings(previous => cursor
+                ? [...previous, ...rows.filter(row => !previous.some(item => item.id === row.id))]
+                : rows);
+            setUserRecordingsCursor(result.hasMore ? result.nextCursor : null);
+        } catch {
+            if (userRecordingsAbortRef.current === controller) {
+                setUserRecordingsError('Could not load recordings. Please retry.');
+            }
+        } finally {
+            window.clearTimeout(timeout);
+            if (userRecordingsAbortRef.current === controller) setIsUserRecordingsLoading(false);
+        }
+        // Identity fields, not the newly allocated identity object, scope this request.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPublicShare, replayUserIdentityKey, replayUserProjectId]);
+
+    useEffect(() => {
+        if (!fullSession && !isPublicShare) return;
+        const scope = !isPublicShare && replayUserIdentityKey && replayUserProjectId
+            ? `${replayUserProjectId}:${replayUserIdentityKey}` : '';
+        if (scope === userRecordingsScopeRef.current) return;
+        userRecordingsScopeRef.current = scope;
+        userRecordingsAbortRef.current?.abort();
+        userRecordingsAbortRef.current = null;
+        setUserRecordings([]);
+        setUserRecordingsCursor(null);
+        setUserRecordingsError(null);
+        setIsUserRecordingsLoading(false);
+        if (scope) void loadUserRecordings();
+    }, [Boolean(fullSession), isPublicShare, replayUserIdentityKey, replayUserProjectId, loadUserRecordings]);
+
+    useEffect(() => () => {
+        userRecordingsAbortRef.current?.abort();
+        userRecordingsAbortRef.current = null;
+        userRecordingsScopeRef.current = '';
+    }, []);
+
+    useEffect(() => {
+        if (isPlaying) setPlaybackFinished(false);
+    }, [isPlaying]);
+
+    useEffect(() => {
+        setPlaybackFinished(false);
+    }, [id]);
+
     useEffect(() => {
         return () => {
             activeReplayAbortRef.current?.abort();
             activeReplayAbortRef.current = null;
+            for (const image of screenshotFrameCacheRef.current.values()) disposeScreenshotImage(image);
             for (const cleanup of replayDeferredTaskCleanupsRef.current) cleanup();
             replayDeferredTaskCleanupsRef.current = [];
             if (framePollTimeoutRef.current) {
@@ -1886,6 +2158,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         });
         const taps = sessionEvents.filter(e => {
             if ((e as any).rageEligible === false || e.properties?.rageEligible === false || e.payload?.rageEligible === false) return false;
+            // Taps during a marked gameplay interval are game input, never rage taps.
+            if (isGameplayInput(e)) return false;
             // Keep replay inference compatible with older native SDKs that only
             // emitted `type: "touch", gestureType: "tap"` while ensuring
             // keyboard-area taps never become rage indicators.
@@ -2031,6 +2305,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
     const replayBaseTime = fullSession?.startTime || (session?.startedAt ? new Date(session.startedAt).getTime() : Date.now());
     const startTime = replayBaseTime;
+
+    // Marked gameplay: drawn as a lane under the replay track and listed in the Unity panel.
+    const gameplayIntervals = useMemo(() => buildGameplayIntervals(allTimelineEvents, {
+        start: replayBaseTime,
+        end: fullSession?.endTime && fullSession.endTime > replayBaseTime ? fullSession.endTime : null,
+    }), [allTimelineEvents, fullSession?.endTime, replayBaseTime]);
 
     const logEvents = useMemo(() => {
         const selected = allTimelineEvents.filter((event) => {
@@ -2289,9 +2569,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         return Math.max(0, (compressedEnd - sessionStart) / 1000);
     }, [durationSeconds, fullSession?.startTime, screenshotRawEndMs, screenshotReplayBackgroundGaps]);
 
+    // More frames may still arrive (the frame index is being built and polled).
+    const screenshotFramesStillPreparing = fullSession?.screenshotFramesStatus === 'preparing' || isFramesLoading;
     const visualReplayPreparing = Boolean(
         fullSession?.playbackMode === 'screenshots' &&
-        (fullSession?.screenshotFramesStatus === 'preparing' || isFramesLoading) &&
+        screenshotFramesStillPreparing &&
         screenshotFrames.length === 0
     );
     // useRrwebReplayEvents transparently returns either the server-inlined events
@@ -2457,6 +2739,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
         return Number.isFinite(playbackTime) && playbackTime >= 0 && playbackTime <= playbackDurationSeconds + 0.05;
     }, [eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
+    const gameplayBands = useMemo(() => {
+        if (playbackDurationSeconds <= 0) return [];
+        return gameplayIntervals.flatMap((interval) => {
+            const start = Math.min(playbackDurationSeconds, eventTimestampToPlaybackSeconds(interval.start));
+            const end = Math.min(playbackDurationSeconds, eventTimestampToPlaybackSeconds(interval.end));
+            if (!Number.isFinite(start) || !Number.isFinite(end) || start >= playbackDurationSeconds) return [];
+            return [{
+                interval,
+                left: (start / playbackDurationSeconds) * 100,
+                width: Math.max(0.4, ((end - start) / playbackDurationSeconds) * 100),
+            }];
+        });
+    }, [eventTimestampToPlaybackSeconds, gameplayIntervals, playbackDurationSeconds]);
 
     const currentPlaybackRawTimestamp = useMemo(() => {
         const sessionStart = fullSession?.startTime || replayBaseTime;
@@ -2581,56 +2876,40 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         syncPlaybackChrome(currentPlaybackTime);
     }, [currentPlaybackTime, syncPlaybackChrome]);
 
+    // Loaded frame images are keyed by replay + frame timestamp. The server re-signs every
+    // URL on each response, so keying by URL turned each frames poll into cache misses.
+    const screenshotFrameCacheScope = activeShareToken ? `share:${activeShareToken}` : (id || 'session');
+
     const ensureScreenshotFrameImage = useCallback((
-        frame: { url?: string; proxyUrl?: string | null } | undefined,
+        frame: { timestamp: number; url?: string; proxyUrl?: string | null } | undefined,
         fetchPriority: 'high' | 'low' | 'auto' = 'auto'
     ): HTMLImageElement | null => {
         if (!frame?.url) return null;
 
         const cache = screenshotFrameCacheRef.current;
-        const cacheKey = `${frame.url}|${frame.proxyUrl || ''}`;
+        const cacheKey = screenshotFrameKey(screenshotFrameCacheScope, frame);
         const cachedImg = cache.get(cacheKey);
-        if (cachedImg) return cachedImg;
+        if (cachedImg) {
+            if (fetchPriority === 'high') cachedImg.fetchPriority = 'high';
+            return cachedImg;
+        }
 
-        // A frame that just failed gets a short cool-down before we retry, so a dead
-        // asset cannot spin the render loop into a request storm.
         const failedAt = screenshotFrameFailureRef.current.get(cacheKey);
         if (failedAt && Date.now() - failedAt < 2000) return null;
 
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.decoding = 'async';
-        try {
-            (img as any).fetchPriority = fetchPriority;
-        } catch {
-            // fetchPriority is a best-effort browser hint.
-        }
-        const handleError = () => {
-            const canFallBack = frame.proxyUrl
-                && frame.proxyUrl !== frame.url
-                && img.src !== frame.proxyUrl;
-            if (canFallBack) {
-                img.src = frame.proxyUrl!;
-                return;
-            }
-            // Both attempts failed. Evict so the next request rebuilds the image —
-            // a broken Image left in the cache used to stick the player on the
-            // previous frame forever.
-            img.removeEventListener('error', handleError);
-            if (screenshotFrameCacheRef.current.get(cacheKey) === img) {
-                screenshotFrameCacheRef.current.delete(cacheKey);
-            }
-            screenshotFrameFailureRef.current.set(cacheKey, Date.now());
-        };
-        img.addEventListener('error', handleError);
-        img.addEventListener('load', () => {
-            img.removeEventListener('error', handleError);
-            screenshotFrameFailureRef.current.delete(cacheKey);
-        }, { once: true });
-        img.src = frame.url;
+        const img = loadScreenshotImage(frame as { url: string; proxyUrl?: string | null }, fetchPriority,
+            () => {
+                if (cache.get(cacheKey) === img) screenshotFrameFailureRef.current.delete(cacheKey);
+            },
+            () => {
+                if (cache.get(cacheKey) !== img) return;
+                cache.delete(cacheKey);
+                screenshotFrameFailureRef.current.set(cacheKey, Date.now());
+            },
+        );
         cache.set(cacheKey, img);
         return img;
-    }, []);
+    }, [screenshotFrameCacheScope]);
 
     const warmScreenshotFramesAround = useCallback((
         centerIndex: number,
@@ -2661,17 +2940,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 screenshotFrames.length - 1,
                 centerIndex + preloadProfile.retainAhead
             );
-            const retainedUrls = new Set<string>();
+            const retainedKeys = new Set<string>();
             for (let index = retainStart; index <= retainEnd; index++) {
-                retainedUrls.add(`${screenshotFrames[index].url}|${screenshotFrames[index].proxyUrl || ''}`);
+                retainedKeys.add(screenshotFrameKey(screenshotFrameCacheScope, screenshotFrames[index]));
             }
-            for (const url of cache.keys()) {
-                if (!retainedUrls.has(url)) {
-                    cache.delete(url);
+            for (const key of cache.keys()) {
+                if (!retainedKeys.has(key)) {
+                    disposeScreenshotImage(cache.get(key)!);
+                    cache.delete(key);
                 }
             }
         }
-    }, [ensureScreenshotFrameImage, playbackRate, screenshotFrames]);
+    }, [ensureScreenshotFrameImage, playbackRate, screenshotFrameCacheScope, screenshotFrames]);
 
     // Handle progress click/drag for visual playback
     const handleProgressInteraction = useCallback(
@@ -2720,62 +3000,38 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         [playbackDurationSeconds, playbackMode, rrwebPrioritizeSeek, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
     );
 
-    const handleProgressMouseDown = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>) => {
+    // One pointer handler for mouse, touch and pen. React's touchstart listener is passive, so
+    // the old onTouchStart preventDefault was ignored and a tap also fired mouse events: a
+    // second seek plus a hover preview that stayed on screen. Cancelling pointerdown stops
+    // those compatibility mouse events; the track's touch-action: none keeps drags from scrolling.
+    const handleProgressPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.preventDefault();
             setHoveredMarker((current) => (current ? null : current));
+            setScrubPreview(null);
             setIsDragging(true);
             const previousBodyUserSelect = document.body.style.userSelect;
             document.body.style.userSelect = 'none';
+            const pointerId = e.pointerId;
             handleProgressInteraction(e);
 
-            const handleMouseMove = (ev: MouseEvent) => handleProgressInteraction(ev);
-            const handleMouseUp = () => {
+            const handlePointerMove = (ev: PointerEvent) => {
+                if (ev.pointerId !== pointerId) return;
+                handleProgressInteraction(ev);
+            };
+            const handlePointerEnd = (ev: PointerEvent) => {
+                if (ev.pointerId !== pointerId) return;
                 setIsDragging(false);
                 document.body.style.userSelect = previousBodyUserSelect;
-                document.removeEventListener('mousemove', handleMouseMove);
-                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('pointermove', handlePointerMove);
+                document.removeEventListener('pointerup', handlePointerEnd);
+                document.removeEventListener('pointercancel', handlePointerEnd);
             };
 
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-        },
-        [handleProgressInteraction]
-    );
-
-    const handleProgressTouchStart = useCallback(
-        (e: React.TouchEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            setHoveredMarker((current) => (current ? null : current));
-            setIsDragging(true);
-            const previousBodyUserSelect = document.body.style.userSelect;
-            document.body.style.userSelect = 'none';
-            if (e.touches[0] && progressRef.current) {
-                const rect = progressRef.current.getBoundingClientRect();
-                const touch = e.touches[0];
-                const percent = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-                const fakeEvent = { clientX: touch.clientX } as MouseEvent;
-                handleProgressInteraction(Object.assign(fakeEvent, { currentTarget: progressRef.current }));
-            }
-
-            const handleTouchMove = (ev: TouchEvent) => {
-                if (!ev.touches[0] || !progressRef.current) return;
-                ev.preventDefault();
-                const rect = progressRef.current.getBoundingClientRect();
-                const touch = ev.touches[0];
-                const fakeEvent = { clientX: touch.clientX } as MouseEvent;
-                handleProgressInteraction(Object.assign(fakeEvent, { currentTarget: progressRef.current }));
-            };
-            const handleTouchEnd = () => {
-                setIsDragging(false);
-                document.body.style.userSelect = previousBodyUserSelect;
-                document.removeEventListener('touchmove', handleTouchMove);
-                document.removeEventListener('touchend', handleTouchEnd);
-                document.removeEventListener('touchcancel', handleTouchEnd);
-            };
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', handleTouchEnd);
-            document.addEventListener('touchcancel', handleTouchEnd);
+            document.addEventListener('pointermove', handlePointerMove);
+            document.addEventListener('pointerup', handlePointerEnd);
+            document.addEventListener('pointercancel', handlePointerEnd);
         },
         [handleProgressInteraction]
     );
@@ -2784,12 +3040,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const togglePlayPause = useCallback(() => {
         if (isPlaying) {
             setCurrentPlaybackTime(currentPlaybackTimeRef.current);
+            // The frame index state lags the tick loop by up to one commit interval.
+            setCurrentFrameIndex(currentFrameIndexRef.current);
             syncPlaybackChrome(currentPlaybackTimeRef.current);
+            lastPlaybackUiUpdateRef.current = performance.now();
+        } else if (playbackDurationSeconds > 0 && currentPlaybackTimeRef.current >= playbackDurationSeconds - 0.05) {
+            // Playing from the end starts over.
+            currentPlaybackTimeRef.current = 0;
+            currentFrameIndexRef.current = 0;
+            setCurrentPlaybackTime(0);
+            setCurrentFrameIndex(0);
+            syncPlaybackChrome(0);
             lastPlaybackUiUpdateRef.current = performance.now();
         }
 
         setIsPlaying((playing) => !playing);
-    }, [isPlaying, syncPlaybackChrome]);
+    }, [isPlaying, playbackDurationSeconds, syncPlaybackChrome]);
 
     // Skip in visual playback
     const skip = useCallback(
@@ -2891,12 +3157,36 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         lastPlaybackUiUpdateRef.current = 0;
         lastPreloadCenterIndexRef.current = -1;
         lastPlaybackClockLabelRef.current = '';
+        for (const image of screenshotFrameCacheRef.current.values()) disposeScreenshotImage(image);
         screenshotFrameCacheRef.current.clear();
         isBufferingRef.current = false;
         setIsBuffering(false);
+        screenshotFramePaintedRef.current = false;
+        setScreenshotFramePainted(false);
         setScrubPreview(null);
         syncPlaybackChrome(0);
     }, [id]);
+
+    useEffect(() => {
+        if (screenshotFrames.length === screenshotFrameCountRef.current) return;
+        screenshotFrameCountRef.current = screenshotFrames.length;
+        screenshotFramesGrewAtRef.current = performance.now();
+    }, [screenshotFrames.length]);
+
+    // Pause when the page is hidden. requestAnimationFrame stops in a background tab, and
+    // resuming used to jump (or loop) the replay by however long the tab was away.
+    useEffect(() => {
+        if (!isPlaying || typeof document === 'undefined') return;
+        const handleVisibilityChange = () => {
+            if (!document.hidden) return;
+            setCurrentPlaybackTime(currentPlaybackTimeRef.current);
+            setCurrentFrameIndex(currentFrameIndexRef.current);
+            syncPlaybackChrome(currentPlaybackTimeRef.current);
+            setIsPlaying(false);
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [isPlaying, syncPlaybackChrome]);
 
     // Preload screenshot frames
     useEffect(() => {
@@ -2904,9 +3194,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
         lastPreloadCenterIndexRef.current = -1;
 
-        // Preload a small startup window immediately so opening replay paints fast.
+        // Preload a small startup window immediately so opening replay paints fast. This
+        // effect re-runs on every frames poll, so only while the playhead is near the start.
         const preloadProfile = getScreenshotPreloadProfile(playbackRate);
-        const preloadCount = Math.min(preloadProfile.startup, screenshotFrames.length);
+        const preloadCount = currentFrameIndexRef.current < preloadProfile.startup
+            ? Math.min(preloadProfile.startup, screenshotFrames.length)
+            : 0;
         for (let index = 0; index < preloadCount; index++) {
             ensureScreenshotFrameImage(
                 screenshotFrames[index],
@@ -3028,12 +3321,26 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             for (const idx of [targetIndex - distance, targetIndex + distance]) {
                 const frame = screenshotFrames[idx];
                 if (!frame?.url) continue;
-                const img = cache.get(`${frame.url}|${frame.proxyUrl || ''}`);
+                const img = cache.get(screenshotFrameKey(screenshotFrameCacheScope, frame));
                 if (img && img.complete && img.naturalWidth > 0) return img;
             }
         }
         return null;
-    }, [screenshotFrames]);
+    }, [screenshotFrameCacheScope, screenshotFrames]);
+
+    // First real frame on the canvas: drop the poster and mark the replay revealed, so frames
+    // that are still being prepared never send the page back to the full-page loader.
+    const handleScreenshotFramePainted = useCallback(() => {
+        if (!screenshotFramePaintedRef.current) {
+            screenshotFramePaintedRef.current = true;
+            setScreenshotFramePainted(true);
+        }
+        const replayIdentity = activeShareToken ? `share:${activeShareToken}` : id || null;
+        if (replayIdentity && revealedReplaySessionIdRef.current !== replayIdentity) {
+            revealedReplaySessionIdRef.current = replayIdentity;
+            setRevealedReplaySessionId(replayIdentity);
+        }
+    }, [activeShareToken, id]);
 
     const drawScreenshotFrame = useCallback((frameIndex: number) => {
         if (playbackMode !== 'screenshots' || !canvasRef.current || screenshotFrames.length === 0) {
@@ -3066,6 +3373,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             if (currentFrameIndexRef.current !== frameIndex) return;
             if (!canvasRef.current) return;
             ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
+            handleScreenshotFramePainted();
             try {
                 performance.mark(`replay:firstFramePaint:${id}`);
             } catch { }
@@ -3089,6 +3397,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         }
         if (!isBufferingRef.current) {
             isBufferingRef.current = true;
+            // Start the stall clock too, or the tick loop's failsafe reads a stale start time.
+            bufferStallStartRef.current = performance.now();
             setIsBuffering(true);
         }
 
@@ -3104,15 +3414,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             clearBufferingIfCurrent();
         };
         const handleError = (err: Event) => {
+            // A failed signed URL is retried once on the proxy URL (ensureScreenshotFrameImage).
+            // Keep listening so a frame that loads through the fallback is still drawn.
+            if (screenshotImagesOnFallback.has(img)) return;
             img.removeEventListener('load', handleLoad);
+            img.removeEventListener('error', handleError);
             console.error('[SCREENSHOT] Frame load error:', frameIndex, frame.url, err);
             // Leave the placeholder on screen; eviction in ensureScreenshotFrameImage
             // lets a later draw retry the fetch.
             clearBufferingIfCurrent();
         };
         img.addEventListener('load', handleLoad, { once: true });
-        img.addEventListener('error', handleError, { once: true });
-    }, [ensureScreenshotFrameImage, findNearestReadyFrame, id, playbackMode, screenshotFrames, warmScreenshotFramesAround]);
+        img.addEventListener('error', handleError);
+    }, [ensureScreenshotFrameImage, findNearestReadyFrame, handleScreenshotFramePainted, id, playbackMode, screenshotFrames, warmScreenshotFramesAround]);
 
     // Screenshot playback animation loop
     // Uses relativeTime (seconds from first frame) for proper real-time playback
@@ -3141,12 +3455,30 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         }
 
         const tick = (now: number) => {
-            const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
+            const elapsedMs = Math.min(Math.max(0, now - lastFrameTimeRef.current), MAX_PLAYBACK_TICK_ELAPSED_MS);
+            const deltaSec = (elapsedMs / 1000) * playbackRate;
             lastFrameTimeRef.current = now;
 
             // Tentative next playback time (committed only once the frame it lands on
             // is actually decoded — see the buffering gate below).
-            const nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
+            let nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
+
+            // While frames are still being prepared, wait at the last available frame instead
+            // of running the clock past it (and on to the end, which loops or finishes the
+            // replay). A build that stops producing frames only holds playback for a while.
+            const lastAvailableFrameTime = screenshotFrames[screenshotFrames.length - 1].relativeTime;
+            const waitingForMoreFrames = screenshotFramesStillPreparing
+                && nextPlaybackTime > lastAvailableFrameTime
+                && now - screenshotFramesGrewAtRef.current < PREPARING_FRAMES_HOLD_MS;
+            if (waitingForMoreFrames) {
+                nextPlaybackTime = Math.max(currentPlaybackTimeRef.current, lastAvailableFrameTime);
+                if (!isBufferingRef.current) {
+                    isBufferingRef.current = true;
+                    setIsBuffering(true);
+                }
+                // The frame-stall failsafe below only counts once frames are available again.
+                bufferStallStartRef.current = now;
+            }
 
             // Robust frame selection: Binary search for the closest frame at or before nextPlaybackTime
             let left = 0;
@@ -3167,7 +3499,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             // whose image hasn't decoded yet. Instead, freeze on the current frame,
             // bump the missing frame to high priority, and resume once it's ready.
             // A failsafe timeout prevents a single broken frame from hanging forever.
-            if (targetIdx !== currentFrameIndexRef.current) {
+            {
                 const targetImg = ensureScreenshotFrameImage(screenshotFrames[targetIdx], 'high');
                 const targetReady = !!targetImg && targetImg.complete && targetImg.naturalWidth > 0;
                 if (!targetReady) {
@@ -3184,10 +3516,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                         return;
                     }
                     // Failsafe expired: fall through and advance anyway.
+                } else if (isBufferingRef.current && targetIdx === currentFrameIndexRef.current) {
+                    // The first frame or a failed frame can recover without the index changing.
+                    drawScreenshotFrame(targetIdx);
                 }
             }
 
-            if (isBufferingRef.current) {
+            if (isBufferingRef.current && !waitingForMoreFrames) {
                 isBufferingRef.current = false;
                 setIsBuffering(false);
             }
@@ -3202,7 +3537,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 warmScreenshotFramesAround(targetIdx, 'low');
             }
 
-            // Loop back to the start when playback reaches the end.
+            // Stop at the end when this user has another recording, so the reviewer can go
+            // straight to it; otherwise loop back to the start.
+            if (nextPlaybackTime >= playbackDurationSeconds && upNextSessionIdRef.current) {
+                currentPlaybackTimeRef.current = playbackDurationSeconds;
+                setCurrentPlaybackTime(playbackDurationSeconds);
+                syncPlaybackChrome(playbackDurationSeconds);
+                setIsPlaying(false);
+                setPlaybackFinished(true);
+                return;
+            }
             if (nextPlaybackTime >= playbackDurationSeconds) {
                 currentPlaybackTimeRef.current = 0;
                 currentFrameIndexRef.current = 0;
@@ -3239,6 +3583,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         playbackMode,
         isPlaying,
         screenshotFrames,
+        screenshotFramesStillPreparing,
         playbackRate,
         playbackDurationSeconds,
         drawScreenshotFrame,
@@ -3269,13 +3614,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         }
 
         const tick = (now: number) => {
-            const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
+            const elapsedMs = Math.min(Math.max(0, now - lastFrameTimeRef.current), MAX_PLAYBACK_TICK_ELAPSED_MS);
+            const deltaSec = (elapsedMs / 1000) * playbackRate;
             lastFrameTimeRef.current = now;
 
             const nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
             currentPlaybackTimeRef.current = nextPlaybackTime;
             syncPlaybackChrome(nextPlaybackTime);
 
+            if (nextPlaybackTime >= playbackDurationSeconds && upNextSessionIdRef.current) {
+                currentPlaybackTimeRef.current = playbackDurationSeconds;
+                setCurrentPlaybackTime(playbackDurationSeconds);
+                syncPlaybackChrome(playbackDurationSeconds);
+                setIsPlaying(false);
+                setPlaybackFinished(true);
+                return;
+            }
             if (nextPlaybackTime >= playbackDurationSeconds) {
                 currentPlaybackTimeRef.current = 0;
                 setCurrentPlaybackTime(0);
@@ -3302,9 +3656,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         };
     }, [isPlaying, playbackDurationSeconds, playbackMode, playbackRate, syncPlaybackChrome]);
 
-    // Draw current screenshot frame to canvas
+    // Draw current screenshot frame to canvas. The ref is the live frame; the state lags the
+    // playback loop by up to one commit interval, so a redraw triggered by new frames or a
+    // re-render could otherwise paint (or wait on) an older frame.
     useEffect(() => {
-        drawScreenshotFrame(currentFrameIndex);
+        drawScreenshotFrame(currentFrameIndexRef.current);
     }, [drawScreenshotFrame, currentFrameIndex]);
 
     // Seek to a specific time in screenshot mode.
@@ -3713,7 +4069,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         ));
     }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds, progressTrackWidth, hiddenMarkerCategories]);
 
-    const handleTimelineMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const handleTimelinePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        // Hover previews are for mouse pointers only: a touch has no hover to end, so the
+        // thumbnail and marker tooltip used to stay stuck on screen after a tap.
+        if (event.pointerType !== 'mouse') return;
         if (isDragging) {
             setHoveredMarker((current) => (current ? null : current));
             setScrubPreview(null);
@@ -3746,7 +4105,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     if (screenshotFrames[mid].relativeTime <= previewTime) lo = mid;
                     else hi = mid - 1;
                 }
-                frameUrl = screenshotFrames[lo]?.url || null;
+                const previewFrame = screenshotFrames[lo];
+                // Reuse the already-loaded image's source (possibly its proxy fallback) rather
+                // than a re-signed URL that would download the same frame again.
+                const loadedPreview = previewFrame
+                    ? screenshotFrameCacheRef.current.get(screenshotFrameKey(screenshotFrameCacheScope, previewFrame))
+                    : undefined;
+                frameUrl = (loadedPreview?.complete && loadedPreview.naturalWidth > 0 ? loadedPreview.currentSrc || loadedPreview.src : '')
+                    || previewFrame?.url
+                    || null;
             }
             setScrubPreview({ leftPercent: ratio * 100, time: previewTime, frameUrl });
         }
@@ -3795,7 +4162,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 ? current
                 : { ...nearestMarker, x: nearestMarker.percent };
         });
-    }, [isDragging, timelineMarkers, playbackDurationSeconds, playbackMode, screenshotFrames]);
+    }, [isDragging, timelineMarkers, playbackDurationSeconds, playbackMode, screenshotFrameCacheScope, screenshotFrames]);
 
     const clearTimelineHover = useCallback(() => {
         setHoveredMarker((current) => (current ? null : current));
@@ -3876,7 +4243,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             ? 'Android'
             : platform === 'web'
                 ? 'Web'
-                : titleCaseToken(platform || 'unknown');
+                : titleCaseToken(formatSetupPlatform(platform || 'unknown'));
     const headerOsLabel = isWebSession && webEnvironment
         ? webEnvironment.osLabel
         : `${platformLabel}${rawOsVersion ? ` ${rawOsVersion}` : ''}`;
@@ -3994,6 +4361,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         !isReplayExpired &&
         !replayUnavailableReason &&
         !rrwebReplayFailed &&
+        !replayManifestFailed &&
         fullSession?.hasRecording !== false &&
         fullSession?.playbackMode !== 'none' &&
         (
@@ -4010,7 +4378,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     useEffect(() => {
         const isRrwebReplay = fullSession?.playbackMode === 'rrweb' || rrwebReplaySegmentCount > 0 || rrwebReplayEvents.length > 0;
 
-        if (shouldShowInitialReplayLoaderRaw || !isRrwebReplay) {
+        // A failed manifest is not a revealed replay: Retry should show the loader again.
+        if (shouldShowInitialReplayLoaderRaw || !isRrwebReplay || replayManifestFailed) {
             setIsReplayLoaderSettling(false);
             return;
         }
@@ -4022,7 +4391,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         }, 140);
 
         return () => window.clearTimeout(settleTimer);
-    }, [fullSession?.playbackMode, replayIdentityKey, rrwebReplayEvents.length, rrwebReplaySegmentCount, shouldShowInitialReplayLoaderRaw]);
+    }, [fullSession?.playbackMode, replayIdentityKey, replayManifestFailed, rrwebReplayEvents.length, rrwebReplaySegmentCount, shouldShowInitialReplayLoaderRaw]);
 
     const shouldShowInitialReplayLoader = !hasRevealedInitialReplay && (shouldShowInitialReplayLoaderRaw || isReplayLoaderSettling);
 
@@ -4063,9 +4432,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         return (
             <div className="min-h-screen flex items-center justify-center bg-transparent">
                 <div className="text-center">
-                    <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-600 font-semibold">{message}</p>
-                    {detail ? <p className="mt-1 text-sm text-slate-500">{detail}</p> : null}
+                    <AlertCircle className="mx-auto mb-3 h-12 w-12 text-[#bdc1c6]" />
+                    <p className="font-medium text-[#202124]">{message}</p>
+                    {detail ? <p className="mt-1 text-sm text-[#5f6368]">{detail}</p> : null}
                 </div>
             </div>
         );
@@ -4250,10 +4619,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const playbackDisabled = !hasRecording || visualReplayPreparing || isReplayExpired || Boolean(replayUnavailableReason);
     const sortedSessions = [...sessions].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     const currentSessionIndex = sortedSessions.findIndex((item) => item.id === id);
+    // Prev/Next walk this user's recordings when we have them, otherwise the project archive.
+    const userRecordingIndex = userRecordings.findIndex((item) => item.id === id);
+    const navigatesUserRecordings = Boolean(replayUserIdentityKey);
+    const navigationList = navigatesUserRecordings ? userRecordings : sortedSessions;
+    const navigationIndex = navigatesUserRecordings ? userRecordingIndex : currentSessionIndex;
     const findReplayNeighborSessionId = (direction: -1 | 1): string | null => {
-        if (currentSessionIndex < 0) return null;
-        for (let index = currentSessionIndex + direction; index >= 0 && index < sortedSessions.length; index += direction) {
-            const candidate = sortedSessions[index];
+        if (navigationIndex < 0) return null;
+        for (let index = navigationIndex + direction; index >= 0 && index < navigationList.length; index += direction) {
+            const candidate = navigationList[index];
             if (canNavigateToReplaySession(candidate)) {
                 return candidate.id || null;
             }
@@ -4262,23 +4636,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     };
     const previousSessionId = findReplayNeighborSessionId(-1);
     const nextSessionId = findReplayNeighborSessionId(1);
-
-    const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
-        if (!search.trim() || !text) return <>{text}</>;
-        const normalizedSearch = search.trim().toLowerCase();
-        const escaped = escapeRegExp(search.trim());
-        const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
-        return (
-            <>
-                {parts.map((part, i) =>
-                    part.toLowerCase() === normalizedSearch ? (
-                        <mark key={i} className="bg-[#f9a8d4] text-slate-900 px-0.5 rounded-sm">{part}</mark>
-                    ) : (
-                        part
-                    )
-                )}
-            </>
-        );
+    const nextUserRecordingId = navigatesUserRecordings ? nextSessionId : null;
+    upNextSessionIdRef.current = nextUserRecordingId;
+    const showUpNextPrompt = playbackFinished && Boolean(nextUserRecordingId);
+    const openReplaySession = (sessionId: string) => {
+        navigate(`${pathPrefix}/sessions/${sessionId}`, {
+            state: returnTo ? { returnTo, returnState } : undefined,
+        });
     };
 
     const downloadTimelineEvents = () => {
@@ -4492,12 +4856,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             type="button"
             onClick={copyCurrentReplayUrl}
             disabled={!currentReplayUrl.trim()}
-            className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-slate-500 transition hover:bg-black/5 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] disabled:cursor-not-allowed disabled:opacity-40"
             title={currentReplayUrl.trim() ? 'Copy visited URL' : 'No URL to copy'}
             aria-label="Copy visited URL"
         >
             {replayUrlCopied ? (
-                <Check className="h-3 w-3 text-emerald-600" strokeWidth={2.25} />
+                <Check className="h-3 w-3 text-[#137333]" strokeWidth={2.25} />
             ) : (
                 <Copy className="h-3 w-3" strokeWidth={2.25} />
             )}
@@ -4705,38 +5069,38 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
     return (
         <div className="rejourney-replay-workbench replay-workbench-page flex min-h-screen flex-col bg-[#f8fafd] xl:h-full xl:min-h-0 xl:overflow-hidden">
-            <div className="replay-workbench-header border-b border-slate-200 bg-white md:sticky md:top-0 md:z-40 xl:shrink-0">
+            <div className="replay-workbench-header border-b border-[#dadce0] bg-white md:sticky md:top-0 md:z-40 xl:shrink-0">
                 <div className="replay-header-shell mx-auto flex w-full max-w-[1920px] items-center gap-2 px-3 py-1.5 sm:px-4">
                     <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         {!isPublicShare ? (
                             <button
                                 onClick={handleBackClick}
-                                className="replay-header-icon-button flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white text-slate-900 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow"
-                                aria-label={returnTo ? 'Back to Geographic Analysis' : 'Back to sessions'}
-                                title={returnTo ? 'Back to Geographic Analysis' : 'Back to sessions'}
+                                className="replay-header-icon-button flex h-8 w-8 shrink-0 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd]"
+                                aria-label={returnTo ? 'Back to geographic analysis' : 'Back to sessions'}
+                                title={returnTo ? 'Back to geographic analysis' : 'Back to sessions'}
                             >
-                                <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
+                                <ArrowLeft className="h-4 w-4" strokeWidth={2.25} />
                             </button>
                         ) : null}
 
                         <div className="flex min-w-0 items-center gap-2">
-                            <h1 className="truncate text-[15px] font-black text-slate-950 sm:text-base">
-                                {isPublicShare ? 'Shared Replay' : 'Replay Workbench'}
+                            <h1 className="truncate text-[15px] font-medium text-[#202124]">
+                                {isPublicShare ? 'Shared replay' : 'Replay workbench'}
                             </h1>
                             <div className="hidden shrink-0 items-center gap-1 sm:flex">
-                                <span className="replay-header-chip bg-[#e0f2fe] text-slate-950">
-                                    {isWebSession ? webEnvironment?.browserLabel : platform.toUpperCase()}
+                                <span className={dashboardChipClass('neutral')}>
+                                    {isWebSession ? webEnvironment?.browserLabel : platformLabel}
                                 </span>
                                 {isWebSession && webEnvironment ? (
-                                    <span className="replay-header-chip bg-[#fce7f3] text-slate-950">
+                                    <span className={dashboardChipClass('neutral')}>
                                         {webEnvironment.osLabel}
                                     </span>
                                 ) : appVersion && (
-                                    <span className="replay-header-chip bg-[#fce7f3] text-slate-950">
+                                    <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                         v{appVersion}
                                     </span>
                                 )}
-                                <span className="replay-header-chip replay-header-duration-chip">
+                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                     {durationMinutes}m {durationSecs.toString().padStart(2, '0')}s
                                 </span>
                             </div>
@@ -4797,7 +5161,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                         ) : null}
 
                         {!isPublicShare ? (
-                        <div className="replay-header-session-nav grid grid-cols-2 overflow-hidden border border-slate-200 bg-slate-50 shadow-sm">
+                        <div className="replay-header-session-nav grid grid-cols-2 overflow-hidden rounded-none border border-[#dadce0] bg-white">
                             <button
                                 onClick={() =>
                                     previousSessionId &&
@@ -4807,12 +5171,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 }
                                 onMouseDown={(event) => event.preventDefault()}
                                 disabled={!previousSessionId}
-                                className={`replay-header-nav-button border-r border-slate-200 ${previousSessionId
-                                    ? 'bg-white text-slate-900 hover:bg-slate-50'
-                                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                className={`replay-header-nav-button border-r border-[#dadce0] ${previousSessionId
+                                    ? 'bg-white text-[#3c4043] hover:bg-[#f8fafd]'
+                                    : 'cursor-not-allowed bg-[#f8fafd] text-[#bdc1c6]'
                                     }`}
-                                aria-label="Previous session"
-                                title="Previous session"
+                                aria-label={navigatesUserRecordings ? 'Previous recording from this user' : 'Previous session'}
+                                title={navigatesUserRecordings ? 'Previous recording from this user' : 'Previous session'}
                             >
                                 <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
                                 <span className="hidden md:inline">Prev</span>
@@ -4827,11 +5191,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 onMouseDown={(event) => event.preventDefault()}
                                 disabled={!nextSessionId}
                                 className={`replay-header-nav-button ${nextSessionId
-                                    ? 'bg-white text-slate-900 hover:bg-slate-50'
-                                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                    ? 'bg-white text-[#3c4043] hover:bg-[#f8fafd]'
+                                    : 'cursor-not-allowed bg-[#f8fafd] text-[#bdc1c6]'
                                     }`}
-                                aria-label="Next session"
-                                title="Next session"
+                                aria-label={navigatesUserRecordings ? 'Next recording from this user' : 'Next session'}
+                                title={navigatesUserRecordings ? 'Next recording from this user' : 'Next session'}
                             >
                                 <span className="hidden md:inline">Next</span>
                                 <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -4877,7 +5241,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             aria-label={`Copy session ID: ${id}`}
                                         >
                                             <span>{id || 'Unknown'}</span>
-                                            {sessionIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
+                                            {sessionIdCopied ? <Check className="h-3.5 w-3.5 text-[#137333] shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
                                         </button>
                                     </div>
                                 ) : null}
@@ -4893,7 +5257,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 aria-label={`Copy user ID: ${replayUserIdLabel}`}
                                             >
                                                 <span>{replayUserIdShown}</span>
-                                                {userIdCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
+                                                {userIdCopied ? <Check className="h-3.5 w-3.5 text-[#137333] shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
                                             </button>
                                         ) : (
                                             <strong>{replayUserIdShown}</strong>
@@ -4911,48 +5275,48 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             aria-label={`Copy referral URL: ${webReferral}`}
                                         >
                                             <span>{webReferral}</span>
-                                            {referralCopied ? <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
+                                            {referralCopied ? <Check className="h-3.5 w-3.5 text-[#137333] shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
                                         </button>
                                     </div>
                                 )}
                                 {isWebSession && webUtm && webUtm.hasUtm && (
                                     <div className="replay-header-detail-row" style={{ alignItems: 'flex-start' }}>
                                         <span>UTM</span>
-                                        <div className="flex flex-col gap-1.5 text-[10px] bg-slate-50 border border-slate-200 rounded-sm p-2 min-w-0">
+                                        <div className="flex min-w-0 flex-col gap-1.5 rounded-none border border-[#e8eaed] bg-[#f8fafd] p-2 text-[11px]">
                                             {webUtm.source && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">source:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.source}</span>
+                                                    <span className="font-medium text-[#5f6368]">source:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.source}</span>
                                                 </div>
                                             )}
                                             {webUtm.medium && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">medium:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.medium}</span>
+                                                    <span className="font-medium text-[#5f6368]">medium:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.medium}</span>
                                                 </div>
                                             )}
                                             {webUtm.campaign && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">campaign:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.campaign}</span>
+                                                    <span className="font-medium text-[#5f6368]">campaign:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.campaign}</span>
                                                 </div>
                                             )}
                                             {webUtm.term && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">term:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.term}</span>
+                                                    <span className="font-medium text-[#5f6368]">term:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.term}</span>
                                                 </div>
                                             )}
                                             {webUtm.content && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">content:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.content}</span>
+                                                    <span className="font-medium text-[#5f6368]">content:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.content}</span>
                                                 </div>
                                             )}
                                             {webUtm.campaignId && (
                                                 <div>
-                                                    <span className="font-bold text-slate-400">id:</span>{' '}
-                                                    <span className="text-slate-800 font-semibold">{webUtm.campaignId}</span>
+                                                    <span className="font-medium text-[#5f6368]">id:</span>{' '}
+                                                    <span className="font-medium text-[#202124]">{webUtm.campaignId}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -4966,28 +5330,28 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
             <div className="replay-workbench-main mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 xl:min-h-0 xl:flex-1 xl:gap-3 xl:overflow-hidden xl:py-3">
                 <div className="replay-workbench-grid grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-12 xl:gap-3">
-                    <section className={`replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-8' : 'xl:col-span-7'}`}>
+                    <section className={`replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-8' : 'xl:col-span-7'}`}>
                         {!isWebSession && (
-                        <div className="replay-theater-toolbar border-b border-black bg-white px-3 py-2.5 text-black sm:px-4">
+                        <div className="replay-theater-toolbar border-b border-[#e8eaed] bg-white px-3 py-2.5 text-[#202124] sm:px-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
 	                                <div className="flex min-w-0 items-center gap-2">
-	                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-black bg-[#67e8f9]">
-	                                        <Monitor className="h-3.5 w-3.5" />
+	                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#5f6368]">
+	                                        <Monitor className="h-4 w-4" />
 	                                    </span>
-	                                    <p className="truncate text-[11px] font-black uppercase text-black">
-	                                        Replay Theater
+	                                    <p className="truncate text-[15px] font-medium text-[#202124]">
+	                                        Replay theater
 	                                    </p>
 	                                </div>
-		                                <div className="replay-theater-meta dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto text-[9px] font-black uppercase text-slate-700 sm:flex-wrap sm:overflow-visible md:text-[10px]">
+		                                <div className="replay-theater-meta dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-visible">
 			                                    {playbackMode !== 'rrweb' ? (
-		                                        <span className="border border-black bg-[#67e8f9] px-2 py-1 text-black">
+		                                        <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
 		                                            {screenshotFrames.length > 0
 		                                                ? `Frame ${Math.min(currentFrameIndex + 1, screenshotFrames.length)}/${screenshotFrames.length}`
-		                                                : `${displayedFrameCount} FR`}
+		                                                : `${displayedFrameCount} frames`}
 		                                        </span>
 		                                    ) : null}
 	                                    <span
-                                        className="border border-black bg-[#f8fafc] px-2 py-1"
+                                        className={`${dashboardChipClass('neutral')} tabular-nums`}
                                         title="Compressed S3 storage for this session"
                                     >
                                         {compressedStorageLabel}
@@ -4996,8 +5360,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         const visitNum = (fullSession as any)?.visitorSessionNumber;
                                         if (!visitNum) return null;
                                         return (
-                                            <span className="border border-black bg-[#f8fafc] px-2 py-1">
-                                                {getOrdinal(visitNum)} Visit
+                                            <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
+                                                {getOrdinal(visitNum)} visit
                                             </span>
                                         );
                                     })()}
@@ -5006,90 +5370,106 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                         </div>
                         )}
 
-	                        <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
+	                        <div className="replay-theater-stage relative border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
 	                            <div
 	                                className={`mx-auto flex w-full items-center justify-center xl:h-full xl:min-h-0 ${playbackMode === 'rrweb' ? 'max-w-none' : isWebSession ? 'max-w-[1080px] xl:max-w-[1120px]' : screenshotReplayShellMaxWidthClass}`}
 	                                style={replayDeviceSizingVars}
 	                            >
 	                                {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
-	                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
-	                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-slate-400" /> : <VideoOff className="h-10 w-10 text-slate-400" />}
-	                                        <p className="mt-3 text-sm font-bold text-slate-900">{isWebSession ? 'Browser Replay Not Available' : 'Replay Not Available'}</p>
+	                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center rounded-none border border-dashed border-[#dadce0] bg-white p-6 text-center ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
+	                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-[#9aa0a6]" /> : <VideoOff className="h-10 w-10 text-[#9aa0a6]" />}
+	                                        <p className="mt-3 text-sm font-medium text-[#202124]">{isWebSession ? 'Browser replay not available' : 'Replay not available'}</p>
 	                                        {replayUnavailableReason === 'deleted' ? (
-	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                            <p className="mt-2 text-xs leading-5 text-[#5f6368]">
 	                                                Visual media was removed by retention policy, but timeline events, logs, and network traces are still available.
 	                                            </p>
 	                                        ) : replayUnavailableReason === 'no_recording_data' ? (
-	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                            <p className="mt-2 text-xs leading-5 text-[#5f6368]">
 	                                                {isWebSession
 	                                                    ? 'No browser replay was successfully uploaded for this session. You can still inspect all telemetry.'
 	                                                    : 'No screenshot recording was successfully uploaded for this session. You can still inspect all telemetry.'}
 	                                            </p>
 	                                        ) : (
-	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                            <p className="mt-2 text-xs leading-5 text-[#5f6368]">
 	                                                No visual frames were uploaded for this session.
                                             </p>
                                         )}
 	                                    </div>
+                                ) : replayManifestFailed && playbackMode === 'none' ? (
+                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center rounded-none border border-dashed border-[#dadce0] bg-white p-6 text-center ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
+                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-[#9aa0a6]" /> : <VideoOff className="h-10 w-10 text-[#9aa0a6]" />}
+                                        <p className="mt-3 text-sm font-medium text-[#202124]">Replay failed to load</p>
+                                        <p className="mt-2 text-xs leading-5 text-[#5f6368]">
+                                            The recording could not be fetched. Timeline, logs, and network evidence are still available.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => { void fetchFullSession(); }}
+                                            className={`mt-4 ${dashboardButtonClass('secondary', 'sm')}`}
+                                        >
+                                            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                                            Retry
+                                        </button>
+                                    </div>
                                 ) : rrwebReplayFailed ? (
-                                    <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
-                                        <MonitorSmartphone className="h-10 w-10 text-slate-400" />
-                                        <p className="mt-3 text-sm font-bold text-slate-900">Browser replay failed to load</p>
-                                        <p className="mt-2 max-w-md text-xs leading-5 text-slate-600">
+                                    <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center rounded-none border border-dashed border-[#dadce0] bg-white p-6 text-center">
+                                        <MonitorSmartphone className="h-10 w-10 text-[#9aa0a6]" />
+                                        <p className="mt-3 text-sm font-medium text-[#202124]">Browser replay failed to load</p>
+                                        <p className="mt-2 max-w-md text-xs leading-5 text-[#5f6368]">
                                             Timeline, logs, and network evidence are available, but the rrweb replay segment download failed.
                                             Refreshing the replay will request a fresh manifest and signed segment URLs.
                                         </p>
                                     </div>
                                 ) : (playbackMode === 'rrweb' || (playbackMode === 'screenshots' && platform === 'web')) ? (
                                     <div className="replay-device-shell replay-browser-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
-                                        <div className="replay-browser-window relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
+                                        <div className="replay-browser-window relative flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white xl:min-h-0">
                                             {/* macOS window chrome */}
                                             {webOsChrome === 'macos' && (
-                                                <div className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-[#e8e8e8] px-3 py-2">
-                                                    <div className="flex items-center gap-[6px]">
-                                                        <span className="h-3 w-3 rounded-full bg-[#FF5F57] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
-                                                        <span className="h-3 w-3 rounded-full bg-[#FFBD2E] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
-                                                        <span className="h-3 w-3 rounded-full bg-[#28C840] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
+                                                <div className="flex shrink-0 items-center gap-3 border-b border-[#e8eaed] bg-[#f1f3f4] px-3 py-2">
+                                                    <div className="flex items-center gap-[6px]" aria-hidden="true">
+                                                        <span className="h-3 w-3 rounded-full bg-[#dadce0]" />
+                                                        <span className="h-3 w-3 rounded-full bg-[#dadce0]" />
+                                                        <span className="h-3 w-3 rounded-full bg-[#dadce0]" />
                                                     </div>
                                                     <div className="flex min-w-0 flex-1 justify-center">
-                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded bg-white/80 px-2.5 py-0.5 text-[11px] text-slate-400 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
-                                                            <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-2.5 py-0.5 text-[11px] text-[#5f6368]">
+                                                            <Globe className="h-3 w-3 shrink-0 text-[#80868b]" />
                                                             <span className="min-w-0 flex-1 truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
                                                             {replayUrlCopyButton}
                                                         </div>
                                                     </div>
-                                                    <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
+                                                    <div className="flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-[#80868b]">
                                                         <span title="Compressed S3 storage">{compressedStorageLabel}</span>
                                                     </div>
                                                 </div>
                                             )}
                                             {/* Windows window chrome */}
                                             {webOsChrome === 'windows' && (
-                                                <div className="flex shrink-0 items-center border-b border-black/10 bg-[#f3f3f3]">
-                                                    <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-[11px] text-slate-500">
-                                                        <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                <div className="flex shrink-0 items-center border-b border-[#e8eaed] bg-[#f1f3f4]">
+                                                    <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-[11px] text-[#5f6368]">
+                                                        <Globe className="h-3 w-3 shrink-0 text-[#80868b]" />
                                                         <span className="min-w-0 flex-1 truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
                                                         {replayUrlCopyButton}
                                                     </div>
-                                                    <div className="shrink-0 px-3 text-[9px] font-black uppercase text-slate-400">{compressedStorageLabel}</div>
-                                                    <div className="flex shrink-0 items-stretch text-slate-500">
-                                                        <span className="flex h-8 w-10 items-center justify-center text-sm hover:bg-black/5">&#x2013;</span>
-                                                        <span className="flex h-8 w-10 items-center justify-center text-xs hover:bg-black/5">&#x25A1;</span>
-                                                        <span className="flex h-8 w-10 items-center justify-center text-sm hover:bg-[#c42b1c] hover:text-white">&#x2715;</span>
+                                                    <div className="shrink-0 px-3 text-[11px] tabular-nums text-[#80868b]">{compressedStorageLabel}</div>
+                                                    <div className="flex shrink-0 items-stretch text-[#80868b]" aria-hidden="true">
+                                                        <span className="flex h-8 w-10 items-center justify-center"><Minus className="h-3 w-3" /></span>
+                                                        <span className="flex h-8 w-10 items-center justify-center"><Square className="h-2.5 w-2.5" /></span>
+                                                        <span className="flex h-8 w-10 items-center justify-center"><X className="h-3 w-3" /></span>
                                                     </div>
                                                 </div>
                                             )}
                                             {/* Linux / other browser chrome */}
                                             {webOsChrome === 'other' && (
-                                                <div className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-[#f0f0f0] px-3 py-2">
+                                                <div className="flex shrink-0 items-center gap-3 border-b border-[#e8eaed] bg-[#f1f3f4] px-3 py-2">
                                                     <div className="flex min-w-0 flex-1 justify-center">
-                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded bg-white/80 px-2.5 py-0.5 text-[11px] text-slate-400 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
-                                                            <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-2.5 py-0.5 text-[11px] text-[#5f6368]">
+                                                            <Globe className="h-3 w-3 shrink-0 text-[#80868b]" />
                                                             <span className="min-w-0 flex-1 truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
                                                             {replayUrlCopyButton}
                                                         </div>
                                                     </div>
-                                                    <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
+                                                    <div className="flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-[#80868b]">
                                                         <span>{compressedStorageLabel}</span>
                                                     </div>
                                                 </div>
@@ -5106,8 +5486,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         backgroundGaps={webReplayBackgroundGaps}
                                                     />
                                                 ) : (
-                                                    <div className="relative w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden">
-                                                        {screenshotFrames[0]?.url && (
+                                                    // absolute inset-0, not h-full: below xl the viewport's height is not
+                                                    // definite, so h-full resolved to auto and this stage (whose children are
+                                                    // all absolutely positioned) collapsed to 0px, leaving a blank viewport.
+                                                    <div className="absolute inset-0 bg-slate-900 flex items-center justify-center overflow-hidden">
+                                                        {screenshotFrames[0]?.url && !screenshotFramePainted && (
                                                             <img
                                                                 src={screenshotFrames[0].url}
                                                                 alt=""
@@ -5153,10 +5536,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         )}
 
                                                         {activeScreenshotBackgroundGap && (
-                                                            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
-                                                                <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">
-                                                                    <div className="text-xs font-black uppercase tracking-wide text-slate-300">App in background</div>
-                                                                    <div className="mt-2 text-lg font-black">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
+                                                            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#202124]/70 px-6 text-center text-white">
+                                                                <div className="rounded-none border border-white/20 bg-[#202124] px-5 py-4">
+                                                                    <div className="text-xs font-medium text-[#bdc1c6]">App in background</div>
+                                                                    <div className="mt-1 text-lg font-medium tabular-nums">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -5167,7 +5550,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     </div>
                                 ) : playbackMode === 'screenshots' ? (
                                     <div className="replay-device-shell relative flex w-full justify-center xl:h-full xl:min-h-0 xl:items-center">
-                                        <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-[5px] shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
+                                        <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-[5px]">
                                             <div className="rounded-[1.7rem] bg-slate-900 p-[2px]">
                                                 <div
                                                     className="relative overflow-hidden rounded-[1.55rem] bg-slate-900"
@@ -5182,8 +5565,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         </div>
                                                     )}
 
-                                                    {/* First frame as poster - shows immediately while canvas loads */}
-                                                    {screenshotFrames[0]?.url && (
+                                                    {/* First frame as poster - shows only until the canvas paints a frame */}
+                                                    {screenshotFrames[0]?.url && !screenshotFramePainted && (
                                                         <img
                                                             src={screenshotFrames[0].url}
                                                             alt=""
@@ -5229,10 +5612,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     )}
 
                                                     {activeScreenshotBackgroundGap && (
-                                                        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
-                                                            <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">
-                                                                <div className="text-xs font-black uppercase tracking-wide text-slate-300">App in background</div>
-                                                                <div className="mt-2 text-lg font-black">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
+                                                        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#202124]/70 px-6 text-center text-white">
+                                                            <div className="rounded-none border border-white/20 bg-[#202124] px-5 py-4">
+                                                                <div className="text-xs font-medium text-[#bdc1c6]">App in background</div>
+                                                                <div className="mt-1 text-lg font-medium tabular-nums">Away for {formatBackgroundGapDuration(activeScreenshotBackgroundGap.durationMs)}</div>
                                                             </div>
                                                         </div>
                                                     )}
@@ -5244,10 +5627,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
-                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-slate-400" /> : <VideoOff className="h-10 w-10 text-slate-400" />}
-                                        <p className="mt-3 text-sm font-bold text-slate-900">{isWebSession ? 'Browser Replay Not Available' : 'Replay Not Available'}</p>
-                                        <p className="mt-2 text-xs leading-5 text-slate-600">
+                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center rounded-none border border-dashed border-[#dadce0] bg-white p-6 text-center ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
+                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-[#9aa0a6]" /> : <VideoOff className="h-10 w-10 text-[#9aa0a6]" />}
+                                        <p className="mt-3 text-sm font-medium text-[#202124]">{isWebSession ? 'Browser replay not available' : 'Replay not available'}</p>
+                                        <p className="mt-2 text-xs leading-5 text-[#5f6368]">
                                             No visual frames were uploaded for this session.
                                         </p>
                                     </div>
@@ -5257,7 +5640,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                         {playbackMode !== 'none' ? (
                             <>
-                                <div className="replay-playback-controls border-b-2 border-black bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
+                                <div className="replay-playback-controls border-b border-[#e8eaed] bg-white px-3 py-1.5 xl:shrink-0 xl:px-4 xl:py-1">
                                     <div className="flex w-full flex-wrap items-center justify-center gap-2 overflow-visible lg:flex-nowrap lg:justify-between">
                                         {/* Primary Controls */}
                                         <div className="replay-controls-primary flex shrink-0 items-center justify-center gap-1.5 sm:justify-start">
@@ -5266,9 +5649,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     onClick={() => stepFrame(-1)}
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     disabled={playbackDisabled}
-                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition xl:flex ${playbackDisabled
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                    className={`replay-control-button hidden h-8 w-8 items-center justify-center rounded-none border transition-colors xl:flex ${playbackDisabled
+                                                        ? 'cursor-not-allowed border-[#e8eaed] bg-[#f8fafd] text-[#bdc1c6]'
+                                                        : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                         }`}
                                                     title="Previous frame"
                                                     aria-label="Previous frame"
@@ -5281,9 +5664,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 onClick={() => skip(-REPLAY_SKIP_SECONDS)}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
-                                                    ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                className={`replay-control-button flex h-8 w-8 items-center justify-center rounded-none border transition-colors ${playbackDisabled
+                                                    ? 'cursor-not-allowed border-[#e8eaed] bg-[#f8fafd] text-[#bdc1c6]'
+                                                    : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                     }`}
                                                 title="Back 10 seconds (Left arrow)"
                                                 aria-label="Back 10 seconds"
@@ -5291,18 +5674,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             >
                                                 <span className="relative flex h-5 w-5 items-center justify-center">
                                                     <RotateCcw className="h-4 w-4" />
-                                                    <span className="absolute text-[8px] font-black leading-none">10</span>
+                                                    <span className="absolute text-[8px] font-semibold leading-none tabular-nums">10</span>
                                                 </span>
                                             </button>
                                             <button
                                                 onClick={togglePlayPause}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`replay-control-button replay-control-button-primary flex h-11 w-11 items-center justify-center border-2 border-black text-black shadow-neo-sm transition-all ${playbackDisabled
-                                                    ? 'cursor-not-allowed bg-slate-300 text-slate-200'
-                                                    : isPlaying
-                                                        ? 'bg-[#fde047] hover:-translate-y-0.5 hover:shadow-neo'
-                                                        : 'bg-[#86efac] hover:-translate-y-0.5 hover:shadow-neo'
+                                                className={`replay-control-button replay-control-button-primary flex h-10 w-10 items-center justify-center rounded-none border transition-colors ${playbackDisabled
+                                                    ? 'cursor-not-allowed border-[#e8eaed] bg-[#f1f3f4] text-[#bdc1c6]'
+                                                    : 'border-[#1a73e8] bg-[#1a73e8] text-white hover:border-[#1765cc] hover:bg-[#1765cc]'
                                                     }`}
                                                 title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
                                                 aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -5314,9 +5695,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 onClick={() => skip(REPLAY_SKIP_SECONDS)}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
-                                                    ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                className={`replay-control-button flex h-8 w-8 items-center justify-center rounded-none border transition-colors ${playbackDisabled
+                                                    ? 'cursor-not-allowed border-[#e8eaed] bg-[#f8fafd] text-[#bdc1c6]'
+                                                    : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                     }`}
                                                 title="Forward 10 seconds (Right arrow)"
                                                 aria-label="Forward 10 seconds"
@@ -5324,7 +5705,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                             >
                                                 <span className="relative flex h-5 w-5 items-center justify-center">
                                                     <RotateCw className="h-4 w-4" />
-                                                    <span className="absolute text-[8px] font-black leading-none">10</span>
+                                                    <span className="absolute text-[8px] font-semibold leading-none tabular-nums">10</span>
                                                 </span>
                                             </button>
                                             {playbackMode === 'screenshots' && (
@@ -5332,9 +5713,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     onClick={() => stepFrame(1)}
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     disabled={playbackDisabled}
-                                                    className={`replay-control-button hidden h-9 w-9 items-center justify-center border-2 transition xl:flex ${playbackDisabled
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                    className={`replay-control-button hidden h-8 w-8 items-center justify-center rounded-none border transition-colors xl:flex ${playbackDisabled
+                                                        ? 'cursor-not-allowed border-[#e8eaed] bg-[#f8fafd] text-[#bdc1c6]'
+                                                        : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                         }`}
                                                     title="Next frame"
                                                     aria-label="Next frame"
@@ -5347,9 +5728,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 onClick={restart}
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 disabled={playbackDisabled}
-                                                className={`replay-control-button flex h-9 w-9 items-center justify-center border-2 transition ${playbackDisabled
-                                                    ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                className={`replay-control-button flex h-8 w-8 items-center justify-center rounded-none border transition-colors ${playbackDisabled
+                                                    ? 'cursor-not-allowed border-[#e8eaed] bg-[#f8fafd] text-[#bdc1c6]'
+                                                    : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                     }`}
                                                 title="Restart replay"
                                                 aria-label="Restart replay"
@@ -5361,7 +5742,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                                         {/* Secondary Controls */}
                                         <div className="replay-controls-secondary flex shrink-0 flex-nowrap items-center justify-center gap-1.5 lg:justify-end">
-                                            <span className="inline-flex h-8 min-w-[7.75rem] items-center justify-center border-2 border-black bg-[#f8fafc] px-2 font-mono text-[11px] font-black text-black shadow-neo-sm">
+                                            <span className="inline-flex h-8 min-w-[7.75rem] items-center justify-center rounded-none border border-[#dadce0] bg-[#f8fafd] px-2 text-xs font-medium tabular-nums text-[#3c4043]">
                                                 <span ref={progressTimeRef}>{formatPlaybackTime(currentPlaybackTime)}</span> / {formatPlaybackTime(effectiveDuration)}
                                             </span>
 
@@ -5371,12 +5752,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     aria-pressed={showTouchOverlay}
                                                     title={showTouchOverlay ? 'Hide touch overlay' : 'Show touch overlay'}
-                                                    className={`flex h-7 items-center gap-1 border-2 px-2 text-xs font-bold uppercase transition ${showTouchOverlay
-                                                        ? 'border-[#2563eb] bg-white text-[#2563eb] shadow-[2px_2px_0px_0px_rgba(37,99,235,1)]'
-                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                    className={`flex h-8 items-center gap-1 rounded-none border px-2.5 text-xs font-medium transition-colors ${showTouchOverlay
+                                                        ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+                                                        : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                         }`}
                                                 >
-                                                    <Hand className={`h-3 w-3 ${showTouchOverlay ? 'text-[#2563eb]' : 'text-black'}`} />
+                                                    <Hand className="h-3.5 w-3.5" />
                                                     <span className="hidden xs:inline">Touches</span>
                                                 </button>
                                             ) : null}
@@ -5389,9 +5770,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     onMouseDown={(event) => event.preventDefault()}
                                                     aria-haspopup="menu"
                                                     aria-expanded={showSpeedMenu}
-                                                    className="flex h-7 items-center border-2 border-black bg-white px-3 font-mono text-xs font-black text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+                                                    className={`flex h-8 items-center gap-1 rounded-none border border-[#dadce0] px-2.5 text-xs font-medium tabular-nums text-[#3c4043] transition-colors hover:bg-[#f1f3f4] ${showSpeedMenu ? 'bg-[#f1f3f4]' : 'bg-white'}`}
                                                 >
                                                     {playbackRate}x
+                                                    <ChevronDown className="h-3.5 w-3.5 text-[#5f6368]" aria-hidden="true" />
                                                 </button>
 
                                                 {showSpeedMenu && typeof document !== 'undefined' && createPortal(
@@ -5399,7 +5781,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         <div className="fixed inset-0 z-[1190]" onClick={() => setShowSpeedMenu(false)} />
                                                         <div
                                                             role="menu"
-                                                            className="fixed z-[1200] min-w-[92px] overflow-hidden border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                                                            className="fixed z-[1200] min-w-[92px] overflow-hidden rounded-none border border-[#dadce0] bg-white py-1 shadow-[0_4px_16px_rgba(60,64,67,0.2)]"
                                                             style={{
                                                                 left: speedMenuPosition?.left ?? SPEED_MENU_VIEWPORT_GAP_PX,
                                                                 top: speedMenuPosition?.top ?? SPEED_MENU_VIEWPORT_GAP_PX,
@@ -5416,9 +5798,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                                         setShowSpeedMenu(false);
                                                                     }}
                                                                     onMouseDown={(event) => event.preventDefault()}
-                                                                    className={`block w-full border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold last:border-b-0 ${playbackRate === rate
-                                                                        ? 'bg-[#67e8f9] text-black font-black'
-                                                                        : 'text-black hover:bg-[#ecfeff]'
+                                                                    className={`block w-full px-3 py-1.5 text-left text-sm tabular-nums ${playbackRate === rate
+                                                                        ? 'bg-[#e8f0fe] text-[#1967d2]'
+                                                                        : 'text-[#3c4043] hover:bg-[#f1f3f4]'
                                                                         }`}
                                                                 >
                                                                     {rate}x
@@ -5433,16 +5815,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     </div>
                                 </div>
 
-                                <div className="replay-marker-toolbar select-none bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4">
+                                <div className="replay-marker-toolbar select-none bg-white px-3 py-2 xl:shrink-0 xl:px-4">
                                     <div className="mb-1 flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:justify-between">
-                                        <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto text-[10px] font-black uppercase text-black sm:flex-wrap sm:overflow-visible">
+                                        <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto text-[11px] font-medium text-[#3c4043] sm:flex-wrap sm:overflow-visible">
                                             {([
-                                                { category: 'navigation', label: 'Nav', icon: <RouteIcon className="h-2.5 w-2.5 text-[#8b5cf6]" /> },
-                                                { category: 'gesture', label: 'Gestures', icon: <Hand className="h-2.5 w-2.5 text-[#3b82f6]" /> },
-                                                { category: 'rageTap', label: 'Rage', icon: <Zap className="h-2.5 w-2.5 text-[#f43f5e]" /> },
-                                                { category: 'deadTap', label: 'Dead', icon: <CircleX className="h-2.5 w-2.5 text-[#64748b]" /> },
-                                                { category: 'api', label: 'API', icon: <span className="h-3 w-1 rounded-full bg-[#15803d]" /> },
-                                                { category: 'background', label: 'Background', icon: <span className="font-mono text-[8px] font-black leading-none text-[#db2777]">Zzz</span> },
+                                                { category: 'navigation', label: 'Nav', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.navigation }} /> },
+                                                { category: 'gesture', label: 'Gestures', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.gesture }} /> },
+                                                { category: 'rageTap', label: 'Rage', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.rageTap }} /> },
+                                                { category: 'deadTap', label: 'Dead', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.deadTap }} /> },
+                                                { category: 'api', label: 'API', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.apiSuccess }} /> },
+                                                { category: 'background', label: 'Background', icon: <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: EVENT_COLORS.appBackground }} /> },
                                             ] as Array<{ category: TimelineMarkerCategory; label: string; icon: React.ReactNode }>).map(({ category, label, icon }) => {
                                                 const hidden = hiddenMarkerCategories.has(category);
                                                 return (
@@ -5456,9 +5838,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                             if (next.has(category)) next.delete(category); else next.add(category);
                                                             return next;
                                                         })}
-                                                        className={`flex items-center gap-0.5 border px-1.5 py-0.5 transition ${hidden
-                                                            ? 'border-slate-300 bg-white text-slate-400 line-through opacity-60'
-                                                            : 'border-black bg-white text-black shadow-neo-sm hover:bg-[#ecfeff]'
+                                                        className={`flex h-6 shrink-0 items-center gap-1.5 rounded-none border px-2 transition-colors ${hidden
+                                                            ? 'border-[#e8eaed] bg-white text-[#80868b] line-through opacity-60'
+                                                            : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                             }`}
                                                     >
                                                         {icon}{label}
@@ -5466,7 +5848,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 );
                                             })}
                                         </div>
-                                        <span className="hidden text-[9px] font-bold uppercase text-slate-600 sm:inline">
+                                        {gameplayBands.length > 0 && (
+                                            <span
+                                                className="hidden items-center gap-1.5 text-[11px] font-medium text-[#5f6368] sm:inline-flex"
+                                                title="Marked gameplay. Taps during play are left out of frustration signals and heatmaps."
+                                            >
+                                                <span className="inline-block h-[3px] w-3 bg-[#d97706]" />
+                                                Gameplay
+                                            </span>
+                                        )}
+                                        <span className="hidden text-[11px] text-[#5f6368] sm:inline">
                                             Click bar to seek · markers to jump
                                         </span>
                                     </div>
@@ -5474,18 +5865,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     <div
                                         ref={progressRef}
                                         className="group relative mt-1 h-9 cursor-pointer touch-none select-none xl:h-8"
-                                        onMouseDown={handleProgressMouseDown}
-                                        onMouseMove={handleTimelineMouseMove}
-                                        onMouseLeave={clearTimelineHover}
-                                        onTouchStart={handleProgressTouchStart}
+                                        onPointerDown={handleProgressPointerDown}
+                                        onPointerMove={handleTimelinePointerMove}
+                                        onPointerLeave={clearTimelineHover}
                                     >
-                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full border border-slate-400 bg-slate-200" />
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-none border border-[#dadce0] bg-[#f1f3f4]" />
                                         {playbackMode === 'rrweb' && rrwebSegmentsLoading && rrwebLoadedRanges.length > 0 && (
-                                            <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-full">
+                                            <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-none">
                                                 {rrwebLoadedRanges.map((range, i) => (
                                                     <div
                                                         key={i}
-                                                        className="absolute h-full bg-slate-400/70"
+                                                        className="absolute h-full bg-[#bdc1c6]"
                                                         style={{
                                                             left: `${range.start * 100}%`,
                                                             width: `${Math.max(0.5, (range.end - range.start) * 100)}%`,
@@ -5494,16 +5884,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 ))}
                                             </div>
                                         )}
-                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-full">
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 overflow-hidden rounded-none">
                                             <div
                                                 ref={progressFillRef}
-                                                className="h-full w-full origin-left bg-slate-950 will-change-transform"
+                                                className="h-full w-full origin-left bg-[#1a73e8] will-change-transform"
                                                 // Owned imperatively by syncPlaybackChrome (60fps). A constant initial
                                                 // value keeps React from overwriting it with stale state on re-render,
                                                 // which previously caused the progress bar to stutter during playback.
                                                 style={{ transform: 'scaleX(0)' }}
                                             />
                                         </div>
+                                        {gameplayBands.length > 0 && (
+                                            <div aria-hidden="true" className="pointer-events-none absolute left-0 right-0 top-1/2 mt-[6px] h-[3px]">
+                                                {gameplayBands.map(({ interval, left, width }) => (
+                                                    <div
+                                                        key={interval.index}
+                                                        className="absolute h-full bg-[#d97706]"
+                                                        style={{ left: `${left}%`, width: `${width}%` }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
 
                                         {timelineMarkers.map((marker) => {
                                             const { event, clusteredCount, markerKey, percent } = marker;
@@ -5536,7 +5937,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         ? 'h-4 w-4'
                                                         : 'h-4 w-2.5';
                                             const markerVisualSize = showIcon
-                                                ? 'h-5 w-5 border-2'
+                                                ? 'h-5 w-5 border'
                                                 : isClustered
                                                     ? 'h-4 min-w-4 border px-1'
                                                     : isGestureMarker
@@ -5549,7 +5950,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 	                                                    role="button"
 	                                                    tabIndex={-1}
 	                                                    aria-label="Jump to this event"
-	                                                    onMouseDown={(e) => {
+	                                                    onPointerDown={(e) => {
 	                                                        // Prevent the parent track's drag-seek; jump straight to the event.
 	                                                        e.stopPropagation();
                                                         e.preventDefault();
@@ -5566,29 +5967,29 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     style={{ left: `${percent}%` }}
                                                 >
                                                     <span
-                                                        className={`flex items-center justify-center rounded-full border-black text-[8px] font-black leading-none text-white transition-[box-shadow,background-color,opacity] duration-150 ease-out ${markerVisualSize} ${isFrustration || hasAnyFrictionInCluster
-                                                            ? 'shadow-[0_0_0_3px_rgba(244,63,94,0.18)]'
+                                                        className={`flex items-center justify-center rounded-full border-white text-[8px] font-semibold leading-none text-white transition-[box-shadow,background-color,opacity] duration-150 ease-out ${markerVisualSize} ${isFrustration || hasAnyFrictionInCluster
+                                                            ? ''
                                                             : isFaultMarker || hasFaultInCluster || isAppBackgroundMarker
-                                                                ? 'shadow-sm'
+                                                                ? ''
                                                                 : isClustered
                                                                     ? 'opacity-95'
                                                                     : 'opacity-80'
                                                             } ${isHovered
-                                                                ? 'shadow-[0_0_0_4px_rgba(15,23,42,0.16)]'
+                                                                ? 'shadow-[0_0_0_3px_rgba(60,64,67,0.2)]'
                                                                 : ''
                                                             }`}
                                                         style={{ backgroundColor: color }}
                                                     >
                                                         {isAppBackgroundMarker ? (
-                                                            <span className="font-mono text-[7px] font-black leading-none tracking-normal text-white">Zzz</span>
+                                                            <Moon className="h-3 w-3 text-white" strokeWidth={2.5} aria-hidden="true" />
                                                         ) : showIcon ? (
                                                             <Icon className="h-3 w-3 text-white" strokeWidth={3} />
                                                         ) : isClustered ? (
-                                                            <span className="px-0.5 font-mono">{formatCountCompact(clusteredCount)}</span>
+                                                            <span className="px-0.5 tabular-nums">{formatCountCompact(clusteredCount)}</span>
                                                         ) : null}
                                                     </span>
                                                     {showCountBadge ? (
-                                                        <span className="pointer-events-none absolute right-0 top-0 flex h-3 min-w-[0.75rem] items-center justify-center rounded-full border border-black bg-white px-0.5 text-[8px] font-black leading-none text-black">
+                                                        <span className="pointer-events-none absolute right-0 top-0 flex h-3 min-w-[0.75rem] items-center justify-center rounded-none border border-[#dadce0] bg-white px-0.5 text-[8px] font-semibold leading-none tabular-nums text-[#202124]">
                                                             {formatCountCompact(clusteredCount)}
                                                         </span>
                                                     ) : null}
@@ -5629,11 +6030,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         alt=""
                                                         loading="eager"
                                                         decoding="async"
-                                                        className="mb-1 h-28 w-auto border-2 border-black bg-slate-900 object-contain shadow-neo-sm"
+                                                        className="mb-1 h-28 w-auto rounded-none border border-[#dadce0] bg-[#202124] object-contain"
                                                         style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
                                                     />
                                                 )}
-                                                <span className="border-2 border-black bg-white px-1.5 py-0.5 font-mono text-[10px] font-black text-black shadow-neo-sm">
+                                                <span className="rounded-none bg-[#202124] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
                                                     {formatPlaybackClock(scrubPreview.time)}
                                                 </span>
                                             </div>
@@ -5641,7 +6042,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                                         <div
                                             ref={progressThumbRef}
-                                            className={`absolute top-1/2 z-40 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-110'
+                                            className={`absolute top-1/2 z-40 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#1a73e8] shadow-[0_1px_3px_rgba(60,64,67,0.3)] transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-110'
                                                 }`}
                                             // left is owned imperatively by syncPlaybackChrome; constant initial value.
                                             style={{ left: '0%', willChange: 'left' }}
@@ -5650,14 +6051,56 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 </div>
                             </>
                         ) : null}
+                        {showUpNextPrompt && nextUserRecordingId ? (
+                            <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-t border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2.5">
+                                <span className="text-sm text-[#1967d2]">Recording finished</span>
+                                <div className="flex items-center gap-2">
+                                    <button type="button" onClick={togglePlayPause} className={dashboardButtonClass('secondary', 'sm')}>
+                                        <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                                        Replay
+                                    </button>
+                                    <button type="button" onClick={() => openReplaySession(nextUserRecordingId)} className={dashboardButtonClass('primary', 'sm')}>
+                                        Next recording
+                                        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
                     </section>
 
+                    {!isPublicShare && replayUserIdentity ? (
+                        <section className="replay-user-recordings flex min-w-0 flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white xl:hidden" aria-label="This user's recordings">
+                            <div className="flex items-center justify-between gap-2 border-b border-[#e8eaed] px-3 py-2.5">
+                                <div className="min-w-0">
+                                    <h3 className="text-[15px] font-medium text-[#202124]">This user's recordings</h3>
+                                    <p className="truncate text-xs text-[#5f6368]">{replayUserIdLabel}</p>
+                                </div>
+                                {nextUserRecordingId ? (
+                                    <button type="button" onClick={() => openReplaySession(nextUserRecordingId)} className={dashboardButtonClass('primary', 'sm')}>
+                                        Next
+                                        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                    </button>
+                                ) : null}
+                            </div>
+                            <div className="max-h-[22rem] overflow-y-auto">
+                                <UserRecordingsList
+                                    recordings={userRecordings}
+                                    currentSessionId={id}
+                                    isLoading={isUserRecordingsLoading}
+                                    error={userRecordingsError}
+                                    onLoadMore={userRecordingsCursor || userRecordingsError
+                                        ? () => void loadUserRecordings(userRecordingsCursor) : undefined}
+                                    onOpen={openReplaySession}
+                                />
+                            </div>
+                        </section>
+                    ) : null}
 
-                    <section className={`replay-side-panel flex min-h-[400px] flex-col overflow-hidden border-2 border-black bg-white shadow-neo xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-4' : 'xl:col-span-5'}`}>
-                        <div className="replay-workbench-tabs dashboard-mobile-scroll flex shrink-0 overflow-x-auto border-b-2 border-black bg-[#f8fafc] no-scrollbar">
+                    <section className={`replay-side-panel flex min-h-[400px] flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-4' : 'xl:col-span-5'}`}>
+                        <div className="replay-workbench-tabs dashboard-mobile-scroll flex shrink-0 overflow-x-auto border-b border-[#dadce0] bg-white no-scrollbar">
                             <button
                                 onClick={() => setActiveWorkbenchTab('timeline')}
-                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'timeline' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors ${activeWorkbenchTab === 'timeline' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                             >
                                 <ListFilter className="h-4 w-4" />
                                 Timeline
@@ -5666,14 +6109,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 <>
                                     <button
                                         onClick={() => setActiveWorkbenchTab('console')}
-                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'console' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors ${activeWorkbenchTab === 'console' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                                     >
                                         <Terminal className="h-4 w-4" />
                                         Console
                                     </button>
                                     <button
                                         onClick={() => setActiveWorkbenchTab('inspector')}
-                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'inspector' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors ${activeWorkbenchTab === 'inspector' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                                     >
                                         <Code className="h-4 w-4" />
                                         DOM
@@ -5681,7 +6124,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     {reduxEvents.length > 0 ? (
                                         <button
                                             onClick={() => setActiveWorkbenchTab('redux')}
-                                            className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'redux' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                            className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors ${activeWorkbenchTab === 'redux' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                                         >
                                             <Database className="h-4 w-4" />
                                             Redux
@@ -5689,49 +6132,78 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                     ) : null}
                                     <button
                                         onClick={() => setActiveWorkbenchTab('metadata')}
-                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-black uppercase transition ${activeWorkbenchTab === 'metadata' ? 'border-black bg-white text-black' : 'border-transparent text-slate-600 hover:bg-[#ecfeff] hover:text-black'}`}
+                                        className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors ${activeWorkbenchTab === 'metadata' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                                     >
                                         <Database className="h-4 w-4" />
                                         Metadata
                                     </button>
                                 </>
                             ) : null}
+                            {!isPublicShare && replayUserIdentity ? (
+                                // Phones and tablets list these under the player instead.
+                                <button
+                                    onClick={() => setActiveWorkbenchTab('recordings')}
+                                    className={`hidden min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-none px-3 py-3 text-[13px] font-medium transition-colors xl:flex ${activeWorkbenchTab === 'recordings' ? 'bg-white text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
+                                >
+                                    <ListVideo className="h-4 w-4" />
+                                    Recordings
+                                </button>
+                            ) : null}
                         </div>
                         <div className="relative flex min-h-0 flex-1 flex-col bg-white">
+                            {activeWorkbenchTab === 'recordings' && !isPublicShare && replayUserIdentity && (
+                                <div className="absolute inset-0 flex flex-col">
+                                    <div className="flex items-center justify-between gap-2 border-b border-[#e8eaed] bg-white px-3 py-2.5">
+                                        <div className="min-w-0">
+                                            <h3 className="text-[15px] font-medium text-[#202124]">This user's recordings</h3>
+                                            <p className="truncate text-xs text-[#5f6368]">{replayUserIdLabel}</p>
+                                        </div>
+                                        {nextUserRecordingId ? (
+                                            <button type="button" onClick={() => openReplaySession(nextUserRecordingId)} className={dashboardButtonClass('secondary', 'sm')}>
+                                                Next recording
+                                                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                    <div className="min-h-0 flex-1 overflow-y-auto">
+                                        <UserRecordingsList
+                                            recordings={userRecordings}
+                                            currentSessionId={id}
+                                            isLoading={isUserRecordingsLoading}
+                                    error={userRecordingsError}
+                                    onLoadMore={userRecordingsCursor || userRecordingsError
+                                        ? () => void loadUserRecordings(userRecordingsCursor) : undefined}
+                                            onOpen={openReplaySession}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                             {activeWorkbenchTab === 'timeline' && (
                                 <div className="absolute inset-0 flex flex-col">
-                                    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+                                    <div className="border-b border-[#e8eaed] bg-white px-3 py-2.5">
                                         <div className="replay-panel-header flex items-center justify-between gap-2">
-                                            <div>
-                                                <p className="text-[10px] font-semibold uppercase text-slate-400 tracking-wide">Activity Stream</p>
-                                                <h3 className="text-xs font-semibold text-slate-700">All actions, logs, and failures in one timeline</h3>
+                                            <div className="min-w-0">
+                                                <h3 className="text-[15px] font-medium text-[#202124]">Activity stream</h3>
+                                                <p className="text-xs text-[#5f6368]">All actions, logs, and failures in one timeline</p>
                                             </div>
                                             {canShowWorkbenchTools ? (
                                             <div className="replay-panel-actions flex items-center gap-1.5">
                                                 <button
                                                     onClick={copyTimelineEvents}
                                                     disabled={allTimelineEvents.length === 0}
-                                                    className={`flex h-6 items-center gap-1 border px-2 text-[10px] font-semibold rounded transition ${allTimelineEvents.length === 0
-                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-300'
-                                                        : timelineCopied
-                                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={allTimelineEvents.length > 0 ? 'Copy all timeline events' : 'No events available'}
                                                 >
-                                                    {timelineCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                                    {timelineCopied ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Copy className="h-3.5 w-3.5" />}
                                                     {timelineCopied ? 'Copied' : 'Copy'}
                                                 </button>
                                                 <button
                                                     onClick={downloadTimelineEvents}
                                                     disabled={allTimelineEvents.length === 0}
-                                                    className={`flex h-6 items-center gap-1 border px-2 text-[10px] font-semibold rounded transition ${allTimelineEvents.length === 0
-                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-300'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={allTimelineEvents.length > 0 ? 'Download all timeline events' : 'No events available'}
                                                 >
-                                                    <Download className="h-3 w-3" />
+                                                    <Download className="h-3.5 w-3.5" />
                                                     Export
                                                 </button>
                                             </div>
@@ -5745,12 +6217,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     value={activitySearch}
                                                     onChange={(event) => setActivitySearch(event.target.value)}
                                                     placeholder="Search events, targets, messages, or endpoints"
-                                                    className="h-7 w-full border border-slate-200 rounded bg-white px-3 pr-8 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 focus:border-slate-300"
+                                                    className="h-8 w-full rounded-none border border-[#dadce0] bg-white px-3 pr-8 text-xs text-[#202124] placeholder:text-[#80868b] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                                                 />
                                                 {activitySearch.trim() && (
                                                     <button
                                                         onClick={() => setActivitySearch('')}
-                                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition hover:text-slate-700"
+                                                        className="absolute inset-y-0 right-1.5 my-auto flex h-5 w-5 items-center justify-center rounded-none text-[#80868b] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
                                                         aria-label="Clear search"
                                                     >
                                                         <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5760,18 +6232,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 )}
                                             </div>
 
-                                            <div className="mt-1.5 flex gap-1 overflow-x-auto pb-0.5">
+                                            <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5">
                                                 {activityTabs.map((filter) => (
                                                     <button
                                                         key={filter.id}
                                                         onClick={() => setActivityFilter(filter.id)}
-                                                        className={`shrink-0 border px-2 py-0.5 text-[10px] font-semibold rounded transition ${activityFilter === filter.id
-                                                            ? 'border-slate-700 bg-slate-800 text-white'
-                                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                                                        aria-pressed={activityFilter === filter.id}
+                                                        className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-none border px-2 text-[11px] font-medium transition-colors ${activityFilter === filter.id
+                                                            ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+                                                            : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
                                                             }`}
                                                     >
                                                         {filter.label}
-                                                        <span className="ml-1 rounded bg-slate-900/10 px-1 py-0.5 text-[9px] font-bold">
+                                                        <span className={`tabular-nums ${activityFilter === filter.id ? 'text-[#1967d2]' : 'text-[#5f6368]'}`}>
                                                             {formatCountCompact(filter.count)}
                                                         </span>
                                                     </button>
@@ -5782,15 +6255,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
                                     <div ref={activityViewportRef} className="min-h-0 flex-1 overflow-y-auto bg-white">
                                         {filteredActivity.length === 0 ? (
-                                            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-500">
-                                                <AlertTriangle className="h-8 w-8 text-slate-300" />
-                                                <p className="mt-2 text-sm font-semibold text-slate-700">No matching events</p>
+                                            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-[#5f6368]">
+                                                <AlertTriangle className="h-8 w-8 text-[#bdc1c6]" />
+                                                <p className="mt-2 text-sm font-medium text-[#202124]">No matching events</p>
                                                 <p className="mt-1 text-xs">Try a different filter or clear the search query.</p>
                                             </div>
                                         ) : (
                                             <>
                                                 {visibleActivityWindow.isWindowed && (
-                                                    <div className="sticky top-0 z-10 border-b-2 border-black bg-[#67e8f9] px-3 py-2 text-[11px] font-black text-black">
+                                                    <div className="sticky top-0 z-10 border-b border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2 text-[11px] font-medium text-[#1967d2]">
                                                         Showing events {visibleActivityWindow.startIndex + 1}-{visibleActivityWindow.endIndex} of {filteredActivity.length.toLocaleString()} near playback. Search or filter to narrow the stream.
                                                     </div>
                                                 )}
@@ -5813,56 +6286,53 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         key={`${event.timestamp}-${index}`}
                                                         data-activity-index={index}
                                                         onClick={() => handleSeekToTime(seekTime)}
-                                                        className={`block w-full border-b border-black/10 px-3 py-2 text-left transition ${isHighlighted
-                                                            ? 'border-l-4 border-black bg-[#ecfeff] shadow-[inset_0_0_0_1px_rgba(103,232,249,0.55)]'
-                                                            : 'hover:bg-[#f8fafc]'
+                                                        className={`block w-full border-b border-[#e8eaed] px-3 py-2 text-left transition-colors ${isHighlighted
+                                                            ? 'bg-[#e8f0fe]'
+                                                            : 'hover:bg-[#f8fafd]'
                                                             }`}
                                                     >
                                                         <div className="flex items-start gap-2.5">
                                                             <div className="mt-0.5 shrink-0">
                                                                 {isNetwork ? (
                                                                     <span
-                                                                        className={`inline-flex rounded border px-1 py-0.5 font-mono text-[9px] font-bold ${event.properties?.success
-                                                                            ? 'border-2 border-[#15803d] bg-[#f0fdf4] text-[#166534]'
-                                                                            : 'border-2 border-[#ef4444] bg-white text-[#ef4444]'
-                                                                            }`}
+                                                                        className={`${dashboardChipClass(event.properties?.success ? 'success' : 'danger')} tabular-nums`}
                                                                     >
-                                                                        {event.properties?.statusCode || 'ERR'}
+                                                                        {event.properties?.statusCode || 'Error'}
                                                                     </span>
                                                                 ) : faultMarker ? (
-                                                                    <span className={`inline-flex border px-1 py-0.5 text-[9px] font-bold uppercase ${getFaultBadgeStyles(faultMarker)}`}>
-                                                                        {faultMarker}
+                                                                    <span className={getFaultBadgeStyles(faultMarker)}>
+                                                                        {formatFaultMarkerLabel(faultMarker)}
                                                                     </span>
                                                                 ) : isLog ? (
-                                                                    <span className={`inline-flex border px-1 py-0.5 text-[9px] font-bold uppercase ${getLogBadgeStyles(logLevel)}`}>
-                                                                        {logLevel}
+                                                                    <span className={getLogBadgeStyles(logLevel)}>
+                                                                        {formatLogLevelLabel(logLevel)}
                                                                     </span>
                                                                 ) : (
-                                                                    <span className="inline-flex h-4 w-4 items-center justify-center border border-black" style={{ backgroundColor: color }}>
-                                                                        <Icon className="h-2.5 w-2.5 text-white" />
+                                                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-none" style={{ backgroundColor: color }}>
+                                                                        <Icon className="h-3 w-3 text-white" />
                                                                     </span>
                                                                 )}
                                                             </div>
 
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="flex items-center justify-between gap-2">
-                                                                    <p className="truncate text-[11px] font-semibold text-slate-800">{title}</p>
-                                                                    <span className="shrink-0 border border-black bg-white px-1 py-0.5 font-mono text-[10px] font-bold text-black">
+                                                                    <p className="truncate text-xs font-medium text-[#202124]">{title}</p>
+                                                                    <span className="shrink-0 text-[11px] tabular-nums text-[#5f6368]">
                                                                         {timeStr}
                                                                     </span>
                                                                 </div>
                                                                 {detail ? (
-                                                                    <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-slate-600">
+                                                                    <p className="mt-0.5 line-clamp-2 break-words text-xs text-[#5f6368]">
                                                                         <HighlightedText text={detail} search={activitySearch} />
                                                                     </p>
                                                                 ) : null}
                                                                 {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
                                                                     <span
-                                                                        className={`mt-1 inline-flex border border-black px-1.5 py-0.5 font-mono text-[10px] font-bold ${event.properties.duration > 1000
-                                                                            ? 'bg-[#fecaca] text-black'
+                                                                        className={`mt-1 tabular-nums ${event.properties.duration > 1000
+                                                                            ? dashboardChipClass('danger')
                                                                             : event.properties.duration > 500
-                                                                                ? 'bg-[#f9a8d4] text-black'
-                                                                                : 'bg-white text-black'
+                                                                                ? dashboardChipClass('warning')
+                                                                                : dashboardChipClass('neutral')
                                                                             }`}
                                                                     >
                                                                         {event.properties.duration} ms
@@ -5879,74 +6349,64 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 </div>
                             )}
                             {canShowWorkbenchTools && activeWorkbenchTab === 'console' && (
-                                <div className="absolute inset-0 flex flex-col bg-slate-950">
-                                    <div className="border-b-2 border-black px-4 py-3">
-                                        <div className="replay-panel-header flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="text-[10px] font-black uppercase text-[#67e8f9]">Runtime Console</p>
-                                                <h3 className="truncate text-sm font-bold text-white">
+                                <div className="absolute inset-0 flex flex-col bg-[#202124]">
+                                    <div className="border-b border-[#e8eaed] bg-white px-4 py-3">
+                                        <div className="replay-panel-header flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                                            <div className="min-w-[9rem] flex-1">
+                                                <h3 className="text-[15px] font-medium text-[#202124]">Runtime console</h3>
+                                                <p className="truncate text-xs text-[#5f6368]">
                                                     {revealAllLogs ? 'Displaying all session logs' : 'Logs synced to playback timestamp'}
-                                                </h3>
+                                                </p>
                                             </div>
                                             <div className="replay-panel-actions flex shrink-0 items-center gap-1.5">
-                                                <span className="flex h-7 items-center rounded border border-slate-700 bg-slate-900 px-1.5 font-mono text-[10px] text-slate-300">
+                                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                     {terminalVisibleRows.length}/{terminalLogRows.length}
                                                 </span>
                                                 <button
                                                     onClick={() => setRevealAllLogs(!revealAllLogs)}
-                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${revealAllLogs
-                                                        ? 'border-cyan-500 bg-cyan-600 text-white'
-                                                        : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
-                                                        }`}
+                                                    aria-pressed={revealAllLogs}
+                                                    className={revealAllLogs ? REPLAY_PANEL_TOGGLE_ON_CLASS : dashboardButtonClass('secondary', 'sm')}
                                                     title={revealAllLogs ? 'Sync to playback' : 'Show all logs in session'}
                                                 >
-                                                    {revealAllLogs ? <Zap className="h-3 w-3" /> : <ListFilter className="h-3 w-3" />}
-                                                    {revealAllLogs ? 'SYNC' : 'SHOW ALL'}
+                                                    {revealAllLogs ? <Zap className="h-3.5 w-3.5" /> : <ListFilter className="h-3.5 w-3.5" />}
+                                                    {revealAllLogs ? 'Sync' : 'Show all'}
                                                 </button>
                                                 <button
                                                     onClick={copyAllTerminalLogs}
                                                     disabled={terminalLogRows.length === 0}
-                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${terminalLogRows.length > 0
-                                                        ? terminalCopied
-                                                            ? 'border-emerald-500 bg-emerald-600 text-white'
-                                                            : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
-                                                        : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title="Copy all console logs (including those not yet visible at current time)"
                                                 >
-                                                    {terminalCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                                                    {terminalCopied ? 'Copied' : 'COPY'}
+                                                    {terminalCopied ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {terminalCopied ? 'Copied' : 'Copy'}
                                                 </button>
                                                 <button
                                                     onClick={downloadAllTerminalLogs}
                                                     disabled={terminalLogRows.length === 0}
-                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${terminalLogRows.length > 0
-                                                        ? 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
-                                                        : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title="Download all console logs"
                                                 >
-                                                    <Download className="h-3 w-3" />
-                                                    EXPORT
+                                                    <Download className="h-3.5 w-3.5" />
+                                                    Export
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div ref={terminalViewportRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-5">
+                                    <div ref={terminalViewportRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-5 text-[#e8eaed]">
                                         {terminalVisibleRows.length === 0 ? (
-                                            <p className="text-slate-500">No console logs at this playback point.</p>
+                                            <p className="text-[#9aa0a6]">No console logs at this playback point.</p>
                                         ) : (
                                             <div className="space-y-0.5">
                                                 {terminalVisibleRows.map((row) => (
                                                     <div key={row.id} className="whitespace-pre-wrap break-words">
-                                                        <span className="text-slate-500">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
+                                                        <span className="text-[#9aa0a6]">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
                                                         {row.marker ? (
-                                                            <span className={`font-semibold ${getFaultTerminalClass(row.marker)}`}>[{row.marker}]</span>
+                                                            <span className={`font-medium ${getFaultTerminalClass(row.marker)}`}>[{row.marker}]</span>
                                                         ) : (
-                                                            <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>
+                                                            <span className={`font-medium ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>
                                                         )}{' '}
-                                                        <span className="text-slate-100">{row.message}</span>
+                                                        <span className="text-[#e8eaed]">{row.message}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -5963,39 +6423,31 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 />
                             )}
                             {canShowWorkbenchTools && activeWorkbenchTab === 'inspector' && (
-                                <div className="absolute inset-0 flex flex-col bg-[#f8fafc]">
-                                    <div className="border-b-2 border-black bg-[#f8fafc] px-4 py-3">
+                                <div className="absolute inset-0 flex flex-col bg-white">
+                                    <div className="border-b border-[#e8eaed] bg-white px-4 py-3">
                                         <div className="replay-panel-header flex items-center justify-between gap-2">
-                                            <div>
-                                                <p className="text-[10px] font-black uppercase text-slate-600">View Inspector</p>
-                                                <h3 className="text-sm font-bold text-slate-900">Hierarchy synced with playback</h3>
+                                            <div className="min-w-0">
+                                                <h3 className="text-[15px] font-medium text-[#202124]">View inspector</h3>
+                                                <p className="text-xs text-[#5f6368]">Hierarchy synced with playback</p>
                                             </div>
-                                            <div className="replay-panel-actions flex items-center gap-2">
+                                            <div className="replay-panel-actions flex items-center gap-1.5">
                                                 <button
                                                     onClick={copyDOMHierarchy}
                                                     disabled={hierarchySnapshots.length === 0}
-                                                    className={`flex h-8 items-center gap-1.5 border-2 px-2 text-[11px] font-semibold transition ${hierarchySnapshots.length === 0
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : domCopied
-                                                            ? 'border-black bg-[#86efac] text-black'
-                                                            : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={hierarchySnapshots.length > 0 ? 'Copy current hierarchy JSON' : 'No hierarchy data'}
                                                 >
-                                                    {domCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                                                    {domCopied ? 'Copied' : 'COPY'}
+                                                    {domCopied ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {domCopied ? 'Copied' : 'Copy'}
                                                 </button>
                                                 <button
                                                     onClick={downloadDOMHierarchy}
                                                     disabled={hierarchySnapshots.length === 0}
-                                                    className={`flex h-8 items-center gap-1.5 border-2 px-2 text-[11px] font-semibold transition ${hierarchySnapshots.length === 0
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={hierarchySnapshots.length > 0 ? 'Download current hierarchy as JSON' : 'No hierarchy data'}
                                                 >
                                                     <Download className="h-3.5 w-3.5" />
-                                                    EXPORT
+                                                    Export
                                                 </button>
                                             </div>
                                         </div>
@@ -6012,9 +6464,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                 className="h-full"
                                             />
                                         ) : (
-                                            <div className="flex h-full flex-col items-center justify-center bg-[#f8fafc] px-5 text-center text-slate-500">
-                                                <Layers className="h-10 w-10 text-slate-300" />
-                                                <p className="mt-2 text-sm font-semibold text-slate-800">Hierarchy unavailable</p>
+                                            <div className="flex h-full flex-col items-center justify-center bg-white px-5 text-center text-[#5f6368]">
+                                                <Layers className="h-10 w-10 text-[#bdc1c6]" />
+                                                <p className="mt-2 text-sm font-medium text-[#202124]">Hierarchy unavailable</p>
                                                 <p className="mt-1 text-xs leading-5">
                                                     This session did not include view hierarchy snapshots.
                                                     Replay, activity, and network evidence remain fully available.
@@ -6025,69 +6477,61 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                 </div>
                             )}
                             {canShowWorkbenchTools && activeWorkbenchTab === 'metadata' && (
-                                <div className="absolute inset-0 flex flex-col bg-[#f8fafc] overflow-auto">
-                                    <UnityRuntimeContext metadata={rawMetadata} events={allTimelineEvents} onSeek={timestamp => handleSeekToTime(eventTimestampToPlaybackSeconds(timestamp))} />
-                                    <div className="border-b-2 border-black bg-[#f8fafc] px-4 py-3 sticky top-0 z-10">
+                                <div className="absolute inset-0 flex flex-col overflow-auto bg-white">
+                                    <UnityRuntimeContext metadata={rawMetadata} events={allTimelineEvents} gameplay={gameplayIntervals} onSeek={timestamp => handleSeekToTime(eventTimestampToPlaybackSeconds(timestamp))} />
+                                    <div className="sticky top-0 z-10 border-b border-[#e8eaed] bg-white px-4 py-3">
                                         <div className="replay-panel-header flex items-center justify-between gap-2">
-                                            <div>
-                                                <p className="text-[10px] font-black uppercase text-slate-600">Session Metadata</p>
-                                                <h3 className="text-sm font-bold text-slate-900">{isWebSession ? 'Collected properties' : 'Custom properties'}</h3>
+                                            <div className="min-w-0">
+                                                <h3 className="text-[15px] font-medium text-[#202124]">Session metadata</h3>
+                                                <p className="text-xs text-[#5f6368]">{isWebSession ? 'Collected properties' : 'Custom properties'}</p>
                                             </div>
-                                            <div className="replay-panel-actions flex items-center gap-2">
+                                            <div className="replay-panel-actions flex items-center gap-1.5">
                                                 <button
                                                     onClick={copyMetadata}
                                                     disabled={!hasMetadata}
-                                                    className={`flex h-8 items-center gap-1.5 border-2 px-2 text-[11px] font-semibold transition ${!hasMetadata
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : metadataCopied
-                                                            ? 'border-black bg-[#86efac] text-black'
-                                                            : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={hasMetadata ? 'Copy metadata JSON' : 'No metadata'}
                                                 >
-                                                    {metadataCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                                                    {metadataCopied ? 'Copied' : 'COPY'}
+                                                    {metadataCopied ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {metadataCopied ? 'Copied' : 'Copy'}
                                                 </button>
                                                 <button
                                                     onClick={downloadMetadata}
                                                     disabled={!hasMetadata}
-                                                    className={`flex h-8 items-center gap-1.5 border-2 px-2 text-[11px] font-semibold transition ${!hasMetadata
-                                                        ? 'cursor-not-allowed border-black bg-slate-100 text-slate-400'
-                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                        }`}
+                                                    className={dashboardButtonClass('secondary', 'sm')}
                                                     title={hasMetadata ? 'Download metadata JSON' : 'No metadata'}
                                                 >
                                                     <Download className="h-3.5 w-3.5" />
-                                                    EXPORT
+                                                    Export
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="p-4">
                                         {!hasMetadata ? (
-                                            <div className="flex flex-col items-center justify-center p-8 text-center text-slate-500">
-                                                <Database className="h-10 w-10 text-slate-300 mb-3" />
-                                                <p className="text-sm font-semibold text-slate-800">No metadata found</p>
+                                            <div className="flex flex-col items-center justify-center p-8 text-center text-[#5f6368]">
+                                                <Database className="mb-3 h-10 w-10 text-[#bdc1c6]" />
+                                                <p className="text-sm font-medium text-[#202124]">No metadata found</p>
                                                 <p className="mt-1 text-xs leading-5">
                                                     This session does not have any custom user properties associated with it.
                                                 </p>
                                             </div>
                                         ) : (
-                                            <div className="overflow-hidden border-2 border-black bg-white">
-                                                <table className="w-full text-left text-sm text-slate-600">
-                                                    <thead className="bg-[#ecfeff] text-xs font-black uppercase text-black">
+                                            <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white">
+                                                <table className="w-full text-left text-sm text-[#3c4043]">
+                                                    <thead className="bg-[#f8fafd] text-xs font-medium text-[#5f6368]">
                                                         <tr>
-                                                            <th className="px-4 py-3 border-b-2 border-black">Key</th>
-                                                            <th className="px-4 py-3 border-b-2 border-black">Value</th>
+                                                            <th className="border-b border-[#dadce0] px-4 py-2.5 font-medium">Key</th>
+                                                            <th className="border-b border-[#dadce0] px-4 py-2.5 font-medium">Value</th>
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-gray-200">
+                                                    <tbody className="divide-y divide-[#e8eaed]">
                                                         {Object.entries(metadata || {}).map(([key, value]) => (
-                                                            <tr key={key} className="hover:bg-[#f8fafc] transition-colors">
-                                                                <td className="px-4 py-2.5 font-mono text-xs font-medium text-slate-900">
+                                                            <tr key={key} className="transition-colors hover:bg-[#f8fafd]">
+                                                                <td className="px-4 py-2.5 font-mono text-xs font-medium text-[#202124]">
                                                                     {key}
                                                                 </td>
-                                                                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
+                                                                <td className="px-4 py-2.5 font-mono text-xs text-[#5f6368]">
                                                                     {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                                                                 </td>
                                                             </tr>

@@ -42,11 +42,11 @@ function buildReplayKey(events: any[]): string {
 }
 
 const REPLAY_MASK_PLACEHOLDER_STYLE_RULES = [
-    '.rr-block { color: transparent !important; background-color: #f8fafc !important; background-image: repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.16) 0 10px, rgba(226, 232, 240, 0.36) 10px 20px), linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%) !important; background-repeat: repeat, no-repeat !important; background-size: 28px 28px, cover !important; box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.72) !important; }',
-    '.rr-block.rj-media-mask { background-color: #f0fdfa !important; background-image: repeating-linear-gradient(135deg, rgba(20, 184, 166, 0.18) 0 10px, rgba(204, 251, 241, 0.55) 10px 20px), linear-gradient(135deg, #f8fafc 0%, #ecfeff 100%) !important; box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.55) !important; }',
+    '.rr-block { color: transparent !important; background-color: #f8fafd !important; background-image: repeating-linear-gradient(135deg, rgba(95, 99, 104, 0.1) 0 10px, rgba(255, 255, 255, 0) 10px 20px) !important; background-repeat: repeat !important; background-size: 28px 28px !important; box-shadow: inset 0 0 0 1px #dadce0 !important; }',
+    '.rr-block.rj-media-mask { background-color: #f1f3f4 !important; background-image: repeating-linear-gradient(135deg, rgba(95, 99, 104, 0.14) 0 10px, rgba(255, 255, 255, 0) 10px 20px) !important; box-shadow: inset 0 0 0 1px #dadce0 !important; }',
     '.rr-block:not(img):not(video):not(canvas):not(svg):not(image) { position: relative !important; display: flex !important; align-items: center !important; justify-content: center !important; }',
-    '.rr-block:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Content masked"; display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 132px !important; min-height: 34px !important; padding: 0 14px !important; border: 1px solid rgba(148, 163, 184, 0.76) !important; border-radius: 999px !important; background: rgba(255, 255, 255, 0.86) !important; color: #334155 !important; font: 800 13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12) !important; }',
-    '.rr-block.rj-media-mask:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Media masked"; border-color: rgba(20, 184, 166, 0.62) !important; color: #0f766e !important; }',
+    '.rr-block:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Content masked"; display: inline-flex !important; align-items: center !important; justify-content: center !important; min-width: 132px !important; min-height: 34px !important; padding: 0 14px !important; border: 1px solid #dadce0 !important; border-radius: 0 !important; background: #ffffff !important; color: #3c4043 !important; font: 500 13px/1.2 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; box-shadow: none !important; }',
+    '.rr-block.rj-media-mask:not(img):not(video):not(canvas):not(svg):not(image)::after { content: "Media masked"; }',
 ];
 
 function applyScale(
@@ -77,6 +77,10 @@ function applyScale(
     }
     const iframeW = sourceWidth || Number(iframe.getAttribute('width')) || iframe.offsetWidth;
     if (!iframeW) return false;
+    // Take the recorded page out of flow before measuring. Below the xl layout the root's
+    // height comes from its content, so measuring first would size the stage to the
+    // recorded page and centre the replay outside the visible area.
+    wrapper.style.position = 'absolute';
     const containerW = root.clientWidth;
     const containerH = root.clientHeight;
     if (containerW <= 0 || containerH <= 0) return false;
@@ -90,7 +94,6 @@ function applyScale(
     const scaledH = iframeH * scale;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = `scale(${scale})`;
-    wrapper.style.position = 'absolute';
     wrapper.style.left = fitMode === 'width' || documentFit ? '0px' : `${(containerW - scaledW) / 2}px`;
     wrapper.style.top = fitMode === 'width' || documentFit ? '0px' : `${(containerH - scaledH) / 2}px`;
     return true;
@@ -298,8 +301,23 @@ export default function WebReplayPlayer({
         }
 
         if (isPlaying) {
-            const actualOffset = typeof replayer.getTimeOffset === 'function' ? replayer.getTimeOffset() : offsetMs;
-            if (!playerIsPlayingRef.current || Math.abs(actualOffset - offsetMs) > 1000) {
+            // getCurrentTime() is rrweb's live playhead; getTimeOffset() only reports where the
+            // last play()/pause() started, so comparing against it restarted playback every second.
+            // rrweb stops at its last event, so drift is measured against that point, not past it.
+            let targetOffsetMs = offsetMs;
+            let actualOffsetMs = offsetMs;
+            try {
+                const totalTimeMs = replayer.getMetaData().totalTime;
+                if (Number.isFinite(totalTimeMs) && totalTimeMs >= 0) {
+                    targetOffsetMs = Math.min(offsetMs, totalTimeMs);
+                }
+                if (typeof replayer.getCurrentTime === 'function') {
+                    actualOffsetMs = replayer.getCurrentTime();
+                }
+            } catch {
+                // Treat an unreadable playhead as in sync rather than restarting playback.
+            }
+            if (!playerIsPlayingRef.current || Math.abs(actualOffsetMs - targetOffsetMs) > 1000) {
                 replayer.play(offsetMs);
             }
             playerIsPlayingRef.current = true;
@@ -312,7 +330,7 @@ export default function WebReplayPlayer({
 
     if (replayEvents.length === 0) {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-sm font-bold text-slate-500">
+            <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-sm font-medium text-[#5f6368]">
                 Browser replay events are not available for this session.
             </div>
         );
@@ -320,7 +338,7 @@ export default function WebReplayPlayer({
 
     if (loadError) {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-sm font-bold text-red-600">
+            <div className="flex h-full w-full items-center justify-center bg-white p-6 text-center text-sm font-medium text-[#c5221f]">
                 {loadError}
             </div>
         );
@@ -330,10 +348,10 @@ export default function WebReplayPlayer({
         <div className={`web-rrweb-player relative h-full w-full overflow-hidden bg-white ${displayedBackgroundGap ? 'grayscale' : ''}`}>
             <div ref={rootRef} className="h-full min-h-[320px] w-full" />
             {displayedBackgroundGap ? (
-                <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
-                    <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">
-                        <div className="text-xs font-black uppercase tracking-wide text-slate-300">User left the page</div>
-                        <div className="mt-2 text-lg font-black">Away for {formatBackgroundGapDuration(displayedBackgroundGap.durationMs)}</div>
+                <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[#202124]/70 px-6 text-center text-white">
+                    <div className="rounded-none border border-white/20 bg-[#202124] px-5 py-4">
+                        <div className="text-xs font-medium text-[#bdc1c6]">User left the page</div>
+                        <div className="mt-1 text-lg font-medium tabular-nums">Away for {formatBackgroundGapDuration(displayedBackgroundGap.durationMs)}</div>
                     </div>
                 </div>
             ) : null}

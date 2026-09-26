@@ -71,14 +71,14 @@ const ANIMAL_ICON_SLUGS: Record<AnonymousAnimal, string> = {
 };
 
 const AVATAR_TONES = [
-  { bg: '#dbeafe', ring: '#60a5fa' },
-  { bg: '#dcfce7', ring: '#4ade80' },
-  { bg: '#fef3c7', ring: '#fbbf24' },
-  { bg: '#fce7f3', ring: '#f472b6' },
-  { bg: '#ede9fe', ring: '#a78bfa' },
-  { bg: '#cffafe', ring: '#22d3ee' },
-  { bg: '#ffedd5', ring: '#fb923c' },
-  { bg: '#e0e7ff', ring: '#818cf8' },
+  { bg: '#e8f0fe' },
+  { bg: '#e6f4ea' },
+  { bg: '#fef7e0' },
+  { bg: '#fce8e6' },
+  { bg: '#f3e8fd' },
+  { bg: '#e4f7fb' },
+  { bg: '#feefe3' },
+  { bg: '#f1f3f4' },
 ];
 
 export type AnimalAvatarIdentity = {
@@ -148,19 +148,17 @@ export function AnimalAvatar({
   neutral?: boolean;
   className?: string;
 }) {
-  const tone = neutral ? { bg: '#f8fafc', ring: active ? '#64748b' : '#cbd5e1' } : getAvatarTone(seed);
+  const tone = neutral ? { bg: '#f8fafd' } : getAvatarTone(seed);
   const innerSize = Math.max(14, Math.round(size * 0.68));
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-full border border-white transition-transform duration-150 ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-none border border-[#e8eaed] ${className}`}
       style={{
         width: size,
         height: size,
         backgroundColor: tone.bg,
-        boxShadow: active
-          ? `0 0 0 2px #ffffff, 0 0 0 5px ${tone.ring}, 0 8px 18px rgba(15,23,42,0.24)`
-          : `0 0 0 2px #ffffff, 0 0 0 4px ${tone.ring}66, 0 4px 10px rgba(15,23,42,0.16)`,
+        boxShadow: active ? '0 0 0 2px #1a73e8' : undefined,
       }}
       aria-hidden="true"
     >

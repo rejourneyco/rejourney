@@ -10,6 +10,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Search, X, Eye, EyeOff } from 'lucide-react';
+import { dashboardButtonClass } from './dashboardStyles';
 
 interface ViewNode {
   type: string;
@@ -123,8 +124,8 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
     return (
       <div key={path}>
         <div
-          className={`flex items-center gap-1 py-1 px-2 cursor-pointer hover:bg-slate-100 rounded ${
-            isSelected ? 'bg-blue-50 border-l-2 border-blue-500' : ''
+          className={`flex cursor-pointer items-center gap-1 rounded-none px-2 py-1 ${
+            isSelected ? 'bg-[#e8f0fe]' : 'hover:bg-[#f1f3f4]'
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={() => handleNodeClick(node)}
@@ -135,30 +136,30 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
                 e.stopPropagation();
                 toggleNode(path);
               }}
-              className="p-0.5 hover:bg-slate-200 rounded"
+              className="rounded-none p-0.5 hover:bg-[#e8eaed]"
             >
               {isExpanded ? (
-                <ChevronDown className="w-3 h-3 text-slate-600" />
+                <ChevronDown className="w-3 h-3 text-[#5f6368]" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-slate-600" />
+                <ChevronRight className="w-3 h-3 text-[#5f6368]" />
               )}
             </button>
           )}
           {!hasChildren && <div className="w-4" />}
           
           <div className="flex items-center gap-1.5 flex-1 min-w-0 text-xs">
-            <span className="font-mono text-blue-600 font-semibold">{className}</span>
+            <span className="font-mono font-medium text-[#1a73e8]">{className}</span>
             {node.accessibilityLabel && (
-              <span className="text-slate-500 truncate">"{node.accessibilityLabel}"</span>
+              <span className="truncate text-[#5f6368]">"{node.accessibilityLabel}"</span>
             )}
             {node.text && !node.accessibilityLabel && (
-              <span className="text-emerald-600 truncate">"{node.text.substring(0, 30)}"</span>
+              <span className="truncate text-[#188038]">"{node.text.substring(0, 30)}"</span>
             )}
             {node.visible === false && (
-              <EyeOff className="w-3 h-3 text-slate-400" />
+              <EyeOff className="w-3 h-3 text-[#9aa0a6]" />
             )}
             {node.alpha !== undefined && node.alpha < 1 && (
-              <span className="text-slate-400 text-[10px]">{Math.round(node.alpha * 100)}%</span>
+              <span className="text-[10px] tabular-nums text-[#80868b]">{Math.round(node.alpha * 100)}%</span>
             )}
           </div>
         </div>
@@ -178,23 +179,23 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed right-4 bottom-32 z-40 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+        className={`fixed bottom-32 right-4 z-40 ${dashboardButtonClass('primary', 'md')}`}
       >
-        View Hierarchy
+        View hierarchy
       </button>
     );
   }
 
   if (!currentHierarchy) {
     return (
-      <div className={`fixed right-0 top-0 bottom-0 w-96 bg-white border-l border-slate-200 shadow-xl z-50 flex items-center justify-center ${className}`}>
-        <div className="text-center text-slate-500 p-8">
-          <Eye className="w-12 h-12 mx-auto mb-4 opacity-20" />
-          <p className="font-medium">No Hierarchy Data</p>
-          <p className="text-sm mt-2">View hierarchy was not captured for this session</p>
+      <div className={`fixed bottom-0 right-0 top-0 z-50 flex w-96 items-center justify-center rounded-none border-l border-[#dadce0] bg-white shadow-[0_4px_16px_rgba(60,64,67,0.2)] ${className}`}>
+        <div className="p-8 text-center text-[#5f6368]">
+          <Eye className="mx-auto mb-4 h-12 w-12 text-[#bdc1c6]" />
+          <p className="font-medium text-[#202124]">No hierarchy data</p>
+          <p className="mt-2 text-sm">View hierarchy was not captured for this session</p>
           <button
             onClick={() => setIsOpen(false)}
-            className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
+            className={`mt-4 ${dashboardButtonClass('secondary', 'sm')}`}
           >
             Close
           </button>
@@ -204,41 +205,43 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
   }
 
   return (
-    <div className={`fixed right-0 top-0 bottom-0 w-96 bg-white border-l border-slate-200 shadow-xl z-50 flex flex-col ${className}`}>
+    <div className={`fixed bottom-0 right-0 top-0 z-50 flex w-96 flex-col rounded-none border-l border-[#dadce0] bg-white shadow-[0_4px_16px_rgba(60,64,67,0.2)] ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
+      <div className="flex items-center justify-between border-b border-[#e8eaed] bg-[#f8fafd] p-4">
         <div>
-          <h3 className="font-bold text-sm text-slate-900">View Hierarchy</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <h3 className="text-[15px] font-medium text-[#202124]">View hierarchy</h3>
+          <p className="mt-0.5 text-xs tabular-nums text-[#5f6368]">
             {currentHierarchy.screen.width} × {currentHierarchy.screen.height}
           </p>
         </div>
         <button
           onClick={() => setIsOpen(false)}
-          className="p-1.5 hover:bg-slate-200 rounded transition-colors"
+          className="rounded-none p-1.5 transition-colors hover:bg-[#f1f3f4]"
           title="Close"
+          aria-label="Close"
         >
-          <X className="w-4 h-4 text-slate-600" />
+          <X className="h-4 w-4 text-[#5f6368]" />
         </button>
       </div>
 
       {/* Search */}
-      <div className="p-3 border-b border-slate-200">
+      <div className="border-b border-[#e8eaed] p-3">
         <div className="relative">
-          <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#80868b]" />
           <input
             type="text"
             placeholder="Search views..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            className="h-8 w-full rounded-none border border-[#dadce0] bg-white pl-8 pr-8 text-xs text-[#202124] placeholder:text-[#80868b] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1.5 p-0.5 hover:bg-slate-200 rounded"
+              className="absolute inset-y-0 right-1.5 my-auto flex h-5 w-5 items-center justify-center rounded-none hover:bg-[#f1f3f4]"
+              aria-label="Clear search"
             >
-              <X className="w-3 h-3 text-slate-400" />
+              <X className="h-3 w-3 text-[#80868b]" />
             </button>
           )}
         </div>
@@ -251,8 +254,8 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
 
       {/* Properties Panel */}
       {selectedNode && (
-        <div className="border-t border-slate-200 p-4 bg-slate-50 max-h-64 overflow-y-auto">
-          <h4 className="font-semibold text-xs text-slate-700 mb-2 uppercase tracking-wide">Properties</h4>
+        <div className="max-h-64 overflow-y-auto border-t border-[#e8eaed] bg-[#f8fafd] p-4">
+          <h4 className="mb-2 text-sm font-medium text-[#202124]">Properties</h4>
           <div className="space-y-1.5">
             <PropertyRow label="Type" value={selectedNode.type} />
             {selectedNode.frame && (
@@ -286,7 +289,7 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
       )}
 
       {/* Stats */}
-      <div className="border-t border-slate-200 px-4 py-2 bg-slate-50 text-xs text-slate-500">
+      <div className="border-t border-[#e8eaed] bg-[#f8fafd] px-4 py-2 text-xs tabular-nums text-[#5f6368]">
         {hierarchySnapshots.length} snapshot{hierarchySnapshots.length !== 1 ? 's' : ''} available
       </div>
     </div>
@@ -295,8 +298,8 @@ const ViewHierarchyInspector: React.FC<ViewHierarchyInspectorProps> = ({
 
 const PropertyRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-start gap-2 text-xs">
-    <span className="font-mono text-slate-500 min-w-[80px]">{label}:</span>
-    <span className="font-mono text-slate-900 flex-1 break-all">{value}</span>
+    <span className="min-w-[80px] text-[#5f6368]">{label}:</span>
+    <span className="flex-1 break-all font-mono text-[#202124]">{value}</span>
   </div>
 );
 

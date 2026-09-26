@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, Check, Globe, Gamepad2 } from 'lucide-react';
-import { AppleBrandIcon, FlutterBrandIcon, ReactBrandIcon } from '~/shared/ui/core/PlatformBrandIcon';
+import { AlertTriangle, Check, Globe } from 'lucide-react';
+import { AppleBrandIcon, FlutterBrandIcon, ReactBrandIcon, UnityBrandIcon } from '~/shared/ui/core/PlatformBrandIcon';
 import { createProject, updateProject, type ApiTeam } from '~/shared/api/client';
 import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import type { Project } from '~/shared/types';
-import { Button } from '~/shared/ui/core/Button';
+import { dashboardButtonClass, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
 import { Input } from '~/shared/ui/core/Input';
 import { cn } from '~/shared/lib/cn';
 import {
@@ -18,7 +18,7 @@ const platformIcons: Record<SetupIntegration, React.ElementType> = {
   web: Globe,
   'react-native': ReactBrandIcon,
   flutter: FlutterBrandIcon,
-  unity: Gamepad2,
+  unity: UnityBrandIcon,
   ios: AppleBrandIcon,
 };
 
@@ -46,7 +46,7 @@ function togglePlatform(platforms: SetupIntegration[], platform: SetupIntegratio
 export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   currentTeam,
   formId,
-  submitLabel = 'Create Project',
+  submitLabel = 'Create project',
   onCancel,
   onCreated,
   projectToEdit = null,
@@ -116,34 +116,18 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   const isIosFilled = !bundleIdIsEmpty;
   const isAndroidFilled = !packageNameIsEmpty;
 
-  const iosAccentClass = !showIosIdentifier
-    ? ""
-    : isIosFilled
-      ? "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
-      : isIosRequired
-        ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
-        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/50 dark:bg-slate-900/20";
-
-  const androidAccentClass = !showAndroidIdentifier
-    ? ""
-    : isAndroidFilled
-      ? "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
-      : isAndroidRequired
-        ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
-        : "border-l-slate-300 dark:border-l-slate-700 bg-slate-50/50 dark:bg-slate-900/20";
-
   const visibleWebAllowedDomainsError = webAllowedDomains.trim() && (touchedFields.webAllowedDomains || submitAttempted)
     ? webAllowedDomainsError
     : null;
   const visibleIosBundleIdError = missingRequiredIosId && (touchedFields.bundleId || submitAttempted)
     ? 'Required for native iOS projects'
     : missingCrossPlatformIdentifiers && submitAttempted
-      ? 'iOS Bundle ID or Android Package Name is required'
+      ? 'Add an iOS bundle ID or Android package name'
       : touchedFields.bundleId || submitAttempted
         ? iosBundleIdError
         : null;
   const visibleAndroidPackageError = missingCrossPlatformIdentifiers && submitAttempted
-    ? 'iOS Bundle ID or Android Package Name is required'
+    ? 'Add an iOS bundle ID or Android package name'
     : touchedFields.packageName || submitAttempted
       ? androidPackageError
       : null;
@@ -164,7 +148,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       : missingRequiredIosId
         ? 'Add the iOS bundle ID, or deselect native iOS.'
         : missingCrossPlatformIdentifiers
-          ? `Add an iOS bundle ID or Android package name for ${includesFlutter ? 'Flutter' : 'React Native'}.`
+          ? `Add an iOS bundle ID or Android package name for ${selectedPlatforms.includes('unity') ? 'Unity' : includesFlutter ? 'Flutter' : 'React Native'}.`
           : webAllowedDomainsError || iosBundleIdError || androidPackageError;
 
   const handleSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
@@ -219,31 +203,28 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
   return (
     <form id={formId} className="space-y-6" onSubmit={handleSubmit}>
       {createError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="rounded-none border border-[#f6aea9] bg-[#fce8e6] p-3 text-sm text-[#c5221f]">
           {createError}
         </div>
       )}
 
       <div className={cn(
-        "space-y-3 rounded-lg border p-4 transition-[background-color,border-color,box-shadow]",
+        "space-y-3 rounded-none border p-4 transition-colors",
         projectNameIsEmpty
-          ? "border-slate-900 bg-white shadow-[2px_2px_0_#0f172a] dark:border-slate-500 dark:bg-slate-900/40 dark:shadow-none"
-          : "border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+          ? "border-[#1a73e8] bg-[#e8f0fe]"
+          : "border-[#dadce0] bg-white"
       )}>
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="setup-project-name" className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
+          <label htmlFor="setup-project-name" className="flex items-center gap-2 text-sm font-medium text-[#202124]">
             <span className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-md text-xs font-black",
-              projectNameIsEmpty ? "bg-indigo-600 text-white" : "bg-emerald-500 text-white"
+              "flex h-6 w-6 items-center justify-center rounded-none text-xs font-medium",
+              projectNameIsEmpty ? "bg-[#1a73e8] text-white" : "bg-[#e6f4ea] text-[#137333]"
             )}>
-              {projectNameIsEmpty ? '1' : <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+              {projectNameIsEmpty ? '1' : <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
             </span>
             Name your project
           </label>
-          <span className={cn(
-            "text-[10px] font-bold uppercase tracking-wider",
-            projectNameIsEmpty ? "text-amber-750" : "text-emerald-650 dark:text-emerald-400"
-          )}>
+          <span className={dashboardChipClass(projectNameIsEmpty ? 'warning' : 'success')}>
             {projectNameIsEmpty ? 'Required to continue' : 'Ready'}
           </span>
         </div>
@@ -257,33 +238,28 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
           }}
           aria-required="true"
           autoFocus={!projectToEdit}
-          className={cn(
-            "h-12 rounded-lg bg-white text-base font-semibold shadow-sm transition-colors focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/20 dark:bg-slate-900",
-            projectNameIsEmpty
-              ? "border-indigo-400 placeholder:text-slate-500 dark:border-indigo-600"
-              : "border-slate-300 hover:border-slate-400 dark:border-slate-700"
-          )}
+          className="h-10"
         />
-        <p className="text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+        <p className="text-xs leading-5 text-[#5f6368]">
           Start here. This is the name your team will see in dashboards and alerts.
         </p>
       </div>
 
       <div className="space-y-2">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-850 dark:text-slate-200">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 text-xs font-black text-slate-650 dark:bg-slate-800 dark:text-slate-300">2</span>
+          <div className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+            <span className="flex h-6 w-6 items-center justify-center rounded-none bg-[#f1f3f4] text-xs font-medium text-[#5f6368]">2</span>
             Choose platforms
           </div>
-          <p className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-xs leading-5 text-[#5f6368]">
             Choose every app surface you want to connect now.
           </p>
         </div>
         {hasLegacyNativeAndroid && (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-850 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+          <div className="flex items-start gap-2 rounded-none border border-[#fde293] bg-[#fef7e0] p-3 text-sm text-[#b06000]" role="alert">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              Native Android is not supported. Android apps are supported through the React Native or Flutter SDK; choose the matching framework to keep the Android package name.
+              Native Android is not supported. Android apps are supported through the React Native, Flutter, or Unity SDK; choose the matching framework to keep the Android package name.
             </span>
           </div>
         )}
@@ -301,30 +277,33 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   setCreateError(null);
                 }}
                 className={cn(
-                  'flex min-h-[118px] cursor-pointer items-start gap-3 rounded-lg border p-4 text-left transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2',
+                  'flex min-h-[118px] cursor-pointer items-start gap-3 rounded-none border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 focus-visible:ring-offset-1',
                   selected
-                    ? 'border-slate-900 bg-indigo-50/70 shadow-[2px_2px_0_#0f172a] dark:border-indigo-500 dark:bg-indigo-950/30 dark:shadow-none'
-                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-850'
+                    ? 'border-[#1a73e8] bg-[#e8f0fe]'
+                    : 'border-[#dadce0] bg-white hover:border-[#bdc1c6] hover:bg-[#f8fafd]'
                 )}
               >
                 <span className={cn(
-                  'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors',
+                  'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-none border transition-colors',
                   selected
-                    ? 'border-indigo-500/25 bg-indigo-100/40 text-indigo-650 dark:bg-indigo-950/80 dark:text-indigo-350'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500'
+                    ? 'border-[#d2e3fc] bg-white text-[#1967d2]'
+                    : 'border-[#dadce0] bg-[#f8fafd] text-[#5f6368]'
                 )}>
                   <Icon className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
+                  <span className={cn(
+                    'flex items-center gap-2 text-sm font-medium',
+                    selected ? 'text-[#1967d2]' : 'text-[#202124]'
+                  )}>
                     {platform.label}
                     {selected && (
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">
-                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-none bg-[#1a73e8] text-white">
+                        <Check className="h-3 w-3" strokeWidth={3} />
                       </span>
                     )}
                   </span>
-                  <span className="mt-1.5 block text-xs font-semibold leading-relaxed text-slate-500 dark:text-slate-400">
+                  <span className="mt-1.5 block text-xs leading-relaxed text-[#5f6368]">
                     {platform.description}
                   </span>
                 </span>
@@ -335,33 +314,28 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
       </div>
 
       {selectedPlatforms.length > 0 && (
-        <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-900/30 sm:p-5">
+        <div className="space-y-4 rounded-none border border-[#dadce0] bg-[#f8fafd] p-4 sm:p-5">
           <div>
-            <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-200 text-xs font-black text-slate-700 dark:bg-slate-800 dark:text-slate-300">3</span>
+            <h4 className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-none bg-[#e8eaed] text-xs font-medium text-[#5f6368]">3</span>
               App identifiers
             </h4>
-            <p className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">Only the identifiers required for your selected platforms are shown.</p>
+            <p className="mt-1 text-xs leading-5 text-[#5f6368]">Only the identifiers required for your selected platforms are shown.</p>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-5 md:grid-cols-2">
             {includesWeb && (
-              <div className={cn(
-                "pl-4 border-l-2 py-1 space-y-2 transition-all duration-200 rounded-r-lg md:col-span-2",
-                webIsEmpty
-                  ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-950/20"
-                  : "border-l-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/20"
-              )}>
+              <div className="space-y-2 md:col-span-2">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
-                    Web Allowed Domains <span className="text-red-500 font-bold">*</span>
+                  <label className="text-sm font-medium text-[#202124]">
+                    Web allowed domains <span className="font-medium text-[#c5221f]">*</span>
                   </label>
                   {webIsEmpty ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                    <span className={dashboardChipClass('warning')}>
                       Required
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-                      <Check className="h-3 w-3 inline" /> Filled
+                    <span className={dashboardChipClass('success')}>
+                      <Check className="h-3 w-3" /> Filled
                     </span>
                   )}
                 </div>
@@ -374,21 +348,21 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   onBlur={() => setTouchedFields((current) => ({ ...current, webAllowedDomains: true }))}
                   placeholder="app.example.com, www.example.com, *.example.com"
                   rows={2}
-                  className="w-full resize-y rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-sm text-slate-900 dark:text-white outline-none placeholder:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-sm"
+                  className="w-full resize-y rounded-none border border-[#dadce0] bg-white px-3 py-2 font-mono text-sm text-[#202124] transition-colors placeholder:text-[#80868b] hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                 />
-                <p className="text-[11px] font-medium text-slate-550 dark:text-slate-450">
+                <p className="text-xs text-[#5f6368]">
                   Paste production domains only. Full URLs are okay; Rejourney will keep the domain.
                 </p>
                 {parsedWebAllowedDomains.length > 0 && (
                   <div className="mt-2 space-y-1.5">
-                    <div className="text-[10px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
-                      Recognized Domains ({parsedWebAllowedDomains.length})
+                    <div className="text-xs font-medium text-[#5f6368]">
+                      Recognized domains ({parsedWebAllowedDomains.length})
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {parsedWebAllowedDomains.map((domain) => (
                         <span
                           key={domain}
-                          className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-100/30"
+                          className={cn(dashboardChipClass('info'), 'font-mono')}
                         >
                           {domain}
                         </span>
@@ -397,7 +371,7 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   </div>
                 )}
                 {visibleWebAllowedDomainsError && (
-                  <p className="flex items-center gap-1 text-xs font-semibold text-red-500">
+                  <p className="flex items-center gap-1 text-xs font-medium text-[#c5221f]">
                     <AlertTriangle className="h-3.5 w-3.5" /> {visibleWebAllowedDomainsError}
                   </p>
                 )}
@@ -405,24 +379,21 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
             )}
 
             {showIosIdentifier && (
-              <div className={cn(
-                "pl-4 border-l-2 py-1 space-y-2 transition-all duration-200 rounded-r-lg",
-                iosAccentClass
-              )}>
+              <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
-                    iOS Bundle ID {isIosRequired && <span className="text-red-500 font-bold">*</span>}
+                  <label className="text-sm font-medium text-[#202124]">
+                    iOS bundle ID {isIosRequired && <span className="font-medium text-[#c5221f]">*</span>}
                   </label>
                   {isIosFilled ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-                      <Check className="h-3 w-3 inline" /> Filled
+                    <span className={dashboardChipClass('success')}>
+                      <Check className="h-3 w-3" /> Filled
                     </span>
                   ) : isIosRequired ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                    <span className={dashboardChipClass('warning')}>
                       {includesCrossPlatformMobile ? 'At least one required' : 'Required'}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
+                    <span className={dashboardChipClass('neutral')}>
                       Optional
                     </span>
                   )}
@@ -436,33 +407,30 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   }}
                   onBlur={() => setTouchedFields((current) => ({ ...current, bundleId: true }))}
                   error={visibleIosBundleIdError ?? undefined}
-                  className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
+                  className="font-mono"
                 />
-                <p className="text-[11px] font-medium text-slate-555 dark:text-slate-455">
+                <p className="text-xs text-[#5f6368]">
                   {includesCrossPlatformMobile && !includesIos ? 'Confirm the iOS bundle identifier.' : 'Use the bundle identifier from Xcode.'}
                 </p>
               </div>
             )}
 
             {showAndroidIdentifier && (
-              <div className={cn(
-                "pl-4 border-l-2 py-1 space-y-2 transition-all duration-200 rounded-r-lg",
-                androidAccentClass
-              )}>
+              <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-355">
-                    Android Package Name {isAndroidRequired && <span className="text-red-500 font-bold">*</span>}
+                  <label className="text-sm font-medium text-[#202124]">
+                    Android package name {isAndroidRequired && <span className="font-medium text-[#c5221f]">*</span>}
                   </label>
                   {isAndroidFilled ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-                      <Check className="h-3 w-3 inline" /> Filled
+                    <span className={dashboardChipClass('success')}>
+                      <Check className="h-3 w-3" /> Filled
                     </span>
                   ) : isAndroidRequired ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                    <span className={dashboardChipClass('warning')}>
                       At least one required
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-655 dark:text-slate-400">
+                    <span className={dashboardChipClass('neutral')}>
                       Optional
                     </span>
                   )}
@@ -476,9 +444,9 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
                   }}
                   onBlur={() => setTouchedFields((current) => ({ ...current, packageName: true }))}
                   error={visibleAndroidPackageError ?? undefined}
-                  className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm font-mono rounded-xl hover:border-slate-355 dark:hover:border-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:border-indigo-500 transition-all"
+                  className="font-mono"
                 />
-                <p className="text-[11px] font-medium text-slate-555 dark:text-slate-455">
+                <p className="text-xs text-[#5f6368]">
                   Use the package name from your Android app manifest.
                 </p>
               </div>
@@ -487,30 +455,28 @@ export const CreateProjectForm: React.FC<CreateProjectFormProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col-reverse gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:justify-end">
+      <div className="flex flex-col-reverse gap-2 border-t border-[#e8eaed] pt-4 sm:flex-row sm:justify-end">
         {submitHint && (
-          <p className="self-center text-xs font-semibold text-slate-500 dark:text-slate-400 sm:mr-auto">
+          <p className="self-center text-xs text-[#5f6368] sm:mr-auto">
             {submitHint}
           </p>
         )}
         {onCancel && (
-          <Button
+          <button
             type="button"
-            variant="secondary"
             onClick={onCancel}
-            className="!rounded-lg border border-slate-300 !bg-white !font-bold !text-slate-700 shadow-sm transition-colors hover:!bg-slate-50 dark:border-slate-700 dark:!bg-slate-900 dark:!text-slate-300"
+            className={dashboardButtonClass('secondary', 'md')}
           >
             Cancel
-          </Button>
+          </button>
         )}
-        <Button
+        <button
           type="submit"
-          variant="primary"
           disabled={!canSubmit}
-          className="!rounded-lg border border-indigo-700 !bg-indigo-600 px-6 py-2.5 font-bold tracking-wide !text-white shadow-[2px_2px_0_#312e81] transition-[background-color,box-shadow,transform] motion-safe:hover:-translate-y-0.5 hover:!bg-indigo-700 active:translate-y-0 active:shadow-none"
+          className={dashboardButtonClass('primary', 'md')}
         >
-          {isCreating ? (projectToEdit ? 'Saving...' : 'Creating...') : (projectToEdit ? 'Save Changes' : submitLabel)}
-        </Button>
+          {isCreating ? (projectToEdit ? 'Saving...' : 'Creating...') : (projectToEdit ? 'Save changes' : submitLabel)}
+        </button>
       </div>
     </form>
   );

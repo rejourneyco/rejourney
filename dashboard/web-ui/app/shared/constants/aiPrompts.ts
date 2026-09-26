@@ -6,13 +6,16 @@
  */
 
 export const UNITY_AI_INTEGRATION_PROMPT = `Integrate Rejourney into this Unity mobile game.
-Install the co.rejourney.unity release tarball through Unity Package Manager (Install package from tarball), or use the local packages/unity directory during development.
+Install the co.rejourney.unity release tarball from https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.0 through Unity Package Manager (Install package from tarball), or use the local packages/unity directory during development.
 Supported targets: Unity 6.3 LTS and 6.6, IL2CPP, iOS 15.1+, Android API 24+.
 Call RejourneySDK.Rejourney.Init("PUBLIC_KEY_HERE", new RejourneySDK.RejourneyOptions()); then await RejourneySDK.Rejourney.StartAsync() only after consent.
-Use TrackScreen for menus, LogEvent for gameplay events, SetUserIdentity with a synthetic or non-sensitive identifier, and RejourneyMask for sensitive UI and world objects.
+Use TrackScreen for menus, LogEvent for game analytics events, SetUserIdentity with a synthetic or non-sensitive identifier, and RejourneyMask for sensitive UI and world objects.
+Mark gameplay: call RejourneySDK.Rejourney.StartGameplay("level_or_match_name") when play begins and RejourneySDK.Rejourney.EndGameplay(RejourneySDK.GameplayOutcome.Completed) (or Failed, Quit, Abandoned) when it ends, or wrap play in using (RejourneySDK.Rejourney.Gameplay("name")). Taps during play are then left out of rage/dead-tap signals and heatmaps, and research excludes them.
+Performance monitoring is automatic (frame times, long frames, memory, garbage collection, game-loop hangs); wrap scene loads in using (RejourneySDK.Rejourney.BeginSceneLoad("SceneName")) to record their duration.
+Unhandled exceptions, Debug.LogError, unobserved task exceptions and native crashes are captured automatically; report exceptions the game catches with RejourneySDK.Rejourney.CaptureException(exception).
 Keep automatic HTTP capture enabled. Ordinary source-compiled UnityWebRequest and HttpClient calls are woven during player builds; inspect Library/Rejourney/NetworkReports. Opaque DLLs and native transports require LogNetworkRequest.
 Pause around native payment, advertising, and keyboard surfaces. Capture is 1 FPS by default and obeys remote settings up to 3 FPS. Password inputs are always masked.
-Test a physical iOS and Android build with this cloud-issued key. Verify processed frames, timestamps, masks, networking, pause gaps, and recovery in the cloud. Editor diagnostics do not establish device acceptance.
+Test an iOS and Android player build (simulator or device) with this cloud-issued key. Verify processed frames, timestamps, masks, networking, pause gaps, and recovery in the cloud; the Editor does not record.
 Never include account credentials or operator secrets in the game. Read the package Documentation~ guide for capture and transport limitations.`;
 
 

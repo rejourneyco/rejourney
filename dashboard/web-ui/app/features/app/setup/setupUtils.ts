@@ -1,7 +1,7 @@
 import type { Project } from '~/shared/types';
 
 export type SetupIntegration = 'web' | 'ios' | 'react-native' | 'flutter' | 'unity';
-export const SETUP_GATE_TOAST = "You can't have a Chicken before the Egg...Finish Setup";
+export const SETUP_GATE_TOAST = "Create your first project to open this page.";
 
 export const SETUP_PLATFORM_OPTIONS: Array<{
   id: SetupIntegration;
@@ -93,6 +93,12 @@ export function projectHasRecentData(project: Project | null | undefined): boole
 
 export function shouldSurfaceSetup(projects: readonly Project[], selectedProject: Project | null | undefined): boolean {
   return projects.length === 0 || !projectHasRecentData(selectedProject);
+}
+
+// Only a missing project forces the wizard. A project still waiting on its first
+// session stays browsable; its pages show empty states that link back to setup.
+export function shouldRedirectToSetup(projects: readonly Project[]): boolean {
+  return projects.length === 0;
 }
 
 export function shouldRedirectFromSetup(selectedProject: Project | null | undefined): boolean {

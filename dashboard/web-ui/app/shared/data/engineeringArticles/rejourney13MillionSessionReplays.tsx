@@ -321,7 +321,7 @@ export const rejourney13MillionSessionReplaysArticle: Article = {
         url: "https://www.linkedin.com/in/fowwaz-moeen/",
         github: "https://github.com/FowwazM",
     },
-    image: "https://rejourney.co/assets/engineering/rejourney-1-3-million-session-replays.png",
+    image: "/images/engineering/session-lifecycle.svg",
     schema: scalingArticleSchema,
     content: <ScalingArticleContent />,
 };

@@ -42,16 +42,16 @@ export default function BenchmarksPage() {
   const copy = getMarketingHomeCopy(MARKETING_LOCALES.en).performance;
 
   return (
-    <div className="public-readable-scope min-h-screen overflow-x-hidden bg-white text-slate-950">
+    <div className="public-readable-scope min-h-screen overflow-x-hidden bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
       <Header noSpacer />
       <main aria-label="Rejourney benchmarks">
         <section className="px-5 pb-4 pt-32 text-center sm:px-8 sm:pt-40 lg:px-10">
           <div className="mx-auto max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Benchmarks</p>
-            <h1 className="mt-4 font-display text-4xl font-extrabold tracking-normal text-slate-950 sm:text-6xl">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Benchmarks</p>
+            <h1 className="mt-4 font-display text-4xl font-extrabold tracking-normal text-[#202124] sm:text-6xl">
               Lightweight replay, measured.
             </h1>
-            <p className="mt-5 text-lg font-medium leading-8 text-slate-600">
+            <p className="mt-5 text-lg font-medium leading-8 text-[#3c4043]">
               Rejourney publishes SDK size and web analytics benchmark data so teams can understand capture overhead before rolling it into production.
             </p>
           </div>

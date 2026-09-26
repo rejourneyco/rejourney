@@ -38,6 +38,7 @@ import { BrowserBrandIcon } from '~/shared/ui/core/BrowserBrandIcon';
 import { MobilePlatformBrandIcon } from '~/shared/ui/core/MobilePlatformBrandIcon';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
+import { dashboardButtonClass, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
 import {
     generateConditionId,
     generateGroupId,
@@ -356,21 +357,21 @@ const dedupeEvidenceRows = (rows: SankeyEvidenceSession[], limit = 18): SankeyEv
 };
 
 const getReplayHealthPillClass = (health: TransitionReplayOption['health']): string => {
-    if (health === 'problematic') return 'border-rose-200 bg-rose-50 text-rose-700';
-    if (health === 'degraded') return 'border-amber-200 bg-amber-50 text-amber-700';
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (health === 'problematic') return dashboardChipClass('danger');
+    if (health === 'degraded') return dashboardChipClass('warning');
+    return dashboardChipClass('success');
+};
+
+const REPLAY_HEALTH_LABEL: Record<TransitionReplayOption['health'], string> = {
+    healthy: 'Healthy',
+    degraded: 'Degraded',
+    problematic: 'Problematic',
 };
 
 const getReplayPriorityPillClass = (priority?: SankeyEvidenceSession['priority']): string => {
-    if (priority === 'high') return 'border-rose-200 bg-rose-50 text-rose-700';
-    if (priority === 'medium') return 'border-amber-200 bg-amber-50 text-amber-700';
-    return 'border-slate-200 bg-slate-50 text-slate-600';
-};
-
-const getReplayPriorityAccent = (priority?: SankeyEvidenceSession['priority']): string => {
-    if (priority === 'high') return '#fb7185';
-    if (priority === 'medium') return '#f9a8d4';
-    return '#86efac';
+    if (priority === 'high') return dashboardChipClass('danger');
+    if (priority === 'medium') return dashboardChipClass('warning');
+    return dashboardChipClass('neutral');
 };
 
 const hasSuccessfulRecording = (session: RecordingSession | null | undefined): boolean =>
@@ -395,19 +396,6 @@ function formatNativeOsLabel(platformLabel: string, osVersion: unknown): string 
         return `${platformLabel}${cleanVersion.slice(platformLabel.length)}`;
     }
     return `${platformLabel} ${cleanVersion.replace(/^v/i, '')}`;
-}
-
-function getReplaySessionRowAccent(
-    session: RecordingSession | null | undefined,
-    fallbackPriority?: SankeyEvidenceSession['priority'],
-): string {
-    if (!session) return getReplayPriorityAccent(fallbackPriority);
-    if (!hasSuccessfulRecording(session) && !(session as any).canOpenReplay) return '#cbd5e1';
-    if ((session.crashCount || 0) > 0) return '#fb7185';
-    if (((session as any).anrCount || 0) > 0) return '#c4b5fd';
-    if ((session.rageTapCount || 0) > 0 || ((session as any).deadTapCount || 0) > 0) return '#fbbf24';
-    if (((session as any).errorCount || 0) > 0 || ((session as any).apiAvgResponseMs || 0) > 1000 || ((session as any).appStartupTimeMs || 0) > 3000) return '#f9a8d4';
-    return '#86efac';
 }
 
 function formatReplayDuration(durationSeconds: number): string {
@@ -921,7 +909,7 @@ export const Journeys: React.FC = () => {
         return [
             {
                 id: 'success-path-completion',
-                label: 'Path Completion',
+                label: 'Path completion',
                 value: `${pathCoverageRate.toFixed(1)}%`,
                 sortValue: pathCoverageRate,
                 info: hasHappyPathData
@@ -941,7 +929,7 @@ export const Journeys: React.FC = () => {
             },
             {
                 id: 'happy-path-entrants',
-                label: hasHappyPathData ? 'Happy Entrants' : 'Total Sessions',
+                label: hasHappyPathData ? 'Happy entrants' : 'Total sessions',
                 value: formatCompact(startPopulation),
                 sortValue: startPopulation,
                 info: hasHappyPathData
@@ -961,7 +949,7 @@ export const Journeys: React.FC = () => {
             },
             {
                 id: 'largest-leakage-step',
-                label: 'Largest Leak',
+                label: 'Largest leak',
                 value: largestLeakStage ? `${largestLeakStage.from} → ${largestLeakStage.to}` : 'N/A',
                 sortValue: largestLeakStage?.dropoff ?? 0,
                 info: hasHappyPathData
@@ -981,7 +969,7 @@ export const Journeys: React.FC = () => {
             },
             {
                 id: 'time-to-first-failure',
-                label: 'Time to Failure',
+                label: 'Time to failure',
                 value: formatMs(data?.timeToFailure.avgTimeBeforeFirstErrorMs),
                 sortValue: data?.timeToFailure.avgTimeBeforeFirstErrorMs ?? null,
                 info: 'Average session time until the first tracked failure signal.',
@@ -1009,7 +997,7 @@ export const Journeys: React.FC = () => {
     return (
         <div className="rejourney-journeys-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-[#202124]">
             <DashboardPageHeader
-                title="User Journey"
+                title="User journey"
                 {...dashboardPageHeaderProps('journeys')}
             >
                 <DashboardLensControls
@@ -1020,19 +1008,19 @@ export const Journeys: React.FC = () => {
 
             <div className="journey-page-main mx-auto w-full max-w-[1560px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6">
                 {!selectedProject?.id && (
-                    <div className="dashboard-surface border-[#fbcfe8] bg-[#fdf2f8] p-4 text-sm font-semibold text-[#9d174d]">
+                    <div className="rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-4 py-3 text-sm text-[#1967d2]">
                         Select a project to load journey analytics.
                     </div>
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="dashboard-surface p-6 text-sm font-medium text-slate-600">
+                    <div className="dashboard-surface p-6 text-sm text-[#5f6368]">
                         No journey activity matched this filter yet.
                     </div>
                 )}
 
                 {!isLoading && partialError && (
-                    <div className="dashboard-surface border-[#fecdd3] bg-[#fff1f2] p-4 text-sm font-semibold text-rose-800">
+                    <div className="rounded-none border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
                         {partialError}
                     </div>
                 )}
@@ -1060,27 +1048,26 @@ export const Journeys: React.FC = () => {
                             onAppVersionChange={setSelectedAppVersion}
                         />
 
-                        <section className="rejourney-general-card overflow-hidden border border-[#dadce0] bg-white shadow-none">
-                            <div className="h-1 bg-[#db2777]" />
+                        <section className="overflow-hidden rounded-none border border-[#dadce0] bg-white">
                             <div className="border-b border-[#e8eaed] bg-white px-5 py-4">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                     <div>
-                                        <h2 className="text-[15px] font-medium text-[#202124] underline decoration-dotted decoration-[#bdc1c6] underline-offset-4">Replay Evidence</h2>
-                                        <p className="mt-1 text-sm font-medium text-slate-600">Select map ribbons to find matching replay samples.</p>
+                                        <h2 className="text-[15px] font-medium text-[#202124]">Replay evidence</h2>
+                                        <p className="mt-1 text-sm text-[#5f6368]">Select map ribbons to find matching replay samples.</p>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                                        <span className="journey-count-pill inline-flex h-9 items-center gap-1.5 rounded-full border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] shadow-sm">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-[#5f6368]">
+                                        <span className="journey-count-pill inline-flex h-8 items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium tabular-nums text-[#3c4043]">
                                             <Filter className="h-3.5 w-3.5" />
                                             {formatCompact(selectedTransitionOptions.length)}
                                         </span>
-                                        <span className="journey-count-pill inline-flex h-9 items-center rounded-full border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] shadow-sm">
+                                        <span className="journey-count-pill inline-flex h-8 items-center rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium tabular-nums text-[#3c4043]">
                                             {formatCompact(selectedQuerySessionCount)} evidence replays
                                         </span>
                                         {selectedTransitionIds.length > 0 && (
                                             <button
                                                 type="button"
                                                 onClick={clearSelectedTransitions}
-                                                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] shadow-sm transition-colors hover:border-[#fbcfe8] hover:bg-[#fdf2f8] hover:text-[#be185d]"
+                                                className={dashboardButtonClass('secondary', 'sm')}
                                             >
                                                 <X className="h-3.5 w-3.5" />
                                                 Clear selection
@@ -1095,20 +1082,20 @@ export const Journeys: React.FC = () => {
                                     <div className="dashboard-inner-surface p-4">
                                         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                             <div className="min-w-0 flex-1">
-                                                <div className="text-[11px] font-bold uppercase text-slate-500">Query clauses</div>
+                                                <div className="text-xs font-medium text-[#5f6368]">Query clauses</div>
                                                 <div className="mt-3 flex min-w-0 flex-wrap gap-2">
                                                     {selectedTransitionOptions.map((option, index) => (
                                                         <button
                                                             key={option.id}
                                                             type="button"
                                                             onClick={() => setSelectedTransitionIds((current) => current.slice(0, current.indexOf(option.id)).filter(Boolean))}
-                                                            className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#dadce0] bg-white px-3 py-1.5 text-left text-xs font-semibold text-slate-700 transition-colors hover:border-[#fbcfe8] hover:bg-[#fdf2f8] hover:text-[#be185d]"
+                                                            className="inline-flex max-w-full items-center gap-2 rounded-none border border-[#dadce0] bg-white px-3 py-1.5 text-left text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f1f3f4]"
                                                             title="Remove clause"
                                                         >
-                                                            <span className="shrink-0 text-slate-400">#{index + 1}</span>
+                                                            <span className="shrink-0 tabular-nums text-[#80868b]">#{index + 1}</span>
                                                             <span className="min-w-0 truncate">{option.label}</span>
-                                                            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase ${getReplayHealthPillClass(option.health)}`}>
-                                                                {option.health}
+                                                            <span className={`shrink-0 ${getReplayHealthPillClass(option.health)}`}>
+                                                                {REPLAY_HEALTH_LABEL[option.health] ?? option.health}
                                                             </span>
                                                             <X className="h-3 w-3 shrink-0" />
                                                         </button>
@@ -1120,31 +1107,31 @@ export const Journeys: React.FC = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => applyJourneyQuery(selectedContiguousJourneyPath)}
-                                                        className="inline-flex items-center justify-center gap-2 rounded-md bg-[#db2777] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#be185d]"
+                                                        className={dashboardButtonClass('primary', 'md')}
                                                     >
                                                         <Search className="h-4 w-4" />
-                                                        Query Combined
+                                                        Query combined
                                                     </button>
                                                 )}
                                                 {selectedTransitionOptions.length === 1 && (
                                                     <button
                                                         type="button"
                                                         onClick={() => applyJourneyQuery(selectedTransitionOptions[0].path)}
-                                                        className="inline-flex items-center justify-center gap-2 rounded-md bg-[#db2777] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#be185d]"
+                                                        className={dashboardButtonClass('primary', 'md')}
                                                     >
                                                         <Search className="h-4 w-4" />
-                                                        Search Replays
+                                                        Search replays
                                                     </button>
                                                 )}
                                             </div>
                                         </div>
 
                                         {selectedContiguousJourneyPath && selectedTransitionOptions.length > 1 && (
-                                            <div className="mt-4 flex min-w-0 flex-wrap items-center gap-1.5 rounded-md border border-[#fbcfe8] bg-[#fdf2f8] px-3 py-2">
+                                            <div className="mt-4 flex min-w-0 flex-wrap items-center gap-1.5 rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-3 py-2">
                                                 {selectedContiguousJourneyPath.map((step, index) => (
                                                     <React.Fragment key={`${step}:${index}`}>
-                                                        {index > 0 && <span className="text-xs font-semibold text-[#db2777]">→</span>}
-                                                        <span className="max-w-full truncate rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-[#9d174d] ring-1 ring-[#fbcfe8]" title={step}>
+                                                        {index > 0 && <span className="text-xs font-medium text-[#1967d2]">→</span>}
+                                                        <span className="max-w-full truncate rounded-none bg-white px-2 py-1 text-[11px] font-medium text-[#1967d2] ring-1 ring-[#d2e3fc]" title={step}>
                                                             {step}
                                                         </span>
                                                     </React.Fragment>
@@ -1155,12 +1142,12 @@ export const Journeys: React.FC = () => {
                                 ) : (
                                     <div className="dashboard-inner-surface flex min-h-[180px] items-center justify-center border-dashed p-6 text-center">
                                         <div>
-                                            <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center rounded-md border border-[#fbcfe8] bg-[#fdf2f8] text-[#db2777]">
+                                            <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#5f6368]">
                                                 <Route className="h-5 w-5" />
                                             </div>
-                                            <div className="text-sm font-semibold text-slate-900">No paths selected to search replays</div>
+                                            <div className="text-sm font-medium text-[#202124]">No paths selected to search replays</div>
                                             {totalReplayEvidenceSessionCount > 0 && (
-                                                <div className="mt-2 text-xs font-medium text-slate-500">
+                                                <div className="mt-2 text-xs text-[#5f6368]">
                                                     {formatCompact(totalReplayEvidenceSessionCount)} evidence replays are available across the map.
                                                 </div>
                                             )}
@@ -1169,43 +1156,42 @@ export const Journeys: React.FC = () => {
                                 )}
 
                                 <div className="dashboard-inner-surface overflow-hidden">
-                                    <div className="flex flex-col gap-2 border-b border-[#dadce0] bg-[#f8fafd] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="flex flex-col gap-2 border-b border-[#e8eaed] bg-[#f8fafd] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
-                                            <div className="text-[11px] font-bold uppercase text-slate-500">Matching session sample</div>
-                                            <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                                            <div className="text-xs font-medium text-[#5f6368]">Matching session sample</div>
+                                            <div className="mt-0.5 text-sm font-medium text-[#202124]">
                                                 {selectedQuerySessions.length > 0
                                                     ? `${formatCompact(selectedQuerySessions.length)} replay IDs match selected clauses`
                                                     : 'Build a path clause to preview matching replay IDs'}
                                             </div>
                                         </div>
-                                        <span className="text-xs font-medium text-slate-500">
+                                        <span className="text-xs text-[#5f6368]">
                                             Opens filtered replay search
                                         </span>
                                     </div>
 
                                     {selectedQuerySessions.length > 0 ? (
-                                        <div className="rejourney-replays-page dashboard-mobile-scroll overflow-x-auto">
-                                            <div className="w-full min-w-[1160px] overflow-hidden border-2 border-black bg-white shadow-neo">
+                                        <div className="dashboard-mobile-scroll overflow-x-auto">
+                                            <div className="w-full min-w-[1160px] overflow-hidden bg-white">
                                                 <table className="w-full table-fixed border-collapse">
                                                     <thead>
-                                                        <tr className="border-b-2 border-black bg-[#cffafe]">
-                                                            <th className="sticky top-0 z-40 w-10 bg-[#cffafe] py-3 pl-4 pr-2" />
-                                                            <th className="sticky top-0 z-40 w-[280px] bg-[#cffafe] px-3 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-600">User</th>
-                                                            <th className="sticky top-0 z-40 w-32 bg-[#cffafe] px-3 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-600">Date</th>
-                                                            <th className="sticky top-0 z-40 w-44 bg-[#cffafe] px-3 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-600">Device</th>
-                                                            <th className="sticky top-0 z-40 w-36 bg-[#cffafe] px-3 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-600">Location</th>
-                                                            <th className="sticky top-0 z-40 w-24 bg-[#cffafe] px-2 py-3 text-right text-[10px] font-black uppercase tracking-widest text-slate-600">Screens</th>
-                                                            <th className="sticky top-0 z-40 w-28 min-w-[7rem] bg-[#cffafe] px-2 py-3 text-right text-[10px] font-black uppercase tracking-widest text-slate-600">Duration</th>
-                                                            <th className="sticky top-0 z-40 w-36 bg-[#cffafe] px-3 py-3 text-right text-[10px] font-black uppercase tracking-widest text-slate-600">Notes</th>
-                                                            <th className="sticky top-0 z-40 w-12 bg-[#cffafe] py-3 pl-2 pr-4" />
-                                                            <th className="sticky top-0 z-40 w-12 bg-[#cffafe] py-3 pl-2 pr-6" />
+                                                        <tr className="border-b border-[#e8eaed] bg-[#f8fafd]">
+                                                            <th className="sticky top-0 z-40 w-10 bg-[#f8fafd] py-3 pl-4 pr-2" />
+                                                            <th className="sticky top-0 z-40 w-[280px] bg-[#f8fafd] px-3 py-3 text-left text-xs font-medium text-[#5f6368]">User</th>
+                                                            <th className="sticky top-0 z-40 w-32 bg-[#f8fafd] px-3 py-3 text-left text-xs font-medium text-[#5f6368]">Date</th>
+                                                            <th className="sticky top-0 z-40 w-44 bg-[#f8fafd] px-3 py-3 text-left text-xs font-medium text-[#5f6368]">Device</th>
+                                                            <th className="sticky top-0 z-40 w-36 bg-[#f8fafd] px-3 py-3 text-left text-xs font-medium text-[#5f6368]">Location</th>
+                                                            <th className="sticky top-0 z-40 w-24 bg-[#f8fafd] px-2 py-3 text-right text-xs font-medium text-[#5f6368]">Screens</th>
+                                                            <th className="sticky top-0 z-40 w-28 min-w-[7rem] bg-[#f8fafd] px-2 py-3 text-right text-xs font-medium text-[#5f6368]">Duration</th>
+                                                            <th className="sticky top-0 z-40 w-36 bg-[#f8fafd] px-3 py-3 text-right text-xs font-medium text-[#5f6368]">Notes</th>
+                                                            <th className="sticky top-0 z-40 w-12 bg-[#f8fafd] py-3 pl-2 pr-4" />
+                                                            <th className="sticky top-0 z-40 w-12 bg-[#f8fafd] py-3 pl-2 pr-6" />
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y-2 divide-black/15">
-                                                        {selectedQuerySessionRows.map((row, rowIndex) => {
+                                                    <tbody className="divide-y divide-[#e8eaed]">
+                                                        {selectedQuerySessionRows.map((row) => {
                                                             const session = evidenceSessionDetails[row.sessionId];
                                                             const isExpanded = expandedEvidenceSessionId === row.sessionId;
-                                                            const isZebraEven = rowIndex % 2 === 0;
                                                             const userId = session?.userId || (session as any)?.anonymousDisplayName || row.sessionId;
                                                             const displayUserId = userId.length > 20 ? `${userId.slice(0, 20)}…` : userId;
                                                             const avatarIdentity = {
@@ -1234,15 +1220,13 @@ export const Journeys: React.FC = () => {
                                                                 hasSlowStart ||
                                                                 hasSlowApi
                                                             ));
-                                                            const rowAccent = getReplaySessionRowAccent(session, row.priority);
                                                             const canOpenReplay = session ? ((session as any).canOpenReplay ?? hasSuccessfulRecording(session)) : true;
                                                             const date = session ? new Date(session.startedAt) : null;
 
                                                             return (
                                                                 <React.Fragment key={row.sessionId}>
                                                                     <tr
-                                                                        className={`cursor-pointer transition-colors ${isExpanded ? 'bg-[#f8fafc]' : isZebraEven ? 'bg-white hover:bg-[#f8fafc]' : 'bg-[#f8fafc] hover:bg-[#ecfeff]/45'}`}
-                                                                        style={{ boxShadow: `inset 3px 0 0 ${rowAccent}` }}
+                                                                        className={`cursor-pointer transition-colors ${isExpanded ? 'bg-[#f8fafd]' : 'bg-white hover:bg-[#f8fafd]'}`}
                                                                         onClick={() => setExpandedEvidenceSessionId((current) => current === row.sessionId ? null : row.sessionId)}
                                                                     >
                                                                         <td className="w-10 py-2.5 pl-4 pr-2 align-middle text-center">
@@ -1254,7 +1238,7 @@ export const Journeys: React.FC = () => {
                                                                         <td className="w-[280px] min-w-0 overflow-hidden px-3 py-2.5 align-middle">
                                                                             <div className="flex min-w-0 items-center gap-2">
                                                                                 <h3
-                                                                                    className="min-w-0 shrink truncate font-mono text-sm font-bold text-slate-900"
+                                                                                    className="min-w-0 shrink truncate font-mono text-sm font-medium text-[#202124]"
                                                                                     title={userId}
                                                                                 >
                                                                                     {displayUserId}
@@ -1265,10 +1249,10 @@ export const Journeys: React.FC = () => {
                                                                                         event.stopPropagation();
                                                                                         void copySessionId(row.sessionId);
                                                                                     }}
-                                                                                    className="text-slate-400 transition-colors hover:text-slate-900"
+                                                                                    className="text-[#80868b] transition-colors hover:text-[#202124]"
                                                                                     title="Copy session ID"
                                                                                 >
-                                                                                    {copiedSessionId === row.sessionId ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                                                                    {copiedSessionId === row.sessionId ? <Check size={12} className="text-[#188038]" /> : <Copy size={12} />}
                                                                                 </button>
                                                                             </div>
                                                                         </td>
@@ -1276,11 +1260,11 @@ export const Journeys: React.FC = () => {
                                                                         <td className="w-32 px-3 py-2.5 align-middle">
                                                                             {date ? (
                                                                                 <>
-                                                                                    <div className="text-xs font-black text-slate-900">{date.toLocaleDateString()}</div>
-                                                                                    <div className="font-mono text-[10px] tracking-tight text-slate-400">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                                                                    <div className="text-xs font-medium tabular-nums text-[#202124]">{date.toLocaleDateString()}</div>
+                                                                                    <div className="text-[11px] tabular-nums text-[#80868b]">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                                                                                 </>
                                                                             ) : (
-                                                                                <span className="text-xs font-medium text-slate-400">{isEvidenceHydrating ? 'Loading' : '—'}</span>
+                                                                                <span className="text-xs text-[#80868b]">{isEvidenceHydrating ? 'Loading' : '—'}</span>
                                                                             )}
                                                                         </td>
 
@@ -1293,21 +1277,21 @@ export const Journeys: React.FC = () => {
                                                                                     {webEnvironment ? (
                                                                                         <BrowserBrandIcon browserName={webEnvironment.browserName} className="h-4 w-4 shrink-0" />
                                                                                     ) : (
-                                                                                        <MobilePlatformBrandIcon platformName={platformLabel} className="h-4 w-4 shrink-0 text-slate-500" />
+                                                                                        <MobilePlatformBrandIcon platformName={platformLabel} className="h-4 w-4 shrink-0 text-[#5f6368]" />
                                                                                     )}
                                                                                     <div className="min-w-0 leading-tight">
-                                                                                        <div className="truncate text-sm font-bold text-slate-900">
+                                                                                        <div className="truncate text-sm font-medium text-[#202124]">
                                                                                             {webEnvironment ? webEnvironment.browserLabel : formatNativeOsLabel(platformLabel, session.osVersion)}
                                                                                         </div>
-                                                                                        <div className="truncate text-[10px] font-bold tracking-tight text-slate-500">
+                                                                                        <div className="truncate text-[11px] text-[#5f6368]">
                                                                                             {webEnvironment ? webEnvironment.osLabel : displayDeviceModel}
                                                                                         </div>
                                                                                     </div>
                                                                                 </div>
                                                                             ) : (
                                                                                 <div className="leading-tight">
-                                                                                    <div className="text-sm font-bold text-slate-400">{isEvidenceHydrating ? 'Loading' : 'Replay'}</div>
-                                                                                    <div className="text-[10px] font-bold tracking-tight text-slate-400">Evidence</div>
+                                                                                    <div className="text-sm font-medium text-[#80868b]">{isEvidenceHydrating ? 'Loading' : 'Replay'}</div>
+                                                                                    <div className="text-[11px] text-[#80868b]">Evidence</div>
                                                                                 </div>
                                                                             )}
                                                                         </td>
@@ -1315,36 +1299,36 @@ export const Journeys: React.FC = () => {
                                                                         <td className="w-36 overflow-hidden px-3 py-2.5 align-middle">
                                                                             {geoDisplay.hasLocation ? (
                                                                                 <div className="leading-tight">
-                                                                                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                                                                                    <div className="flex items-center gap-1.5 text-xs font-medium text-[#202124]">
                                                                                         <CountryFlag countryCode={geoDisplay.countryCode} countryLabel={geoDisplay.countryLabel} decorative />
                                                                                         <span className="truncate">{geoDisplay.countryLabel}</span>
                                                                                     </div>
-                                                                                    <div className="truncate pl-5 text-[10px] font-bold text-slate-500">
-                                                                                        {geoDisplay.cityLabel || 'City Unknown'}
+                                                                                    <div className="truncate pl-5 text-[11px] text-[#5f6368]">
+                                                                                        {geoDisplay.cityLabel || 'City unknown'}
                                                                                     </div>
                                                                                 </div>
                                                                             ) : (
-                                                                                <span className="text-xs font-medium text-slate-400">—</span>
+                                                                                <span className="text-xs text-[#80868b]">—</span>
                                                                             )}
                                                                         </td>
 
                                                                         <td className="w-24 px-2 py-2.5 text-right align-middle">
                                                                             {screensCount > 0 ? (
-                                                                                <span className="inline-block border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs font-bold text-slate-700">
+                                                                                <span className="inline-block rounded-none bg-[#f1f3f4] px-1.5 py-0.5 text-xs font-medium tabular-nums text-[#3c4043]">
                                                                                     {screensCount}
                                                                                 </span>
                                                                             ) : (
-                                                                                <span className="text-xs text-slate-300">—</span>
+                                                                                <span className="text-xs text-[#bdc1c6]">—</span>
                                                                             )}
                                                                         </td>
 
                                                                         <td className="w-28 min-w-[7rem] px-2 py-2.5 text-right align-middle">
                                                                             {session ? (
-                                                                                <span className="border border-black bg-[#ecfeff] px-1.5 py-0.5 font-mono text-xs font-bold text-black">
+                                                                                <span className="inline-block rounded-none bg-[#f1f3f4] px-1.5 py-0.5 text-xs font-medium tabular-nums text-[#3c4043]">
                                                                                     {formatReplayDuration(session.durationSeconds)}
                                                                                 </span>
                                                                             ) : (
-                                                                                <span className="text-xs font-medium text-slate-400">—</span>
+                                                                                <span className="text-xs text-[#80868b]">—</span>
                                                                             )}
                                                                         </td>
 
@@ -1352,14 +1336,14 @@ export const Journeys: React.FC = () => {
                                                                             <div className="flex min-h-[28px] flex-wrap items-center justify-end gap-1.5">
                                                                                 {session?.isFirstSession && (
                                                                                     <span
-                                                                                        className="inline-flex items-center border-2 border-black bg-[#86efac] px-2 py-0.5 text-[10px] font-black uppercase text-black shadow-neo-sm"
+                                                                                        className={dashboardChipClass('success')}
                                                                                         title="First recorded session for this visitor in this project"
                                                                                     >
-                                                                                        NEW USER
+                                                                                        New user
                                                                                     </span>
                                                                                 )}
-                                                                                {row.priority === 'high' && <NeoBadge variant="danger" size="sm">HIGH</NeoBadge>}
-                                                                                {row.priority === 'medium' && <NeoBadge variant="neutral" size="sm">MED</NeoBadge>}
+                                                                                {row.priority === 'high' && <NeoBadge variant="danger" size="sm">High</NeoBadge>}
+                                                                                {row.priority === 'medium' && <NeoBadge variant="warning" size="sm">Medium</NeoBadge>}
                                                                                 {session && (session.crashCount || 0) > 0 && (
                                                                                     <span
                                                                                         title="Application crash (fatal exception)"
@@ -1372,7 +1356,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>
+                                                                                        <NeoBadge variant="danger" size="sm">Crash</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && ((session as any).anrCount || 0) > 0 && (
@@ -1402,7 +1386,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="neutral" size="sm">ERR</NeoBadge>
+                                                                                        <NeoBadge variant="neutral" size="sm">Error</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && (session.rageTapCount || 0) > 0 && (
@@ -1417,7 +1401,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="danger" size="sm">RAGE</NeoBadge>
+                                                                                        <NeoBadge variant="danger" size="sm">Rage</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && hasDeadTaps && (
@@ -1432,7 +1416,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="neutral" size="sm">DEAD</NeoBadge>
+                                                                                        <NeoBadge variant="neutral" size="sm">Dead tap</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && hasSlowStart && (
@@ -1447,7 +1431,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="neutral" size="sm">SLOW</NeoBadge>
+                                                                                        <NeoBadge variant="neutral" size="sm">Slow start</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && hasSlowApi && (
@@ -1462,7 +1446,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="neutral" size="sm">API</NeoBadge>
+                                                                                        <NeoBadge variant="neutral" size="sm">Slow API</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && hasLowExploration && (
@@ -1477,7 +1461,7 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <NeoBadge variant="low_exp" size="sm">SHALLOW</NeoBadge>
+                                                                                        <NeoBadge variant="low_exp" size="sm">Shallow</NeoBadge>
                                                                                     </span>
                                                                                 )}
                                                                                 {session && hasDeepExploration && (
@@ -1492,8 +1476,8 @@ export const Journeys: React.FC = () => {
                                                                                             }
                                                                                         }}
                                                                                     >
-                                                                                        <span className="inline-flex items-center border border-[#15803d] bg-[#dcfce7] px-2 py-0.5 text-[10px] font-black uppercase text-[#14532d]">
-                                                                                            DEEP
+                                                                                        <span className={dashboardChipClass('success')}>
+                                                                                            Deep
                                                                                         </span>
                                                                                     </span>
                                                                                 )}
@@ -1508,8 +1492,8 @@ export const Journeys: React.FC = () => {
                                                                                     if (canOpenReplay) navigate(`${pathPrefix}/sessions/${row.sessionId}`);
                                                                                 }}
                                                                                 disabled={!canOpenReplay}
-                                                                                className={`group/play inline-flex items-center justify-center border-2 border-transparent p-1.5 transition-all ${canOpenReplay ? 'text-slate-700 hover:border-black hover:bg-[#67e8f9] hover:text-black hover:shadow-neo-sm' : 'cursor-not-allowed text-slate-300 opacity-40'}`}
-                                                                                title={canOpenReplay ? 'Open Replay' : 'Replay unavailable for this session'}
+                                                                                className={`group/play inline-flex h-8 w-8 items-center justify-center rounded-none border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 ${canOpenReplay ? 'border-[#dadce0] bg-white text-[#3c4043] hover:border-[#bdc1c6] hover:bg-[#f8fafd]' : 'cursor-not-allowed border-[#e8eaed] bg-white text-[#bdc1c6]'}`}
+                                                                                title={canOpenReplay ? 'Open replay' : 'Replay unavailable for this session'}
                                                                             >
                                                                                 <Play size={16} className={canOpenReplay ? 'group-hover/play:fill-current' : ''} />
                                                                             </button>
@@ -1522,37 +1506,38 @@ export const Journeys: React.FC = () => {
                                                                                     event.stopPropagation();
                                                                                     setExpandedEvidenceSessionId((current) => current === row.sessionId ? null : row.sessionId);
                                                                                 }}
-                                                                                className={`mx-auto flex items-center justify-center border-2 border-transparent p-1.5 transition-all ${isExpanded ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm' : 'text-slate-600 hover:border-black hover:bg-[#ecfeff] hover:text-black hover:shadow-neo-sm'}`}
+                                                                                aria-expanded={isExpanded}
+                                                                                className={`mx-auto flex h-8 w-8 items-center justify-center rounded-none border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 ${isExpanded ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]' : 'border-[#dadce0] bg-white text-[#3c4043] hover:border-[#bdc1c6] hover:bg-[#f8fafd]'}`}
                                                                                 title={isExpanded ? 'Hide journey match details' : 'Show journey match details'}
                                                                             >
-                                                                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                                                             </button>
                                                                         </td>
                                                                     </tr>
 
                                                                     {isExpanded && (
                                                                         <tr>
-                                                                            <td colSpan={10} className="border-b-2 border-black bg-[#f8fafc] p-0 align-top">
+                                                                            <td colSpan={10} className="border-b border-[#e8eaed] bg-[#f8fafd] p-0 align-top">
                                                                                 <div className="space-y-3 px-5 pb-5 pt-3 sm:px-7">
                                                                                     <div className="grid gap-2 text-xs md:grid-cols-3">
-                                                                                        <div className="border border-black bg-white p-3">
-                                                                                            <div className="mb-1 text-[10px] font-black uppercase text-slate-500">Source</div>
-                                                                                            <div className="font-semibold text-slate-900">{row.source}</div>
+                                                                                        <div className="border border-[#e8eaed] bg-white p-3">
+                                                                                            <div className="mb-1 text-xs font-medium text-[#5f6368]">Source</div>
+                                                                                            <div className="font-medium text-[#202124]">{row.source}</div>
                                                                                         </div>
-                                                                                        <div className="border border-black bg-white p-3">
-                                                                                            <div className="mb-1 text-[10px] font-black uppercase text-slate-500">Signal</div>
-                                                                                            <div className="font-semibold text-slate-900">{row.signal}</div>
+                                                                                        <div className="border border-[#e8eaed] bg-white p-3">
+                                                                                            <div className="mb-1 text-xs font-medium text-[#5f6368]">Signal</div>
+                                                                                            <div className="font-medium text-[#202124]">{row.signal}</div>
                                                                                         </div>
-                                                                                        <div className="border border-black bg-white p-3">
-                                                                                            <div className="mb-1 text-[10px] font-black uppercase text-slate-500">Matched Paths</div>
-                                                                                            <div className="font-semibold text-slate-900">{row.matchedPaths.length}</div>
+                                                                                        <div className="border border-[#e8eaed] bg-white p-3">
+                                                                                            <div className="mb-1 text-xs font-medium text-[#5f6368]">Matched paths</div>
+                                                                                            <div className="font-medium tabular-nums text-[#202124]">{row.matchedPaths.length}</div>
                                                                                         </div>
                                                                                     </div>
                                                                                     <div className="flex flex-wrap gap-2">
                                                                                         {row.matchedPaths.map((path) => (
                                                                                             <span
                                                                                                 key={path}
-                                                                                                className="max-w-full truncate border border-[#dadce0] bg-white px-2 py-1 text-[11px] font-semibold text-slate-700"
+                                                                                                className="max-w-full truncate border border-[#dadce0] bg-white px-2 py-1 text-[11px] font-medium text-[#3c4043]"
                                                                                                 title={path}
                                                                                             >
                                                                                                 {path}
@@ -1571,7 +1556,7 @@ export const Journeys: React.FC = () => {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="flex min-h-[180px] items-center justify-center p-6 text-center text-sm font-medium text-slate-500">
+                                        <div className="flex min-h-[180px] items-center justify-center p-6 text-center text-sm text-[#5f6368]">
                                             Select one or more ribbons in the journey map to populate the replay table.
                                         </div>
                                     )}

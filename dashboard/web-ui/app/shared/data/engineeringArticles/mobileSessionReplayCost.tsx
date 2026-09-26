@@ -406,7 +406,7 @@ export const mobileSessionReplayCostArticle: Article = {
         url: "https://www.linkedin.com/in/mohammad-rashid7337/",
         github: "https://github.com/Mohammad-R-Rashid",
     },
-    image: "https://rejourney.co/assets/engineering/mobile-session-replay-cost.png",
+    image: "/images/engineering/churn-mobile-heatmap.png",
     schema: pricingArticleSchema,
     content: <PricingArticleContent />,
 };

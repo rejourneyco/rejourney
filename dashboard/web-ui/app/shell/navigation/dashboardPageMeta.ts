@@ -69,18 +69,18 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     iconBgClass: 'bg-[#ecfdf5]',
   },
   journeys: {
-    sidebarLabel: 'User Journey',
-    tabTitle: 'User Journey',
+    sidebarLabel: 'User journey',
+    tabTitle: 'User journey',
     icon: Route,
     accent: '#db2777',
     activeBg: '#fdf2f8',
     iconBgClass: 'bg-[#fdf2f8]',
   },
   heatmaps: {
-    sidebarLabel: 'Heat Maps',
-    tabTitle: 'Heat Maps',
+    sidebarLabel: 'Heatmaps',
+    tabTitle: 'Heatmaps',
     icon: Flame,
-    accent: '#f97316',
+    accent: '#ea580c',
     activeBg: '#fff7ed',
     iconBgClass: 'bg-[#fff7ed]',
   },
@@ -93,8 +93,8 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     iconBgClass: 'bg-[#fef2f2]',
   },
   api: {
-    sidebarLabel: 'API Insights',
-    tabTitle: 'API Insights',
+    sidebarLabel: 'API insights',
+    tabTitle: 'API insights',
     icon: Activity,
     accent: '#16a34a',
     activeBg: '#f0fdf4',
@@ -118,7 +118,7 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
   },
   emails: {
     sidebarLabel: 'Emails',
-    tabTitle: 'Email Alerts',
+    tabTitle: 'Email alerts',
     icon: Mail,
     accent: '#d97706',
     activeBg: '#fffbeb',
@@ -134,7 +134,7 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
   },
   project: {
     sidebarLabel: 'Project',
-    tabTitle: 'Project Settings',
+    tabTitle: 'Project settings',
     icon: Settings,
     accent: '#475569',
     activeBg: '#f8fafc',
@@ -149,7 +149,7 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     iconBgClass: 'bg-[#f0fdfa]',
   },
   billing: {
-    sidebarLabel: 'Plan & Billing',
+    sidebarLabel: 'Plan & billing',
     tabTitle: 'Billing',
     icon: CreditCard,
     accent: '#ca8a04',
@@ -172,10 +172,8 @@ export function dashboardPageHeaderProps(pageKey: DashboardPageKey) {
 
   return {
     icon: React.createElement(Icon, {
-      className: 'h-[18px] w-[18px]',
-      strokeWidth: 2.25,
+      className: 'h-5 w-5',
+      strokeWidth: 2,
     }),
-    iconColor: meta.iconBgClass,
-    iconAccent: meta.accent,
   };
 }

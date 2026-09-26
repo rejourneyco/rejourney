@@ -40,6 +40,7 @@ import {
 } from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
+import { dashboardButtonClass } from '~/shared/ui/core/dashboardStyles';
 import { buildDemoHeatmapOverview } from '~/shared/data/demoHeatmapData';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
@@ -731,11 +732,11 @@ const RrwebHeatmapPreview: React.FC<{
 
     if (loadState === 'loading' || (loadState === 'ready' && eventsLoading && events.length === 0)) {
         return (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50/95 p-6 text-center">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#f8fafd]/95 p-6 text-center">
                 <div>
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-cyan-600" />
-                    <p className="mt-3 text-xs font-black text-slate-800">Reconstructing this page</p>
-                    <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#1a73e8]" />
+                    <p className="mt-3 text-xs font-medium text-[#202124]">Reconstructing this page</p>
+                    <p className="mt-1 text-[11px] text-[#5f6368]">
                         {progress.total > 0 ? `${progress.loaded} of ${progress.total} replay segments` : 'Loading DOM replay evidence'}
                     </p>
                 </div>
@@ -745,11 +746,11 @@ const RrwebHeatmapPreview: React.FC<{
 
     if (loadState === 'failed' || !replayTiming || events.length === 0) {
         return (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 p-6 text-center">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#f8fafd] p-6 text-center">
                 <div className="max-w-xs">
-                    <AlertTriangle className="mx-auto h-7 w-7 text-amber-500" />
-                    <p className="mt-3 text-xs font-black text-slate-900">Page replay unavailable</p>
-                    <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-500">
+                    <AlertTriangle className="mx-auto h-7 w-7 text-[#b06000]" />
+                    <p className="mt-3 text-xs font-medium text-[#202124]">Page replay unavailable</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-[#5f6368]">
                         The interaction data is still valid. Choose another route, version, or time range for visual evidence.
                     </p>
                 </div>
@@ -1233,22 +1234,22 @@ const HeatmapPreview: React.FC<{
                 ? 'mx-auto w-full max-w-[920px]'
                 : `mx-auto w-full ${compact ? 'max-w-[340px]' : 'max-w-[440px]'}`;
     const frameClass = isWebViewer
-        ? 'heatmap-browser-frame heatmap-web-document-frame overflow-hidden rounded-xl border-2 border-black bg-white shadow-neo'
+        ? 'heatmap-browser-frame heatmap-web-document-frame overflow-hidden rounded-none border border-[#dadce0] bg-white'
         : isTabletViewer
-            ? 'heatmap-tablet-frame rounded-[24px] border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]'
-            : 'heatmap-phone-frame rounded-[28px] border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]';
+            ? 'heatmap-tablet-frame rounded-[24px] border border-[#dadce0] bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]'
+            : 'heatmap-phone-frame rounded-[28px] border border-[#dadce0] bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.14)]';
     const screenClass = isWebViewer
         ? 'heatmap-browser-screen heatmap-web-document-screen relative overflow-hidden bg-white'
         : isTabletViewer
-            ? 'heatmap-tablet-screen relative overflow-hidden rounded-[18px] bg-slate-100'
-            : 'heatmap-phone-screen relative overflow-hidden rounded-[23px] bg-slate-100';
+            ? 'heatmap-tablet-screen relative overflow-hidden rounded-[18px] bg-[#f1f3f4]'
+            : 'heatmap-phone-screen relative overflow-hidden rounded-[23px] bg-[#f1f3f4]';
     const tileScreenClass = isWebViewer
-        ? 'heatmap-tile-screen heatmap-web-tile-screen heatmap-web-document-tile relative overflow-hidden rounded-lg border-2 border-black bg-white shadow-neo-sm'
-        : 'heatmap-tile-screen relative mx-auto max-h-[500px] w-full max-w-[184px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.1)]';
+        ? 'heatmap-tile-screen heatmap-web-tile-screen heatmap-web-document-tile relative overflow-hidden rounded-none border border-[#dadce0] bg-white'
+        : 'heatmap-tile-screen relative mx-auto max-h-[500px] w-full max-w-[184px] overflow-hidden rounded-none border border-[#dadce0] bg-[#f1f3f4]';
     const imageFitClass = 'object-cover';
     const placeholderClass = isWebViewer
         ? 'bg-transparent'
-        : 'bg-slate-100';
+        : 'bg-[#f1f3f4]';
     const previewWrapperStyle = !isWebViewer
         ? ({ '--heatmap-frame-ratio': `${frameDimensions.pageWidth / Math.max(frameDimensions.pageHeight, 1)}` } as React.CSSProperties)
         : undefined;
@@ -1258,20 +1259,20 @@ const HeatmapPreview: React.FC<{
             {isWebViewer && (
                 <div className="pointer-events-none absolute inset-0 bg-white">
                     <div
-                        className="absolute inset-x-0 top-0 border-b border-slate-200 bg-[linear-gradient(90deg,rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:32px_32px]"
+                        className="absolute inset-x-0 top-0 border-b border-[#e8eaed] bg-[linear-gradient(90deg,rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:32px_32px]"
                         style={{ height: `${frameDimensions.viewportPercent}%` }}
                     />
                     {WEB_DOCUMENT_SECTION_TOPS.map((top, index) => (
                         <span
                             key={`section-${top}`}
-                            className={`absolute left-[7%] right-[7%] rounded-md ${index % 2 === 0 ? 'bg-slate-100' : 'bg-slate-50'}`}
+                            className={`absolute left-[7%] right-[7%] rounded-none ${index % 2 === 0 ? 'bg-[#f1f3f4]' : 'bg-[#f8fafd]'}`}
                             style={{ top: `${top}%`, height: `${index === 0 ? 7 : index === 4 ? 10 : 8}%` }}
                         />
                     ))}
                     {viewportGuideStops.map((top) => (
                         <span
                             key={`viewport-${top.toFixed(2)}`}
-                            className="absolute inset-x-0 border-t border-dashed border-slate-300/80"
+                            className="absolute inset-x-0 border-t border-dashed border-[#dadce0]"
                             style={{ top: `${top}%` }}
                         />
                     ))}
@@ -1306,15 +1307,15 @@ const HeatmapPreview: React.FC<{
             ) : (
                 <div className={`absolute ${isWebViewer ? 'inset-x-0 top-0' : 'inset-0'} flex flex-col items-center justify-center p-4 text-center ${placeholderClass}`} style={isWebViewer ? { height: `${frameDimensions.viewportPercent}%` } : undefined}>
                     {isWebViewer ? (
-                        <Monitor className="mb-2 h-8 w-8 text-[#67e8f9]" />
+                        <Monitor className="mb-2 h-8 w-8 text-[#9aa0a6]" />
                     ) : (
-                        <MousePointer2 className="mb-2 h-8 w-8 text-[#67e8f9]" />
+                        <MousePointer2 className="mb-2 h-8 w-8 text-[#9aa0a6]" />
                     )}
-                    <p className={`text-xs font-black uppercase ${isWebViewer ? 'text-slate-700' : 'text-slate-200'}`}>{screen.name}</p>
+                    <p className="text-xs font-medium text-[#5f6368]">{screen.name}</p>
                     {!loadError && downloadProgress > 0 && downloadProgress < 100 && (
-                        <p className="mt-2 text-[11px] text-slate-400">Loading screenshot {downloadProgress}%</p>
+                        <p className="mt-2 text-[11px] tabular-nums text-[#80868b]">Loading screenshot {downloadProgress}%</p>
                     )}
-                    {loadError && <p className="mt-2 text-[11px] text-rose-300">{loadError}</p>}
+                    {loadError && <p className="mt-2 text-[11px] text-[#d93025]">{loadError}</p>}
                 </div>
             )}
             {shouldRenderRrwebPreview && !blobUrl && (
@@ -1336,10 +1337,10 @@ const HeatmapPreview: React.FC<{
                     {topDots.map((hotspot, index) => {
                         const size = 10 + (hotspot.intensity * 14);
                         const markerClass = hotspot.kind === 'attention'
-                            ? 'bg-amber-300/60'
+                            ? 'bg-[#f9ab00]/60'
                             : hotspot.isRageTap || hotspot.kind === 'rage'
-                                ? 'bg-rose-500/60'
-                                : 'bg-cyan-400/55';
+                                ? 'bg-[#d93025]/60'
+                                : 'bg-[#1a73e8]/55';
                         return (
                             <span
                                 key={`dot-${index}-${hotspot.x}-${hotspot.y}`}
@@ -1380,21 +1381,21 @@ const HeatmapPreview: React.FC<{
                                 />
                             )}
                             <div
-                                className="pointer-events-none absolute z-30 w-max max-w-[180px] rounded-lg border-2 border-black bg-white px-3 py-2 shadow-neo-sm"
+                                className="pointer-events-none absolute z-30 w-max max-w-[180px] rounded-none border border-[#dadce0] bg-white px-3 py-2 shadow-sm"
                                 style={{
                                     left: `${attentionHover.left}px`,
                                     top: `${attentionHover.top}px`,
                                     transform: `translate(${attentionHover.left > 180 ? 'calc(-100% - 14px)' : '14px'}, -50%)`,
                                 }}
                             >
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                                    {attentionHover.mode === 'mobile' ? 'Est Duration' : 'Avg time spent'}
+                                <p className="text-[11px] font-medium text-[#5f6368]">
+                                    {attentionHover.mode === 'mobile' ? 'Est. duration' : 'Avg time spent'}
                                 </p>
-                                <p className="text-lg font-black tabular-nums text-slate-900">
+                                <p className="text-lg font-normal tabular-nums text-[#202124]">
                                     {formatAttentionHoverDuration(attentionHover.avgMs, attentionHover.mode)}
                                 </p>
-                                <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">% of session length</p>
-                                <p className="text-sm font-black tabular-nums text-cyan-600">
+                                <p className="mt-1 text-[11px] font-medium text-[#5f6368]">% of session length</p>
+                                <p className="text-sm font-medium tabular-nums text-[#202124]">
                                     {attentionHover.pct === null ? '--' : `${attentionHover.pct.toFixed(2)}%`}
                                 </p>
                             </div>
@@ -1414,11 +1415,11 @@ const HeatmapPreview: React.FC<{
             ) : (
                 <div className={frameClass}>
                     {isWebViewer && (
-                        <div className="heatmap-browser-chrome flex items-center gap-2 border-b border-black bg-[#f8fafd] px-3 py-2">
+                        <div className="heatmap-browser-chrome flex items-center gap-2 border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-2">
                             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
                             <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
                             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-                            <span className="ml-2 min-w-0 flex-1 truncate rounded-md border border-[#dadce0] bg-white px-3 py-1 text-left text-[11px] font-semibold text-slate-600">
+                            <span className="ml-2 min-w-0 flex-1 truncate rounded-none border border-[#dadce0] bg-white px-3 py-1 text-left text-[11px] font-medium text-[#5f6368]">
                                 {displayRoute}
                             </span>
                         </div>
@@ -1430,10 +1431,10 @@ const HeatmapPreview: React.FC<{
             )}
 
             {showLegend && (
-                <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-[#5f6368]">
                     <span>{heatmapMode === 'rage' ? 'Isolated friction' : 'Low intensity'}</span>
                     <div
-                        className="mx-2 h-1.5 flex-1 rounded-full"
+                        className="mx-2 h-1.5 flex-1 rounded-none"
                         style={{
                             background: heatmapMode === 'rage'
                                 ? 'linear-gradient(90deg, #cbd5e1, #f59e0b, #dc2626)'
@@ -1501,21 +1502,21 @@ const FrameCandidateImage: React.FC<{
 
     if (failed) {
         return (
-            <div className={`flex h-full w-full items-center justify-center bg-slate-100 text-[11px] font-bold text-slate-500 ${selected ? 'ring-2 ring-cyan-500' : ''}`}>
+            <div className={`flex h-full w-full items-center justify-center bg-[#f1f3f4] text-[11px] font-medium text-[#5f6368] ${selected ? 'ring-2 ring-[#1a73e8]' : ''}`}>
                 Unavailable
             </div>
         );
     }
 
     if (!blobUrl) {
-        return <div className="h-full w-full animate-pulse bg-slate-200" />;
+        return <div className="h-full w-full animate-pulse bg-[#f1f3f4]" />;
     }
 
     return (
         <img
             src={blobUrl}
             alt={alt}
-            className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${selected ? 'ring-2 ring-cyan-500' : ''}`}
+            className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${selected ? 'ring-2 ring-[#1a73e8]' : ''}`}
         />
     );
 };
@@ -2079,7 +2080,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     if (!selectedProject?.id && !isDemoMode) {
         return (
             <section className={`dashboard-surface p-6 ${className}`.trim()}>
-                <p className="text-sm font-semibold text-slate-600">Select a project to view touch heatmaps.</p>
+                <p className="text-sm text-[#5f6368]">Select a project to view touch heatmaps.</p>
             </section>
         );
     }
@@ -2097,10 +2098,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             <section className={`dashboard-surface p-6 ${className}`.trim()}>
                 <div className={`dashboard-inner-surface flex flex-col items-center justify-center border-dashed text-center ${compact ? 'min-h-[180px]' : 'min-h-[220px]'}`}>
                     <MousePointer2 className="mb-3 h-10 w-10 text-[#1a73e8]" />
-                    <p className="text-sm font-black text-slate-900">No touch heatmap data available yet</p>
-                    <p className="mt-1 text-xs font-semibold text-slate-600">Heatmaps populate after users interact with tracked screens.</p>
+                    <p className="text-sm font-medium text-[#202124]">No touch heatmap data available yet</p>
+                    <p className="mt-1 text-xs text-[#5f6368]">Heatmaps populate after users interact with tracked screens.</p>
                     {partialError && (
-                        <p className="mt-3 text-xs font-medium text-rose-700">{partialError}</p>
+                        <p className="mt-3 text-xs font-medium text-[#c5221f]">{partialError}</p>
                     )}
                 </div>
             </section>
@@ -2299,25 +2300,25 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Choose heatmap base frame">
                     <button
                         type="button"
-                        className="absolute inset-0 bg-slate-950/50"
+                        className="absolute inset-0 bg-[#202124]/50"
                         aria-label="Close"
                         onClick={() => {
                             if (!baseFrameSaving) setBaseFramePickerOpen(false);
                         }}
                     />
-                    <div className="relative flex h-[92vh] max-h-[920px] w-[min(1480px,calc(100vw-1.25rem))] flex-col overflow-hidden rounded-lg border-2 border-black bg-white shadow-neo">
-                        <div className="flex items-center justify-between gap-3 border-b-2 border-black px-4 py-3">
+                    <div className="relative flex h-[92vh] max-h-[920px] w-[min(1480px,calc(100vw-1.25rem))] flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white">
+                        <div className="flex items-center justify-between gap-3 border-b border-[#e8eaed] px-4 py-3">
                             <div className="min-w-0">
                                 <span className="heatmap-eyebrow">
                                     <ImageIcon className="h-3.5 w-3.5" />
                                     Base frame
                                 </span>
-                                <h3 className="truncate text-base font-black text-slate-950" title={activeScreen.name}>{activeScreen.name}</h3>
+                                <h3 className="truncate text-base font-medium text-[#202124]" title={activeScreen.name}>{activeScreen.name}</h3>
                             </div>
                             <button
                                 type="button"
                                 aria-label="Close"
-                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] disabled:opacity-50"
                                 disabled={baseFrameSaving}
                                 onClick={() => setBaseFramePickerOpen(false)}
                             >
@@ -2326,17 +2327,17 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         </div>
 
                         <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)]">
-                            <aside className="min-h-0 overflow-y-auto border-b-2 border-black bg-slate-50 p-4 xl:border-b-0 xl:border-r-2">
+                            <aside className="min-h-0 overflow-y-auto border-b border-[#e8eaed] bg-[#f8fafd] p-4 xl:border-b-0 xl:border-r">
                                 <div className="flex items-center justify-between gap-3">
-                                    <span className="text-xs font-black uppercase text-slate-700">Selected frame</span>
+                                    <span className="text-xs font-medium text-[#5f6368]">Selected frame</span>
                                     {selectedBaseFrame && (
-                                        <span className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
+                                        <span className="shrink-0 rounded-none bg-[#f1f3f4] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#3c4043]">
                                             Frame {selectedBaseFrame.frameIndex + 1}
                                         </span>
                                     )}
                                 </div>
                                 <div
-                                    className={`mx-auto mt-3 overflow-hidden rounded-md border-2 border-black bg-white shadow-neo-sm ${selectedBaseFrameIsWeb ? 'aspect-video w-full' : 'aspect-[9/16] max-h-[52vh] w-full max-w-[280px]'}`}
+                                    className={`mx-auto mt-3 overflow-hidden rounded-none border border-[#dadce0] bg-white ${selectedBaseFrameIsWeb ? 'aspect-video w-full' : 'aspect-[9/16] max-h-[52vh] w-full max-w-[280px]'}`}
                                 >
                                     {selectedBaseFrame ? (
                                         <FrameCandidateImage
@@ -2345,7 +2346,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                             fit="contain"
                                         />
                                     ) : (
-                                        <div className="flex h-full w-full items-center justify-center text-xs font-bold text-slate-500">
+                                        <div className="flex h-full w-full items-center justify-center text-xs font-medium text-[#5f6368]">
                                             Select a frame
                                         </div>
                                     )}
@@ -2354,43 +2355,43 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 {selectedBaseFrame && (
                                     <dl className="mt-4 space-y-3 text-xs">
                                         <div>
-                                            <dt className="font-black uppercase text-slate-500">Time</dt>
-                                            <dd className="mt-1 font-black text-slate-900">{formatFrameOffset(selectedBaseFrame.relativeSeconds)}</dd>
+                                            <dt className="font-medium text-[#5f6368]">Time</dt>
+                                            <dd className="mt-1 font-medium tabular-nums text-[#202124]">{formatFrameOffset(selectedBaseFrame.relativeSeconds)}</dd>
                                         </div>
                                         <div>
-                                            <dt className="font-black uppercase text-slate-500">Session</dt>
-                                            <dd className="mt-1 break-all font-bold text-slate-800">{selectedBaseFrame.sessionId}</dd>
+                                            <dt className="font-medium text-[#5f6368]">Session</dt>
+                                            <dd className="mt-1 break-all font-mono text-[#3c4043]">{selectedBaseFrame.sessionId}</dd>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <dt className="font-black uppercase text-slate-500">Platform</dt>
-                                                <dd className="mt-1 font-bold text-slate-800">{formatBaseFramePlatform(selectedBaseFrame.platform)}</dd>
+                                                <dt className="font-medium text-[#5f6368]">Platform</dt>
+                                                <dd className="mt-1 font-medium text-[#3c4043]">{formatBaseFramePlatform(selectedBaseFrame.platform)}</dd>
                                             </div>
                                             <div>
-                                                <dt className="font-black uppercase text-slate-500">Version</dt>
-                                                <dd className="mt-1 font-bold text-slate-800">{selectedBaseFrame.appVersion || 'All'}</dd>
+                                                <dt className="font-medium text-[#5f6368]">Version</dt>
+                                                <dd className="mt-1 font-medium text-[#3c4043]">{selectedBaseFrame.appVersion || 'All'}</dd>
                                             </div>
                                         </div>
                                         <div>
-                                            <dt className="font-black uppercase text-slate-500">Started</dt>
-                                            <dd className="mt-1 font-bold text-slate-800">{formatBaseFrameSessionStartedAt(selectedBaseFrame.sessionStartedAt)}</dd>
+                                            <dt className="font-medium text-[#5f6368]">Started</dt>
+                                            <dd className="mt-1 font-medium text-[#3c4043]">{formatBaseFrameSessionStartedAt(selectedBaseFrame.sessionStartedAt)}</dd>
                                         </div>
                                     </dl>
                                 )}
 
                                 {baseFrameError && baseFrameCandidates.length > 0 && (
-                                    <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{baseFrameError}</p>
+                                    <p className="mt-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-xs text-[#a50e0e]">{baseFrameError}</p>
                                 )}
                             </aside>
 
                             <section className="flex min-h-0 flex-col">
-                                <div className="border-b border-slate-200 bg-white px-4 py-3">
+                                <div className="border-b border-[#e8eaed] bg-white px-4 py-3">
                                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0">
-                                            <p className="text-sm font-black text-slate-950">
+                                            <p className="text-sm font-medium tabular-nums text-[#202124]">
                                                 {baseFrameCandidates.length.toLocaleString()} frame{baseFrameCandidates.length === 1 ? '' : 's'}
                                             </p>
-                                            <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                                            <p className="mt-0.5 text-xs tabular-nums text-[#5f6368]">
                                                 {filteredBaseFrameCandidates.length > 0
                                                     ? `Showing ${baseFrameRangeStart}-${baseFrameRangeEnd} of ${filteredBaseFrameCandidates.length.toLocaleString()}`
                                                     : 'No frames in this session'}
@@ -2410,7 +2411,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                                     if (nextCandidate) setSelectedBaseFrameId(nextCandidate.id);
                                                 }}
                                                 disabled={baseFrameLoading || baseFrameCandidates.length === 0}
-                                                className="h-9 max-w-[260px] rounded-md border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none transition hover:border-slate-950 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                                                className="h-9 max-w-[260px] rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium text-[#202124] outline-none transition-colors hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                                             >
                                                 <option value={BASE_FRAME_ALL_SESSIONS}>All sessions ({baseFrameCandidates.length})</option>
                                                 {baseFrameSessionOptions.map((session) => (
@@ -2419,17 +2420,17 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                                     </option>
                                                 ))}
                                             </select>
-                                            <div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
+                                            <div className="inline-flex h-9 overflow-hidden rounded-none border border-[#dadce0] bg-white">
                                                 <button
                                                     type="button"
                                                     aria-label="Previous frame page"
                                                     onClick={() => setBaseFramePage((page) => Math.max(0, page - 1))}
                                                     disabled={safeBaseFramePage === 0 || filteredBaseFrameCandidates.length === 0}
-                                                    className="inline-flex w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                                    className="inline-flex w-9 items-center justify-center text-[#3c4043] transition-colors hover:bg-[#f8fafd] disabled:cursor-not-allowed disabled:opacity-40"
                                                 >
                                                     <ChevronLeft className="h-4 w-4" />
                                                 </button>
-                                                <span className="inline-flex min-w-[76px] items-center justify-center border-x border-slate-300 px-2 text-[11px] font-black text-slate-700">
+                                                <span className="inline-flex min-w-[76px] items-center justify-center border-x border-[#dadce0] px-2 text-[11px] font-medium tabular-nums text-[#3c4043]">
                                                     {safeBaseFramePage + 1} / {baseFramePageCount}
                                                 </span>
                                                 <button
@@ -2437,7 +2438,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                                     aria-label="Next frame page"
                                                     onClick={() => setBaseFramePage((page) => Math.min(baseFramePageCount - 1, page + 1))}
                                                     disabled={safeBaseFramePage >= baseFramePageCount - 1 || filteredBaseFrameCandidates.length === 0}
-                                                    className="inline-flex w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                                    className="inline-flex w-9 items-center justify-center text-[#3c4043] transition-colors hover:bg-[#f8fafd] disabled:cursor-not-allowed disabled:opacity-40"
                                                 >
                                                     <ChevronRight className="h-4 w-4" />
                                                 </button>
@@ -2448,21 +2449,21 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
                                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
                                     {baseFrameLoading ? (
-                                        <div className="flex min-h-[360px] items-center justify-center gap-3 text-sm font-black text-slate-800">
-                                            <Loader2 className="h-5 w-5 animate-spin text-cyan-600" />
+                                        <div className="flex min-h-[360px] items-center justify-center gap-3 text-sm font-medium text-[#3c4043]">
+                                            <Loader2 className="h-5 w-5 animate-spin text-[#1a73e8]" />
                                             Loading replay frames
                                         </div>
                                     ) : baseFrameCandidates.length === 0 ? (
                                         <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
-                                            <ImageIcon className="mb-3 h-9 w-9 text-slate-400" />
-                                            <p className="text-sm font-black text-slate-900">No replay frames found</p>
-                                            <p className="mt-1 text-xs font-semibold text-slate-500">{baseFrameError || 'Try another version or time range.'}</p>
+                                            <ImageIcon className="mb-3 h-9 w-9 text-[#9aa0a6]" />
+                                            <p className="text-sm font-medium text-[#202124]">No replay frames found</p>
+                                            <p className="mt-1 text-xs text-[#5f6368]">{baseFrameError || 'Try another version or time range.'}</p>
                                         </div>
                                     ) : visibleBaseFrameCandidates.length === 0 ? (
                                         <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
-                                            <ImageIcon className="mb-3 h-9 w-9 text-slate-400" />
-                                            <p className="text-sm font-black text-slate-900">No frames in this session</p>
-                                            <p className="mt-1 text-xs font-semibold text-slate-500">Choose another session from the menu.</p>
+                                            <ImageIcon className="mb-3 h-9 w-9 text-[#9aa0a6]" />
+                                            <p className="text-sm font-medium text-[#202124]">No frames in this session</p>
+                                            <p className="mt-1 text-xs text-[#5f6368]">Choose another session from the menu.</p>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
@@ -2475,21 +2476,21 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                                         type="button"
                                                         aria-pressed={selected}
                                                         onClick={() => setSelectedBaseFrameId(candidate.id)}
-                                                        className={`min-w-0 overflow-hidden rounded-md border-2 bg-white text-left transition ${selected ? 'border-cyan-500 shadow-neo-sm' : 'border-slate-200 hover:border-slate-950'}`}
+                                                        className={`min-w-0 overflow-hidden rounded-none border bg-white text-left transition-colors ${selected ? 'border-[#1a73e8] ring-1 ring-[#1a73e8]' : 'border-[#dadce0] hover:border-[#bdc1c6]'}`}
                                                     >
-                                                        <div className={`relative overflow-hidden bg-slate-100 ${candidateIsWeb ? 'aspect-video' : 'aspect-[9/16]'}`}>
+                                                        <div className={`relative overflow-hidden bg-[#f1f3f4] ${candidateIsWeb ? 'aspect-video' : 'aspect-[9/16]'}`}>
                                                             <FrameCandidateImage url={candidate.url} alt={`Frame ${candidate.frameIndex + 1}`} selected={selected} fit="contain" />
                                                             {selected && (
-                                                                <span className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-cyan-500 text-white">
+                                                                <span className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-[#1a73e8] text-white">
                                                                     <Check className="h-3.5 w-3.5" />
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="flex items-center justify-between gap-2 px-2 py-2 text-[11px] font-bold text-slate-600">
+                                                        <div className="flex items-center justify-between gap-2 px-2 py-2 text-[11px] font-medium text-[#3c4043]">
                                                             <span className="tabular-nums">{formatFrameOffset(candidate.relativeSeconds)}</span>
                                                             <span className="truncate">Frame {candidate.frameIndex + 1}</span>
                                                         </div>
-                                                        <div className="border-t border-slate-100 px-2 pb-2 text-[10px] font-semibold text-slate-400">
+                                                        <div className="border-t border-[#e8eaed] px-2 pb-2 pt-1 font-mono text-[10px] text-[#80868b]">
                                                             {shortSessionId(candidate.sessionId)}
                                                         </div>
                                                     </button>
@@ -2501,8 +2502,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             </section>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-black px-4 py-3">
-                            <div className="min-w-0 max-w-full truncate text-xs font-semibold text-slate-500">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8eaed] px-4 py-3">
+                            <div className="min-w-0 max-w-full truncate text-xs text-[#5f6368]">
                                 {selectedBaseFrame
                                     ? `${selectedBaseFrame.sessionId} at ${formatFrameOffset(selectedBaseFrame.relativeSeconds)}`
                                     : activeBaseTemplate
@@ -2515,7 +2516,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                         type="button"
                                         onClick={handleResetBaseFrame}
                                         disabled={baseFrameSaving}
-                                        className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 transition hover:border-rose-400 hover:text-rose-700 disabled:opacity-60"
+                                        className={dashboardButtonClass('secondary', 'md')}
                                     >
                                         <RotateCcw className="h-4 w-4" />
                                         Reset
@@ -2525,7 +2526,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                     type="button"
                                     onClick={handleSaveBaseFrame}
                                     disabled={!selectedBaseFrame || baseFrameSaving || baseFrameLoading}
-                                    className="inline-flex h-9 items-center gap-2 rounded-md border-2 border-black bg-cyan-400 px-4 text-xs font-black text-slate-950 shadow-neo-sm transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className={dashboardButtonClass('primary', 'md')}
                                 >
                                     {baseFrameSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                                     Save

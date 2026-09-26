@@ -41,7 +41,7 @@ export const DOCS_MAP: Record<string, { file: string; title: string; category?: 
     'unity/overview': {
         file: 'unity/getting-started.md',
         title: 'Unity SDK', category: 'Unity',
-        description: 'Unity mobile game replay, privacy masking, HTTP instrumentation, errors and performance context for iOS and Android.',
+        description: 'Unity mobile game replay with privacy masking, performance monitoring, gameplay markers, errors and crashes, and automatic HTTP timing for iOS and Android.',
         keywords: ['Unity session replay', 'Unity mobile observability', 'Unity analytics SDK']
     },
     'flutter/overview': {

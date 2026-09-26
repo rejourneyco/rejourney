@@ -166,12 +166,12 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
 
     // Neo-brutalist color scheme
     const getRetentionColor = (pct: number, weekIdx: number) => {
-        if (weekIdx === 0) return 'bg-slate-800 text-white'; // Week 0 always dark
-        if (pct >= 50) return 'bg-emerald-500 text-white';
-        if (pct >= 35) return 'bg-emerald-300 text-black';
-        if (pct >= 20) return 'bg-sky-400 text-black';
-        if (pct >= 10) return 'bg-pink-400 text-black';
-        return 'bg-rose-500 text-white';
+        if (weekIdx === 0) return 'bg-[#1a73e8] text-white'; // Week 0 is the full cohort
+        if (pct >= 50) return 'bg-[#1967d2] text-white';
+        if (pct >= 35) return 'bg-[#4285f4] text-white';
+        if (pct >= 20) return 'bg-[#8ab4f8] text-[#202124]';
+        if (pct >= 10) return 'bg-[#d2e3fc] text-[#1967d2]';
+        return 'bg-[#e8f0fe] text-[#1967d2]';
     };
 
     const formatWeek = (dateStr: string) => {
@@ -181,12 +181,12 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
 
     if (cohorts.length === 0) {
         return (
-            <div className="min-h-[200px] flex items-center justify-center bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="min-h-[200px] flex items-center justify-center rounded-none border border-[#dadce0] bg-[#f8fafd]">
                 <div className="text-center">
-                    <div className="text-lg font-black font-mono uppercase text-slate-400 mb-2">
-                        NO COHORT DATA
+                    <div className="mb-2 text-base font-medium text-[#202124]">
+                        No cohort data
                     </div>
-                    <div className="text-sm font-mono text-slate-500">
+                    <div className="text-sm text-[#5f6368]">
                         Need at least 2 weeks of data
                     </div>
                 </div>
@@ -197,27 +197,27 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
     // Show last 5 cohorts
     const displayCohorts = cohorts.slice(-5);
     const weekHeaders = Array.from({ length: maxWeeks }, (_, i) =>
-        i === 0 ? 'START' : `WK ${i}`
+        i === 0 ? 'Start' : `Wk ${i}`
     );
 
     return (
         <div className="space-y-6">
             {/* Version Release Banner */}
             {versionReleases.length > 0 && (
-                <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
-                    <div className="text-xs font-black font-mono uppercase tracking-widest text-black mb-3">
-                        VERSION RELEASES
+                <div className="rounded-none border border-[#d2e3fc] bg-[#e8f0fe] p-4">
+                    <div className="mb-3 text-xs font-medium text-[#1967d2]">
+                        Version releases
                     </div>
                     <div className="flex flex-wrap gap-3">
                         {versionReleases.slice(0, 4).map((v) => (
                             <div
                                 key={v.version}
-                                className="flex items-center gap-2 px-3 py-2 bg-white border border-blue-200 rounded shadow-sm"
+                                className="flex items-center gap-2 rounded-none border border-[#d2e3fc] bg-white px-3 py-2"
                             >
-                                <span className="text-sm font-black font-mono text-blue-600">
+                                <span className="text-sm font-medium tabular-nums text-[#1967d2]">
                                     v{v.version}
                                 </span>
-                                <span className="text-xs font-mono text-slate-600">
+                                <span className="text-xs text-[#5f6368]">
                                     {formatWeek(v.week)}
                                 </span>
                             </div>
@@ -226,30 +226,30 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
                 </div>
             )}
 
-            <div className="overflow-x-auto border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg bg-white">
-                <table className="w-full border-collapse font-mono">
+            <div className="overflow-x-auto rounded-none border border-[#dadce0] bg-white">
+                <table className="w-full border-collapse tabular-nums">
                     <thead>
-                        <tr className="bg-slate-50 border-b-2 border-black">
-                            <th className="p-3 text-left font-black text-black uppercase text-xs tracking-wider border-r-2 border-black">
-                                COHORT
+                        <tr className="border-b border-[#e8eaed] bg-[#f8fafd]">
+                            <th className="border-r border-[#e8eaed] p-3 text-left text-xs font-medium text-[#5f6368]">
+                                Cohort
                             </th>
-                            <th className="p-3 text-center font-black text-black uppercase text-xs tracking-wider border-r-2 border-black">
-                                USERS
+                            <th className="border-r border-[#e8eaed] p-3 text-center text-xs font-medium text-[#5f6368]">
+                                Users
                             </th>
                             {dailyHealth && (
                                 <>
-                                    <th className="p-3 text-center font-black uppercase text-xs tracking-wider text-rose-600 border-r-2 border-black bg-rose-50">
-                                        RAGE
+                                    <th className="border-r border-[#e8eaed] p-3 text-center text-xs font-medium text-[#5f6368]">
+                                        Rage
                                     </th>
-                                    <th className="p-3 text-center font-black uppercase text-xs tracking-wider text-purple-600 border-r-2 border-black bg-purple-50">
-                                        CRASH
+                                    <th className="border-r border-[#e8eaed] p-3 text-center text-xs font-medium text-[#5f6368]">
+                                        Crash
                                     </th>
                                 </>
                             )}
                             {weekHeaders.map((wk, i) => (
                                 <th
                                     key={i}
-                                    className="p-3 text-center font-black text-black uppercase text-xs tracking-wider min-w-[60px]"
+                                    className="min-w-[60px] p-3 text-center text-xs font-medium text-[#5f6368]"
                                 >
                                     {wk}
                                 </th>
@@ -261,28 +261,28 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
                             const releasedVersion = versionReleases.find(v => v.week === cohort.cohortWeek);
 
                             return (
-                                <tr key={cohort.cohortWeek} className="border-b border-slate-100 hover:bg-slate-50/50">
-                                    <td className="p-3 font-medium text-slate-900 whitespace-nowrap">
+                                <tr key={cohort.cohortWeek} className="border-b border-[#e8eaed] hover:bg-[#f8fafd]">
+                                    <td className="whitespace-nowrap p-3 font-medium text-[#202124]">
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm">{formatWeek(cohort.cohortWeek)}</span>
                                             {releasedVersion && (
-                                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded">
+                                                <span className="rounded-none bg-[#e8f0fe] px-2 py-0.5 text-[11px] font-medium text-[#1967d2]">
                                                     v{releasedVersion.version}
                                                 </span>
                                             )}
                                         </div>
                                     </td>
-                                    <td className="p-3 text-center font-bold text-slate-800">
+                                    <td className="p-3 text-center font-medium text-[#202124]">
                                         {cohort.cohortSize.toLocaleString()}
                                     </td>
                                     {dailyHealth && (
                                         <>
-                                            <td className="p-2 text-center text-xs font-mono bg-rose-50/50 text-rose-600 font-bold">
+                                            <td className="p-2 text-center text-xs font-medium text-[#c5221f]">
                                                 {cohort.healthStats && cohort.healthStats.total > 0
                                                     ? `${Math.round((cohort.healthStats.rage / cohort.healthStats.total) * 100)}%`
                                                     : '-'}
                                             </td>
-                                            <td className="p-2 text-center text-xs font-mono bg-purple-50/50 text-purple-600 font-bold">
+                                            <td className="p-2 text-center text-xs font-medium text-[#8430ce]">
                                                 {cohort.healthStats && cohort.healthStats.total > 0
                                                     ? `${Math.round((cohort.healthStats.crash / cohort.healthStats.total) * 100)}%`
                                                     : '-'}
@@ -294,13 +294,13 @@ export const RetentionCohortChart: React.FC<RetentionCohortChartProps> = ({ dail
                                         if (retentionValue === undefined) {
                                             return (
                                                 <td key={weekIdx} className="p-2">
-                                                    <div className="w-full h-8 bg-slate-100" />
+                                                    <div className="h-8 w-full bg-[#f1f3f4]" />
                                                 </td>
                                             );
                                         }
                                         return (
                                             <td key={weekIdx} className="p-2">
-                                                <div className={`p-2 text-center font-bold text-sm rounded ${getRetentionColor(retentionValue, weekIdx)}`}>
+                                                <div className={`rounded-none p-2 text-center text-sm font-medium ${getRetentionColor(retentionValue, weekIdx)}`}>
                                                     {retentionValue}%
                                                 </div>
                                             </td>

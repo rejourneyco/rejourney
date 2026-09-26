@@ -49,23 +49,23 @@ export default function GuidesIndexPage() {
     };
 
     return (
-        <div className="public-readable-scope flex min-h-screen flex-col bg-[#fdfbf7] text-slate-950">
+        <div className="public-readable-scope flex min-h-screen flex-col bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }}
             />
             <Header />
             <main className="flex-grow">
-                <section className="border-b border-black/10 px-5 pb-16 pt-24 sm:px-6 sm:pb-20 sm:pt-28 lg:px-8">
+                <section className="border-b border-[#dadce0] px-5 pb-16 pt-24 sm:px-6 sm:pb-20 sm:pt-28 lg:px-8">
                     <div className="mx-auto max-w-6xl">
                         <div className="max-w-3xl">
-                            <p className="mb-5 text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
+                            <p className="mb-5 text-xs font-semibold uppercase tracking-[0.16em] text-[#1a73e8]">
                                 Rejourney guides
                             </p>
-                            <h1 className="text-balance font-display text-5xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">
+                            <h1 className="text-balance font-display text-5xl font-black leading-[0.98] tracking-[-0.045em] text-[#202124] sm:text-6xl lg:text-7xl">
                                 Clear answers for better product decisions.
                             </h1>
-                            <p className="mt-7 max-w-2xl text-lg font-medium leading-8 text-slate-600 sm:text-xl">
+                            <p className="mt-7 max-w-2xl text-lg font-medium leading-8 text-[#5f6368] sm:text-xl">
                                 Practical playbooks for understanding behavior, diagnosing conversion friction, and connecting product metrics to the sessions behind them.
                             </p>
                         </div>
@@ -80,7 +80,7 @@ export default function GuidesIndexPage() {
                                 to={getArticlePath(article)}
                                 className="group flex min-w-0 flex-col"
                             >
-                                <div className="aspect-[1.55/1] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
+                                <div className="aspect-[1.55/1] overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm transition duration-200 group-hover:shadow-md">
                                     <img
                                         src={article.image}
                                         alt={article.imageAlt ?? article.title}
@@ -88,24 +88,24 @@ export default function GuidesIndexPage() {
                                         height={774}
                                         loading={index < 3 ? "eager" : "lazy"}
                                         decoding="async"
-                                        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
+                                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.015]"
                                     />
                                 </div>
-                                <div className="mt-5 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
-                                    <span className="rounded-full border border-emerald-900/10 bg-emerald-50 px-3 py-1 text-emerald-800">
+                                <div className="mt-5 flex flex-wrap items-center gap-2 text-xs font-medium text-[#5f6368]">
+                                    <span className="rounded-none border border-[#ceead6] bg-[#e6f4ea] px-2.5 py-0.5 text-[#137333]">
                                         Guide
                                     </span>
                                     <span>{article.date}</span>
                                     <span aria-hidden>·</span>
                                     <span>{article.readTime}</span>
                                 </div>
-                                <h2 className="mt-4 text-balance text-2xl font-black leading-tight tracking-[-0.025em] text-slate-950 group-hover:underline group-hover:decoration-emerald-300 group-hover:underline-offset-4">
+                                <h2 className="mt-4 text-balance text-2xl font-black leading-tight tracking-[-0.025em] text-[#202124] group-hover:underline group-hover:decoration-[#1a73e8] group-hover:underline-offset-4">
                                     {article.title}
                                 </h2>
-                                <p className="mt-3 line-clamp-3 text-base font-medium leading-7 text-slate-600">
+                                <p className="mt-3 line-clamp-3 text-base font-normal leading-7 text-[#5f6368]">
                                     {article.subtitle}
                                 </p>
-                                <span className="mt-5 inline-flex items-center gap-2 text-sm font-black text-slate-950">
+                                <span className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#1a73e8]">
                                     Read guide
                                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" aria-hidden />
                                 </span>

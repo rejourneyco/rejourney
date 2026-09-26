@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /api/
 
 # AI search and answer engines may crawl public marketing, docs, pricing, and engineering pages.
 # This keeps answer surfaces pointed at canonical public documentation instead of third-party mirrors.

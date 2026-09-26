@@ -125,6 +125,13 @@ export async function loader() {
         })
     ));
 
+    const docsIndexRoutes: SitemapRoute[] = [{
+        path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/docs"),
+        priority: "0.9",
+        changefreq: "weekly",
+        alternates: getLocalizedAlternateLinksForPath("/docs"),
+    }];
+
     const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, `/docs/${slug}`),
         priority: slug === "web/getting-started" ? "0.9" : slug === "reactnative/overview" ? "0.85" : slug === "swift/overview" ? "0.8" : "0.6",
@@ -144,6 +151,34 @@ export async function loader() {
         priority: "0.85",
         changefreq: "weekly",
     }];
+
+    const legalRoutes: SitemapRoute[] = [
+        {
+            path: "/terms-of-service",
+            priority: "0.5",
+            changefreq: "monthly",
+        },
+        {
+            path: "/privacy-policy",
+            priority: "0.5",
+            changefreq: "monthly",
+        },
+        {
+            path: "/dpa",
+            priority: "0.5",
+            changefreq: "monthly",
+        },
+        {
+            path: "/attributions",
+            priority: "0.5",
+            changefreq: "monthly",
+        },
+        {
+            path: "/ai/responsibleusage",
+            priority: "0.5",
+            changefreq: "monthly",
+        },
+    ];
 
     const engineeringRoutes: SitemapRoute[] = ENGINEERING_ARTICLES.map(article => ({
         path: getLocalizedPublicPath(MARKETING_LOCALES.en, getArticlePath(article)),
@@ -169,7 +204,7 @@ export async function loader() {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...seoRoutes, ...localizedSeoRoutes, ...docRoutes, ...engineeringIndexRoutes, ...guideIndexRoutes, ...engineeringRoutes, ...guideRoutes].map(route => `
+${[...marketingRoutes, ...roadmapRoutes, ...pricingRoutes, ...productRoutes, ...seoRoutes, ...localizedSeoRoutes, ...docsIndexRoutes, ...docRoutes, ...engineeringIndexRoutes, ...guideIndexRoutes, ...legalRoutes, ...engineeringRoutes, ...guideRoutes].map(route => `
   <url>
     <loc>${escapeXml(`${baseUrl}${route.path}`)}</loc>
     <lastmod>${"lastmod" in route && route.lastmod ? route.lastmod : lastModified}</lastmod>

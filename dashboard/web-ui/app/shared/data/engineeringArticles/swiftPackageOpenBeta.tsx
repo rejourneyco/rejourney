@@ -466,7 +466,7 @@ export const swiftPackageOpenBetaArticle: Article = {
         url: "https://www.linkedin.com/in/mohammad-rashid7337/",
         github: "https://github.com/Mohammad-R-Rashid",
     },
-    image: "https://rejourney.co/assets/engineering/swift-package-open-beta.png",
+    image: "/images/readme/session-replay-workbench.png",
     schema: swiftPackageBetaArticleSchema,
     content: <SwiftPackageBetaArticleContent />,
 };

@@ -20,10 +20,10 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   <Modal
     isOpen={isOpen}
     onClose={onClose}
-    title="Create Project"
+    title="Create project"
     size="lg"
     variant="modern"
-    bodyClassName="p-6"
+    bodyClassName="p-5 sm:p-6"
   >
     <CreateProjectForm
       currentTeam={currentTeam}

@@ -88,7 +88,7 @@ export const meta: Route.MetaFunction = () => {
 
 export default function LandingPage() {
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-[#fdfbf7] text-slate-900 overflow-x-hidden" lang={homeLocale.languageTag} dir={homeLocale.dir}>
+        <div className="public-readable-scope min-h-screen w-full bg-[var(--dashboard-canvas,#f8fafd)] text-slate-900 overflow-x-hidden" lang={homeLocale.languageTag} dir={homeLocale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

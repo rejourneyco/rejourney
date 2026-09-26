@@ -135,19 +135,18 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
                     y={textY - 8}
                     width={textWidth + 6}
                     height={10}
-                    rx={2}
+                    rx={0}
                     fill="#ffffff"
                     fillOpacity={0.9}
-                    stroke="#000"
+                    stroke="#5f6368"
                     strokeWidth={0.8}
                 />
                 <text
                     x={textX}
                     y={textY}
-                    fill="#000"
+                    fill="#3c4043"
                     fontSize={9}
-                    fontWeight={700}
-                    fontFamily="monospace"
+                    fontWeight={500}
                 >
                     {text}
                 </text>
@@ -156,31 +155,31 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
     };
 
     return (
-        <NeoCard title="User Type Trends" className={`border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] ${className}`}>
+        <NeoCard title="User type trends" className={className}>
             {/* Legend */}
-            <div className="flex items-center gap-4 mb-6 px-2 flex-wrap bg-slate-50 p-3 border-2 border-slate-100 rounded-lg">
-                <span className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                    SEGMENTS:
+            <div className="mb-6 flex flex-wrap items-center gap-4 rounded-none border border-[#e8eaed] bg-[#f8fafd] p-3">
+                <span className="flex items-center gap-2 text-xs font-medium text-[#5f6368]">
+                    Segments:
                 </span>
-                <span className="flex items-center gap-2 text-xs font-bold font-mono">
-                    <span className="w-3 h-3 bg-emerald-500 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></span> LOYALISTS
+                <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
+                    <span className="h-3 w-3 bg-[#188038]"></span> Loyalists
                 </span>
-                <span className="flex items-center gap-2 text-xs font-bold font-mono">
-                    <span className="w-3 h-3 bg-blue-500 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></span> EXPLORERS
+                <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
+                    <span className="h-3 w-3 bg-[#1a73e8]"></span> Explorers
                 </span>
-                <span className="flex items-center gap-2 text-xs font-bold font-mono">
-                    <span className="w-3 h-3 bg-rose-400 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></span> CASUALS
+                <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
+                    <span className="h-3 w-3 bg-[#e37400]"></span> Casuals
                 </span>
-                <span className="flex items-center gap-2 text-xs font-bold font-mono">
-                    <span className="w-3 h-3 bg-red-500 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></span> BOUNCERS
+                <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
+                    <span className="h-3 w-3 bg-[#d93025]"></span> Bouncers
                 </span>
 
                 {/* Version markers legend */}
                 {versionMarkersOnChart.length > 0 && (
                     <>
-                        <div className="w-px h-4 bg-slate-300 mx-2" />
-                        <span className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                            <Tag className="w-3 h-3" /> VERSION RELEASES
+                        <div className="mx-2 h-4 w-px bg-[#dadce0]" />
+                        <span className="flex items-center gap-2 text-xs font-medium text-[#5f6368]">
+                            <Tag className="h-3 w-3" /> Version releases
                         </span>
                     </>
                 )}
@@ -189,32 +188,30 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
             <div className="w-full h-[300px] relative">
                 {isLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-slate-900" />
+                        <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-[#1a73e8]" />
                     </div>
                 )}
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 45, right: 30, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#cbd5e1" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8eaed" />
                         <XAxis
                             dataKey="date"
                             axisLine={false}
                             tickLine={false}
-                            tick={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700 }}
+                            tick={{ fontSize: 11, fill: '#5f6368' }}
                             dy={10}
                         />
                         <YAxis
-                            axisLine={{ stroke: '#000', strokeWidth: 2 }}
-                            tickLine={{ stroke: '#000', strokeWidth: 2 }}
-                            tick={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, fill: '#000' }}
+                            axisLine={{ stroke: '#dadce0', strokeWidth: 1 }}
+                            tickLine={{ stroke: '#dadce0', strokeWidth: 1 }}
+                            tick={{ fontSize: 11, fill: '#5f6368' }}
                         />
                         <Tooltip
                             contentStyle={{
-                                border: '3px solid #000',
-                                boxShadow: '6px 6px 0 0 #000',
+                                border: '1px solid #dadce0',
+                                boxShadow: 'none',
                                 borderRadius: '0px',
-                                fontFamily: 'monospace',
-                                fontWeight: 'bold',
-                                textTransform: 'uppercase'
+                                fontVariantNumeric: 'tabular-nums',
                             }}
                             itemStyle={{
                                 fontSize: '12px'
@@ -226,24 +223,23 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
                             <ReferenceLine
                                 key={release.version}
                                 x={release.date}
-                                stroke="#000"
-                                strokeWidth={2}
+                                stroke="#5f6368"
+                                strokeWidth={1.5}
                                 strokeDasharray="4 4"
                                 label={buildReleaseLineLabel(release.version, index)}
                             />
                         ))}
 
-                        <Area type="monotone" dataKey="bouncers" stackId="1" stroke="#ef4444" fill="#ef4444" name="Bouncers (<10s)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="casuals" stackId="1" stroke="#f9a8d4" fill="#f9a8d4" name="Casuals (10-60s)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="explorers" stackId="1" stroke="#3b82f6" fill="#3b82f6" name="Explorers (Active)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="loyalists" stackId="1" stroke="#10b981" fill="#10b981" name="Loyalists (>3m)" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="bouncers" stackId="1" stroke="#d93025" fill="#d93025" name="Bouncers (<10s)" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="casuals" stackId="1" stroke="#e37400" fill="#e37400" name="Casuals (10-60s)" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="explorers" stackId="1" stroke="#1a73e8" fill="#1a73e8" name="Explorers (active)" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="loyalists" stackId="1" stroke="#188038" fill="#188038" name="Loyalists (>3m)" isAnimationActive={false} />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
 
             {/* Explanation */}
-            <div className="mt-6 flex items-start gap-2 text-xs font-bold text-slate-400 uppercase tracking-wide">
-                <div className="min-w-[4px] h-[4px] mt-1.5 bg-black rounded-full"></div>
+            <div className="mt-6 flex items-start gap-2 text-xs text-[#5f6368]">
                 Unique users per day by engagement level. Version markers show when new app versions were first detected.
             </div>
         </NeoCard>

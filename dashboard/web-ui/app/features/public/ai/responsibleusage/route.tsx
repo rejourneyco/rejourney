@@ -11,23 +11,25 @@ export const meta: Route.MetaFunction = () => [
         name: "description",
         content: "How Rejourney uses AI coding assistants with security-focused guidance and CI safeguards.",
     },
+    { name: "robots", content: "index, follow" },
     { property: "og:title", content: "Responsible AI Usage - Rejourney" },
     { property: "og:url", content: "https://rejourney.co/ai/responsibleusage" },
+    { tagName: "link", rel: "canonical", href: "https://rejourney.co/ai/responsibleusage" },
 ];
 
 export default function ResponsibleAiUsage() {
     return (
-        <div className="public-readable-scope min-h-screen bg-background">
+        <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
             <Header />
             <main className="container mx-auto max-w-3xl px-6 py-16">
-                <h1 className="mb-4 text-4xl font-bold">Responsible AI Usage</h1>
-                <div className="rounded-lg border border-input bg-muted/30 p-8 text-sm leading-relaxed">
+                <h1 className="mb-4 text-4xl font-extrabold tracking-tight text-[#202124]">Responsible AI Usage</h1>
+                <div className="rounded-none border border-[#dadce0] bg-white p-8 text-sm leading-relaxed text-[#3c4043] shadow-sm">
                     <p>
                         <a
                             href={OPENSSF_AI_GUIDE_URL}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary hover:underline"
+                            className="text-[#1a73e8] hover:underline"
                         >
                             OpenSSF Security-Focused Guide for AI Code Assistant Instructions
                         </a>

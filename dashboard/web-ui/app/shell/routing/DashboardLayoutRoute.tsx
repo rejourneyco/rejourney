@@ -13,19 +13,19 @@ import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { SessionDataProvider, useSessionData } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
-import { SETUP_GATE_TOAST, isSetupSupportRoute, isSetupWizardRoute, shouldRedirectFromSetup, shouldSurfaceSetup } from "~/features/app/setup/setupUtils";
+import { SETUP_GATE_TOAST, isSetupSupportRoute, isSetupWizardRoute, shouldRedirectFromSetup, shouldRedirectToSetup } from "~/features/app/setup/setupUtils";
 import type { Project } from "~/shared/types";
-import { readCookieValue } from "~/shared/utils/selectionCookies";
 import { ErrorBoundary as ClientErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
+import { dashboardButtonClass } from "~/shared/ui/core/dashboardStyles";
 import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
 import { useToast } from "~/shared/providers/ToastContext";
 import { TeamProvider } from "~/shared/providers/TeamContext";
 import { isHostedOnlyIssueDetectionPath } from "~/shared/config/issueDetectionAccess";
 
 export const meta: Route.MetaFunction = () => [
-    // Authenticated app; crawlers without a session get redirected to /login.
-    { name: "robots", content: "index, follow" },
+    // Authenticated app shell; should never be indexed by search engines.
+    { name: "robots", content: "noindex, nofollow" },
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -57,12 +57,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         if (isSetupWizardPage && shouldRedirectFromSetup(selectedProject as unknown as Project)) {
             throw redirect("/dashboard/general");
         }
-        if (!isSetupPage) {
-            const cookieHeader = request.headers.get("cookie");
-            const isBypassed = selectedProject && readCookieValue(cookieHeader, `bypass_setup_${selectedProject.id}`) === "true";
-            if (!isBypassed && shouldSurfaceSetup(bootstrap.projects as unknown as Project[], selectedProject as unknown as Project)) {
-                throw redirect("/dashboard/setup");
-            }
+        if (!isSetupPage && shouldRedirectToSetup(bootstrap.projects as unknown as Project[])) {
+            throw redirect("/dashboard/setup");
         }
         return bootstrap;
     }
@@ -99,10 +95,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
     if (isLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-background">
+            <div className="min-h-screen flex items-center justify-center bg-[#f8fafd]">
                 <div className="text-center">
-                    <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <div className="text-sm text-muted-foreground font-mono uppercase">Loading...</div>
+                    <div className="w-8 h-8 border-2 border-[#1a73e8] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <div className="text-sm text-[#5f6368]">Loading...</div>
                 </div>
             </div>
         );
@@ -126,21 +122,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function DashboardLayoutContent() {
-    const { projects, selectedProject, isLoading } = useSessionData();
+    const { projects, isLoading } = useSessionData();
     const navigate = useNavigate();
     const location = useLocation();
     const { showToast } = useToast();
 
     useEffect(() => {
-        if (!isLoading) {
-            const isSetupPage = isSetupSupportRoute(location.pathname);
-            const isBypassed = selectedProject && typeof document !== "undefined" && document.cookie.includes(`bypass_setup_${selectedProject.id}=true`);
-            if (!isBypassed && shouldSurfaceSetup(projects, selectedProject) && !isSetupPage) {
-                showToast(SETUP_GATE_TOAST);
-                navigate("/dashboard/setup", { replace: true });
-            }
+        if (!isLoading && !isSetupSupportRoute(location.pathname) && shouldRedirectToSetup(projects)) {
+            showToast(SETUP_GATE_TOAST);
+            navigate("/dashboard/setup", { replace: true });
         }
-    }, [isLoading, projects, selectedProject, location.pathname, navigate, showToast]);
+    }, [isLoading, projects, location.pathname, navigate, showToast]);
 
     return (
         <ProjectLayout pathPrefix="/dashboard">
@@ -186,7 +178,10 @@ export function ErrorBoundary() {
     if (isRouteErrorResponse(error) && error.status === 503) {
         return (
             <AuthServiceUnavailable
-                detail="The dashboard API is temporarily unavailable. Our team has been notified. If this issue remains past a few minutes, email contact@rejourney.co for 24/7 support."
+                label="Service unavailable"
+                title="Dashboard temporarily unavailable"
+                message="Rejourney can't reach the dashboard API right now. This usually clears within seconds."
+                detail="Our team has been notified. If this issue remains past a few minutes, email contact@rejourney.co for 24/7 support."
                 onRetry={() => {
                     if (typeof window !== 'undefined') {
                         window.location.reload();
@@ -203,16 +198,16 @@ export function ErrorBoundary() {
             : "An unexpected dashboard error occurred.";
 
     return (
-        <main className="min-h-screen flex items-center justify-center bg-background p-4">
-            <div className="max-w-md border-2 border-red-500 bg-red-50 p-6 text-center">
-                <h1 className="mb-3 text-xl font-black uppercase text-red-800">Dashboard error</h1>
-                <p className="mb-5 text-sm font-semibold text-red-700">{message}</p>
+        <main className="min-h-screen flex items-center justify-center bg-[#f8fafd] p-4">
+            <div className="w-full max-w-md rounded-none border border-[#dadce0] bg-white p-6 text-center shadow-[0_1px_3px_rgba(60,64,67,0.12)]">
+                <h1 className="mb-2 text-xl font-normal text-[#202124]">Dashboard error</h1>
+                <p className="mb-5 text-sm text-[#5f6368]">{message}</p>
                 <button
                     type="button"
                     onClick={() => {
                         if (typeof window !== 'undefined') window.location.reload();
                     }}
-                    className="px-4 py-2 bg-red-600 text-white font-bold uppercase hover:bg-red-700"
+                    className={dashboardButtonClass('primary')}
                 >
                     Reload
                 </button>

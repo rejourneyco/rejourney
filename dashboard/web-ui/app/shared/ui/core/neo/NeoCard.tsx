@@ -9,6 +9,7 @@ interface NeoCardProps extends React.HTMLAttributes<HTMLDivElement> {
     disablePadding?: boolean;
 }
 
+// The name is historical; every variant renders the dashboard's flat 8px card.
 export const NeoCard: React.FC<NeoCardProps> = ({
     children,
     className = '',
@@ -18,17 +19,12 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    const baseStyles = "dashboard-panel transition-all duration-200 bg-white border-2 border-black relative";
-    const variants = {
-        default: "shadow-neo-sm hover:shadow-neo hover:-translate-y-1 transition-all rounded-none",
-        flat: "shadow-none rounded-none",
-        monitor: "dashboard-panel-strong p-6 relative bg-slate-900 border-4 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] rounded-none"
-    };
+    const baseStyles = "dashboard-panel relative rounded-none border border-[#dadce0] bg-white";
 
     if (variant === 'monitor') {
         return (
-            <div className={`${baseStyles} ${variants.monitor} ${className}`} {...props}>
-                <div className="bg-slate-50 border-2 border-black h-full relative overflow-hidden shadow-inner p-1">
+            <div className={`${baseStyles} p-4 ${className}`} {...props}>
+                <div className="relative h-full overflow-hidden rounded-none border border-[#e8eaed] bg-[#f8fafd] p-1">
                     {children}
                 </div>
             </div>
@@ -36,11 +32,11 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     }
 
     return (
-        <div className={`${baseStyles} ${variants[variant]} ${disablePadding ? '' : 'p-6'} ${className}`} {...props}>
+        <div className={`${baseStyles} ${disablePadding ? '' : 'p-6'} ${className}`} {...props}>
             {(title || action) && (
-                <div className={`flex justify-between items-center ${disablePadding ? 'p-6 pb-4' : 'mb-6 pb-4'} border-b-2 border-black`}>
+                <div className={`flex justify-between items-center ${disablePadding ? 'p-6 pb-4' : 'mb-6 pb-4'} border-b border-[#e8eaed]`}>
                     {title && (
-                        <h3 className="text-sm font-black uppercase text-slate-800">{title}</h3>
+                        <h3 className="text-[15px] font-medium text-[#202124]">{title}</h3>
                     )}
                     {action && <div className="flex gap-2">{action}</div>}
                 </div>

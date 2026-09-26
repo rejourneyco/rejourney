@@ -30,6 +30,8 @@ export const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
     const isNetwork = type === 'network_request';
     const isError = type === 'error' || type === 'crash' || type === 'anr';
     const isFrustration = type === 'rage_tap' || type === 'dead_tap';
+    const typeWords = type.replace(/_/g, ' ');
+    const typeLabel = type === 'anr' ? 'ANR' : typeWords.charAt(0).toUpperCase() + typeWords.slice(1);
 
     // Near left/right edges, anchor the tooltip to that edge so a wide card does not spill into the
     // adjacent column (e.g. workbench sidebar) on narrow or split layouts.
@@ -50,31 +52,31 @@ export const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
                 transform,
             }}
         >
-            <div className="bg-slate-900 border-2 border-black rounded-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 min-w-0 w-max max-w-full flex flex-col gap-1.5 backdrop-blur-md">
+            <div className="flex w-max min-w-0 max-w-full flex-col gap-1 rounded-none bg-[#202124] px-2.5 py-2 shadow-[0_4px_16px_rgba(60,64,67,0.3)]">
                 {/* Header */}
                 <div className="flex items-center justify-between gap-3">
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${isError ? 'text-red-400' : isNetwork ? 'text-blue-400' : isFrustration ? 'text-pink-400' : 'text-slate-400'
+                    <span className={`text-[11px] font-medium ${isError ? 'text-[#f28b82]' : isNetwork ? 'text-[#8ab4f8]' : isFrustration ? 'text-[#fdd663]' : 'text-[#bdc1c6]'
                         }`}>
-                        {type.replace(/_/g, ' ')}
+                        {typeLabel}
                     </span>
-                    <span className="text-[10px] font-mono font-bold text-white/50">{timestamp}</span>
+                    <span className="text-[11px] tabular-nums text-[#9aa0a6]">{timestamp}</span>
                 </div>
 
                 {/* Content */}
                 <div className="flex flex-col gap-1">
-                    <div className="text-[13px] font-black text-white leading-tight break-words">
-                        {target || name || type}
+                    <div className="break-words text-[13px] font-medium leading-tight text-white">
+                        {target || name || typeLabel}
                     </div>
 
                     {isNetwork && (
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`px-1 py-0.5 text-[9px] font-black font-mono rounded-sm border ${success ? 'bg-emerald-500/10 text-emerald-400 border-emerald-400/20' : 'bg-red-500/10 text-red-400 border-red-400/20'
+                        <div className="mt-0.5 flex items-center gap-2">
+                            <span className={`rounded-none px-1.5 py-0.5 text-[11px] font-medium leading-4 tabular-nums ${success ? 'bg-[#81c995]/15 text-[#81c995]' : 'bg-[#f28b82]/15 text-[#f28b82]'
                                 }`}>
-                                {statusCode || 'ERR'}
+                                {statusCode || 'Error'}
                             </span>
                             {duration && (
-                                <span className="text-[9px] font-bold text-slate-400 font-mono">
-                                    {duration}ms
+                                <span className="text-[11px] tabular-nums text-[#9aa0a6]">
+                                    {duration} ms
                                 </span>
                             )}
                         </div>
@@ -83,11 +85,11 @@ export const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
 
                 {/* Pointer: keep the caret near the timeline marker when the card is left/right anchored */}
                 <div
-                    className={`absolute top-full -mt-[2px] ${
+                    className={`absolute top-full -mt-1 ${
                         align === 'start' ? 'left-4' : align === 'end' ? 'right-4' : 'left-1/2 -translate-x-1/2'
                     }`}
                 >
-                    <div className="w-2.5 h-2.5 bg-slate-900 border-r-2 border-b-2 border-black rotate-45" />
+                    <div className="h-2 w-2 rotate-45 bg-[#202124]" />
                 </div>
             </div>
         </div>

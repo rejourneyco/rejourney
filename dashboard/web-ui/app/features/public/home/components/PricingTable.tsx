@@ -79,31 +79,13 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
     return { price: 14900, plan: 'Enterprise', isCustom: true };
 };
 
-const getReplayAllowanceText = (planName: string, sessionLimit: number) => {
-    switch (planName) {
-        case 'free':
-            return <span><strong>5,000 session replays</strong> per month</span>;
-        case 'starter':
-            return <span><strong>25,000 session replays</strong> per month</span>;
-        case 'growth':
-            return <span><strong>100,000 session replays</strong> per month</span>;
-        case 'pro':
-            return <span><strong>350,000 session replays</strong> per month</span>;
-        case 'scale':
-            return <span><strong>1,000,000 session replays</strong> per month</span>;
-        case 'enterprise':
-            return <span><strong>Custom session replay</strong> allowance</span>;
-        default:
-            return <span><strong>{sessionLimit.toLocaleString()}</strong> session replays per month</span>;
-    }
-};
 
 const PlanCheck: React.FC<{ children: React.ReactNode; active?: boolean }> = ({ children, active = true }) => (
-    <li className="flex gap-3 text-sm leading-6 text-slate-700 font-medium">
-        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+    <li className="flex gap-3 text-sm leading-6 text-[#3c4043] font-medium">
+        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-none ${active ? 'bg-[#e8f0fe] text-[#1967d2]' : 'bg-slate-100 text-[#5f6368]'}`}>
             {active ? <Check className="h-3 w-3 stroke-[2.5px]" aria-hidden /> : <Minus className="h-3.5 w-3.5 stroke-[2px]" aria-hidden />}
         </span>
-        <span className={active ? 'text-slate-800' : 'text-slate-400 font-normal'}>{children}</span>
+        <span className={active ? 'text-[#202124]' : 'text-[#5f6368] font-normal'}>{children}</span>
     </li>
 );
 
@@ -238,12 +220,12 @@ export const PricingTable: React.FC = () => {
         const badgeText = cardType === 0 ? 'Getting Started' : cardType === 1 ? 'Best Value' : 'Contact Us';
         
         const containerClasses = isHighlighted
-            ? 'relative flex flex-col justify-between p-8 rounded-2xl border-2 border-slate-950 bg-white shadow-[8px_8px_0_#0f172a] -translate-y-1 transition-all duration-300'
-            : 'relative flex flex-col justify-between p-8 rounded-2xl border border-slate-200 bg-white/80 shadow-sm hover:border-slate-350 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300';
+            ? 'relative flex flex-col justify-between p-8 rounded-none border border-[#1a73e8] bg-white shadow-sm ring-1 ring-[#1a73e8] transition-all duration-200'
+            : 'relative flex flex-col justify-between p-8 rounded-none border border-[#dadce0] bg-white shadow-sm hover:shadow-md transition-all duration-200';
 
         const buttonClasses = isHighlighted
-            ? 'inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-950 bg-[#86efac] px-4 text-sm font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none'
-            : 'inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-250 bg-white px-4 text-sm font-extrabold uppercase text-slate-800 transition-all duration-150 hover:border-slate-350 hover:bg-slate-50';
+            ? 'inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2]'
+            : 'inline-flex h-11 w-full items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124]';
 
         // Custom features listing
         type CardFeature = {
@@ -258,7 +240,6 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>7 days</strong> evidence retention</span>, active: true },
-                { key: 'replay', content: getReplayAllowanceText('free', plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Standard funnel and cohort trends</span>, active: true },
                 { key: 'controls', content: <span>Standard session recording controls</span>, active: true },
@@ -269,7 +250,6 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>{plan.videoRetentionLabel}</strong> evidence retention</span>, active: true },
-                { key: 'replay', content: getReplayAllowanceText(plan.name, plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Checkout, onboarding, & paywall drill-downs</span>, active: true },
                 { key: 'diagnostics', content: <span>Crash, API, and ANR diagnostic tools</span>, active: true },
@@ -278,9 +258,8 @@ export const PricingTable: React.FC = () => {
             ];
         } else {
             cardFeatures = [
-                { key: 'sessions', content: <span><strong>Custom volume</strong> of monthly sessions</span>, active: true },
+                { key: 'sessions', content: <span><strong>Custom volume</strong> of monthly session replays</span>, active: true },
                 { key: 'retention', content: <span><strong>Custom</strong> evidence retention history</span>, active: true },
-                { key: 'replay', content: getReplayAllowanceText('enterprise', plan.sessionLimit), active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Full suite of custom funnels & analytics</span>, active: true },
                 { key: 'hardware', content: <span>Dedicated hardware & custom storage bucket</span>, active: true },
@@ -291,21 +270,21 @@ export const PricingTable: React.FC = () => {
         return (
             <article key={cardType} className={containerClasses}>
                 {isHighlighted && (
-                    <span className="absolute -top-3 left-6 inline-flex items-center rounded-full bg-emerald-100 border border-emerald-500 text-emerald-800 px-3 py-0.5 text-xs font-bold uppercase tracking-wider">
+                    <span className="absolute -top-3 left-6 inline-flex items-center rounded-none bg-[#e8f0fe] border border-[#1a73e8] text-[#1967d2] px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider">
                         {badgeText}
                     </span>
                 )}
                 
                 <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">{isFree ? 'Free' : isEnterprise ? 'Enterprise' : plan.displayName}</h2>
-                    <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed min-h-[48px]">{description}</p>
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-[#202124]">{isFree ? 'Free' : isEnterprise ? 'Enterprise' : plan.displayName}</h2>
+                    <p className="mt-3 text-sm font-medium text-[#5f6368] leading-relaxed min-h-[48px]">{description}</p>
                     
                     <div className="mt-6 flex items-end gap-x-2">
-                        <span className="text-4xl font-black tracking-tight text-slate-900">
+                        <span className="text-4xl font-black tracking-tight text-[#202124]">
                             {isEnterprise ? 'Custom' : formatPlanPrice(plan.priceCents)}
                         </span>
                         {!isFree && !isEnterprise && (
-                            <span className="pb-1 text-sm font-bold text-slate-400">/ month</span>
+                            <span className="pb-1 text-sm font-medium text-[#5f6368]">/ month</span>
                         )}
                     </div>
 
@@ -343,13 +322,13 @@ export const PricingTable: React.FC = () => {
     };
 
     return (
-        <section className="relative w-full bg-[#fdfbf7] text-slate-900 overflow-hidden min-h-screen">
+        <section className="relative w-full bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124] overflow-hidden min-h-screen">
             <div className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-col items-center px-6 pt-32 pb-8 sm:px-8 lg:px-10">
                 <div className="text-center max-w-3xl">
-                    <h1 className="text-4xl font-black uppercase tracking-tight text-slate-900 sm:text-5xl lg:text-6xl leading-[1.05]">
+                    <h1 className="text-4xl font-black uppercase tracking-tight text-[#202124] sm:text-5xl lg:text-6xl leading-[1.05]">
                         {copy.heading}
                     </h1>
-                    <p className="mt-6 text-lg font-semibold leading-relaxed text-slate-600">
+                    <p className="mt-6 text-lg font-medium leading-relaxed text-[#5f6368]">
                         {copy.intro}
                     </p>
                 </div>
@@ -357,17 +336,17 @@ export const PricingTable: React.FC = () => {
 
             {/* Slider Container */}
             <div className="w-full max-w-2xl mx-auto px-6 mb-16 relative z-20">
-                <div className="relative border border-slate-200 bg-white/95 rounded-2xl p-6 shadow-sm">
+                <div className="relative border border-[#dadce0] bg-white rounded-none p-6 shadow-sm">
                     <div className="flex justify-between items-end mb-4">
                         <div>
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Captured Session Volume</span>
-                            <div className="mt-1 text-3xl font-black text-slate-900">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Captured Session Replay Volume</span>
+                            <div className="mt-1 text-3xl font-black text-[#202124]">
                                 {volumeIndex === 5 ? 'Custom' : `${formatInteger(PLAN_STEPS[volumeIndex].sessions)} / mo`}
                             </div>
                         </div>
                         <div className="text-right">
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Current Step</span>
-                            <div className="mt-1 text-lg font-extrabold text-indigo-600 uppercase">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Current Step</span>
+                            <div className="mt-1 text-lg font-extrabold text-[#1a73e8] uppercase">
                                 {PLAN_STEPS[volumeIndex].name}
                             </div>
                         </div>
@@ -382,16 +361,16 @@ export const PricingTable: React.FC = () => {
                         onChange={(e) => setVolumeIndex(Number(e.target.value))}
                         className="pricing-range-slider mt-2"
                         style={{ '--slider-fill': `${(volumeIndex / (PLAN_STEPS.length - 1)) * 100}%` } as CSSProperties}
-                        aria-label="Monthly session limit slider"
+                        aria-label="Monthly captured session replay volume slider"
                     />
 
-                    <div className="flex justify-between mt-3 px-1 text-[11px] font-black uppercase text-slate-400">
+                    <div className="flex justify-between mt-3 px-1 text-[11px] font-semibold uppercase text-[#5f6368]">
                         {PLAN_STEPS.map((step, idx) => (
                             <button
                                 key={step.name}
                                 type="button"
                                 onClick={() => setVolumeIndex(idx)}
-                                className={`transition-colors duration-150 ${volumeIndex === idx ? 'text-indigo-600 font-black' : 'hover:text-slate-600'}`}
+                                className={`transition-colors duration-150 ${volumeIndex === idx ? 'text-[#1a73e8] font-bold' : 'hover:text-[#202124]'}`}
                             >
                                 {step.label}
                             </button>
@@ -408,19 +387,19 @@ export const PricingTable: React.FC = () => {
             </div>
 
             {/* Simplified ROI Calculator */}
-            <div className="relative border border-slate-200 bg-white/95 rounded-2xl p-8 shadow-sm max-w-[1200px] mx-4 md:mx-auto mb-24 z-20">
+            <div className="relative border border-[#dadce0] bg-white rounded-none p-8 shadow-sm max-w-[1200px] mx-4 md:mx-auto mb-24 z-20">
                 <div className="grid gap-8 lg:grid-cols-2 items-center">
                     <div>
-                        <h2 className="text-2xl font-black uppercase text-slate-900">Calculate Your Potential ROI</h2>
-                        <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed">
+                        <h2 className="text-2xl font-black uppercase text-[#202124]">Calculate Your Potential ROI</h2>
+                        <p className="mt-3 text-sm font-medium text-[#5f6368] leading-relaxed">
                             See what recovering just a tiny fraction of your dropped-off checkout, onboarding, or subscription conversions would return.
                         </p>
 
                         <div className="mt-8 space-y-6">
                             <div>
-                                <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                <div className="flex justify-between text-xs font-semibold uppercase tracking-wider text-[#5f6368] mb-2">
                                     <span>Monthly Traffic (Sessions)</span>
-                                    <span className="text-slate-700 font-extrabold">{formatInteger(trafficCalculator)}</span>
+                                    <span className="text-[#202124] font-bold">{formatInteger(trafficCalculator)}</span>
                                 </div>
                                 <input
                                     type="range"
@@ -436,9 +415,9 @@ export const PricingTable: React.FC = () => {
                             </div>
 
                             <div>
-                                <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                <div className="flex justify-between text-xs font-semibold uppercase tracking-wider text-[#5f6368] mb-2">
                                     <span>Average Order/Conversion Value</span>
-                                    <span className="text-slate-700 font-extrabold">${aovCalculator}</span>
+                                    <span className="text-[#202124] font-bold">${aovCalculator}</span>
                                 </div>
                                 <input
                                     type="range"
@@ -455,15 +434,15 @@ export const PricingTable: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="flex flex-col items-center justify-center bg-indigo-50/40 border border-indigo-100/80 rounded-xl p-8 text-center">
-                        <span className="text-xs font-black uppercase tracking-widest text-indigo-500">Estimated Monthly Value</span>
-                        <span className="mt-4 text-5xl font-black text-slate-900 tracking-tight">
+                    <div className="flex flex-col items-center justify-center bg-[#f8fafd] border border-[#dadce0] rounded-none p-8 text-center">
+                        <span className="text-xs font-bold uppercase tracking-widest text-[#1a73e8]">Estimated Monthly Value</span>
+                        <span className="mt-4 text-5xl font-black text-[#202124] tracking-tight">
                             {formatCurrency(recoveredRevenue)}
                         </span>
-                        <p className="mt-3 max-w-sm text-sm font-bold leading-relaxed text-slate-650">
-                            Recovered revenue per month, assuming a very conservative <strong className="text-indigo-600">0.25% checkout lift</strong>.
+                        <p className="mt-3 max-w-sm text-sm font-medium leading-relaxed text-[#3c4043]">
+                            Recovered revenue per month, assuming a very conservative <strong className="text-[#1a73e8]">0.25% checkout lift</strong>.
                         </p>
-                        <div className="mt-6 border-t border-indigo-100/70 pt-4 w-full text-xs font-black text-indigo-700 uppercase tracking-wider">
+                        <div className="mt-6 border-t border-[#dadce0] pt-4 w-full text-xs font-semibold text-[#1a73e8] uppercase tracking-wider">
                             {netMonthlyUpside > 0 ? `${Math.round(roiPercent).toLocaleString()}% ROI on the Pro plan` : '100% Free at this volume'}
                         </div>
                     </div>
@@ -473,8 +452,8 @@ export const PricingTable: React.FC = () => {
             {/* Accordion FAQ Section */}
             <div className="grid gap-10 lg:grid-cols-[0.8fr_1.4fr] lg:items-start max-w-[1200px] mx-4 md:mx-auto mb-24 relative z-20">
                 <div className="space-y-4">
-                    <h2 className="text-3xl font-black uppercase text-slate-900">Frequently Asked Questions</h2>
-                    <p className="text-sm font-semibold text-slate-500 leading-relaxed">
+                    <h2 className="text-3xl font-black uppercase text-[#202124]">Frequently Asked Questions</h2>
+                    <p className="text-sm font-medium text-[#5f6368] leading-relaxed">
                         Everything you need to know about Rejourney pricing, billing, and features.
                     </p>
                 </div>
@@ -485,10 +464,10 @@ export const PricingTable: React.FC = () => {
                         return (
                             <div 
                                 key={index}
-                                className={`rounded-xl border p-4 transition-colors duration-200 sm:p-5 ${
+                                className={`rounded-none border p-4 transition-colors duration-200 sm:p-5 ${
                                     isOpen
-                                        ? 'border-indigo-200 bg-indigo-50/35 shadow-sm'
-                                        : 'border-slate-200 bg-white shadow-sm hover:border-slate-350'
+                                        ? 'border-[#1a73e8] bg-[#f8fafd] shadow-sm'
+                                        : 'border-[#dadce0] bg-white shadow-sm hover:border-slate-350'
                                 }`}
                             >
                                 <button
@@ -496,10 +475,10 @@ export const PricingTable: React.FC = () => {
                                     className="flex w-full items-start justify-between gap-6 text-left"
                                     aria-expanded={isOpen}
                                 >
-                                    <span className="text-base font-extrabold text-slate-900">
+                                    <span className="text-base font-bold text-[#202124]">
                                         {faq.question}
                                     </span>
-                                    <Plus className={`mt-0.5 h-5 w-5 shrink-0 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-45 text-indigo-600' : ''}`} />
+                                    <Plus className={`mt-0.5 h-5 w-5 shrink-0 text-[#5f6368] transition-transform duration-200 ${isOpen ? 'rotate-45 text-[#1a73e8]' : ''}`} />
                                 </button>
                                 
                                 <div 
@@ -507,8 +486,8 @@ export const PricingTable: React.FC = () => {
                                         isOpen ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0'
                                     }`}
                                 >
-                                    <div className="overflow-hidden border-t border-slate-100 pt-4">
-                                        <p className="text-sm font-semibold leading-relaxed text-slate-650">
+                                    <div className="overflow-hidden border-t border-[#dadce0] pt-4">
+                                        <p className="text-sm font-normal leading-relaxed text-[#3c4043]">
                                             {faq.answer}
                                         </p>
                                     </div>
@@ -521,13 +500,12 @@ export const PricingTable: React.FC = () => {
 
             {/* Self-hosted Section */}
             <div className="max-w-[1200px] mx-4 md:mx-auto mb-24 relative z-20">
-                <div className="relative overflow-hidden border border-slate-200 bg-white/95 rounded-2xl p-8 shadow-sm text-slate-900">
-                    <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden />
+                <div className="relative overflow-hidden border border-[#dadce0] bg-white rounded-none p-8 shadow-sm text-[#202124]">
                     <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                         <div className="max-w-2xl">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{copy.selfHostedEyebrow}</span>
-                            <h2 className="mt-2 text-2xl font-black uppercase text-slate-950">{copy.selfHostedHeading}</h2>
-                            <p className="mt-3 text-sm font-semibold text-slate-500 leading-relaxed">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5f6368]">{copy.selfHostedEyebrow}</span>
+                            <h2 className="mt-2 text-2xl font-black uppercase text-[#202124]">{copy.selfHostedHeading}</h2>
+                            <p className="mt-3 text-sm font-medium text-[#5f6368] leading-relaxed">
                                 {copy.selfHostedCopy}
                             </p>
                         </div>
@@ -535,7 +513,7 @@ export const PricingTable: React.FC = () => {
                             href="https://github.com/rejourneyco/rejourney"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex h-12 shrink-0 items-center justify-center gap-2 border border-slate-950 bg-[#fff19c] px-6 text-sm font-extrabold uppercase text-black rounded-xl shadow-[2px_2px_0_#0f172a] hover:bg-[#ffe366] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150"
+                            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 border border-[#dadce0] bg-white px-6 text-sm font-semibold text-[#3c4043] rounded-none shadow-sm hover:bg-[#f8fafd] hover:text-[#202124] transition-colors"
                         >
                             <Github className="h-4 w-4" aria-hidden />
                             {copy.viewSource}

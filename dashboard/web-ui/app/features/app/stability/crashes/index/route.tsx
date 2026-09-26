@@ -165,57 +165,56 @@ export const CrashesList: React.FC = () => {
   return (
     <div className="min-h-screen bg-transparent pb-8">
       <DashboardPageHeader
-        title="Crashes Database"
+        title="Crashes"
         subtitle="Unified collection of critical failures and exceptions"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-[#ffe4e6]"
       >
         <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">
         <NeoCard variant="flat" disablePadding className="overflow-hidden bg-white">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+          <div className="border-b border-[#e8eaed] bg-[#f8fafd] px-4 py-3 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <div className="relative w-64 md:w-80">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#80868b]" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Search crash names, devices or versions..."
-                  className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+                  className="w-full rounded-none border border-[#dadce0] bg-white py-1.5 pl-9 pr-3 text-sm text-[#202124] outline-none transition-colors placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                 />
               </div>
             </div>
-            <div className="flex items-center text-sm font-medium text-slate-500 gap-4">
+            <div className="flex items-center text-sm font-medium text-[#5f6368] gap-4">
                <span>{filteredCrashGroups.length} Issues</span>
                <span className="hidden md:inline">|</span>
-               <span className="hidden md:inline text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+               <span className="hidden md:inline bg-[#f1f3f4] px-2 py-0.5 text-[#3c4043] tabular-nums">
                   {formatCompact(filteredCrashGroups.reduce((acc, g) => acc + g.count, 0))} Total Events
                </span>
             </div>
           </div>
 
           {/* Table Header */}
-          <div className="border-b border-slate-200 bg-white px-4">
-            <div className="flex items-center gap-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <div className="border-b border-[#e8eaed] bg-white px-4">
+            <div className="flex items-center gap-4 py-3 text-xs font-medium text-[#5f6368]">
               <div className="w-6 shrink-0" />
-              <div className="min-w-0 flex-1">Issue Details</div>
+              <div className="min-w-0 flex-1">Issue details</div>
               <div className="w-32 hidden md:block">Environment</div>
-              <div className="w-24 text-right hidden sm:block">First Seen</div>
-              <div className="w-24 text-right hidden lg:block">Last Seen</div>
+              <div className="w-24 text-right hidden sm:block">First seen</div>
+              <div className="w-24 text-right hidden lg:block">Last seen</div>
               <div className="w-16 text-right">Events</div>
               <div className="w-16 text-right">Users</div>
               <div className="w-8 shrink-0" />
             </div>
           </div>
 
-          <div className="divide-y divide-slate-100 bg-white">
+          <div className="divide-y divide-[#e8eaed] bg-white">
             {filteredCrashGroups.length === 0 && (
-              <div className="py-24 text-center text-slate-400">
-                <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-                <p className="text-lg font-semibold text-slate-700">No crashes detected</p>
+              <div className="py-24 text-center text-[#80868b]">
+                <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-[#bdc1c6]" />
+                <p className="text-lg font-medium text-[#5f6368]">No crashes detected</p>
                 <p className="text-sm mt-1">Your app appears stable for the selected time range.</p>
               </div>
             )}
@@ -235,56 +234,56 @@ export const CrashesList: React.FC = () => {
                 <div
                   key={group.id}
                   id={`crash-group-${group.name}`}
-                  className={`transition-colors ${isExpanded ? 'bg-rose-50/20' : 'hover:bg-slate-50'}`}
+                  className={`transition-colors ${isExpanded ? 'bg-[#f8fafd]' : 'hover:bg-[#f8fafd]'}`}
                 >
                   <div
                     className="group/row flex cursor-pointer items-center gap-4 px-4 py-3"
                     onClick={() => setExpandedGroup(isExpanded ? null : group.name)}
                   >
                     <div className="flex w-6 shrink-0 justify-center">
-                      <div className={`h-2.5 w-2.5 rounded-full ${isExpanded ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' : 'bg-slate-300 group-hover/row:bg-rose-400'} transition-all`} />
+                      <div className={`h-2.5 w-2.5 rounded-full ${isExpanded ? 'bg-[#d93025]' : 'bg-[#dadce0]'} transition-colors`} />
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="truncate font-semibold text-slate-900 text-[13px]">{group.name}</h3>
+                        <h3 className="truncate font-medium text-[#202124] text-[13px]">{group.name}</h3>
                       </div>
-                      <p className="truncate text-xs text-slate-500 mt-0.5">
+                      <p className="truncate text-xs text-[#5f6368] mt-0.5">
                          Affecting {deviceList.length} device model{deviceList.length === 1 ? '' : 's'}
                       </p>
                     </div>
 
                     <div className="w-32 hidden md:block flex-shrink-0">
                       <div className="flex flex-col gap-1 items-start">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-1.5 rounded" title={topDevice}>{topDeviceLabel}</span>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-1.5 rounded">v{topVersion}</span>
+                        <span className="text-[11px] font-medium text-[#3c4043] bg-[#f1f3f4] px-1.5 rounded-none" title={topDevice}>{topDeviceLabel}</span>
+                        <span className="text-[11px] font-medium text-[#3c4043] bg-[#f1f3f4] px-1.5 rounded-none">v{topVersion}</span>
                       </div>
                     </div>
 
                     <div className="w-24 text-right hidden sm:block">
-                      <span className="text-xs font-medium text-slate-500" title={new Date(group.firstSeen).toLocaleString()}>{formatAge(group.firstSeen)}</span>
+                      <span className="text-xs font-medium text-[#5f6368]" title={new Date(group.firstSeen).toLocaleString()}>{formatAge(group.firstSeen)}</span>
                     </div>
 
                     <div className="w-24 text-right hidden lg:block">
-                      <span className="text-xs font-semibold text-slate-700" title={new Date(group.lastOccurred).toLocaleString()}>{formatLastSeen(group.lastOccurred)}</span>
+                      <span className="text-xs font-medium text-[#3c4043]" title={new Date(group.lastOccurred).toLocaleString()}>{formatLastSeen(group.lastOccurred)}</span>
                     </div>
 
                     <div className="w-16 text-right">
-                      <span className="inline-block px-2 py-0.5 rounded text-xs font-mono font-medium bg-rose-100 text-rose-800 border border-rose-200">
+                      <span className="inline-block px-2 py-0.5 rounded-none text-xs font-medium tabular-nums text-[#202124]">
                         {formatCompact(group.count)}
                       </span>
                     </div>
 
                     <div className="w-16 text-right">
-                       <span className="inline-block text-xs font-mono font-medium text-slate-600">
+                       <span className="inline-block text-xs font-mono font-medium text-[#3c4043]">
                         {formatCompact(group.users.length)}
                       </span>
                     </div>
 
                     <div className="flex w-8 justify-end shrink-0">
                       <div
-                        className={`flex h-6 w-6 items-center justify-center rounded text-slate-400 transition ${
-                          isExpanded ? 'rotate-180 text-rose-600 bg-rose-100' : 'group-hover/row:bg-slate-200 group-hover/row:text-slate-600'
+                        className={`flex h-6 w-6 items-center justify-center rounded-none text-[#80868b] transition ${
+                          isExpanded ? 'rotate-180 bg-[#f1f3f4] text-[#202124]' : 'group-hover/row:bg-[#f1f3f4] group-hover/row:text-[#3c4043]'
                         }`}
                       >
                         <ChevronDown size={14} />
@@ -294,9 +293,9 @@ export const CrashesList: React.FC = () => {
 
                   {/* Expanded Detail Panel */}
                   {isExpanded && (
-                    <div className="border-t border-slate-200 bg-slate-50/50 p-4 sm:p-5 shadow-inner cursor-default">
+                    <div className="border-t border-[#e8eaed] bg-[#f8fafd] p-4 sm:p-5 cursor-default">
                       {!hasLoadedDetail ? (
-                         <div className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-slate-500">
+                         <div className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-[#5f6368]">
                             <Loader size={18} className="animate-spin" />
                             Loading crash details...
                          </div>
@@ -304,11 +303,11 @@ export const CrashesList: React.FC = () => {
                          <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
                             {/* Deep Analysis Main (Stacktrace) */}
                             <div className="lg:col-span-3 flex flex-col gap-4">
-                               <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-                                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5 bg-slate-50">
-                                    <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                                      <Code size={14} className="text-rose-500" />
-                                      Stack Trace Analysis
+                               <NeoCard variant="flat" disablePadding className="overflow-hidden">
+                                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaed] px-4 py-2.5">
+                                    <h4 className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+                                      <Code size={14} className="text-[#5f6368]" />
+                                      Stack trace
                                     </h4>
                                     <div className="flex items-center gap-1.5">
                                        <NeoButton
@@ -317,7 +316,6 @@ export const CrashesList: React.FC = () => {
                                         leftIcon={copiedStack === detail?.stackTrace ? <Check size={13} /> : <Copy size={13} />}
                                         onClick={(e) => detail?.stackTrace && handleCopyStack(detail.stackTrace, e)}
                                         disabled={!detail?.stackTrace}
-                                        className="h-7 text-xs px-2"
                                       >
                                         Copy
                                       </NeoButton>
@@ -327,7 +325,6 @@ export const CrashesList: React.FC = () => {
                                         leftIcon={<Download size={13} />}
                                         onClick={(e) => detail?.stackTrace && detail?.id && handleDownloadStack(detail.stackTrace, detail.id, e)}
                                         disabled={!detail?.stackTrace}
-                                        className="h-7 text-xs px-2"
                                       >
                                         Save
                                       </NeoButton>
@@ -335,78 +332,78 @@ export const CrashesList: React.FC = () => {
                                   </div>
 
                                   {detail?.stackTrace ? (
-                                    <div className="max-h-[400px] overflow-auto bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-emerald-300 selection:bg-rose-900 overflow-x-auto">
+                                    <div className="m-4 max-h-[400px] overflow-auto whitespace-pre border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs leading-relaxed text-[#202124]">
                                       {detail.stackTrace}
                                     </div>
                                   ) : (
-                                    <div className="px-6 py-10 text-center text-sm text-slate-500 bg-slate-50">No stack trace captured.</div>
+                                    <div className="px-6 py-10 text-center text-sm text-[#5f6368] bg-[#f8fafd]">No stack trace captured.</div>
                                   )}
                                </NeoCard>
                                
                                {/* Small contextual facts */}
                                <div className="flex flex-wrap gap-4 text-xs">
-                                 <div className="flex items-center gap-1.5 text-slate-600 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">
-                                   <Smartphone size={12} className="text-slate-400" />
-                                   <span className="font-semibold text-slate-700">Device Model:</span>{' '}
+                                 <div className="flex items-center gap-1.5 text-[#3c4043] bg-white px-2 py-1 rounded-none border border-[#dadce0]">
+                                   <Smartphone size={12} className="text-[#80868b]" />
+                                   <span className="font-medium text-[#5f6368]">Device model:</span>{' '}
                                    <span title={detail?.deviceMetadata?.model || topDevice}>
                                      {formatDeviceModel(detail?.deviceMetadata?.model || topDevice, 'Unknown')}
                                    </span>
                                  </div>
-                                 <div className="flex items-center gap-1.5 text-slate-600 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">
-                                   <Activity size={12} className="text-slate-400" />
-                                   <span className="font-semibold text-slate-700">OS System:</span> {detail?.deviceMetadata?.systemName || 'Unknown'} {detail?.deviceMetadata?.systemVersion || ''}
+                                 <div className="flex items-center gap-1.5 text-[#3c4043] bg-white px-2 py-1 rounded-none border border-[#dadce0]">
+                                   <Activity size={12} className="text-[#80868b]" />
+                                   <span className="font-medium text-[#5f6368]">OS:</span> {detail?.deviceMetadata?.systemName || 'Unknown'} {detail?.deviceMetadata?.systemVersion || ''}
                                  </div>
                                </div>
                             </div>
 
                             {/* Action Panel / Context */}
                             <div className="lg:col-span-1 flex flex-col gap-4">
-                               <NeoCard variant="flat" className="p-4 bg-rose-50/50 border-rose-200 shadow-sm">
-                                  <h4 className="text-xs font-bold uppercase tracking-widest text-rose-800 mb-3 flex items-center gap-2">
-                                    <Play size={14} className="text-rose-600 fill-current" />
-                                    Session Replay
+                               <NeoCard variant="flat" disablePadding className="p-4">
+                                  <h4 className="text-sm font-medium text-[#202124] mb-3 flex items-center gap-2">
+                                    <Play size={14} className="text-[#5f6368]" />
+                                    Session replay
                                   </h4>
-                                  <p className="text-xs text-rose-700/80 mb-4 leading-relaxed">
+                                  <p className="text-xs text-[#3c4043] mb-4 leading-relaxed">
                                     Watch the exact user journey up to the fatal crash sequence.
                                   </p>
                                   {canOpenReplay ? (
                                     <NeoButton 
                                       variant="primary" 
-                                      className="w-full justify-center bg-rose-500 hover:bg-rose-600 focus:ring-rose-500 text-white border-0 py-2 shadow-sm"
+                                      className="w-full justify-center"
                                       onClick={(e) => {
                                           e.stopPropagation();
                                           navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`);
                                       }}
                                     >
-                                      Play Session
+                                      Play session
                                     </NeoButton>
                                   ) : (
-                                    <p className="rounded-md border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700">
+                                    <p className="rounded-none border border-[#dadce0] bg-white px-3 py-2 text-xs text-[#5f6368]">
                                       Replay unavailable for this sampled crash.
                                     </p>
                                   )}
                                </NeoCard>
 
-                               <NeoCard variant="flat" className="p-4 border-slate-200 bg-white shadow-sm flex-1">
-                                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 border-b border-slate-100 pb-2">
-                                   Crash Properties
+                               <NeoCard variant="flat" disablePadding className="p-4 flex-1">
+                                 <h4 className="text-sm font-medium text-[#202124] mb-3 border-b border-[#e8eaed] pb-2">
+                                   Crash properties
                                  </h4>
                                  <dl className="space-y-3 text-xs">
                                    <div>
-                                      <dt className="text-slate-500 mb-0.5">Occurred At</dt>
-                                      <dd className="font-medium text-slate-800">{new Date(detail?.timestamp || group.lastOccurred).toLocaleString()}</dd>
+                                      <dt className="text-[#5f6368] mb-0.5">Occurred at</dt>
+                                      <dd className="font-medium text-[#202124]">{new Date(detail?.timestamp || group.lastOccurred).toLocaleString()}</dd>
                                    </div>
                                    <div>
-                                      <dt className="text-slate-500 mb-0.5">App Version</dt>
-                                      <dd className="font-medium text-slate-800">{detail?.deviceMetadata?.appVersion || topVersion}</dd>
+                                      <dt className="text-[#5f6368] mb-0.5">App version</dt>
+                                      <dd className="font-medium text-[#202124]">{detail?.deviceMetadata?.appVersion || topVersion}</dd>
                                    </div>
                                    <div>
-                                      <dt className="text-slate-500 mb-0.5">Memory</dt>
-                                      <dd className="font-medium text-slate-800">{detail?.deviceMetadata?.freeMemory && `${Math.round(detail.deviceMetadata.freeMemory / 1024 / 1024)}MB Free` || 'Unknown'}</dd>
+                                      <dt className="text-[#5f6368] mb-0.5">Memory</dt>
+                                      <dd className="font-medium text-[#202124]">{detail?.deviceMetadata?.freeMemory && `${Math.round(detail.deviceMetadata.freeMemory / 1024 / 1024)}MB Free` || 'Unknown'}</dd>
                                    </div>
                                    <div>
-                                      <dt className="text-slate-500 mb-0.5">Orientation</dt>
-                                      <dd className="font-medium text-slate-800 break-words">{detail?.deviceMetadata?.orientation || 'Unknown'}</dd>
+                                      <dt className="text-[#5f6368] mb-0.5">Orientation</dt>
+                                      <dd className="font-medium text-[#202124] break-words">{detail?.deviceMetadata?.orientation || 'Unknown'}</dd>
                                    </div>
                                  </dl>
                                </NeoCard>

@@ -12,22 +12,24 @@ export const meta: Route.MetaFunction = () => [
         name: "description",
         content: "Terms of Service for Rejourney mobile session replay and analytics platform.",
     },
+    { name: "robots", content: "index, follow" },
     { property: "og:title", content: "Terms of Service - Rejourney" },
     { property: "og:url", content: "https://rejourney.co/terms-of-service" },
+    { tagName: "link", rel: "canonical", href: "https://rejourney.co/terms-of-service" },
 ];
 
 export default function TermsOfService() {
     return (
-        <div className="public-readable-scope min-h-screen bg-background">
+        <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
             <Header />
             <div className="container mx-auto px-6 py-16 max-w-4xl">
                 {/* Main Content */}
                 <div>
-                    <h1 className="text-4xl font-bold mb-4">Terms of Service</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
+                    <h1 className="text-4xl font-extrabold tracking-tight text-[#202124] mb-3">Terms of Service</h1>
+                    <p className="text-sm font-medium text-[#5f6368] mb-8">Last Updated: May 17, 2026</p>
 
-                    <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
-                        <div className="text-sm leading-relaxed space-y-6">
+                    <div className="bg-white border border-[#dadce0] rounded-none p-8 space-y-6 shadow-sm">
+                        <div className="text-sm leading-relaxed space-y-6 text-[#3c4043]">
                             <p>
                                 These Terms of Service ("Terms") govern your access to and use of the Rejourney service ("Service"), provided by Rejourney ("we," "us," or "our").
                             </p>
@@ -35,8 +37,8 @@ export default function TermsOfService() {
                                 By using the Service, you agree to these Terms.
                             </p>
 
-                            <div className="bg-background/60 border border-input p-4 rounded-md">
-                                <h2 className="text-sm font-bold uppercase mb-2">Quick Summary</h2>
+                            <div className="bg-[#f8fafd] border border-[#dadce0] p-4 rounded-none">
+                                <h2 className="text-xs font-semibold uppercase tracking-wider text-[#5f6368] mb-2">Quick Summary</h2>
                                 <ul className="list-disc list-inside space-y-1 text-xs">
                                     <li>Use Rejourney only for lawful mobile and web observability.</li>
                                     <li>Protect end-user privacy and configure masking for sensitive data.</li>
@@ -45,9 +47,9 @@ export default function TermsOfService() {
                                 </ul>
                             </div>
 
-                            <div className="bg-background/50 border border-input p-4 rounded-md mb-8">
-                                <h2 className="text-sm font-bold uppercase mb-2">Table of Contents</h2>
-                                <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1 text-xs">
+                            <div className="bg-[#f8fafd] border border-[#dadce0] p-4 rounded-none mb-8">
+                                <h2 className="text-xs font-semibold uppercase tracking-wider text-[#5f6368] mb-2">Table of Contents</h2>
+                                <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1 text-xs font-medium text-[#1a73e8]">
                                     <li><a href="#acceptance" className="hover:underline">1. Acceptance of Terms</a></li>
                                     <li><a href="#service" className="hover:underline">2. Use of Service & Restrictions</a></li>
                                     <li><a href="#accounts" className="hover:underline">3. Accounts & Security</a></li>

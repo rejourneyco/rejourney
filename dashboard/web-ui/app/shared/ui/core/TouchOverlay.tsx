@@ -734,27 +734,25 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
           {renderedNetwork.map((network) => (
             <div
               key={network.id}
-              className="relative h-6 w-[58px] overflow-hidden rounded-full border bg-slate-950/62 shadow-lg backdrop-blur-md"
+              className="relative h-6 w-[58px] overflow-hidden rounded-none border bg-[#202124]/80"
               style={{
                 borderColor: network.color,
                 opacity: network.opacity,
                 transform: `translateY(${network.lane * 1.5}px) scale(${network.isSettling ? 0.98 : 1})`,
-                boxShadow: `0 8px 22px ${network.trackColor}`,
               }}
             >
               <span
                 className="absolute left-2 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
                 style={{
                   backgroundColor: network.color,
-                  boxShadow: `0 0 14px ${network.color}`,
                   opacity: network.isSettling ? 0.9 : 0.72,
                 }}
               />
               <span
-                className="absolute right-2 top-1/2 h-1.5 w-8 -translate-y-1/2 overflow-hidden rounded-full bg-white/15"
+                className="absolute right-2 top-1/2 h-1.5 w-8 -translate-y-1/2 overflow-hidden rounded-none bg-white/15"
               >
                 <span
-                  className="block h-full rounded-full"
+                  className="block h-full rounded-none"
                   style={{
                     width: `${Math.max(8, network.progress * 100)}%`,
                     backgroundColor: network.color,
@@ -768,7 +766,6 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                   style={{
                     left: `${14 + network.progress * 30}px`,
                     backgroundColor: network.color,
-                    boxShadow: `0 0 12px ${network.color}`,
                     animation: 'replay-network-bead 0.65s ease-in-out infinite',
                   }}
                 />

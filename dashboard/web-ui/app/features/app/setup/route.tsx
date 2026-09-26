@@ -32,7 +32,13 @@ import { cn } from '~/shared/lib/cn';
 import { useAuth } from '~/shared/providers/AuthContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useTeam } from '~/shared/providers/TeamContext';
-import { Button } from '~/shared/ui/core/Button';
+import {
+  dashboardButtonClass,
+  dashboardCardClass,
+  dashboardChipClass,
+  dashboardFieldClass,
+  dashboardLabelClass,
+} from '~/shared/ui/core/dashboardStyles';
 import { Modal } from '~/shared/ui/core/Modal';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { Input } from '~/shared/ui/core/Input';
@@ -53,8 +59,17 @@ type TeammateInviteRecipient = {
   role: TeamInviteRole;
 };
 
-const setupCardClass = "relative z-10 overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:border-slate-800/80 dark:bg-slate-950 sm:p-6";
-const setupActionButtonClass = "setup-wizard-action !text-xs !font-bold uppercase tracking-normal";
+const setupCardClass = `${dashboardCardClass} relative p-5 sm:p-6`;
+const setupCardHeaderClass = 'mb-5 flex items-center gap-2 border-b border-[#e8eaed] pb-4';
+const setupCardTitleClass = 'text-base font-medium text-[#202124]';
+const setupCardIconClass = 'h-5 w-5 shrink-0 text-[#5f6368]';
+const setupInsetClass = 'rounded-none border border-[#e8eaed] bg-[#f8fafd]';
+const setupPrimaryButtonClass = dashboardButtonClass('primary', 'md');
+const setupSecondaryButtonClass = dashboardButtonClass('secondary', 'md');
+const setupStatusTextClass = (kind: 'success' | 'error' | null) => cn(
+  'text-xs font-medium',
+  kind === 'error' ? 'text-[#c5221f]' : 'text-[#137333]',
+);
 const setupProjectFormId = 'setup-project-form';
 
 function isValidEmailAddress(value: string): boolean {
@@ -335,12 +350,6 @@ export const SetupRoute: React.FC = () => {
     await refreshSessions({ silent: true });
   };
 
-  const handleOpenDashboard = () => {
-    if (activeProject) {
-      document.cookie = `bypass_setup_${activeProject.id}=true; path=/; max-age=31536000`;
-    }
-  };
-
   const handleInviteTeammates = async () => {
     if (isInvitingTeammates) return;
     if (!currentTeam?.id) {
@@ -544,177 +553,154 @@ export const SetupRoute: React.FC = () => {
 
   if (activeStepIndex === 0) {
     actionBarPrimaryAction = currentTeam ? (
-      <Button
+      <button
         key="workspace-next"
         type="button"
-        size="sm"
-        variant="primary"
         onClick={workspaceNeedsConfirmation ? handleConfirmWorkspace : () => setManualStep(1)}
         disabled={isConfirmingWorkspace || (workspaceNeedsConfirmation && !workspaceNameDraft.trim())}
-        rightIcon={<ArrowRight />}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupPrimaryButtonClass}
       >
-        {isConfirmingWorkspace ? 'Saving...' : workspaceNeedsConfirmation ? 'Save Workspace' : 'Next'}
-      </Button>
+        {isConfirmingWorkspace ? 'Saving...' : workspaceNeedsConfirmation ? 'Save workspace' : 'Next'}
+        <ArrowRight className="h-4 w-4" />
+      </button>
     ) : (
-      <Button
+      <button
         key="workspace-create"
         type="button"
-        size="sm"
-        variant="primary"
         onClick={handleCreateTeam}
         disabled={isCreatingTeam || !newTeamName.trim()}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupPrimaryButtonClass}
       >
-        {isCreatingTeam ? 'Creating...' : 'Create Team'}
-      </Button>
+        {isCreatingTeam ? 'Creating...' : 'Create team'}
+      </button>
     );
   } else if (activeStepIndex === 1) {
     actionBarSecondaryActions.push(
-      <Button
+      <button
         key="project-back"
         type="button"
-        size="sm"
-        variant="secondary"
         onClick={() => setManualStep(0)}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupSecondaryButtonClass}
       >
         Back
-      </Button>
+      </button>
     );
 
     if (activeProject && !isEditingProject) {
       actionBarSecondaryActions.push(
-        <Button
+        <button
           key="project-edit"
           type="button"
-          size="sm"
-          variant="secondary"
           onClick={() => setIsEditingProject(true)}
-          className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+          className={setupSecondaryButtonClass}
         >
           Edit
-        </Button>
+        </button>
       );
       actionBarPrimaryAction = (
-        <Button
+        <button
           key="project-next"
           type="button"
-          size="sm"
-          variant="primary"
           onClick={() => setManualStep(2)}
-          rightIcon={<ArrowRight />}
-          className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+          className={setupPrimaryButtonClass}
         >
           Next
-        </Button>
+          <ArrowRight className="h-4 w-4" />
+        </button>
       );
     } else {
       if (isEditingProject) {
         actionBarSecondaryActions.push(
-          <Button
+          <button
             key="project-cancel"
             type="button"
-            size="sm"
-            variant="secondary"
             onClick={() => setIsEditingProject(false)}
-            className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+            className={setupSecondaryButtonClass}
           >
             Cancel
-          </Button>
+          </button>
         );
       }
       actionBarPrimaryAction = (
-        <Button
+        <button
           key="project-submit"
           type="submit"
-          size="sm"
-          variant="primary"
           form={setupProjectFormId}
-          className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+          className={setupPrimaryButtonClass}
         >
-          {isEditingProject ? 'Save' : 'Create Project'}
-        </Button>
+          {isEditingProject ? 'Save' : 'Create project'}
+        </button>
       );
     }
   } else if (activeStepIndex === 2) {
     actionBarSecondaryActions.push(
-      <Button
+      <button
         key="handoff-back"
         type="button"
-        size="sm"
-        variant="secondary"
         onClick={() => setManualStep(1)}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupSecondaryButtonClass}
       >
         Back
-      </Button>,
-      <Button
+      </button>,
+      <button
         key="handoff-email"
         type="button"
-        size="sm"
-        variant="secondary"
         onClick={openEmailModal}
-        leftIcon={<Mail />}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupSecondaryButtonClass}
       >
+        <Mail className="h-4 w-4" />
         Email
-      </Button>
+      </button>
     );
     actionBarPrimaryAction = (
-      <Button
+      <button
         key="handoff-next"
         type="button"
-        size="sm"
-        variant="primary"
         onClick={() => setManualStep(3)}
-        rightIcon={<ArrowRight />}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupPrimaryButtonClass}
       >
         Verify
-      </Button>
+        <ArrowRight className="h-4 w-4" />
+      </button>
     );
   } else if (activeStepIndex === 3) {
     actionBarSecondaryActions.push(
-      <Button
+      <button
         key="verify-back"
         type="button"
-        size="sm"
-        variant="secondary"
         onClick={() => setManualStep(2)}
-        className={cn(setupActionButtonClass, "!rounded-full !bg-white/50 dark:!bg-slate-900/50 hover:!bg-white/80 dark:hover:!bg-slate-900/80 !text-slate-700 dark:!text-slate-300 hover:!text-indigo-650 dark:hover:!text-indigo-400 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 font-bold tracking-wide")}
+        className={setupSecondaryButtonClass}
       >
         Back
-      </Button>
+      </button>
     );
     if (activeProject?.id) {
       actionBarPrimaryAction = (
         <Link
           key="verify-open"
           to={`${pathPrefix}/general`}
-          onClick={handleOpenDashboard}
-          className="inline-flex h-8 items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 text-xs font-bold uppercase text-white shadow-md shadow-indigo-600/10 hover:shadow-lg hover:shadow-indigo-600/25 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 tracking-wide"
+          className={setupPrimaryButtonClass}
         >
-          {hasRecentData ? 'Open Dashboard' : 'Finish & Open'}
-          <ArrowRight className="h-3.5 w-3.5" />
+          {hasRecentData ? 'Open dashboard' : 'Finish & open'}
+          <ArrowRight className="h-4 w-4" />
         </Link>
       );
     }
   }
 
   return (
-    <div className="rejourney-setup-wizard relative min-h-full overflow-x-hidden bg-[#fdfbf7] pb-12 text-slate-700 dark:bg-slate-950 dark:text-slate-350">
-      <div className="relative z-10">
+    <div className="rejourney-setup-wizard relative min-h-full overflow-x-hidden bg-[#f8fafd] pb-12 text-[#3c4043]">
+      <div className="relative">
         <main className="mx-auto w-full max-w-[900px] space-y-5 px-4 py-5 pb-8 sm:px-6 sm:py-7 sm:pb-10">
           {isJoinedTeam && currentTeam && (
-            <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 text-emerald-800 dark:text-emerald-300 shadow-sm">
+            <section className="rounded-none border border-[#ceead6] bg-[#e6f4ea] px-5 py-4 text-[#137333]">
               <div className="flex items-start gap-3">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
-                  <Check className="h-4 w-4" strokeWidth={3} />
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center text-[#137333]">
+                  <Check className="h-4 w-4" strokeWidth={2.5} />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold">You joined {currentTeam.name || 'this team'}.</h2>
-                  <p className="mt-1 text-xs font-medium leading-relaxed opacity-90">
+                  <h2 className="text-sm font-medium">You joined {currentTeam.name || 'this team'}.</h2>
+                  <p className="mt-1 text-xs leading-relaxed text-[#3c4043]">
                     Use this setup guide to connect a project, copy the AI prompt, or invite the person who will wire in the SDK.
                   </p>
                 </div>
@@ -723,7 +709,7 @@ export const SetupRoute: React.FC = () => {
           )}
 
           {/* Stepper tracker */}
-          <section aria-label="Setup progress" className="rounded-xl border border-slate-200 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.05)] dark:border-slate-800 dark:bg-slate-950 sm:p-3">
+          <section aria-label="Setup progress" className={cn(dashboardCardClass, 'p-2 sm:p-3')}>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {setupSteps.map((step, index) => {
                 const isClickable = index <= highestAccessibleStepIndex;
@@ -735,34 +721,37 @@ export const SetupRoute: React.FC = () => {
                     aria-current={step.active ? 'step' : undefined}
                     onClick={() => setManualStep(index)}
                     className={cn(
-                      "flex min-h-16 items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                      "flex min-h-16 items-center gap-2.5 rounded-none border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 focus-visible:ring-offset-1",
                       step.active
-                        ? "border-slate-900 bg-slate-50 shadow-[2px_2px_0_#0f172a] dark:border-slate-500 dark:bg-slate-900 dark:shadow-none"
+                        ? "border-[#1a73e8] bg-[#e8f0fe]"
                         : "border-transparent bg-transparent",
                       isClickable
-                        ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/70"
-                        : "cursor-not-allowed opacity-45"
+                        ? cn("cursor-pointer", !step.active && "hover:bg-[#f1f3f4]")
+                        : "cursor-not-allowed opacity-50"
                     )}
                   >
                     <span
                       className={cn(
-                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold',
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-medium',
                         step.active
-                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          ? 'border-[#1a73e8] bg-[#1a73e8] text-white'
                           : step.done
-                            ? 'border-emerald-500 bg-emerald-50 text-emerald-650 dark:bg-emerald-950/30 dark:text-emerald-400'
-                            : 'border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-950',
+                            ? 'border-[#137333] bg-[#e6f4ea] text-[#137333]'
+                            : 'border-[#dadce0] bg-white text-[#5f6368]',
                       )}
                     >
-                      {step.done && !step.active ? <Check className="h-4 w-4" strokeWidth={3} /> : index + 1}
+                      {step.done && !step.active ? <Check className="h-4 w-4" strokeWidth={2.5} /> : index + 1}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                      <span className={cn(
+                        'block text-xs font-medium',
+                        step.active ? 'text-[#1967d2]' : 'text-[#5f6368]'
+                      )}>
                         Step {index + 1}
                       </span>
                       <span className={cn(
-                        'mt-0.5 block truncate text-sm font-bold',
-                        step.active ? 'text-slate-950 dark:text-white' : 'text-slate-600 dark:text-slate-300'
+                        'mt-0.5 block truncate text-sm font-medium',
+                        step.active ? 'text-[#1967d2]' : 'text-[#202124]'
                       )}>
                         {step.label}
                       </span>
@@ -782,29 +771,29 @@ export const SetupRoute: React.FC = () => {
                   <>
                     {/* Box 1: Select Workspace */}
                     <section id="setup-workspace-select" className={setupCardClass}>
-                      <div className="flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-850 mb-6">
-                        <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                        <h3 className="text-base font-bold text-slate-900 dark:text-white">1. Select Workspace</h3>
+                      <div className={setupCardHeaderClass}>
+                        <Users className={setupCardIconClass} />
+                        <h3 className={setupCardTitleClass}>1. Select workspace</h3>
                       </div>
 
                       <div className={cn("grid gap-6", teams.length > 1 ? "md:grid-cols-2" : "grid-cols-1")}>
                         <div className="flex items-center gap-3">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white font-extrabold text-xl shadow-sm">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-none bg-[#e8f0fe] text-lg font-medium text-[#1967d2]">
                             {(currentTeam.name || 'U').charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Current Workspace</div>
-                            <div className="text-lg font-bold text-slate-900 dark:text-white truncate">{currentTeam.name || 'Untitled team'}</div>
-                            <div className="text-xs font-semibold text-slate-550 dark:text-slate-400">{teamMembers.length} member{teamMembers.length === 1 ? '' : 's'}</div>
+                            <div className={dashboardLabelClass}>Current workspace</div>
+                            <div className="truncate text-lg font-medium text-[#202124]">{currentTeam.name || 'Untitled team'}</div>
+                            <div className="text-xs text-[#5f6368]">{teamMembers.length} member{teamMembers.length === 1 ? '' : 's'}</div>
                           </div>
                         </div>
 
                         {/* Switch Workspace dropdown (inline) */}
                         {teams.length > 1 && (
-                          <div className="flex flex-col justify-between p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-800">
+                          <div className={cn(setupInsetClass, 'flex flex-col justify-between p-4')}>
                             <div className="space-y-1">
-                              <div className="text-xs font-bold text-slate-700 dark:text-slate-300">Switch Workspace</div>
-                              <p className="text-[11px] font-medium leading-relaxed text-slate-500 dark:text-slate-400">
+                              <div className="text-sm font-medium text-[#202124]">Switch workspace</div>
+                              <p className="text-xs leading-relaxed text-[#5f6368]">
                                 Choose another workspace to configure its projects.
                               </p>
                             </div>
@@ -815,14 +804,14 @@ export const SetupRoute: React.FC = () => {
                                   const nextTeam = teams.find((team) => team.id === event.target.value);
                                   if (nextTeam) setCurrentTeam(nextTeam);
                                 }}
-                                className="h-10 w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pr-10 text-xs font-semibold text-slate-900 dark:text-white shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all cursor-pointer hover:border-slate-300 dark:hover:border-slate-700"
+                                className={cn(dashboardFieldClass, 'cursor-pointer appearance-none pr-10')}
                               >
                                 {teams.map((team) => (
-                                  <option key={team.id} value={team.id} className="dark:bg-slate-900">{team.name || team.id}</option>
+                                  <option key={team.id} value={team.id}>{team.name || team.id}</option>
                                 ))}
                               </select>
-                              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-                                <ChevronDown className="h-3.5 w-3.5" />
+                              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#5f6368]">
+                                <ChevronDown className="h-4 w-4" />
                               </div>
                             </div>
                           </div>
@@ -833,24 +822,24 @@ export const SetupRoute: React.FC = () => {
                     {/* Box 2: Rename Workspace */}
                     {canManageTeam && (
                       <section id="setup-workspace-rename" className={setupCardClass}>
-                        <div className="flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-850 mb-6">
-                          <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                          <h3 className="text-base font-bold text-slate-900 dark:text-white">2. Rename Workspace</h3>
+                        <div className={setupCardHeaderClass}>
+                          <Users className={setupCardIconClass} />
+                          <h3 className={setupCardTitleClass}>2. Rename workspace</h3>
                         </div>
 
                         <div className="space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                              {workspaceNeedsConfirmation ? 'Confirm Starter Workspace' : 'Workspace Name'}
+                          <div className="flex items-center justify-between gap-3">
+                            <label className="text-sm font-medium text-[#3c4043]">
+                              {workspaceNeedsConfirmation ? 'Confirm starter workspace' : 'Workspace name'}
                             </label>
                             {workspaceNeedsConfirmation && (
-                              <span className="inline-flex shrink-0 rounded-full border border-amber-250 bg-amber-50 px-2 py-0.5 text-[9px] font-extrabold uppercase text-amber-700">
+                              <span className={cn(dashboardChipClass('warning'), 'shrink-0')}>
                                 Needs review
                               </span>
                             )}
                           </div>
                           {workspaceNeedsConfirmation && (
-                            <p className="text-[11px] font-medium leading-relaxed text-slate-550 dark:text-slate-400">
+                            <p className="text-xs leading-relaxed text-[#5f6368]">
                               We created this starter workspace automatically. Rename it now or keep it.
                             </p>
                           )}
@@ -863,17 +852,15 @@ export const SetupRoute: React.FC = () => {
                                 setWorkspaceConfirmError(null);
                               }}
                               error={workspaceConfirmError ?? undefined}
-                              className="h-10 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-medium rounded-xl hover:border-slate-300 dark:hover:border-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/20"
                             />
-                            <Button
+                            <button
                               type="button"
-                              variant={workspaceNeedsConfirmation ? 'primary' : 'secondary'}
                               onClick={handleConfirmWorkspace}
                               disabled={isConfirmingWorkspace || !workspaceNameDraft.trim()}
-                              className="h-10 whitespace-nowrap font-bold !text-xs !px-4 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                              className={workspaceNeedsConfirmation ? setupPrimaryButtonClass : setupSecondaryButtonClass}
                             >
                               {isConfirmingWorkspace ? 'Saving...' : workspaceNeedsConfirmation ? 'Save & continue' : 'Save'}
-                            </Button>
+                            </button>
                           </div>
                         </div>
                       </section>
@@ -882,18 +869,18 @@ export const SetupRoute: React.FC = () => {
                     {/* Box 3: Invite Teammates */}
                     {canManageTeam && (
                       <section id="setup-workspace-invite" className={setupCardClass}>
-                        <div className="flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-850 mb-6">
-                          <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                          <h3 className="text-base font-bold text-slate-900 dark:text-white">3. Invite Teammates</h3>
+                        <div className={setupCardHeaderClass}>
+                          <Users className={setupCardIconClass} />
+                          <h3 className={setupCardTitleClass}>3. Invite teammates</h3>
                         </div>
 
                         <div className="space-y-4">
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                          <p className="text-xs leading-relaxed text-[#5f6368]">
                             Add colleagues, assign roles, and invite them to collaborate in this workspace.
                           </p>
-                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_auto] lg:items-end pt-2">
+                          <div className="grid gap-3 pt-1 lg:grid-cols-[minmax(0,1fr)_170px_auto] lg:items-end">
                             <div className="min-w-0 space-y-1.5">
-                              <label htmlFor="setup-teammate-invites" className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                              <label htmlFor="setup-teammate-invites" className={cn(dashboardLabelClass, 'block')}>
                                 Emails to add
                               </label>
                               <input
@@ -913,50 +900,48 @@ export const SetupRoute: React.FC = () => {
                                     }
                                 }}
                                 placeholder="alex@company.com"
-                                className="h-10 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 text-xs font-semibold text-slate-900 dark:text-white shadow-sm outline-none transition-all placeholder:text-slate-450 hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                                className={dashboardFieldClass}
                               />
                               {teammateInviteError && (
-                                <p className="text-xs font-bold text-red-500">{teammateInviteError}</p>
+                                <p className="text-xs font-medium text-[#c5221f]">{teammateInviteError}</p>
                               )}
                             </div>
                             <label className="space-y-1.5">
-                              <span className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Role for new emails</span>
+                              <span className={cn(dashboardLabelClass, 'block')}>Role for new emails</span>
                               <select
                                 value={teammateInviteRole}
                                 onChange={(event) => setTeammateInviteRole(event.target.value as TeamInviteRole)}
-                                className="h-10 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-xs font-bold text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                                className={cn(dashboardFieldClass, 'cursor-pointer')}
                               >
                                 <option value="member">Member</option>
                                 <option value="admin">Admin</option>
                               </select>
                             </label>
-                            <Button
+                            <button
                               type="button"
-                              size="sm"
-                              variant="secondary"
                               onClick={handleAddTeammateDraft}
                               disabled={!teammateInviteEmails.trim()}
-                              className="!h-10 w-full !rounded-xl !px-5 !text-xs !font-bold uppercase lg:w-auto hover:-translate-y-0.5 active:scale-[0.98] transition-all"
+                              className={cn(setupSecondaryButtonClass, 'w-full lg:w-auto')}
                             >
                               Add to list
-                            </Button>
+                            </button>
                           </div>
                           {teammateInviteRecipients.length > 0 && (
-                            <div className="mt-3 overflow-hidden rounded-xl border border-slate-250 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-950/20">
-                              <div className="grid grid-cols-[minmax(0,1fr)_120px_40px] gap-2 border-b border-slate-200 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:border-slate-800">
+                            <div className="mt-3 overflow-hidden rounded-none border border-[#dadce0] bg-white">
+                              <div className="grid grid-cols-[minmax(0,1fr)_120px_40px] gap-2 border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-2 text-xs font-medium text-[#5f6368]">
                                 <span>Email</span>
                                 <span>Role</span>
                                 <span className="sr-only">Remove</span>
                               </div>
                               {teammateInviteRecipients.map((recipient) => (
-                                <div key={recipient.email} className="grid grid-cols-[minmax(0,1fr)_120px_40px] items-center gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0 dark:border-slate-850">
-                                  <div className="min-w-0 truncate text-xs font-semibold text-slate-955 dark:text-white" title={recipient.email}>
+                                <div key={recipient.email} className="grid grid-cols-[minmax(0,1fr)_120px_40px] items-center gap-2 border-b border-[#e8eaed] px-3 py-2 last:border-b-0">
+                                  <div className="min-w-0 truncate text-sm text-[#202124]" title={recipient.email}>
                                     {recipient.email}
                                   </div>
                                   <select
                                     value={recipient.role}
                                     onChange={(event) => updateTeammateInviteRole(recipient.email, event.target.value as TeamInviteRole)}
-                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-slate-800 dark:bg-slate-955 dark:text-white"
+                                    className="h-8 cursor-pointer rounded-none border border-[#dadce0] bg-white px-2 text-xs text-[#202124] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                                     aria-label={`Role for ${recipient.email}`}
                                   >
                                     <option value="member">Member</option>
@@ -965,7 +950,7 @@ export const SetupRoute: React.FC = () => {
                                   <button
                                     type="button"
                                     onClick={() => removeTeammateInviteRecipient(recipient.email)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-455 transition hover:bg-slate-100 hover:text-red-500 dark:hover:bg-slate-900"
+                                    className="flex h-8 w-8 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#c5221f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                                     aria-label={`Remove ${recipient.email}`}
                                   >
                                     <X className="h-4 w-4" />
@@ -974,27 +959,20 @@ export const SetupRoute: React.FC = () => {
                               ))}
                             </div>
                           )}
-                          <Button
+                          <button
                             type="button"
-                            size="sm"
-                            variant="primary"
                             onClick={handleInviteTeammates}
                             disabled={isInvitingTeammates || (!teammateInviteRecipients.length && !teammateInviteEmails.trim())}
-                            className="mt-4 !h-10 w-full !rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/55 hover:bg-indigo-50 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/30 !text-xs !text-indigo-650 dark:!text-indigo-400 shadow-sm font-bold uppercase transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]"
+                            className={cn(setupSecondaryButtonClass, 'mt-4 w-full')}
                           >
                             {isInvitingTeammates
                               ? 'Inviting...'
                               : teammateInviteRecipients.length
                                 ? `Invite ${teammateInviteRecipients.length} teammate${teammateInviteRecipients.length === 1 ? '' : 's'}`
                                 : 'Invite teammates'}
-                          </Button>
+                          </button>
                           {teammateInviteState && (
-                            <p className={cn(
-                              'mt-3 text-xs font-bold',
-                              teammateInviteStateKind === 'error'
-                                ? 'text-red-500'
-                                : 'text-emerald-555'
-                            )}>
+                            <p className={cn('mt-3', setupStatusTextClass(teammateInviteStateKind))}>
                               {teammateInviteState}
                             </p>
                           )}
@@ -1005,7 +983,7 @@ export const SetupRoute: React.FC = () => {
                 ) : (
                   <section className={setupCardClass}>
                     <div className="space-y-4">
-                      <p className="text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400">
+                      <p className="text-xs leading-relaxed text-[#5f6368]">
                         Create a team first. Teams hold projects, members, and billing.
                       </p>
                       <Input
@@ -1017,17 +995,15 @@ export const SetupRoute: React.FC = () => {
                           setTeamError(null);
                         }}
                         error={teamError ?? undefined}
-                        className="h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-medium rounded-xl hover:border-slate-300 dark:hover:border-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/20"
                       />
-                      <Button
+                      <button
                         type="button"
-                        variant="primary"
                         onClick={handleCreateTeam}
                         disabled={isCreatingTeam || !newTeamName.trim()}
-                        className="w-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-sm font-semibold transition-all hover:-translate-y-0.5 active:scale-[0.98]"
+                        className={cn(setupPrimaryButtonClass, 'w-full')}
                       >
                         {isCreatingTeam ? 'Creating...' : 'Create team'}
-                      </Button>
+                      </button>
                     </div>
                   </section>
                 )}
@@ -1037,13 +1013,13 @@ export const SetupRoute: React.FC = () => {
             {/* Step 2: Project Card */}
             {activeStepIndex === 1 && (
               <section id="setup-project" className={setupCardClass}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
+                <div className="mb-5 flex flex-col gap-3 border-b border-[#e8eaed] pb-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
-                      <Code2 className="h-4 w-4 text-slate-400" />
-                      <span>Project Settings</span>
+                    <div className="flex items-center gap-2">
+                      <Code2 className={setupCardIconClass} />
+                      <span className={setupCardTitleClass}>Project settings</span>
                     </div>
-                    <p className="mt-1 text-xs font-medium leading-relaxed text-slate-400">
+                    <p className="mt-1 text-xs leading-relaxed text-[#5f6368]">
                       Select the app you want to connect or create a new project.
                     </p>
                   </div>
@@ -1055,14 +1031,14 @@ export const SetupRoute: React.FC = () => {
                           const nextProject = projects.find((project) => project.id === event.target.value);
                           if (nextProject) setSelectedProject(nextProject);
                         }}
-                        className="h-10 w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pr-10 text-xs font-bold text-slate-900 dark:text-white shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all cursor-pointer hover:border-slate-300 dark:hover:border-slate-700"
+                        className={cn(dashboardFieldClass, 'cursor-pointer appearance-none pr-10')}
                       >
                         {projects.map((project) => (
-                          <option key={project.id} value={project.id} className="dark:bg-slate-900">{project.name}</option>
+                          <option key={project.id} value={project.id}>{project.name}</option>
                         ))}
                       </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-405">
-                        <ChevronDown className="h-3.5 w-3.5" />
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#5f6368]">
+                        <ChevronDown className="h-4 w-4" />
                       </div>
                     </div>
                   )}
@@ -1071,49 +1047,49 @@ export const SetupRoute: React.FC = () => {
                 {currentTeam ? (
                   activeProject && !isEditingProject ? (
                     <div className="space-y-4">
-                      <div className="grid gap-6 md:grid-cols-2 p-5 rounded-xl bg-slate-50/50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-850">
+                      <div className={cn(setupInsetClass, 'grid gap-6 p-5 md:grid-cols-2')}>
                         {/* Project overview */}
-                        <div className="flex gap-4 items-start">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 font-extrabold text-lg shadow-sm border border-indigo-500/10">
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-none bg-[#e8f0fe] text-lg font-medium text-[#1967d2]">
                             PR
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Active Project</div>
-                            <div className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 truncate">{activeProject.name}</div>
-                            <div className="text-xs font-semibold text-slate-550 dark:text-slate-400 mt-1">{formatProjectPlatforms(activeProject)}</div>
+                            <div className={dashboardLabelClass}>Active project</div>
+                            <div className="mt-0.5 truncate text-lg font-medium text-[#202124]">{activeProject.name}</div>
+                            <div className="mt-1 text-xs text-[#5f6368]">{formatProjectPlatforms(activeProject)}</div>
                           </div>
                         </div>
 
                         {/* Identifiers */}
                         <div className="space-y-2">
-                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">App Identifiers</div>
-                          <div className="space-y-2 font-mono text-xs text-slate-650 dark:text-slate-350">
+                          <div className={dashboardLabelClass}>App identifiers</div>
+                          <div className="space-y-2 font-mono text-xs text-[#3c4043]">
                             {activeProject.webAllowedDomains?.length ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/10">Web</span>
+                                <span className={cn(dashboardChipClass('neutral'), 'font-sans')}>Web</span>
                                 <span className="truncate">{activeProject.webAllowedDomains.join(', ')}</span>
                               </div>
                             ) : null}
                             {!activeProject.webAllowedDomains?.length && activeProject.webDomain ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/10">Web</span>
+                                <span className={cn(dashboardChipClass('neutral'), 'font-sans')}>Web</span>
                                 <span className="truncate">{activeProject.webDomain}</span>
                               </div>
                             ) : null}
                             {activeProject.bundleId ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/10">iOS</span>
+                                <span className={cn(dashboardChipClass('neutral'), 'font-sans')}>iOS</span>
                                 <span className="truncate">{activeProject.bundleId}</span>
                               </div>
                             ) : null}
                             {activeProject.packageName ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/10">Android</span>
+                                <span className={cn(dashboardChipClass('neutral'), 'font-sans')}>Android</span>
                                 <span className="truncate">{activeProject.packageName}</span>
                               </div>
                             ) : null}
                             {!activeProject.webAllowedDomains?.length && !activeProject.webDomain && !activeProject.bundleId && !activeProject.packageName ? (
-                              <div className="text-slate-400 italic text-xs">No identifiers configured.</div>
+                              <div className="font-sans text-xs text-[#5f6368]">No identifiers configured.</div>
                             ) : null}
                           </div>
                         </div>
@@ -1125,7 +1101,7 @@ export const SetupRoute: React.FC = () => {
                         currentTeam={currentTeam}
                         formId={setupProjectFormId}
                         projectToEdit={isEditingProject ? activeProject : null}
-                        submitLabel={isEditingProject ? "Save Changes" : "Create project and continue"}
+                        submitLabel={isEditingProject ? "Save changes" : "Create project and continue"}
                         onCreated={async (project) => {
                           await handleProjectCreated(project);
                           setManualStep(2);
@@ -1140,8 +1116,8 @@ export const SetupRoute: React.FC = () => {
                     </div>
                   )
                 ) : (
-                  <div className="mt-2 rounded-lg border border-slate-202 bg-slate-50/50 dark:bg-slate-900/30 p-4 text-center text-sm font-medium text-slate-550 dark:text-slate-400">
-                    Please create or select a team to unlock project configuration.
+                  <div className={cn(setupInsetClass, 'mt-2 p-4 text-center text-sm text-[#5f6368]')}>
+                    Create or select a team to set up a project.
                   </div>
                 )}
               </section>
@@ -1151,76 +1127,75 @@ export const SetupRoute: React.FC = () => {
             {activeStepIndex === 2 && activeProject && (
               <div className="space-y-6">
                 <section id="setup-handoff" className={setupCardClass}>
-                  <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
-                    <KeyRound className="h-5 w-5 text-slate-400" />
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Developer Handoff</h3>
+                  <div className={setupCardHeaderClass}>
+                    <KeyRound className={setupCardIconClass} />
+                    <h3 className={setupCardTitleClass}>Developer handoff</h3>
                   </div>
-                  <p className="text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400 mb-6">
+                  <p className="mb-5 text-xs leading-relaxed text-[#5f6368]">
                     Start by copying the AI setup instructions. They include the public key, platform choices, app identifiers, and install steps.
                   </p>
 
                   <div className="space-y-6">
                     {/* Project API Key and AI Agent Setup Prompt */}
-                    <div className="space-y-4 p-5 rounded-xl bg-slate-50/50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-800">
+                    <div className={cn(setupInsetClass, 'space-y-4 p-5')}>
                       <div>
-                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Project API Key</div>
-                        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 font-mono text-xs leading-relaxed text-slate-800 dark:text-slate-200 break-all relative group">
+                        <div className={dashboardLabelClass}>Project API key</div>
+                        <div className="relative mt-2 flex items-center justify-between gap-3 break-all rounded-none border border-[#dadce0] bg-white px-3.5 py-2 font-mono text-xs leading-relaxed text-[#202124]">
                           <span className="truncate pr-12">{activeProject.publicKey}</span>
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
                             onClick={() => copyText(activeProject.publicKey, 'key')}
-                            className="h-8 w-8 p-0 shrink-0 absolute right-2 hover:bg-slate-100 dark:hover:bg-slate-900"
-                            title="Copy Key"
+                            className="absolute right-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
+                            title="Copy key"
+                            aria-label="Copy key"
                           >
-                            {copiedTarget === 'key' ? <Check className="h-4 w-4 text-emerald-500" strokeWidth={3} /> : <Copy className="h-4 w-4 text-slate-400" />}
-                          </Button>
+                            {copiedTarget === 'key' ? <Check className="h-4 w-4 text-[#137333]" strokeWidth={2.5} /> : <Copy className="h-4 w-4" />}
+                          </button>
                         </div>
                       </div>
 
                       <div className="pt-2">
-                        <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-1.5">
-                          <span>AI Agent Setup Prompt</span>
-                          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 uppercase tracking-wider">Recommended</span>
+                        <h4 className="mb-1.5 flex items-center gap-2 text-sm font-medium text-[#202124]">
+                          <span>AI agent setup prompt</span>
+                          <span className={dashboardChipClass('info')}>Recommended</span>
                         </h4>
-                        <p className="text-[11px] font-medium leading-relaxed text-slate-500 dark:text-slate-400 mb-3">
+                        <p className="mb-3 text-xs leading-relaxed text-[#5f6368]">
                           Paste the copied setup instructions into Cursor, Copilot, v0, or another AI assistant. It includes your exact project configuration.
                         </p>
-                        <Button
+                        <button
                           type="button"
-                          variant="primary"
                           onClick={() => copyText(aiPrompt, 'prompt')}
-                          className="w-full !bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-sm font-semibold transition-all hover:-translate-y-0.5 active:scale-[0.98]"
+                          className={cn(setupPrimaryButtonClass, 'w-full')}
                         >
                           {copiedTarget === 'prompt' ? (
                             <>
-                              <Check className="mr-2 h-4 w-4" strokeWidth={3} />
-                              Copied to Clipboard!
+                              <Check className="h-4 w-4" strokeWidth={2.5} />
+                              Copied
                             </>
                           ) : (
                             <>
-                              <Terminal className="mr-2 h-4 w-4" />
-                              Copy AI Setup Instructions
+                              <Terminal className="h-4 w-4" />
+                              Copy AI setup instructions
                             </>
                           )}
-                        </Button>
+                        </button>
 
                         <div className="my-4 flex items-center gap-3" aria-hidden="true">
-                          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">or</span>
-                          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+                          <span className="h-px flex-1 bg-[#e8eaed]" />
+                          <span className="text-xs text-[#5f6368]">or</span>
+                          <span className="h-px flex-1 bg-[#e8eaed]" />
                         </div>
 
                         <Link
                           to="/docs"
-                          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-850"
+                          className={cn(setupSecondaryButtonClass, 'w-full')}
                         >
-                          <Code2 className="h-4 w-4 text-slate-500" />
+                          <Code2 className="h-4 w-4 text-[#5f6368]" />
                           Read the setup docs
-                          <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+                          <ExternalLink className="h-3.5 w-3.5 text-[#5f6368]" />
                         </Link>
-                        <p className="mt-2 text-center text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                          Prefer a manual setup? Browse the Web, React Native, and Swift installation guides.
+                        <p className="mt-2 text-center text-xs text-[#5f6368]">
+                          Prefer a manual setup? Browse the Web, React Native, Flutter, Unity, and Swift installation guides.
                         </p>
                       </div>
                     </div>
@@ -1229,17 +1204,17 @@ export const SetupRoute: React.FC = () => {
 
                 {/* Box 2: Invite or Send Instructions */}
                 <section id="setup-handoff-invite" className={setupCardClass}>
-                  <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
-                    <Send className="h-5 w-5 text-slate-400" />
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Invite or Send Instructions</h3>
+                  <div className={setupCardHeaderClass}>
+                    <Send className={setupCardIconClass} />
+                    <h3 className={setupCardTitleClass}>Invite or send instructions</h3>
                   </div>
 
                   {canManageTeam ? (
-                    <div className="grid gap-6 md:grid-cols-[1fr_auto_1fr] items-stretch">
+                    <div className="grid items-stretch gap-6 md:grid-cols-[1fr_auto_1fr]">
                       {/* Invite Developer */}
-                      <div className="space-y-3.5 flex flex-col justify-between">
+                      <div className="flex flex-col justify-between space-y-3.5">
                         <div className="space-y-3.5">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Invite Developer to Team</label>
+                          <label className="block text-sm font-medium text-[#202124]">Invite a developer to the team</label>
                           <Input
                             type="email"
                             placeholder="developer@company.com"
@@ -1251,97 +1226,89 @@ export const SetupRoute: React.FC = () => {
                               setDeveloperEmailError(null);
                             }}
                             error={developerEmailError ?? undefined}
-                            className="h-10 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
                           />
-                          <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/10 p-3 text-[11px] font-semibold text-slate-650 dark:text-slate-400 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                          <label className="flex cursor-pointer items-start gap-2.5 rounded-none border border-[#dadce0] bg-white p-3 text-xs text-[#3c4043] transition-colors hover:bg-[#f8fafd]">
                             <input
                               type="checkbox"
                               checked={developerCanManageSetup}
                               onChange={(event) => setDeveloperCanManageSetup(event.target.checked)}
-                              className="mt-0.5 rounded border-slate-350 text-indigo-600 focus:ring-indigo-500/20 h-3.5 w-3.5"
+                              className="mt-0.5 h-3.5 w-3.5 rounded-none accent-[#1a73e8]"
                             />
                             <div>
-                              <div className="font-bold text-slate-900 dark:text-white">Grant Admin Access</div>
-                              <div className="mt-0.5 text-slate-500 leading-normal">Allow developer to manage setups and team settings.</div>
+                              <div className="font-medium text-[#202124]">Grant admin access</div>
+                              <div className="mt-0.5 leading-normal text-[#5f6368]">Allow the developer to manage setup and team settings.</div>
                             </div>
                           </label>
                         </div>
-                        <Button
+                        <button
                           type="button"
-                          variant="secondary"
                           onClick={handleInviteDeveloper}
                           disabled={isInvitingDeveloper}
-                          className="w-full !h-10 font-bold hover:-translate-y-0.5 active:scale-[0.98] transition-all mt-4"
+                          className={cn(setupSecondaryButtonClass, 'mt-4 w-full')}
                         >
-                          {isInvitingDeveloper ? 'Sending Invite...' : 'Invite Developer'}
-                        </Button>
+                          {isInvitingDeveloper ? 'Sending invite...' : 'Invite developer'}
+                        </button>
                         {inviteState && (
-                          <p className={cn(
-                            'text-xs font-bold mt-2',
-                            inviteStateKind === 'error' ? 'text-red-500' : 'text-emerald-555'
-                          )}>
+                          <p className={cn('mt-2', setupStatusTextClass(inviteStateKind))}>
                             {inviteState}
                           </p>
                         )}
                       </div>
 
                       {/* Divider */}
-                      <div className="flex flex-row md:flex-col items-center justify-center gap-4 py-2 md:py-0 self-stretch">
-                        <div className="h-[1px] w-full md:w-[1px] md:flex-1 bg-slate-100 dark:bg-slate-800" />
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-450 dark:text-slate-500 bg-white dark:bg-slate-950 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 shrink-0 shadow-sm">
+                      <div className="flex flex-row items-center justify-center gap-3 self-stretch py-2 md:flex-col md:py-0">
+                        <div className="h-px w-full bg-[#e8eaed] md:w-px md:flex-1" />
+                        <span className="shrink-0 text-xs text-[#5f6368]">
                           or
                         </span>
-                        <div className="h-[1px] w-full md:w-[1px] md:flex-1 bg-slate-100 dark:bg-slate-800" />
+                        <div className="h-px w-full bg-[#e8eaed] md:w-px md:flex-1" />
                       </div>
 
                       {/* Email Instructions */}
-                      <div className="space-y-3.5 flex flex-col justify-between">
+                      <div className="flex flex-col justify-between space-y-3.5">
                         <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Quick Email Handoff</label>
-                          <p className="text-[11px] font-medium leading-relaxed text-slate-550 dark:text-slate-400">
+                          <label className="block text-sm font-medium text-[#202124]">Quick email handoff</label>
+                          <p className="text-xs leading-relaxed text-[#5f6368]">
                             Send setup details directly via email without adding them to your workspace.
                           </p>
                         </div>
-                        <Button
+                        <button
                           type="button"
-                          variant="secondary"
                           onClick={openEmailModal}
-                          leftIcon={<Mail />}
-                          className="w-full !h-10 font-bold hover:-translate-y-0.5 active:scale-[0.98] transition-all"
+                          className={cn(setupSecondaryButtonClass, 'w-full')}
                         >
-                          Email Setup Details
-                        </Button>
+                          <Mail className="h-4 w-4" />
+                          Email setup details
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400">
+                    <p className="text-xs leading-relaxed text-[#5f6368]">
                       Ask a team administrator to invite your developer if you need help integrating the SDK.
                     </p>
                   )}
                 </section>
 
                 {/* Stuck Help & Info flow at the bottom */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-955 p-5 shadow-sm">
-                  <div className="flex gap-3.5 items-start">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-555">
+                <div className={cn(dashboardCardClass, 'p-5')}>
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-none bg-[#f1f3f4] text-[#5f6368]">
                       <LifeBuoy className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-xs font-bold text-slate-900 dark:text-white">Stuck on integration?</h3>
-                      <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-500 dark:text-slate-400">
-                        We can help you configure your domains, map bundle IDs, or walk you through the setup. Contact us at <strong className="font-semibold text-slate-700 dark:text-slate-300">contact@rejourney.co</strong>.
+                      <h3 className="text-sm font-medium text-[#202124]">Stuck on integration?</h3>
+                      <p className="mt-1 text-xs leading-relaxed text-[#5f6368]">
+                        We can help you configure your domains, map bundle IDs, or walk you through the setup. Contact us at <strong className="font-medium text-[#202124]">contact@rejourney.co</strong>.
                       </p>
-                      <Button
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="sm"
                         onClick={() => copyText('contact@rejourney.co', 'contact')}
-                        leftIcon={copiedTarget === 'contact' ? <Check className="h-3 w-3 text-emerald-500" /> : <Mail className="h-3 w-3 text-slate-400" />}
-                        className="mt-2.5 !h-8 !rounded-full !px-3 !text-[10px] !font-bold uppercase tracking-normal"
+                        className={cn(dashboardButtonClass('secondary', 'sm'), 'mt-3')}
                         aria-label="Copy support email"
                       >
-                        {copiedTarget === 'contact' ? 'Copied support email' : 'Copy Support Email'}
-                      </Button>
+                        {copiedTarget === 'contact' ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Mail className="h-3.5 w-3.5 text-[#5f6368]" />}
+                        {copiedTarget === 'contact' ? 'Copied support email' : 'Copy support email'}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1352,39 +1319,39 @@ export const SetupRoute: React.FC = () => {
             {activeStepIndex === 3 && (
               <div className="space-y-6">
                 <section id="setup-verify" className={setupCardClass}>
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
-                      <ClipboardCheck className="h-5 w-5 text-indigo-650 dark:text-indigo-400" />
-                      <span>Verification Checklist</span>
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaed] pb-4">
+                    <div className="flex items-center gap-2">
+                      <ClipboardCheck className={setupCardIconClass} />
+                      <span className={setupCardTitleClass}>Verification checklist</span>
                     </div>
                     {!hasRecentData && activeProject ? (
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-650 dark:text-indigo-455 animate-pulse">
+                      <div className="flex items-center gap-2 text-xs font-medium text-[#1967d2]">
                         <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1a73e8] opacity-75"></span>
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#1a73e8]"></span>
                         </span>
-                        <span>Listening for signals...</span>
+                        <span>Waiting for first session…</span>
                       </div>
                     ) : activeProject ? (
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-605 dark:text-emerald-400">
+                      <div className="flex items-center gap-2 text-xs font-medium text-[#137333]">
                         <span className="relative flex h-2 w-2">
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 animate-pulse"></span>
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-[#137333]"></span>
                         </span>
-                        <span>Signals received! Connected.</span>
+                        <span>First session received</span>
                       </div>
                     ) : null}
                   </div>
 
-                  <div className="space-y-4 text-sm p-5 rounded-xl bg-slate-50/50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-850">
+                  <div className={cn(setupInsetClass, 'space-y-4 p-5 text-sm')}>
                     {[
                       {
                         text: activeProject?.publicKey ? 'Get project public key' : 'Create a project to obtain a key',
-                        desc: activeProject?.publicKey ? `Active Key: ${activeProject.publicKey.slice(0, 15)}...` : 'Required before initializing the SDK.',
+                        desc: activeProject?.publicKey ? `Active key: ${activeProject.publicKey.slice(0, 15)}...` : 'Required before initializing the SDK.',
                         done: Boolean(activeProject?.publicKey)
                       },
                       {
                         text: 'Install the Rejourney SDK',
-                        desc: 'Install the Web, React Native, or Swift package for this project.',
+                        desc: 'Install the Web, React Native, Flutter, Unity, or Swift package for this project.',
                         done: Boolean(activeProject?.publicKey)
                       },
                       {
@@ -1395,30 +1362,30 @@ export const SetupRoute: React.FC = () => {
                       {
                         text: 'Receive first test session',
                         desc: hasRecentData
-                          ? 'Successfully connected! Dashboard is ready.'
+                          ? 'Connected. The dashboard is ready.'
                           : 'Open the app and trigger a session to finalize setup.',
                         done: hasRecentData
                       }
                     ].map((item, index) => (
                       <div key={item.text} className="flex items-start gap-3">
                         <span className={cn(
-                          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-extrabold transition-colors',
+                          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors',
                           item.done
-                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-555 dark:bg-emerald-500/20'
-                            : 'border-slate-205 bg-slate-50 text-slate-400 dark:border-slate-800 dark:bg-slate-900'
+                            ? 'border-[#137333] bg-[#e6f4ea] text-[#137333]'
+                            : 'border-[#dadce0] bg-white text-[#5f6368]'
                         )}>
-                          {item.done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
+                          {item.done ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : index + 1}
                         </span>
                         <div>
                           <div className={cn(
-                            'font-bold text-sm',
+                            'text-sm font-medium',
                             item.done
-                              ? 'text-slate-800 dark:text-slate-350 line-through decoration-slate-400/50'
-                              : 'text-slate-900 dark:text-white'
+                              ? 'text-[#5f6368] line-through decoration-[#bdc1c6]'
+                              : 'text-[#202124]'
                           )}>
                             {item.text}
                           </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          <div className="mt-0.5 text-xs text-[#5f6368]">
                             {item.desc}
                           </div>
                         </div>
@@ -1428,27 +1395,25 @@ export const SetupRoute: React.FC = () => {
                 </section>
 
                 {/* Stuck Help & Info flow at the bottom */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-955 p-5 shadow-sm">
-                  <div className="flex gap-3.5 items-start">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-555">
+                <div className={cn(dashboardCardClass, 'p-5')}>
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-none bg-[#f1f3f4] text-[#5f6368]">
                       <LifeBuoy className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-xs font-bold text-slate-900 dark:text-white">Stuck on integration?</h3>
-                      <p className="mt-1 text-[11px] font-medium leading-relaxed text-slate-500 dark:text-slate-400">
-                        We can help you configure your domains, map bundle IDs, or walk you through the setup. Contact us at <strong className="font-semibold text-slate-700 dark:text-slate-300">contact@rejourney.co</strong>.
+                      <h3 className="text-sm font-medium text-[#202124]">Stuck on integration?</h3>
+                      <p className="mt-1 text-xs leading-relaxed text-[#5f6368]">
+                        We can help you configure your domains, map bundle IDs, or walk you through the setup. Contact us at <strong className="font-medium text-[#202124]">contact@rejourney.co</strong>.
                       </p>
-                      <Button
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="sm"
                         onClick={() => copyText('contact@rejourney.co', 'contact')}
-                        leftIcon={copiedTarget === 'contact' ? <Check className="h-3 w-3 text-emerald-500" /> : <Mail className="h-3 w-3 text-slate-400" />}
-                        className="mt-2.5 !h-8 !rounded-full !px-3 !text-[10px] !font-bold uppercase tracking-normal"
+                        className={cn(dashboardButtonClass('secondary', 'sm'), 'mt-3')}
                         aria-label="Copy support email"
                       >
-                        {copiedTarget === 'contact' ? 'Copied support email' : 'Copy Support Email'}
-                      </Button>
+                        {copiedTarget === 'contact' ? <Check className="h-3.5 w-3.5 text-[#137333]" /> : <Mail className="h-3.5 w-3.5 text-[#5f6368]" />}
+                        {copiedTarget === 'contact' ? 'Copied support email' : 'Copy support email'}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1457,7 +1422,7 @@ export const SetupRoute: React.FC = () => {
 
             {/* Bottom Actions for Wizard steps */}
             {!(activeStepIndex === 1 && (isEditingProject || !activeProject)) && (
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-200 dark:border-slate-800 pt-6 sm:flex-row sm:justify-end">
+              <div className="flex flex-col-reverse gap-2 border-t border-[#e8eaed] pt-5 sm:flex-row sm:justify-end">
                 {actionBarSecondaryActions}
                 {actionBarPrimaryAction}
               </div>
@@ -1469,19 +1434,19 @@ export const SetupRoute: React.FC = () => {
         <Modal
           isOpen={isEmailModalOpen}
           onClose={() => setIsEmailModalOpen(false)}
-          title="Email Setup Instructions"
+          title="Email setup instructions"
           size="md"
           variant="modern"
-          bodyClassName="p-6"
+          bodyClassName="p-5 sm:p-6"
         >
           <div className="space-y-4">
-            <p className="text-xs font-semibold leading-relaxed text-slate-500 dark:text-slate-400">
-              Send simplified integration instructions directly to your developer. The email includes our project API key and the AI setup instructions.
+            <p className="text-sm leading-relaxed text-[#3c4043]">
+              Send simplified integration instructions directly to your developer. The email includes your project API key and the AI setup instructions.
             </p>
 
             <Input
               type="email"
-              label="Developer Email Address"
+              label="Developer email address"
               placeholder="developer@company.com"
               value={emailRecipient}
               onChange={(event) => {
@@ -1491,52 +1456,45 @@ export const SetupRoute: React.FC = () => {
                 setEmailSendStateKind(null);
               }}
               error={emailRecipientError ?? undefined}
-              className="h-10 bg-card font-medium"
             />
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium leading-none text-slate-700 dark:text-slate-350">
-                Email Content Preview
+              <label className="text-sm font-medium leading-none text-[#3c4043]">
+                Email preview
               </label>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-950 p-4 font-mono text-[10px] leading-relaxed text-slate-600 dark:text-slate-400 max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+              <div className="max-h-[200px] overflow-y-auto whitespace-pre-wrap rounded-none border border-[#dadce0] bg-[#f8fafd] p-4 font-mono text-[11px] leading-relaxed text-[#3c4043]">
                 {simpleEmailBody}
               </div>
             </div>
 
             {emailSendState && (
-              <p className={cn(
-                'text-xs font-bold',
-                emailSendStateKind === 'error'
-                  ? 'text-red-500'
-                  : 'text-emerald-550'
-              )}>
+              <p className={setupStatusTextClass(emailSendStateKind)}>
                 {emailSendState}
               </p>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-end border-t border-slate-200 dark:border-slate-850 pt-4 mt-6">
-              <Button
+            <div className="mt-6 flex flex-col justify-end gap-2 border-t border-[#e8eaed] pt-4 sm:flex-row">
+              <button
                 type="button"
-                variant="secondary"
                 onClick={async () => {
                   await navigator.clipboard.writeText(simpleEmailBody);
                   setEmailCopied(true);
                   window.setTimeout(() => setEmailCopied(false), 2000);
                 }}
-                leftIcon={emailCopied ? <Check /> : <Copy />}
+                className={setupSecondaryButtonClass}
               >
-                {emailCopied ? 'Copied Body!' : 'Copy Email Body'}
-              </Button>
-              <Button
+                {emailCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {emailCopied ? 'Copied' : 'Copy email body'}
+              </button>
+              <button
                 type="button"
-                variant="primary"
                 onClick={handleSendSetupEmail}
                 disabled={isSendingSetupEmail || !activeProject}
-                className="!bg-indigo-600 !text-white hover:!bg-indigo-700 shadow-sm font-semibold transition-all"
-                leftIcon={<Send />}
+                className={setupPrimaryButtonClass}
               >
-                {isSendingSetupEmail ? 'Sending Email...' : 'Send Email'}
-              </Button>
+                <Send className="h-4 w-4" />
+                {isSendingSetupEmail ? 'Sending...' : 'Send email'}
+              </button>
             </div>
           </div>
         </Modal>

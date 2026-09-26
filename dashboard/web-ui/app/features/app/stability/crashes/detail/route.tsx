@@ -12,7 +12,6 @@ import {
   Play,
   Server,
   Smartphone,
-  Sparkles,
 } from 'lucide-react';
 import { api, CrashReport } from '~/shared/api/client';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
@@ -120,7 +119,7 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
   if (loading || contextLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-transparent">
-        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading crash analysis...</div>
+        <div className="text-sm font-medium text-[#5f6368]">Loading crash analysis...</div>
       </div>
     );
   }
@@ -129,17 +128,16 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
     return (
       <div className="min-h-screen bg-transparent pb-8">
         <DashboardPageHeader
-          title="Crash Root Cause"
+          title="Crash root cause"
           subtitle="Deep crash analysis"
           icon={<Bug className="h-5 w-5" />}
-          iconColor="bg-[#ffe4e6]"
         />
         <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
           <NeoCard variant="flat" className="p-8 text-center">
-            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-rose-500" />
-            <p className="text-lg font-semibold text-slate-900">{error || 'Crash not found.'}</p>
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-[#9aa0a6]" />
+            <p className="text-base font-medium text-[#202124]">{error || 'Crash not found.'}</p>
             <NeoButton variant="primary" className="mt-5" onClick={() => navigate(`${pathPrefix}/stability?filter=crashes`)}>
-              Back to Crashes
+              Back to crashes
             </NeoButton>
           </NeoCard>
         </div>
@@ -150,10 +148,9 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
   return (
     <div className="min-h-screen bg-transparent pb-8">
       <DashboardPageHeader
-        title="Crash Root Cause"
+        title="Crash root cause"
         subtitle="Analyze stack frames, release context, and replay evidence"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-[#ffe4e6]"
       >
         <NeoButton
           variant="secondary"
@@ -161,7 +158,7 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
           leftIcon={<ArrowLeft size={14} />}
           onClick={() => navigate(`${pathPrefix}/stability?filter=crashes`)}
         >
-          Back to Crashes
+          Back to crashes
         </NeoButton>
         {canOpenReplay && (
           <NeoButton
@@ -170,13 +167,13 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
             leftIcon={<Play size={14} />}
             onClick={() => navigate(`${pathPrefix}/sessions/${crash.sessionId}`)}
           >
-            Replay Session
+            Replay session
           </NeoButton>
         )}
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">
-        <NeoCard variant="flat" className="p-5">
+        <NeoCard variant="flat" disablePadding className="p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -187,18 +184,18 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
                   fatal crash
                 </NeoBadge>
               </div>
-              <h2 className="truncate text-xl font-semibold text-slate-900 md:text-2xl">{crash.exceptionName}</h2>
-              <p className="mt-2 text-sm text-slate-600">{crash.reason || 'No crash reason was provided.'}</p>
+              <h2 className="truncate text-xl font-normal text-[#202124] md:text-2xl">{crash.exceptionName}</h2>
+              <p className="mt-2 text-sm text-[#3c4043]">{crash.reason || 'No crash reason was provided.'}</p>
             </div>
 
             <div className="grid w-full max-w-md grid-cols-2 gap-2">
-              <div className="border-2 border-black bg-white px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Occurred At</p>
-                <p className="mt-1 text-xs font-semibold text-slate-800">{new Date(crash.timestamp).toLocaleString()}</p>
+              <div className="border border-[#e8eaed] bg-[#f8fafd] px-3 py-2">
+                <p className="text-xs font-medium text-[#5f6368]">Occurred at</p>
+                <p className="mt-1 text-xs font-medium tabular-nums text-[#202124]">{new Date(crash.timestamp).toLocaleString()}</p>
               </div>
-              <div className="border-2 border-black bg-white px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Occurrences</p>
-                <p className="mt-1 text-xs font-semibold text-slate-800">{formatCompact(crash.occurrenceCount || 1)}</p>
+              <div className="border border-[#e8eaed] bg-[#f8fafd] px-3 py-2">
+                <p className="text-xs font-medium text-[#5f6368]">Occurrences</p>
+                <p className="mt-1 text-xs font-medium tabular-nums text-[#202124]">{formatCompact(crash.occurrenceCount || 1)}</p>
               </div>
             </div>
           </div>
@@ -207,10 +204,10 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           <div className="space-y-4 lg:col-span-8">
             <NeoCard variant="flat" disablePadding className="overflow-hidden">
-              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <Activity className="h-4 w-4 text-rose-500" />
-                  Crash Stack Trace
+              <div className="flex flex-col gap-3 border-b border-[#e8eaed] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+                  <Activity className="h-4 w-4 text-[#5f6368]" />
+                  Crash stack trace
                 </h3>
                 <div className="flex items-center gap-2">
                   <NeoButton
@@ -235,20 +232,19 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
               </div>
 
               {stackTrace ? (
-                <pre className="max-h-[560px] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-emerald-300">
+                <pre className="m-4 max-h-[560px] overflow-auto whitespace-pre border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs leading-relaxed text-[#202124]">
                   {stackTrace}
                 </pre>
               ) : (
-                <div className="p-8 text-center text-sm text-slate-500">No stack trace available for this crash.</div>
+                <div className="p-8 text-center text-sm text-[#5f6368]">No stack trace available for this crash.</div>
               )}
             </NeoCard>
 
-            <NeoCard variant="flat" className="border-rose-200 bg-rose-50 p-4">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-rose-700">
-                <Sparkles size={14} />
-                Root Cause Playbook
+            <NeoCard variant="flat" disablePadding className="p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+                Root cause playbook
               </p>
-              <div className="mt-3 space-y-2 text-xs leading-relaxed text-rose-700/90">
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#3c4043]">
                 <p>1. Isolate the first app-owned frame where the crash begins.</p>
                 <p>2. Correlate that frame with the release and device context on the right.</p>
                 <p>3. Replay this session to confirm the exact user action sequence before failure.</p>
@@ -257,51 +253,51 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
           </div>
 
           <div className="space-y-4 lg:col-span-4">
-            <NeoCard variant="flat" className="p-4">
-              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <Smartphone size={14} className="text-slate-500" />
-                Device Context
+            <NeoCard variant="flat" disablePadding className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-[#202124]">
+                <Smartphone size={14} className="text-[#5f6368]" />
+                Device context
               </p>
               <div className="space-y-3 text-sm">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Model</p>
-                  <p className="mt-1 font-semibold text-slate-800" title={crash.deviceMetadata?.model}>
+                  <p className="text-xs font-medium text-[#5f6368]">Model</p>
+                  <p className="mt-1 font-medium text-[#202124]" title={crash.deviceMetadata?.model}>
                     {formatDeviceModel(crash.deviceMetadata?.model, 'Unknown device')}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">OS</p>
-                  <p className="mt-1 font-semibold text-slate-800">
+                  <p className="text-xs font-medium text-[#5f6368]">OS</p>
+                  <p className="mt-1 font-medium text-[#202124]">
                     {crash.deviceMetadata?.systemName || 'Unknown'} {crash.deviceMetadata?.systemVersion || ''}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Device ID</p>
-                  <p className="mt-1 break-all font-mono text-xs text-slate-600">
+                  <p className="text-xs font-medium text-[#5f6368]">Device ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-[#3c4043]">
                     {crash.deviceMetadata?.identifierForVendor || 'N/A'}
                   </p>
                 </div>
               </div>
             </NeoCard>
 
-            <NeoCard variant="flat" className="p-4">
-              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <Server size={14} className="text-slate-500" />
-                Event Identifiers
+            <NeoCard variant="flat" disablePadding className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-[#202124]">
+                <Server size={14} className="text-[#5f6368]" />
+                Event identifiers
               </p>
               <div className="space-y-3 text-sm">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Session ID</p>
-                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{crash.sessionId}</p>
+                  <p className="text-xs font-medium text-[#5f6368]">Session ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-[#3c4043]">{crash.sessionId}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Crash ID</p>
-                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{crash.id}</p>
+                  <p className="text-xs font-medium text-[#5f6368]">Crash ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-[#3c4043]">{crash.id}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Timestamp</p>
-                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-700">
-                    <Calendar size={12} className="text-slate-400" />
+                  <p className="text-xs font-medium text-[#5f6368]">Timestamp</p>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-[#3c4043]">
+                    <Calendar size={12} className="text-[#80868b]" />
                     {new Date(crash.timestamp).toLocaleString()}
                   </p>
                 </div>

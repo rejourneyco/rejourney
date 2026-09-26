@@ -12,7 +12,7 @@ interface DocsLayoutProps {
 
 export function DocsLayout({ children, sidebar, toc, contentDir, contentLang }: DocsLayoutProps) {
     return (
-        <div className="public-readable-scope min-h-screen bg-[#f8fafc] flex flex-col font-sans text-slate-950">
+        <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] flex flex-col font-sans text-[#202124] antialiased selection:bg-[#d2e3fc] selection:text-[#202124]">
             <Header noSpacer />
             <div
                 className="relative flex flex-1 min-h-[calc(100vh-64px)] w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 overflow-x-clip"

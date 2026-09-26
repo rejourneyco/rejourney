@@ -19,6 +19,12 @@ import {
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
+import {
+    dashboardButtonClass,
+    dashboardCardClass,
+    dashboardFieldClass,
+    dashboardLabelClass,
+} from '~/shared/ui/core/dashboardStyles';
 import { deriveSourceGlobs } from './sourceGlobs';
 
 export function loader({ request }: LoaderFunctionArgs) {
@@ -260,36 +266,36 @@ export const GithubSetup: React.FC = () => {
         <div className="min-h-screen bg-[#f8fafd] px-4 py-8 font-sans text-[#202124] sm:px-6">
             <div className="mx-auto w-full max-w-2xl">
                 <div className="mb-6 flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#dadce0] bg-white">
                         <Github className="h-5 w-5 text-[#3c4043]" />
                     </span>
                     <div>
-                        <h1 className="text-lg font-semibold text-[#202124]">
-                            Connect GitHub <span className="font-medium text-[#6f7785]">(optional)</span>
+                        <h1 className="text-lg font-normal leading-6 text-[#202124] sm:text-xl">
+                            Connect GitHub <span className="text-[#5f6368]">(optional)</span>
                         </h1>
-                        <p className="text-sm font-medium text-[#5f6368]">
+                        <p className="mt-0.5 text-sm text-[#5f6368]">
                             Add exact source locations and code-specific fix plans. Leak detection and evidence context work without this connection.
                         </p>
                     </div>
                 </div>
 
                 {loading ? (
-                    <div className="flex h-40 items-center justify-center rounded-lg border border-[#dadce0] bg-white text-sm font-semibold text-[#5f6368]">
+                    <div className={`flex h-40 items-center justify-center ${dashboardCardClass} text-sm text-[#5f6368]`}>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading GitHub setup
                     </div>
                 ) : (
-                    <div className="space-y-5 rounded-lg border border-[#dadce0] bg-white p-5 shadow-sm">
+                    <div className={`space-y-5 ${dashboardCardClass} p-5`}>
                         {error && (
-                            <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+                            <div className="border border-[#f6aea9] bg-[#fce8e6] p-3 text-sm text-[#a50e0e]">
                                 {error}
                             </div>
                         )}
 
                         {installationId == null ? (
                             <div className="space-y-4">
-                                <div className="rounded-md border border-[#dadce0] bg-[#f8fafd] p-4">
-                                    <h2 className="text-sm font-semibold text-[#202124]">Install GitHub access</h2>
-                                    <p className="mt-1 text-sm font-medium leading-6 text-[#5f6368]">
+                                <div className="border border-[#e8eaed] bg-[#f8fafd] p-4">
+                                    <h2 className="text-sm font-medium text-[#202124]">Install GitHub access</h2>
+                                    <p className="mt-1 text-sm leading-6 text-[#5f6368]">
                                         No active GitHub App installation is available for this project yet. Install or update access, then return here to choose a repository.
                                     </p>
                                 </div>
@@ -298,7 +304,7 @@ export const GithubSetup: React.FC = () => {
                                         type="button"
                                         onClick={() => void onOpenInstall()}
                                         disabled={installBusy}
-                                        className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#1a73e8] px-4 text-sm font-semibold !text-white transition-colors hover:bg-[#2563eb] hover:!text-white focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className={dashboardButtonClass('primary', 'lg')}
                                         style={{ color: '#ffffff' }}
                                     >
                                         <Github className="h-4 w-4 text-white" />
@@ -307,7 +313,7 @@ export const GithubSetup: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setReloadKey((value) => value + 1)}
-                                        className="inline-flex h-10 items-center justify-center rounded-md border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                        className={dashboardButtonClass('secondary', 'lg')}
                                     >
                                         Refresh
                                     </button>
@@ -317,7 +323,7 @@ export const GithubSetup: React.FC = () => {
                             <>
                                 {installations.length > 1 && (
                                     <label className="block">
-                                        <span className="mb-1 block text-xs font-semibold uppercase text-[#6f7785]">
+                                        <span className={`mb-1 block ${dashboardLabelClass}`}>
                                             GitHub account
                                         </span>
                                         <select
@@ -327,7 +333,7 @@ export const GithubSetup: React.FC = () => {
                                                     event.target.value ? Number(event.target.value) : null,
                                                 )
                                             }
-                                            className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] outline-none transition focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100"
+                                            className={dashboardFieldClass}
                                         >
                                             {installations.map((candidate) => (
                                                 <option
@@ -341,15 +347,15 @@ export const GithubSetup: React.FC = () => {
                                     </label>
                                 )}
 
-                                <div className="flex flex-col gap-3 rounded-md border border-[#dadce0] bg-[#f8fafd] p-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <p className="text-sm font-medium leading-5 text-[#5f6368]">
+                                <div className="flex flex-col gap-3 border border-[#e8eaed] bg-[#f8fafd] p-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-sm leading-5 text-[#5f6368]">
                                         Need another repo? Update GitHub permissions, then return here to choose from the refreshed list.
                                     </p>
                                     <button
                                         type="button"
                                         onClick={() => void onOpenInstall()}
                                         disabled={installBusy}
-                                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className={dashboardButtonClass('secondary', 'md')}
                                     >
                                         {installBusy ? (
                                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -361,7 +367,7 @@ export const GithubSetup: React.FC = () => {
                                 </div>
 
                                 <label className="block">
-                                    <span className="mb-1 block text-xs font-semibold uppercase text-[#6f7785]">
+                                    <span className={`mb-1 block ${dashboardLabelClass}`}>
                                         Repository
                                     </span>
                                     <select
@@ -370,7 +376,7 @@ export const GithubSetup: React.FC = () => {
                                             setSelectedRepoId(event.target.value ? Number(event.target.value) : null)
                                         }
                                         disabled={repos.length === 0}
-                                        className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] outline-none transition focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                                        className={dashboardFieldClass}
                                     >
                                         {repos.length > 0 && <option value="">Choose a repository</option>}
                                         {repos.length === 0 && <option value="">No repositories available</option>}
@@ -383,21 +389,21 @@ export const GithubSetup: React.FC = () => {
                                 </label>
 
                                 <div>
-                                    <div className="mb-1 flex items-center justify-between">
-                                        <span className="text-xs font-semibold uppercase text-[#6f7785]">
+                                    <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                        <span className={dashboardLabelClass}>
                                             Folders Rejourney can read
                                         </span>
-                                        <span className="text-[11px] font-medium text-[#8a9288]">
+                                        <span className="text-[11px] text-[#5f6368]">
                                             All allowed by default — uncheck to restrict
                                         </span>
                                     </div>
-                                    <div className="max-h-72 overflow-y-auto rounded-md border border-[#dadce0] bg-[#f8fafd] p-3">
+                                    <div className="max-h-72 overflow-y-auto border border-[#dadce0] bg-[#f8fafd] p-3">
                                         {foldersLoading ? (
-                                            <div className="flex h-24 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                                            <div className="flex h-24 items-center justify-center text-sm text-[#5f6368]">
                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading folders
                                             </div>
                                         ) : !folderTree || folderTree.length === 0 ? (
-                                            <p className="px-1 py-2 text-sm font-medium text-[#5f6368]">
+                                            <p className="px-1 py-2 text-sm text-[#5f6368]">
                                                 No subfolders detected — the whole repo will be readable.
                                             </p>
                                         ) : (
@@ -406,25 +412,25 @@ export const GithubSetup: React.FC = () => {
                                                     const folderChecked = !deselected.has(node.name);
                                                     return (
                                                         <li key={node.name}>
-                                                            <label className="flex items-center gap-2 rounded px-1 py-1 text-sm font-semibold text-[#3c4043] hover:bg-white">
+                                                            <label className="flex cursor-pointer items-center gap-2 px-1 py-1 text-sm font-medium text-[#3c4043] hover:bg-white">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={folderChecked}
                                                                     onChange={() => toggleFolder(node.name)}
-                                                                    className="h-4 w-4 rounded border-[#bfc5bd]"
+                                                                    className="h-4 w-4 accent-[#1a73e8]"
                                                                 />
                                                                 <span className="font-mono">{node.name}/</span>
                                                             </label>
                                                             {folderChecked && node.children.length > 0 && (
-                                                                <ul className="ml-6 space-y-1 border-l border-[#e0e2dc] pl-3">
+                                                                <ul className="ml-6 space-y-1 border-l border-[#e8eaed] pl-3">
                                                                     {node.children.map((child) => (
                                                                         <li key={child}>
-                                                                            <label className="flex items-center gap-2 rounded px-1 py-0.5 text-xs font-medium text-[#5f6368] hover:bg-white">
+                                                                            <label className="flex cursor-pointer items-center gap-2 px-1 py-0.5 text-xs text-[#5f6368] hover:bg-white">
                                                                                 <input
                                                                                     type="checkbox"
                                                                                     checked={!deselected.has(childKey(node.name, child))}
                                                                                     onChange={() => toggleChild(node.name, child)}
-                                                                                    className="h-3.5 w-3.5 rounded border-[#bfc5bd]"
+                                                                                    className="h-3.5 w-3.5 accent-[#1a73e8]"
                                                                                 />
                                                                                 <span className="font-mono">
                                                                                     {node.name}/{child}/
@@ -448,7 +454,7 @@ export const GithubSetup: React.FC = () => {
                                             type="button"
                                             onClick={() => void onDisconnect()}
                                             disabled={saving}
-                                            className="text-sm font-semibold text-rose-600 transition-colors hover:text-rose-700 disabled:opacity-60"
+                                            className="inline-flex h-10 items-center rounded-none px-3 text-sm font-medium text-[#c5221f] transition-colors hover:bg-[#fce8e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
                                             Disconnect
                                         </button>
@@ -459,7 +465,7 @@ export const GithubSetup: React.FC = () => {
                                         type="button"
                                         onClick={() => void onSave()}
                                         disabled={saving || selectedRepoId == null || installationId == null}
-                                        className="inline-flex h-10 items-center gap-2 rounded-md bg-[#1a73e8] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#2563eb] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        className={dashboardButtonClass('primary', 'lg')}
                                     >
                                         {saving ? 'Saving…' : status?.linked ? 'Save folders' : 'Connect repository'}
                                     </button>

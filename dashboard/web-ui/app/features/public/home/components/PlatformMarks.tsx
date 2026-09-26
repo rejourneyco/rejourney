@@ -1,4 +1,5 @@
 import React from 'react';
+import { UNITY_PATH } from '~/shared/ui/core/PlatformBrandIcon';
 
 /* Paths adapted from Simple Icons (MIT) — display-only marks. */
 
@@ -64,6 +65,14 @@ export function MarkReactNative(props: React.SVGProps<SVGSVGElement>) {
             <ellipse cx="12" cy="12" rx="10" ry="4.2" stroke="currentColor" strokeWidth="1.4" />
             <ellipse cx="12" cy="12" rx="10" ry="4.2" stroke="currentColor" strokeWidth="1.4" transform="rotate(60 12 12)" />
             <ellipse cx="12" cy="12" rx="10" ry="4.2" stroke="currentColor" strokeWidth="1.4" transform="rotate(-60 12 12)" />
+        </svg>
+    );
+}
+
+export function MarkUnity(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+            <path d={UNITY_PATH} />
         </svg>
     );
 }

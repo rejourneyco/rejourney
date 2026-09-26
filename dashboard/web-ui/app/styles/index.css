@@ -29,20 +29,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 }
 
-.rejourney-setup-wizard .setup-wizard-action {
-  border-radius: 0.5rem !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
-}
-
-.rejourney-setup-wizard .setup-wizard-action:hover {
-  transform: translateY(-1px) !important;
-}
-
-.rejourney-setup-wizard .setup-wizard-action:active {
-  transform: translateY(0) !important;
-  box-shadow: none !important;
-}
-
 .web-rrweb-player .replayer-wrapper {
   background: #fff;
 }
@@ -87,7 +73,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     --radius: 0.75rem;
     --font-sans: 'Inter', 'Avenir Next', Avenir, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     --font-display: 'Inter', 'Avenir Next', Avenir, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', 'Courier New', monospace;
+    --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
 
     /* Dashboard surface tokens */
     --dashboard-canvas: #f8fafd;
@@ -96,33 +82,33 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     --dashboard-surface-muted: #f8fafd;
     --dashboard-border: #dadce0;
     --dashboard-border-strong: #dadce0;
-    --dashboard-kpi-border: #1e293b;
-    --dashboard-kpi-shadow: 4px 4px 0 rgba(15, 23, 42, 0.82);
-    --dashboard-kpi-shadow-hover: 5px 5px 0 rgba(15, 23, 42, 0.78);
-    --dashboard-kpi-shadow-sm: 2px 2px 0 rgba(15, 23, 42, 0.72);
+    --dashboard-kpi-border: #dadce0;
+    --dashboard-kpi-shadow: none;
+    --dashboard-kpi-shadow-hover: 0 1px 3px rgba(60, 64, 67, 0.12);
+    --dashboard-kpi-shadow-sm: none;
     --dashboard-chrome-border: #dadce0;
     --dashboard-chrome-border-strong: #dadce0;
     --dashboard-chrome-bg: #ffffff;
     --dashboard-chrome-muted-bg: #ffffff;
     --dashboard-chrome-shadow: 0 1px 2px rgba(15, 23, 42, 0.07);
     --dashboard-chrome-hover-shadow: 0 7px 16px rgba(15, 23, 42, 0.11);
-    --dashboard-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.07);
-    --dashboard-shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
-    --dashboard-shadow-lg: 0 18px 36px rgba(15, 23, 42, 0.11);
-    --dashboard-shadow-strong: 4px 4px 0 rgba(15, 23, 42, 0.92);
-    --dashboard-text-strong: #0f172a;
-    --dashboard-text-body: #334155;
-    --dashboard-text-muted: #64748b;
+    --dashboard-shadow-sm: 0 1px 2px rgba(60, 64, 67, 0.08);
+    --dashboard-shadow-md: 0 1px 3px rgba(60, 64, 67, 0.12);
+    --dashboard-shadow-lg: 0 4px 16px rgba(60, 64, 67, 0.16);
+    --dashboard-shadow-strong: 0 1px 3px rgba(60, 64, 67, 0.12);
+    --dashboard-text-strong: #202124;
+    --dashboard-text-body: #3c4043;
+    --dashboard-text-muted: #5f6368;
     --dashboard-font: var(--font-sans);
-    --dashboard-brand: #5dadec;
-    --dashboard-brand-strong: #2563eb;
+    --dashboard-brand: #1a73e8;
+    --dashboard-brand-strong: #1967d2;
     --dashboard-accent-rose: #f9a8d4;
     --dashboard-accent-cyan: #67e8f9;
     --dashboard-accent-pink: #f9a8d4;
     --dashboard-accent-green: #86efac;
-    --dashboard-success: #059669;
-    --dashboard-warning: #be185d;
-    --dashboard-danger: #dc2626;
+    --dashboard-success: #137333;
+    --dashboard-warning: #b06000;
+    --dashboard-danger: #c5221f;
   }
 
   .dark {
@@ -247,8 +233,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     background: rgba(148, 163, 184, 0.65);
   }
 
-  .soft-border-scope :where(.border-black) {
-    border-color: rgb(203 213 225) !important;
+  .soft-border-scope :where(.border-black, .border-slate-950, [class*="border-black/"]) {
+    border-color: #dadce0 !important;
   }
 
   .soft-border-scope :where(.border-2) {
@@ -263,43 +249,50 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     border-bottom-width: 1px !important;
   }
 
-  .soft-border-scope :where(.divide-black > :not([hidden]) ~ :not([hidden])) {
-    border-color: rgb(226 232 240) !important;
+  .soft-border-scope :where(.border-l-2) {
+    border-left-width: 1px !important;
   }
 
-  .soft-border-scope :where(.divide-y-2 > :not([hidden]) ~ :not([hidden])) {
-    border-top-width: 1px !important;
+  .soft-border-scope :where(.border-r-2) {
+    border-right-width: 1px !important;
   }
 
-  .soft-border-scope :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg) {
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+  .soft-border-scope :where(.divide-black > :not([hidden]) ~ :not([hidden]), .divide-slate-950 > :not([hidden]) ~ :not([hidden])) {
+    border-color: #e8eaed !important;
+  }
+
+  .soft-border-scope :where(.divide-y-2 > :not([hidden]) ~ :not([hidden]), .divide-x-2 > :not([hidden]) ~ :not([hidden])) {
+    border-width: 1px !important;
+  }
+
+  .soft-border-scope :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-["][class*="_#0f172a]"]) {
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.08) !important;
   }
 
   .soft-border-scope :where(.hover\:shadow-neo-sm:hover, .hover\:shadow-neo:hover, .hover\:shadow-neo-lg:hover) {
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1) !important;
+    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12) !important;
   }
 
   .soft-border-scope :where(.focus\:ring-black:focus) {
-    --tw-ring-color: rgb(148 163 184) !important;
+    --tw-ring-color: rgb(26 115 232 / 0.4) !important;
   }
 
   .dashboard-kpi-card {
     border-color: var(--dashboard-kpi-border) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
     border-radius: 0 !important;
     background: #ffffff !important;
     box-shadow: var(--dashboard-kpi-shadow) !important;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    transition: box-shadow 0.15s ease;
   }
 
   .dashboard-kpi-card:hover {
     box-shadow: var(--dashboard-kpi-shadow-hover) !important;
-    transform: translate(-1px, -1px);
   }
 
   .dashboard-kpi-card :where(.dashboard-kpi-accent, .dashboard-kpi-delta) {
     border-color: var(--dashboard-kpi-border) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
   }
 
   .dashboard-kpi-card :where(.dashboard-kpi-delta) {
@@ -308,7 +301,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
   .soft-border-scope :where(.dashboard-kpi-card) {
     border-color: var(--dashboard-kpi-border) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
     box-shadow: var(--dashboard-kpi-shadow) !important;
   }
 
@@ -318,7 +311,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
   .soft-border-scope :where(.dashboard-kpi-card .dashboard-kpi-accent, .dashboard-kpi-card .dashboard-kpi-delta) {
     border-color: var(--dashboard-kpi-border) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
   }
 
   .dashboard-surface-mix :where(.dashboard-panel:not(.dashboard-keep-neo):not(.dashboard-panel-strong):not([class*="border-rose"]):not([class*="border-emerald"]):not([class*="border-sky"]):not([class*="border-blue"]):not([class*="border-violet"]):not([class*="border-amber"]),
@@ -326,15 +319,15 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     .dashboard-surface,
     .dashboard-section,
     .dashboard-inner-surface) {
-    border-color: rgb(203 213 225) !important;
+    border-color: #dadce0 !important;
     border-width: 1px !important;
-    border-radius: 8px !important;
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   .dashboard-surface-mix :where(.dashboard-inner-surface,
     .dashboard-section) {
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.07) !important;
+    box-shadow: none !important;
   }
 
   .dashboard-surface-mix :where(.dashboard-panel:not(.dashboard-keep-neo):not(.dashboard-panel-strong):not([class*="border-rose"]):not([class*="border-emerald"]):not([class*="border-sky"]):not([class*="border-blue"]):not([class*="border-violet"]):not([class*="border-amber"]) > .border-b-2.border-black,
@@ -342,12 +335,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     .dashboard-surface > .border-b-2.border-black,
     .dashboard-section > .border-b-2.border-black,
     .dashboard-inner-surface > .border-b-2.border-black) {
-    border-bottom-color: rgb(226 232 240) !important;
+    border-bottom-color: #e8eaed !important;
     border-bottom-width: 1px !important;
-  }
-
-  .dashboard-surface-mix :where(.dashboard-panel:not(.dashboard-keep-neo):not(.dashboard-panel-strong):not([class*="border-rose"]):not([class*="border-emerald"]):not([class*="border-sky"]):not([class*="border-blue"]):not([class*="border-violet"]):not([class*="border-amber"]):hover) {
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09) !important;
   }
 
   .public-readable-scope {
@@ -394,14 +383,15 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     opacity: 1 !important;
   }
 
-  .engineering-article-page {
-    --article-ink: #172033;
-    --article-heading: #0f172a;
-    --article-muted: #64748b;
-    --article-link: #0369a1;
-    --article-border: #d6dee9;
-    --article-soft-surface: #f8fafc;
-    background: #fbfbf8;
+  .engineering-article-page,
+  .guide-article-page {
+    --article-ink: #202124;
+    --article-heading: #202124;
+    --article-muted: #5f6368;
+    --article-link: #1a73e8;
+    --article-border: #dadce0;
+    --article-soft-surface: #f8fafd;
+    background: var(--dashboard-canvas, #f8fafd);
   }
 
   .engineering-article-body {
@@ -870,6 +860,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 /* Unified dashboard shell theme */
+body:has(.dashboard-modern) {
+  --primary: 214 82% 51%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 214 82% 51%;
+  --destructive: 1 73% 45%;
+}
+
 .dashboard-shell {
   background-color: var(--dashboard-canvas);
   color: var(--dashboard-text-strong);
@@ -890,8 +887,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   letter-spacing: 0;
 }
 
-.dashboard-modern :where(.font-black) {
-  font-weight: 800;
+.dashboard-modern :where(.font-black, .font-extrabold) {
+  font-weight: 600;
 }
 
 .dashboard-modern :where(.tracking-tighter, .tracking-tight, .tracking-wide, .tracking-wider, .tracking-widest) {
@@ -901,7 +898,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .dashboard-modern :where(.dashboard-label) {
   color: var(--dashboard-text-muted);
   font-size: 0.6875rem;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.2;
   text-transform: uppercase;
 }
@@ -931,23 +928,25 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   color: #202124;
   font-size: 2rem;
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .rejourney-general-page :where(.dashboard-value-md) {
   color: #3c4043;
   font-size: 1.35rem;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .rejourney-general-card {
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 /* Shared dashboard KPI card — mirrors the General overview card anatomy. */
 .dashboard-analytics-card.dashboard-kpi-card {
   overflow: hidden;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px !important;
+  border-radius: 0 !important;
   background: #ffffff !important;
   padding: 0 !important;
   box-shadow: none !important;
@@ -961,12 +960,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   transform: none !important;
 }
 
+/* KPI cards carry no colored stripe; hide any leftover accent element. */
 .dashboard-analytics-card .dashboard-kpi-accent {
-  display: block;
-  height: 4px !important;
-  margin: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
+  display: none !important;
 }
 
 .dashboard-analytics-card .dashboard-kpi-header {
@@ -998,6 +994,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   color: #202124 !important;
   font-size: 2rem !important;
   font-weight: 400 !important;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.025em;
   line-height: 1.05 !important;
 }
@@ -1014,20 +1011,21 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: inline-flex;
   align-items: center;
   border: 1px solid #dadce0 !important;
-  border-radius: 999px;
+  border-radius: 0;
   background: #ffffff !important;
   padding: 0.25rem 0.6rem;
   box-shadow: none !important;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .dashboard-analytics-card .dashboard-kpi-comparison-label,
 .dashboard-analytics-card .dashboard-kpi-detail {
-  color: #6f7785;
+  color: #5f6368;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0;
   line-height: 1.35;
   text-transform: none;
@@ -1035,6 +1033,23 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .dashboard-analytics-card .dashboard-kpi-detail {
   margin: -0.35rem 1.25rem 1.1rem;
+}
+
+/* Text-valued KPIs (a device or screen name) read smaller and clamp to two lines, so a
+   wrapped name never runs into the detail line below it. */
+.dashboard-analytics-card > .dashboard-kpi-value.dashboard-kpi-value-text {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 1.5rem !important;
+  letter-spacing: 0;
+  line-height: 1.25 !important;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.dashboard-analytics-card > .dashboard-kpi-value-text + .dashboard-kpi-detail {
+  margin-top: 0.5rem;
 }
 
 .dashboard-analytics-card .dashboard-kpi-device-name {
@@ -1061,7 +1076,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   text-align: right;
 }
 
-.rejourney-general-card :where(.recharts-cartesian-axis-tick-value) {
+/* Outranks the shared .dashboard-modern tick rule, which is also !important. */
+.rejourney-general-page .rejourney-general-card .recharts-cartesian-axis-tick-value {
   fill: #5f6368 !important;
   font-weight: 500 !important;
 }
@@ -1079,11 +1095,49 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 }
 
+/* The expanded card renders in a portal outside .dashboard-modern and the page root,
+   so it restates the card's label, value and axis styles. */
+.general-card-expanded-content :where(.dashboard-label) {
+  color: #6f7785;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.general-card-expanded-content :where(.dashboard-value-lg) {
+  color: #202124;
+  font-size: 2rem;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.general-card-expanded-content :where(.dashboard-value-md) {
+  color: #3c4043;
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.general-card-expanded-content :where(.recharts-cartesian-axis-tick-value) {
+  fill: #5f6368;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.general-card-expanded-content :where(.recharts-cartesian-grid line) {
+  stroke: #edf0f3;
+}
+
 .rejourney-general-page :where(.recharts-cartesian-grid line) {
   stroke: #edf0f3 !important;
 }
 
-.rejourney-general-page :where(a) {
+/* Zero specificity so text-* utilities (e.g. white text on primary links) still win. */
+:where(.rejourney-general-page a) {
   color: #1a73e8;
 }
 
@@ -1105,27 +1159,23 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 :where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.dashboard-surface, .dashboard-panel) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 
 :where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #e8eaed !important;
-  border-radius: 6px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
 }
 
 :where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(h2, h3) {
   color: #202124 !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
-}
-
-:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.font-black) {
-  font-weight: 650;
 }
 
 :where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.border-black, .border-slate-900) {
@@ -1144,7 +1194,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   border-top-width: 1px !important;
 }
 
-:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+/* Legacy offset shadows only; focus-visible keeps Tailwind's ring (a box-shadow). */
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]):where(:not(:focus-visible)) {
   box-shadow: none !important;
 }
 
@@ -1152,19 +1203,15 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   transform: none !important;
 }
 
-:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(button.rounded-none, .rounded-none) {
-  border-radius: 6px !important;
-}
-
-:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]), textarea, select) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
-  border-radius: 6px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
   color: #202124 !important;
 }
 
-:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]):focus, textarea:focus, select:focus) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus, textarea:focus, select:focus) {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
   outline: none;
@@ -1204,52 +1251,29 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 :where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.inline-flex.border-2.border-black.font-black) {
   border-color: #dadce0 !important;
-  border-radius: 999px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
   letter-spacing: 0 !important;
 }
 
+/* Usage meter: thin square track, fill color set by the page (blue, amber at 80%, red at 100%). */
 .rejourney-billing-settings-page .billing-progress-track {
-  height: 0.75rem;
+  height: 0.375rem;
   overflow: hidden;
-  border: 1px solid #dadce0;
-  border-radius: 999px;
-  background: #eef2f7;
+  border-radius: 0;
+  background: #e8eaed;
 }
 
 .rejourney-billing-settings-page .billing-progress-fill {
   height: 100%;
-  border-radius: inherit;
+  border-radius: 0;
   transition: width 0.5s ease;
-}
-
-.rejourney-billing-settings-page .billing-plan-card {
-  position: relative;
-  overflow: hidden;
-  background: #ffffff !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.rejourney-billing-settings-page .billing-plan-card:hover {
-  border-color: #c7d2fe !important;
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
-}
-
-.rejourney-billing-settings-page .billing-plan-card-current {
-  border-color: #1a73e8 !important;
-  box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16), 0 1px 3px rgba(60, 64, 67, 0.1) !important;
-}
-
-.rejourney-billing-settings-page .billing-plan-accent {
-  height: 0.25rem;
-  width: 100%;
-  background: var(--plan-accent, #1a73e8);
 }
 
 .rejourney-billing-settings-page .billing-modal-panel {
   border: 1px solid #dadce0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 18px 36px rgba(60, 64, 67, 0.18) !important;
+  border-radius: 0 !important;
+  box-shadow: 0 12px 32px rgba(60, 64, 67, 0.28) !important;
 }
 
 .rejourney-project-settings-page .settings-option-card {
@@ -1257,10 +1281,18 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   background: #ffffff !important;
 }
 
+.rejourney-project-settings-page .settings-option-card:hover:not(:disabled):not([aria-pressed="true"]) {
+  border-color: #bdc1c6 !important;
+}
+
 .rejourney-project-settings-page .settings-option-card[aria-pressed="true"] {
   border-color: #1a73e8 !important;
   background: #e8f0fe !important;
-  box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16) !important;
+}
+
+.rejourney-project-settings-page .settings-option-card:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: 2px;
 }
 
 .rejourney-project-settings-page .project-settings-rail {
@@ -1274,7 +1306,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-project-settings-page .project-settings-rail-header {
   margin-bottom: 0.5rem;
   padding: 0.1rem 0.75rem 0.65rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8eaed;
 }
 
 .rejourney-project-settings-page .project-settings-rail-nav {
@@ -1289,38 +1321,34 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   min-width: 0;
   align-items: center;
   gap: 0.55rem;
-  min-height: 2.35rem;
-  border: 1px solid transparent;
-  padding: 0.55rem 0.75rem 0.55rem 0.9rem;
-  color: #475569;
-  font-size: 0.82rem;
-  font-weight: 650;
+  min-height: 2.25rem;
+  border-radius: 0;
+  padding: 0.5rem 0.75rem;
+  color: #3c4043;
+  font-size: 0.8125rem;
+  font-weight: 500;
   text-decoration: none;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background-color 0.16s ease, color 0.16s ease;
 }
 
+/* Kept in the markup; selection reads from the item's own fill like the sidebar. */
 .rejourney-project-settings-page .project-settings-rail-marker {
-  position: absolute;
-  bottom: 0.35rem;
-  left: 0;
-  top: 0.35rem;
-  width: 3px;
-  background: transparent;
+  display: none;
 }
 
 .rejourney-project-settings-page .project-settings-rail-item:hover {
-  background: #f8fafc;
-  color: #0f172a;
+  background: #f1f3f4;
+  color: #202124;
 }
 
 .rejourney-project-settings-page .project-settings-rail-item[aria-current="true"] {
-  border-color: #e2e8f0;
-  background: #f8fafc;
-  color: #0f172a;
+  background: #e8f0fe;
+  color: #1967d2;
 }
 
-.rejourney-project-settings-page .project-settings-rail-item[aria-current="true"] .project-settings-rail-marker {
-  background: #1a73e8;
+.rejourney-project-settings-page .project-settings-rail-item:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: -2px;
 }
 
 .rejourney-project-settings-page .project-settings-rail-icon,
@@ -1331,7 +1359,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   justify-content: center;
   border: 1px solid #dadce0;
-  border-radius: 6px;
+  border-radius: 0;
 }
 
 .rejourney-project-settings-page .project-settings-rail-icon {
@@ -1355,42 +1383,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   position: relative;
 }
 
-.rejourney-project-settings-page .project-settings-section-accent {
-  height: 3px;
-  width: 100%;
-}
-
-.rejourney-project-settings-page .project-settings-row:hover {
-  background: #fbfdff;
-}
-
-.rejourney-project-settings-page .project-settings-status-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 1.65rem;
-  border: 1px solid #dadce0;
-  border-radius: 999px;
-  padding: 0.2rem 0.65rem;
-  font-size: 0.72rem;
-  font-weight: 650;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.rejourney-project-settings-page .project-settings-platform-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: 1px solid #dadce0;
-  border-radius: 999px;
-  background: #ffffff;
-  padding: 0.35rem 0.65rem;
-  color: #3c4043;
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
+/* Square switch: grey track off, primary blue on. */
 .rejourney-project-settings-page .project-settings-switch {
   position: relative;
   display: inline-flex;
@@ -1399,9 +1392,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex-shrink: 0;
   cursor: pointer;
   align-items: center;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  background: #e2e8f0;
+  border: 1px solid #bdc1c6;
+  border-radius: 0;
+  background: #e8eaed;
   padding: 0;
   transition: background-color 0.16s ease, border-color 0.16s ease;
 }
@@ -1411,25 +1404,30 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   height: 1.25rem;
   width: 1.25rem;
   transform: translateX(0.2rem);
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
+  border: 1px solid #bdc1c6;
+  border-radius: 0;
   background: #ffffff;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.18);
-  transition: transform 0.16s ease;
+  transition: transform 0.16s ease, border-color 0.16s ease;
 }
 
 .rejourney-project-settings-page .project-settings-switch-on {
-  border-color: #188038;
-  background: #34a853;
+  border-color: #1a73e8;
+  background: #1a73e8;
 }
 
 .rejourney-project-settings-page .project-settings-switch-on span {
+  border-color: #1a73e8;
   transform: translateX(1.42rem);
 }
 
 .rejourney-project-settings-page .project-settings-switch:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
+}
+
+.rejourney-project-settings-page .project-settings-switch:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: 2px;
 }
 
 .rejourney-project-settings-page .project-settings-range-card,
@@ -1479,10 +1477,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex-shrink: 0;
   align-items: center;
   overflow: hidden;
-  border: 1px solid #cfd8e3;
-  border-radius: 8px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   background: #ffffff;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.08);
 }
 
 .rejourney-project-settings-page .project-settings-stepper button {
@@ -1492,19 +1489,28 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   justify-content: center;
   border: 0;
+  border-radius: 0;
   background: #f8fafd;
   color: #1a73e8;
   cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .rejourney-project-settings-page .project-settings-stepper button:hover:not(:disabled) {
   background: #e8f0fe;
 }
 
+.rejourney-project-settings-page .project-settings-stepper button:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: -2px;
+}
+
 .rejourney-project-settings-page .project-settings-stepper button:disabled {
   cursor: not-allowed;
-  color: #9aa6b2;
-  opacity: 0.65;
+  color: #80868b;
+  opacity: 0.6;
 }
 
 .rejourney-project-settings-page .project-settings-stepper-value {
@@ -1512,10 +1518,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   border-left: 1px solid #e8eaed;
   border-right: 1px solid #e8eaed;
   padding: 0 0.75rem;
-  color: #111827;
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.92rem;
-  font-weight: 700;
+  color: #202124;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 2rem;
   text-align: center;
   white-space: nowrap;
@@ -1532,12 +1538,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 }
 
+/* Slider: square #e8eaed track with a #1a73e8 fill up to --range-progress; round thumb. */
 .rejourney-project-settings-page .project-settings-range-input {
+  -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 0.7rem;
-  border-radius: 999px;
-  background: linear-gradient(to right, #1a73e8 0%, #1a73e8 var(--range-progress), #dbe7f6 var(--range-progress), #dbe7f6 100%);
+  height: 0.375rem;
+  border-radius: 0;
+  background: linear-gradient(to right, #1a73e8 0%, #1a73e8 var(--range-progress), #e8eaed var(--range-progress), #e8eaed 100%);
   cursor: pointer;
 }
 
@@ -1546,56 +1554,71 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   opacity: 0.6;
 }
 
+.rejourney-project-settings-page .project-settings-range-input:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: 6px;
+}
+
+/* One engine per rule: a selector list mixing -webkit- and -moz- pseudo-elements is dropped whole. */
 .rejourney-project-settings-page .project-settings-range-input::-webkit-slider-runnable-track {
-  height: 0.7rem;
-  border-radius: 999px;
+  height: 0.375rem;
+  border-radius: 0;
   background: transparent;
 }
 
 .rejourney-project-settings-page .project-settings-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
   appearance: none;
-  height: 1.45rem;
-  width: 1.45rem;
-  margin-top: -0.4rem;
-  border: 3px solid #ffffff;
+  height: 1rem;
+  width: 1rem;
+  margin-top: -0.3125rem;
+  border: 2px solid #ffffff;
   border-radius: 999px;
   background: #1a73e8;
-  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
+  box-shadow: 0 0 0 1px #1a73e8;
 }
 
 .rejourney-project-settings-page .project-settings-range-input::-moz-range-track {
-  height: 0.7rem;
-  border-radius: 999px;
+  height: 0.375rem;
+  border-radius: 0;
   background: transparent;
 }
 
 .rejourney-project-settings-page .project-settings-range-input::-moz-range-thumb {
-  height: 1.2rem;
-  width: 1.2rem;
-  border: 3px solid #ffffff;
+  height: 0.75rem;
+  width: 0.75rem;
+  border: 2px solid #ffffff;
   border-radius: 999px;
   background: #1a73e8;
-  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
+  box-shadow: 0 0 0 1px #1a73e8;
 }
 
 .rejourney-project-settings-page .project-settings-copy-button {
   display: inline-flex;
   height: 2rem;
-  width: 2rem;
+  min-width: 3.5rem;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border: 1px solid #dadce0;
-  border-radius: 6px;
+  border-radius: 0;
   background: #ffffff;
-  color: #5f6368;
+  padding: 0 0.75rem;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 500;
   transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
 
 .rejourney-project-settings-page .project-settings-copy-button:hover {
-  border-color: #1a73e8;
-  background: #e8f0fe;
-  color: #1a73e8;
+  border-color: #bdc1c6;
+  background: #f8fafd;
+  color: #202124;
+}
+
+.rejourney-project-settings-page .project-settings-copy-button:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: 2px;
 }
 
 @media (max-width: 1279px) {
@@ -1635,159 +1658,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 }
 
-.rejourney-project-settings-page :where(.dashboard-surface, .dashboard-panel) {
-  border-color: #dadce0 !important;
-  border-width: 1px !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.rejourney-project-settings-page :where(.dashboard-inner-surface) {
-  border-color: #dadce0 !important;
-  border-width: 1px !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.rejourney-project-settings-page :where(input:not([type="checkbox"]):not([type="range"]), textarea, select) {
-  border-color: #dadce0 !important;
-  border-radius: 0 !important;
-}
-
-.rejourney-project-settings-page :where(input:not([type="checkbox"]):not([type="range"]):focus, textarea:focus, select:focus) {
-  border-color: #0f172a !important;
-  box-shadow: 0 0 0 1px #0f172a !important;
-}
-
-.rejourney-project-settings-page :where(button, a),
-.rejourney-project-settings-page .rounded,
-.rejourney-project-settings-page .rounded-md,
-.rejourney-project-settings-page .rounded-lg,
-.rejourney-project-settings-page .rounded-xl,
-.rejourney-project-settings-page .rounded-2xl,
-.rejourney-project-settings-page .rounded-full,
-.rejourney-project-settings-page .rounded-none {
-  border-radius: 0 !important;
-}
-
-.rejourney-project-settings-page :where(button.border-2, a.border-2) {
-  border-color: #dadce0 !important;
-  border-width: 1px !important;
-  box-shadow: none !important;
-}
-
-.rejourney-project-settings-page :where(button.border-2:hover:not(:disabled), a.border-2:hover) {
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-.rejourney-project-settings-page :where(button.bg-black, .bg-black, .bg-slate-950) {
-  background-color: #0f172a !important;
-  color: #ffffff !important;
-}
-
-.rejourney-project-settings-page :where(button.bg-black:hover:not(:disabled), .hover\:bg-slate-800:hover) {
-  background-color: #111827 !important;
-}
-
-.rejourney-project-settings-page :where(.bg-blue-50, .bg-cyan-50, .bg-\[\#67e8f9\]) {
-  background-color: #f8fafc !important;
-}
-
-.rejourney-project-settings-page .settings-option-card[aria-pressed="true"] {
-  border-color: #0f172a !important;
-  background: #f8fafc !important;
-  box-shadow: inset 3px 0 0 #0f172a !important;
-}
-
-.rejourney-project-settings-page .project-settings-status-pill {
-  border-radius: 0;
-  text-transform: uppercase;
-}
-
-.rejourney-project-settings-page .project-settings-status-neutral {
-  border-color: #dadce0;
-  background: #ffffff;
-  color: #334155;
-}
-
-.rejourney-project-settings-page .project-settings-status-success {
-  border-color: #86efac;
-  background: #dcfce7;
-  color: #14532d;
-}
-
-.rejourney-project-settings-page .project-settings-status-warning {
-  border-color: #facc15;
-  background: #fef9c3;
-  color: #713f12;
-}
-
-.rejourney-project-settings-page .project-settings-status-danger {
-  border-color: #fb7185;
-  background: #ffe4e6;
-  color: #881337;
-}
-
-.rejourney-project-settings-page .project-settings-platform-pill,
-.rejourney-project-settings-page .project-settings-stepper,
-.rejourney-project-settings-page .project-settings-switch,
-.rejourney-project-settings-page .project-settings-switch span,
-.rejourney-project-settings-page .project-settings-range-input,
-.rejourney-project-settings-page .project-settings-range-input::-webkit-slider-runnable-track,
-.rejourney-project-settings-page .project-settings-range-input::-webkit-slider-thumb,
-.rejourney-project-settings-page .project-settings-range-input::-moz-range-track,
-.rejourney-project-settings-page .project-settings-range-input::-moz-range-thumb {
-  border-radius: 0 !important;
-}
-
-.rejourney-project-settings-page .project-settings-switch-on {
-  border-color: #0f172a;
-  background: #0f172a;
-}
-
-.rejourney-project-settings-page .project-settings-range-card input[type="range"] {
-  accent-color: #0f172a;
-}
-
-.rejourney-project-settings-page .project-settings-range-input {
-  background: linear-gradient(to right, #0f172a 0%, #0f172a var(--range-progress), #dbe7f6 var(--range-progress), #dbe7f6 100%);
-}
-
-.rejourney-project-settings-page .project-settings-range-input::-webkit-slider-thumb,
-.rejourney-project-settings-page .project-settings-range-input::-moz-range-thumb {
-  background: #0f172a;
-  box-shadow: 0 0 0 1px #0f172a;
-}
-
-.rejourney-project-settings-page .project-settings-stepper button {
-  color: #0f172a;
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.rejourney-project-settings-page .project-settings-stepper button:hover:not(:disabled) {
-  background: #ecfeff;
-}
-
-.rejourney-project-settings-page .project-settings-copy-button {
-  width: auto;
-  min-width: 3.5rem;
-  border-color: #dadce0;
-  border-radius: 0;
-  padding: 0 0.65rem;
-  color: #0f172a;
-  font-size: 0.65rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.rejourney-project-settings-page .project-settings-copy-button:hover {
-  border-color: #dadce0;
-  background: #f8fafd;
-  color: #0f172a;
-}
-
 .rejourney-api-page {
   background: #f8fafd !important;
   color: #202124;
@@ -1796,47 +1666,44 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-api-page :where(.dashboard-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0;
+  box-shadow: none !important;
 }
 
 .rejourney-api-page :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 6px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-api-page :where(.dashboard-kpi-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 
 .rejourney-api-page :where(.dashboard-kpi-card:hover) {
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
   transform: none !important;
 }
 
 .rejourney-api-page :where(.dashboard-kpi-accent) {
-  height: 4px !important;
-  border: 0 !important;
-  border-radius: 0;
+  display: none !important;
 }
 
 .rejourney-api-page :where(.dashboard-kpi-delta) {
   border: 1px solid #dadce0 !important;
-  border-radius: 999px;
+  border-radius: 0;
   box-shadow: none !important;
   background: #ffffff !important;
 }
 
 .rejourney-api-page :where(.dashboard-label) {
-  color: #6f7785;
+  color: #5f6368;
   font-size: 0.76rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .geo-analytics-popup .mapboxgl-popup-content {
@@ -1857,7 +1724,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-api-page :where(h2, h3) {
   color: #202124 !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
@@ -1892,7 +1759,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-api-page :where(input, select) {
   border-color: #dadce0 !important;
-  border-radius: 4px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
 }
 
@@ -1925,25 +1792,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   background: #f8fafd !important;
   color: #5f6368 !important;
   font-family: var(--font-sans) !important;
-  font-size: 0.72rem !important;
-  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
 }
 
-.rejourney-api-page :where(table tbody tr:nth-child(odd)) {
-  background: #ffffff !important;
-}
-
-.rejourney-api-page :where(table tbody tr:nth-child(even)) {
-  background: #f8fafc !important;
-}
-
-.rejourney-api-page :where(table tbody tr:nth-child(odd):hover) {
-  background: #f8fafc !important;
-}
-
-.rejourney-api-page :where(table tbody tr:nth-child(even):hover) {
-  background: rgba(236, 254, 255, 0.45) !important;
+.rejourney-api-page :where(table tbody tr:hover) {
+  background: #f8fafd !important;
 }
 
 .rejourney-api-page :where(table tbody) {
@@ -1953,22 +1808,22 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-api-page :where(.overflow-x-auto[style]) {
   box-shadow: none !important;
   border-color: #dadce0 !important;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .rejourney-api-page :where(.rounded-xl) {
-  border-radius: 6px;
+  border-radius: 0;
 }
 
 .rejourney-api-page :where(.rounded-2xl) {
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .rejourney-journeys-page {
-  --journey-accent: #db2777;
-  --journey-accent-strong: #be185d;
-  --journey-accent-soft: #fdf2f8;
-  --journey-accent-border: #fbcfe8;
+  --journey-accent: #1a73e8;
+  --journey-accent-strong: #1765cc;
+  --journey-accent-soft: #e8f0fe;
+  --journey-accent-border: #d2e3fc;
   background: #f8fafd !important;
   color: #202124;
 }
@@ -1976,21 +1831,21 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-journeys-page :where(.dashboard-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-journeys-page :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 6px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-journeys-page :where(.dashboard-kpi-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
   overflow: hidden;
   padding: 0 !important;
@@ -2004,10 +1859,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-journeys-page :where(.dashboard-kpi-accent) {
-  height: 4px !important;
-  border: 0 !important;
-  border-radius: 0;
-  margin: 0;
+  display: none !important;
 }
 
 .rejourney-journeys-page :where(.dashboard-kpi-card .dashboard-label) {
@@ -2031,7 +1883,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-journeys-page :where(.dashboard-kpi-delta) {
   border: 1px solid #dadce0 !important;
-  border-radius: 999px;
+  border-radius: 0;
   box-shadow: none !important;
   background: #ffffff !important;
 }
@@ -2048,10 +1900,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   min-width: 55rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
-}
-
-.rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-accent {
-  height: 3px !important;
 }
 
 .rejourney-journeys-page .journey-kpi-grid .dashboard-kpi-header {
@@ -2095,18 +1943,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-journeys-page :where(.dashboard-label) {
-  color: #6f7785;
+  color: #5f6368;
   font-size: 0.76rem;
-  font-weight: 600;
-}
-
-.rejourney-journeys-page :where(.font-black) {
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .rejourney-journeys-page :where(h2, h3) {
   color: #202124 !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
@@ -2134,7 +1978,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-journeys-page .journey-page-main :where(input:not([type="checkbox"]), select) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
-  border-radius: 4px !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
   color: #202124 !important;
 }
@@ -2174,23 +2018,23 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-journeys-page :where(.rounded-xl) {
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .rejourney-journeys-page :where(.rounded-2xl) {
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .rejourney-journeys-page :where(.journey-sankey-card, .journey-sankey-empty) {
   border: 1px solid #dadce0 !important;
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-journeys-page :where(.journey-filter-grid) {
   background: #ffffff;
   border: 1px solid #dadce0;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 0.75rem;
 }
 
@@ -2201,20 +2045,20 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-journeys-page :where(.journey-filter-grid label > span:first-child) {
   color: #5f6368 !important;
   font-size: 0.72rem;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
 }
 
 .rejourney-journeys-page :where(.journey-evidence-toggle) {
   height: 100%;
   min-height: 3.65rem;
   border-color: #dadce0 !important;
-  border-radius: 6px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-journeys-page :where(.journey-count-pill) {
   border-color: #dadce0 !important;
-  border-radius: 999px;
+  border-radius: 0;
   background: #ffffff !important;
   box-shadow: none !important;
   color: #3c4043 !important;
@@ -2222,7 +2066,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-journeys-page :where(.journey-sankey-accent) {
-  background: var(--journey-accent) !important;
+  display: none !important;
 }
 
 .rejourney-journeys-page :where(.journey-sankey-header) {
@@ -2236,7 +2080,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-journeys-page :where(.journey-sankey-canvas) {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafd 52%, #ffffff 100%) !important;
+  background: #ffffff !important;
   border-color: #e8eaed !important;
 }
 
@@ -2248,41 +2092,33 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-journeys-page :where(.journey-node) {
   border-color: #dadce0 !important;
-  border-radius: 8px;
+  border-radius: 0;
   background: #ffffff !important;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1) !important;
+  box-shadow: none !important;
   color: #202124;
 }
 
 .rejourney-journeys-page :where(.journey-node:hover) {
   border-color: #a8c7fa !important;
-  box-shadow: 0 2px 5px rgba(60, 64, 67, 0.14) !important;
+  box-shadow: none !important;
 }
 
 .rejourney-journeys-page :where(.journey-node-selected) {
   border-color: var(--journey-accent) !important;
   background: var(--journey-accent-soft) !important;
-  box-shadow: 0 0 0 1px var(--journey-accent-border), 0 2px 5px rgba(60, 64, 67, 0.12) !important;
+  box-shadow: 0 0 0 1px var(--journey-accent-border) !important;
 }
 
 .rejourney-journeys-page :where(table thead, table thead tr, table thead th) {
   background: #f8fafd !important;
   color: #5f6368 !important;
-  font-size: 0.72rem !important;
-  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
 }
 
-.rejourney-journeys-page :where(table tbody tr:nth-child(odd)) {
-  background: #ffffff !important;
-}
-
-.rejourney-journeys-page :where(table tbody tr:nth-child(even)) {
-  background: #f3f6fa !important;
-}
-
 .rejourney-journeys-page :where(table tbody tr:hover) {
-  background: var(--journey-accent-soft) !important;
+  background: #f8fafd !important;
 }
 
 .rejourney-journeys-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
@@ -2298,11 +2134,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-heatmaps-page {
-  --heatmap-accent: #6172f3;
-  --heatmap-accent-strong: #4d5ee8;
-  --heatmap-accent-soft: #eef0ff;
-  --heatmap-accent-border: #cfd4ff;
-  background: #f5f7fa;
+  --heatmap-accent: #1a73e8;
+  --heatmap-accent-strong: #1765cc;
+  --heatmap-accent-soft: #e8f0fe;
+  --heatmap-accent-border: #d2e3fc;
+  background: #f8fafd;
   color: #202124;
 }
 
@@ -2338,11 +2174,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  color: #5f6772;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .heatmap-eyebrow svg {
@@ -2413,15 +2249,15 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .heatmap-indexing-progress {
   height: 0.375rem;
   overflow: hidden;
-  border-radius: 999px;
-  background: #e2e8f0;
+  border-radius: 0;
+  background: #e8eaed;
 }
 
 .heatmap-indexing-progress span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #2563eb;
+  background: #1a73e8;
   transition: width 0.2s ease;
 }
 
@@ -2459,13 +2295,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  border: 1px solid rgba(225, 29, 72, 0.22);
-  border-radius: 8px;
-  background: #fff1f2;
+  border: 1px solid #f6aea9;
+  border-radius: 0;
+  background: #fce8e6;
   padding: 0.8rem 0.95rem;
-  color: #9f1239;
+  color: #a50e0e;
   font-size: 0.84rem;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .heatmap-studio-summary {
@@ -2833,8 +2669,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: rgba(241, 243, 244, 0.72);
-  backdrop-filter: blur(2px);
+  background: rgba(248, 250, 253, 0.88);
 }
 
 .heatmap-stage-overlay-card {
@@ -2843,10 +2678,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   gap: 0.5rem;
   padding: 1.5rem 2rem;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid #dadce0;
   background: #ffffff;
-  box-shadow: 0 12px 28px rgba(60, 64, 67, 0.18);
+  box-shadow: none;
   text-align: center;
 }
 
@@ -2856,14 +2691,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .heatmap-stage-overlay-card > span {
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 500;
   color: #202124;
 }
 
 .heatmap-stage-overlay-card p {
   margin: 0;
   font-size: 0.8rem;
-  color: #5f6772;
+  color: #5f6368;
 }
 
 .heatmap-primary-stage {
@@ -3025,8 +2860,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .heatmap-browser-frame {
   border-color: #dadce0 !important;
-  border-radius: 10px !important;
-  box-shadow: 0 6px 18px rgba(60, 64, 67, 0.12), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .heatmap-browser-chrome {
@@ -3518,64 +3353,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   }
 }
 
-.heatmap-pro-pagebar {
-  display: flex;
-  min-height: 4.25rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid #d8dbe1;
-  background: #ffffff;
-  padding: 0.65rem 1rem;
-}
-
-.heatmap-pro-page-title {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-}
-
-.heatmap-pro-page-title > span {
-  display: grid;
-  height: 2.25rem;
-  width: 2.25rem;
-  place-items: center;
-  border: 1px solid #d6d9df;
-  border-radius: 9px;
-  background: #ffffff;
-  color: #17191d;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
-}
-
-.heatmap-pro-page-title small,
 .heatmap-pro-route small {
   display: block;
-  color: #8b919c;
-  font-size: 0.59rem;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.heatmap-pro-page-title h1 {
-  margin-top: 0.18rem;
-  color: #17191d;
-  font-size: 1rem;
-  font-weight: 760;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-
-.heatmap-pro-pagebar :where(button, select) {
-  border-radius: 7px !important;
-  box-shadow: none !important;
-}
-
-.heatmap-pro-pagebar button[aria-pressed="true"] {
-  border-color: #2563eb !important;
-  background: #2563eb !important;
-  color: #ffffff !important;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: none;
 }
 
 .heatmap-pro-studio {
@@ -3584,10 +3369,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex: 1 1 auto;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #d6dce5;
-  border-radius: 13px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   background: #ffffff;
-  box-shadow: 0 2px 10px rgba(29, 45, 76, 0.07);
+  box-shadow: none;
 }
 
 .heatmap-pro-toolbar {
@@ -3596,7 +3381,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex: 0 0 auto;
   align-items: center;
   gap: 0.9rem;
-  border-bottom: 1px solid #dfe4ec;
+  border-bottom: 1px solid #e8eaed;
   background: #ffffff;
   padding: 0.65rem 1rem;
 }
@@ -3616,20 +3401,20 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   width: 2rem;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid #d5d8de;
-  border-radius: 7px;
-  background: #f7f7f8;
-  color: #25282d;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  background: #f8fafd;
+  color: #5f6368;
 }
 
 .heatmap-pro-route h2 {
   max-width: 26rem;
   margin-top: 0.2rem;
   overflow: hidden;
-  color: #202631;
+  color: #202124;
   font-size: 0.83rem;
-  font-weight: 720;
-  letter-spacing: -0.01em;
+  font-weight: 500;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3638,10 +3423,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow: hidden;
-  border: 1px solid #d8dee8;
-  border-radius: 8px;
-  background: #f3f6fa;
-  padding: 3px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  background: #ffffff;
+  padding: 2px;
 }
 
 .heatmap-pro-control-group {
@@ -3649,7 +3434,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex: 0 0 auto;
   align-items: center;
   gap: 0.65rem;
-  border-left: 1px solid #e1e6ee;
+  border-left: 1px solid #e8eaed;
   padding-left: 1.15rem;
 }
 
@@ -3658,11 +3443,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-control-label {
-  color: #727d8d;
-  font-size: 0.58rem;
-  font-weight: 750;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -3672,22 +3457,23 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   justify-content: center;
   gap: 0.32rem;
-  border-radius: 5px;
+  border-radius: 0;
   padding: 0 0.75rem;
-  color: #687384;
-  font-size: 0.66rem;
-  font-weight: 720;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
   transition: background 0.14s ease, color 0.14s ease;
 }
 
 .heatmap-pro-modes button:hover {
-  color: #17191d;
+  background: #f1f3f4;
+  color: #202124;
 }
 
 .heatmap-pro-modes button.is-active {
-  background: #17191d;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(23, 25, 29, 0.2);
+  background: #e8f0fe;
+  color: #1967d2;
+  box-shadow: none;
 }
 
 .heatmap-pro-intensity {
@@ -3700,12 +3486,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .heatmap-pro-intensity input {
   min-width: 0;
   width: 100%;
-  accent-color: #17191d;
+  accent-color: #1a73e8;
 }
 
 .heatmap-pro-intensity strong {
-  color: #374151;
-  font-size: 0.66rem;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
@@ -3935,24 +3723,24 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  color: #858c97;
-  font-size: 0.59rem;
-  font-weight: 760;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .heatmap-pro-version select {
   width: 100%;
   height: 2rem;
-  border: 1px solid #d8dce2;
-  border-radius: 7px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   outline: 0;
   background: #ffffff;
   padding: 0 0.5rem;
-  color: #454b55;
-  font-size: 0.65rem;
-  font-weight: 680;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .heatmap-pro-canvas {
@@ -3963,7 +3751,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   overflow: hidden;
   grid-column: 2;
   grid-row: 1 / span 2;
-  background: #f1f4f8;
+  background: #f8fafd;
 }
 
 .heatmap-pro-canvas-meta {
@@ -3972,17 +3760,17 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex: 0 0 auto;
   align-items: center;
   gap: 0.7rem;
-  border-bottom: 1px solid #dfe4ec;
+  border-bottom: 1px solid #e8eaed;
   background: #ffffff;
   padding: 0 0.8rem;
-  color: #788395;
-  font-size: 0.6rem;
-  font-weight: 680;
+  color: #5f6368;
+  font-size: 0.6875rem;
+  font-weight: 500;
 }
 
 .heatmap-pro-canvas-meta > span:first-child {
-  color: #2f3744;
-  font-weight: 760;
+  color: #202124;
+  font-weight: 500;
 }
 
 .heatmap-pro-canvas-meta > span:last-child {
@@ -3993,11 +3781,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-canvas-meta > span.is-ready {
-  color: #14845f;
+  color: #188038;
 }
 
 .heatmap-pro-canvas-meta > span.is-warning {
-  color: #9a6c12;
+  color: #b06000;
 }
 
 .heatmap-pro-stage {
@@ -4006,7 +3794,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   flex: 1 1 auto;
   overflow: auto;
   padding: 1rem;
-  background: #eef1f5;
+  background: #f1f3f4;
   scrollbar-color: #aeb7c5 transparent;
   scrollbar-width: thin;
 }
@@ -4017,7 +3805,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-stage :where(.text-slate-600) {
-  color: #657184 !important;
+  color: #5f6368 !important;
 }
 
 .heatmap-pro-score {
@@ -4112,11 +3900,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   width: 0.48rem;
   margin-top: 0.18rem;
   border-radius: 999px;
-  background: #c5a253;
+  background: #f9ab00;
 }
 
 .heatmap-pro-evidence > div > span.is-ready {
-  background: #3ba977;
+  background: #188038;
 }
 
 .heatmap-pro-evidence p strong,
@@ -4125,50 +3913,51 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-evidence p strong {
-  color: #353a43;
-  font-size: 0.67rem;
-  font-weight: 740;
+  color: #202124;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .heatmap-pro-evidence p small {
   margin-top: 0.16rem;
-  color: #939aa5;
-  font-size: 0.57rem;
-  font-weight: 620;
+  color: #5f6368;
+  font-size: 0.6875rem;
+  font-weight: 400;
   line-height: 1.35;
 }
 
 .heatmap-pro-evidence > button {
   height: 2.05rem;
-  border: 1px solid #d2d6dd;
-  border-radius: 7px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   background: #ffffff;
-  color: #3b414a;
-  font-size: 0.65rem;
-  font-weight: 720;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 500;
   transition: border-color 0.14s ease, background 0.14s ease;
 }
 
 .heatmap-pro-evidence > button:hover {
-  border-color: #aeb4bf;
-  background: #f1f3f6;
+  border-color: #bdc1c6;
+  background: #f8fafd;
 }
 
 .heatmap-pro-notice {
   margin-top: 0.75rem;
-  border: 1px solid #d8dce2;
-  border-radius: 7px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   background: #ffffff;
   padding: 0.55rem;
-  color: #777e89;
-  font-size: 0.6rem;
-  font-weight: 650;
+  color: #5f6368;
+  font-size: 0.6875rem;
+  font-weight: 400;
   line-height: 1.35;
 }
 
 .heatmap-pro-notice.is-error {
-  border-color: #edc8cf;
-  color: #a53a4b;
+  border-color: #f6aea9;
+  background: #fce8e6;
+  color: #a50e0e;
 }
 
 @media (min-width: 1280px) {
@@ -4323,10 +4112,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   outline: 0;
   background: transparent;
   padding: 0 1.8rem 0 0;
-  color: #202631;
-  font-size: 0.78rem;
-  font-weight: 760;
-  letter-spacing: -0.01em;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0;
   cursor: pointer;
 }
 
@@ -4335,23 +4124,23 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: flex;
   min-width: 0;
   align-items: center;
-  border: 1px solid #d8dde5;
-  border-radius: 7px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   background: #ffffff;
   padding: 0 0.55rem;
   transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .heatmap-pro-route-picker:focus-within {
-  border-color: #17191d;
-  box-shadow: 0 0 0 3px rgba(23, 25, 29, 0.12);
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
 }
 
 .heatmap-pro-route-picker svg {
   position: absolute;
   right: 0.55rem;
   pointer-events: none;
-  color: #626a77;
+  color: #5f6368;
 }
 
 .heatmap-pro-route-picker select {
@@ -4363,13 +4152,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  border-bottom: 1px solid #dfe4ec;
+  border-bottom: 1px solid #e8eaed;
   background: #ffffff;
 }
 
 .heatmap-pro-summary > div {
   min-width: 0;
-  border-right: 1px solid #e6eaf0;
+  border-right: 1px solid #e8eaed;
   padding: 0.72rem 0.9rem 0.68rem;
 }
 
@@ -4384,29 +4173,29 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-summary span {
-  color: #788395;
-  font-size: 0.58rem;
-  font-weight: 760;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .heatmap-pro-summary strong {
   margin-top: 0.24rem;
-  color: #172033;
-  font-size: 1.22rem;
-  font-weight: 760;
-  letter-spacing: -0.035em;
-  line-height: 1;
+  color: #202124;
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
 .heatmap-pro-summary small {
   margin-top: 0.28rem;
   overflow: hidden;
-  color: #8a94a4;
-  font-size: 0.56rem;
-  font-weight: 620;
+  color: #5f6368;
+  font-size: 0.6875rem;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4440,17 +4229,17 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .heatmap-pro-inspector-heading small {
-  color: #7a8596;
-  font-size: 0.58rem;
-  font-weight: 760;
-  letter-spacing: 0.065em;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .heatmap-pro-inspector-heading strong {
-  color: #202a3b;
-  font-size: 0.84rem;
-  font-weight: 760;
+  color: #202124;
+  font-size: 0.9375rem;
+  font-weight: 500;
 }
 
 .heatmap-pro-signal-list {
@@ -4472,29 +4261,29 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   height: 1.85rem;
   width: 1.85rem;
   place-items: center;
-  border-radius: 7px;
-  background: #f0f4fa;
-  color: #64748b;
+  border-radius: 0;
+  background: #f1f3f4;
+  color: #5f6368;
 }
 
 .heatmap-pro-signal-list dt {
-  color: #333d4d;
-  font-size: 0.68rem;
-  font-weight: 720;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .heatmap-pro-signal-list dt small {
   display: block;
   margin-top: 0.14rem;
-  color: #9199a7;
-  font-size: 0.55rem;
-  font-weight: 600;
+  color: #5f6368;
+  font-size: 0.6875rem;
+  font-weight: 400;
 }
 
 .heatmap-pro-signal-list dd {
-  color: #202a3b;
-  font-size: 0.78rem;
-  font-weight: 780;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4548,8 +4337,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-devices-page :where(.dashboard-surface, .dashboard-kpi-card, .devices-panel, .devices-summary-card, .devices-tech-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0;
+  box-shadow: none !important;
 }
 
 .rejourney-devices-page :where(.border-black) {
@@ -4566,40 +4355,30 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-devices-page :where(h2, h3) {
   color: #202124 !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
-}
-
-.rejourney-devices-page :where(.font-black) {
-  font-weight: 650;
 }
 
 .rejourney-devices-page :where(.text-black) {
   color: #202124 !important;
 }
 
-.rejourney-devices-page :where(.devices-card-accent) {
-  height: 3px !important;
-  border: 0 !important;
-  border-radius: 999px;
-}
-
 .rejourney-devices-page :where(.devices-summary-card, .devices-tech-card) {
   transform: none !important;
 }
 
-.rejourney-devices-page :where(.devices-summary-card:hover, .devices-tech-card:hover) {
-  transform: none !important;
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
-}
-
 .rejourney-devices-page :where(.dashboard-label) {
-  color: #6f7785 !important;
-  font-size: 0.72rem;
-  font-weight: 600;
+  color: #5f6368 !important;
+  font-size: 0.75rem;
+  font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
+}
+
+/* Devices KPI labels have no tooltip, so drop the dotted "hover for details" underline. */
+.rejourney-devices-page .dashboard-analytics-card .dashboard-label {
+  text-decoration-line: none;
 }
 
 .rejourney-devices-page :where(.devices-panel-header) {
@@ -4618,8 +4397,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-devices-page :where(.devices-ranking-row) {
-  border-color: #edf0f3 !important;
-  border-radius: 6px;
+  border-color: #e8eaed !important;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
@@ -4628,27 +4407,27 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-devices-page :where(.devices-rank-badge) {
-  border-radius: 999px;
-  background: #e8f0fe !important;
-  color: #1a73e8 !important;
-  font-weight: 700;
+  border-radius: 0;
+  background: #f1f3f4 !important;
+  color: #5f6368 !important;
+  font-weight: 500;
 }
 
 .rejourney-devices-page :where(.devices-platform-card) {
   border-color: #dadce0 !important;
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
 .rejourney-devices-page :where(.devices-platform-track) {
   overflow: hidden;
-  border-radius: 999px;
-  background: #edf0f3 !important;
+  border-radius: 0;
+  background: #f1f3f4 !important;
 }
 
 .rejourney-devices-page :where(.devices-data-table thead) {
-  color: #6f7785 !important;
-  font-weight: 600;
+  color: #5f6368 !important;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -4662,40 +4441,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   padding-bottom: 0.8rem;
 }
 
-.rejourney-devices-page :where(.devices-data-table tbody tr:nth-child(odd)) {
-  background: #ffffff !important;
-}
-
-.rejourney-devices-page :where(.devices-data-table tbody tr:nth-child(even)) {
-  background: #f3f6fa !important;
-}
-
 .rejourney-devices-page :where(.devices-data-table tbody tr:hover) {
-  background: #eef4ff !important;
-}
-
-.rejourney-devices-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
-  border-color: #edf0f3 !important;
-}
-
-.rejourney-devices-page :where(.bg-\[\#e0e7ff\]) {
-  background-color: #e8f0fe !important;
-}
-
-.rejourney-devices-page :where(.bg-\[\#67e8f9\]) {
-  background-color: #7dd3fc !important;
-}
-
-.rejourney-devices-page :where(.bg-\[\#86efac\]) {
-  background-color: #86efac !important;
-}
-
-.rejourney-devices-page :where(.bg-\[\#f9a8d4\]) {
-  background-color: #f9a8d4 !important;
-}
-
-.rejourney-devices-page :where(.bg-\[\#fef08a\]) {
-  background-color: #fde68a !important;
+  background: #f8fafd !important;
 }
 
 .rejourney-settings-page,
@@ -4712,18 +4459,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   margin-top: 1.5rem !important;
 }
 
+/* Flat square cards: no shadow, no hover lift. */
 .rejourney-settings-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface),
 .rejourney-alerts-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
-  transform: none !important;
-}
-
-.rejourney-settings-page :where(.dashboard-panel:hover, .dashboard-surface:hover),
-.rejourney-alerts-page :where(.dashboard-panel:hover, .dashboard-surface:hover) {
-  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 
@@ -4737,28 +4479,29 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   border-width: 1px !important;
 }
 
-.rejourney-settings-page :where(.border-b-2, .border-t-2),
-.rejourney-alerts-page :where(.border-b-2, .border-t-2) {
-  border-width: 1px !important;
+.rejourney-settings-page :where(.border-b-2),
+.rejourney-alerts-page :where(.border-b-2) {
+  border-bottom-width: 1px !important;
 }
 
-.rejourney-settings-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
-.rejourney-alerts-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-settings-page :where(.border-t-2),
+.rejourney-alerts-page :where(.border-t-2) {
+  border-top-width: 1px !important;
+}
+
+/* Legacy offset shadows only; focus-visible keeps Tailwind's ring (a box-shadow). */
+.rejourney-settings-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]):where(:not(:focus-visible)),
+.rejourney-alerts-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]):where(:not(:focus-visible)) {
   box-shadow: none !important;
 }
 
 .rejourney-settings-page :where(section > h2),
 .rejourney-alerts-page :where(section > h2, .space-y-6 > .flex > h2) {
   color: #202124 !important;
-  font-size: 1rem !important;
-  font-weight: 600 !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
-}
-
-.rejourney-settings-page :where(.font-black),
-.rejourney-alerts-page :where(.font-black) {
-  font-weight: 650;
 }
 
 .rejourney-settings-page :where(.text-black),
@@ -4766,16 +4509,17 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   color: #202124 !important;
 }
 
-.rejourney-settings-page :where(input, select, textarea),
-.rejourney-alerts-page :where(input, select, textarea) {
+/* Text fields only; checkboxes, radios and range sliders keep their own styling. */
+.rejourney-settings-page :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea),
+.rejourney-alerts-page :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
   border: 1px solid #dadce0 !important;
-  border-radius: 6px !important;
+  border-radius: 0 !important;
   background: #ffffff !important;
   box-shadow: none !important;
 }
 
-.rejourney-settings-page :where(input:focus, select:focus, textarea:focus),
-.rejourney-alerts-page :where(input:focus, select:focus, textarea:focus) {
+.rejourney-settings-page :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus, select:focus, textarea:focus),
+.rejourney-alerts-page :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus, select:focus, textarea:focus) {
   border-color: #1a73e8 !important;
   outline: none !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
@@ -4783,8 +4527,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-settings-page :where(button.border-2, a.border-2),
 .rejourney-alerts-page :where(button.border-2, a.border-2) {
-  border-radius: 6px;
-  box-shadow: none !important;
+  border-radius: 0;
   transform: none !important;
 }
 
@@ -4815,13 +4558,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-settings-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])),
 .rejourney-alerts-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
-  border-color: #edf0f3 !important;
+  border-color: #e8eaed !important;
 }
 
 .rejourney-settings-page :where(table thead),
 .rejourney-alerts-page :where(table thead) {
-  color: #6f7785 !important;
-  font-weight: 600;
+  color: #5f6368 !important;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -4830,33 +4573,28 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   border-bottom: 1px solid #dadce0;
 }
 
-.rejourney-settings-page :where(table tbody tr:nth-child(even)),
-.rejourney-alerts-page :where(table tbody tr:nth-child(even)) {
-  background: #f3f6fa !important;
-}
-
 .rejourney-settings-page :where(table tbody tr:hover),
 .rejourney-alerts-page :where(table tbody tr:hover) {
-  background: #eef4ff !important;
+  background: #f8fafd !important;
 }
 
 .rejourney-settings-page :where(.bg-rose-50),
 .rejourney-alerts-page :where(.bg-rose-50) {
-  background-color: #fef2f2 !important;
+  background-color: #fce8e6 !important;
 }
 
 .rejourney-settings-page :where(.bg-emerald-50),
 .rejourney-alerts-page :where(.bg-emerald-50) {
-  background-color: #f0fdf4 !important;
+  background-color: #e6f4ea !important;
 }
 
 .rejourney-settings-page :where(.bg-blue-50),
 .rejourney-alerts-page :where(.bg-blue-50) {
-  background-color: #eff6ff !important;
+  background-color: #e8f0fe !important;
 }
 
 .rejourney-alerts-page :where(.rounded-xl, .rounded-lg, .rounded-md) {
-  border-radius: 8px !important;
+  border-radius: 0 !important;
 }
 
 .rejourney-replays-page,
@@ -4900,52 +4638,40 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   box-shadow: none !important;
 }
 
-.rejourney-replays-page :where(button, input, select, .dashboard-pill) {
-  border-radius: 999px;
+.rejourney-replays-page :where(button, input, select, textarea, .dashboard-pill) {
+  border-radius: 0;
 }
 
 .rejourney-replay-workbench :where(input, select, .dashboard-pill) {
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 .rejourney-replays-page :where(article, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white),
 .rejourney-replay-workbench :where(.replay-theater-section, .replay-side-panel, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white) {
   border-color: #dadce0 !important;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  border-radius: 0;
+  box-shadow: none !important;
 }
 
-.rejourney-replays-page :where(article:hover, tr:hover),
-.rejourney-replay-workbench :where(button:hover) {
+.rejourney-replays-page :where(article:hover, tr:hover) {
   transform: none !important;
 }
 
 .rejourney-replays-page :where(thead tr, thead th) {
   background: #f8fafd !important;
   color: #5f6368 !important;
-  font-size: 0.72rem !important;
-  font-weight: 600 !important;
+  font-size: 0.6875rem !important;
+  font-weight: 500 !important;
   text-transform: uppercase;
 }
 
+/* Rows are white with #e8eaed dividers; the row classes own hover and the expanded state. */
 .rejourney-replays-page :where(tbody) {
   background: #ffffff;
 }
 
-.rejourney-replays-page :where(tbody > tr:nth-child(odd)) {
-  background: #ffffff !important;
-}
-
-.rejourney-replays-page :where(tbody > tr:nth-child(even)) {
-  background: #f3f6fa !important;
-}
-
 .rejourney-replays-page :where(tbody tr) {
-  border-color: #edf0f3 !important;
-}
-
-.rejourney-replays-page :where(tbody tr:hover) {
-  background: #eef4ff !important;
+  border-color: #e8eaed !important;
 }
 
 .rejourney-replays-page :where(td[colspan]) {
@@ -4954,40 +4680,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replays-page :where(td, th) {
   color: #3c4043;
-}
-
-.rejourney-replays-page :where(.bg-\[\#dbeafe\], .bg-\[\#ecfeff\]) {
-  background-color: #f8fafd !important;
-}
-
-.rejourney-replays-page :where(.bg-\[\#67e8f9\]),
-.rejourney-replay-workbench :where(.bg-\[\#67e8f9\]) {
-  background-color: #e8f0fe !important;
-}
-
-.rejourney-replays-page :where(.bg-\[\#86efac\]),
-.rejourney-replay-workbench :where(.bg-\[\#86efac\]) {
-  background-color: #e6f4ea !important;
-}
-
-.rejourney-replays-page :where(.bg-\[\#f9a8d4\]),
-.rejourney-replay-workbench :where(.bg-\[\#f9a8d4\]) {
-  background-color: #fce8f1 !important;
-}
-
-.rejourney-replays-page :where(.bg-\[\#fecaca\]),
-.rejourney-replay-workbench :where(.bg-\[\#fecaca\]) {
-  background-color: #fce8e6 !important;
-}
-
-.rejourney-replays-page :where(.text-black),
-.rejourney-replay-workbench :where(.text-black) {
-  color: #202124 !important;
-}
-
-.rejourney-replays-page :where(.font-black),
-.rejourney-replay-workbench :where(.font-black) {
-  font-weight: 650;
 }
 
 .rejourney-replays-page :where(input, select) {
@@ -5006,53 +4698,17 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   outline: none;
 }
 
-.rejourney-replays-page :where(.soft-border-scope span, .soft-border-scope button) {
-  border-radius: 999px;
-}
-
 .rejourney-replays-page :where(.dashboard-page-header) {
   background: #f8fafd !important;
 }
 
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-black) {
-  border-color: #000000 !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-2) {
-  border-width: 2px !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-t-2) {
-  border-top-width: 2px !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-r-2) {
-  border-right-width: 2px !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-b-2) {
-  border-bottom-width: 2px !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.border-l-2) {
-  border-left-width: 2px !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(button, input, select, .dashboard-pill) {
-  border-radius: 0 !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo-sm) {
-  box-shadow: 1.5px 1.5px 0 #0f172a !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo) {
-  box-shadow: 3px 3px 0 #0f172a !important;
-}
-
-.rejourney-replays-page .smart-capture-retro-surface :where(.shadow-neo-lg) {
-  box-shadow: 5px 5px 0 #0f172a !important;
+/* Smart Capture rule selects are appearance-none; draw the dropdown chevron. The modal is
+   portaled to <body>, so this is not scoped under the page class. */
+.smart-capture-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.625rem center;
+  background-repeat: no-repeat;
+  background-size: 0.75rem 0.75rem;
 }
 
 .rejourney-replay-workbench .replay-workbench-header {
@@ -5068,25 +4724,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-header-icon-button,
 .rejourney-replay-workbench .replay-header-copy-chip,
 .rejourney-replay-workbench .replay-header-session-nav {
-  border-radius: 8px;
-}
-
-.rejourney-replay-workbench .replay-header-chip {
-  align-items: center;
-  border: 1px solid #d7dce2;
-  border-radius: 6px;
-  display: inline-flex;
-  font-size: 0.7rem;
-  font-weight: 600;
-  line-height: 1;
-  padding: 0.32rem 0.5rem;
-  white-space: nowrap;
-}
-
-.rejourney-replay-workbench .replay-header-duration-chip {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-  color: #14532d;
+  border-radius: 0;
 }
 
 .rejourney-replay-workbench .replay-header-actions {
@@ -5097,45 +4735,40 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-share-trigger {
   align-items: center;
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 8px;
-  color: #334155;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  color: #3c4043;
   display: inline-flex;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 500;
   gap: 0.35rem;
   height: 2rem;
   justify-content: center;
   padding: 0 0.65rem;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .rejourney-replay-workbench .replay-header-details-button:hover,
 .rejourney-replay-workbench .replay-header-details-button:focus-visible,
-.rejourney-replay-workbench .replay-header-details-button[aria-expanded="true"],
 .rejourney-replay-workbench .replay-share-trigger:hover,
-.rejourney-replay-workbench .replay-share-trigger:focus-visible,
-.rejourney-replay-workbench .replay-share-trigger[aria-expanded="true"] {
-  background: #f8fafc;
-  border-color: #bcc5d0;
-  color: #0f172a;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+.rejourney-replay-workbench .replay-share-trigger:focus-visible {
+  background: #f8fafd;
+  border-color: #bdc1c6;
+  color: #202124;
 }
 
-.rejourney-replay-workbench .replay-share-trigger svg {
-  color: #2563eb;
-}
-
+.rejourney-replay-workbench .replay-header-details-button[aria-expanded="true"],
 .rejourney-replay-workbench .replay-share-trigger[aria-expanded="true"] {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  background: #e8f0fe;
+  border-color: #d2e3fc;
+  color: #1967d2;
 }
 
 .rejourney-replay-workbench .replay-header-details-popover {
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 10px;
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.2);
   min-width: min(22rem, calc(100vw - 1rem));
   padding: 0.45rem;
   position: absolute;
@@ -5146,10 +4779,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-popover {
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 10px;
-  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.18);
-  color: #0f172a;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.2);
+  color: #202124;
   min-width: min(28rem, calc(100vw - 1rem));
   overflow: hidden;
   position: absolute;
@@ -5162,8 +4795,8 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-header {
   align-items: center;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-bottom: 1px solid #e8eaed;
   display: flex;
   gap: 0.65rem;
   padding: 0.8rem 0.85rem;
@@ -5172,10 +4805,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-share-header-icon,
 .rejourney-replay-workbench .replay-share-link-icon {
   align-items: center;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  color: #2563eb;
+  background: #e8f0fe;
+  border: 0;
+  border-radius: 0;
+  color: #1967d2;
   display: inline-flex;
   flex-shrink: 0;
   height: 2rem;
@@ -5184,19 +4817,19 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-share-title {
-  color: #0f172a;
-  font-size: 0.86rem;
-  font-weight: 800;
-  line-height: 1.2;
-  text-transform: uppercase;
+  color: #202124;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-transform: none;
 }
 
 .rejourney-replay-workbench .replay-share-subtitle,
 .rejourney-replay-workbench .replay-share-section-copy {
-  color: #64748b;
-  font-size: 0.76rem;
-  font-weight: 600;
-  line-height: 1.35;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .rejourney-replay-workbench .replay-share-subtitle {
@@ -5207,14 +4840,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-share-link-action {
   align-items: center;
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 7px;
-  color: #475569;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  color: #5f6368;
   display: inline-flex;
   flex-shrink: 0;
   height: 2rem;
   justify-content: center;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   width: 2rem;
 }
 
@@ -5222,10 +4855,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-share-icon-action:focus-visible,
 .rejourney-replay-workbench .replay-share-link-action:hover,
 .rejourney-replay-workbench .replay-share-link-action:focus-visible {
-  background: #f8fafc;
-  border-color: #bcc5d0;
-  color: #0f172a;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  background: #f1f3f4;
+  border-color: #dadce0;
+  color: #202124;
 }
 
 .rejourney-replay-workbench .replay-share-body {
@@ -5238,14 +4870,14 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-section {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border: 1px solid #e8eaed;
+  border-radius: 0;
   padding: 0.75rem;
 }
 
 .rejourney-replay-workbench .replay-share-team-section {
   align-items: center;
-  background: #f8fafc;
+  background: #f8fafd;
   display: grid;
   gap: 0.75rem;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5261,77 +4893,90 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-share-section-kicker {
-  color: #334155;
+  color: #202124;
   display: block;
-  font-size: 0.68rem;
-  font-weight: 800;
-  line-height: 1.2;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-transform: none;
 }
 
 .rejourney-replay-workbench .replay-share-status-pill,
 .rejourney-replay-workbench .replay-share-links-count,
 .rejourney-replay-workbench .replay-share-link-status {
   align-items: center;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  color: #64748b;
+  background: #f1f3f4;
+  border: 0;
+  border-radius: 0;
+  color: #3c4043;
   display: inline-flex;
   flex-shrink: 0;
-  font-size: 0.66rem;
-  font-weight: 800;
-  line-height: 1;
-  padding: 0.3rem 0.45rem;
-  text-transform: uppercase;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+  padding: 0.125rem 0.5rem;
+  text-transform: none;
   white-space: nowrap;
 }
 
+/* Team link copy is a secondary action; "Create & copy" is the popover's primary action. */
 .rejourney-replay-workbench .replay-share-action-button,
 .rejourney-replay-workbench .replay-share-create-button {
   align-items: center;
-  background: #0f172a;
-  border: 1px solid #0f172a;
-  border-radius: 8px;
-  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.12);
-  color: #ffffff;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  box-shadow: none;
   display: inline-flex;
-  font-size: 0.76rem;
-  font-weight: 800;
+  font-size: 0.8125rem;
+  font-weight: 500;
   gap: 0.45rem;
-  height: 2.4rem;
+  height: 2.25rem;
   justify-content: center;
   padding: 0 0.85rem;
-  text-transform: uppercase;
-  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  text-transform: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   white-space: nowrap;
 }
 
+.rejourney-replay-workbench .replay-share-action-button {
+  background: #ffffff;
+  color: #3c4043;
+}
+
+.rejourney-replay-workbench .replay-share-create-button {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #ffffff;
+}
+
 .rejourney-replay-workbench .replay-share-action-button:hover,
-.rejourney-replay-workbench .replay-share-action-button:focus-visible,
+.rejourney-replay-workbench .replay-share-action-button:focus-visible {
+  background: #f8fafd;
+  border-color: #bdc1c6;
+}
+
 .rejourney-replay-workbench .replay-share-create-button:hover,
 .rejourney-replay-workbench .replay-share-create-button:focus-visible {
-  background: #1e293b;
-  border-color: #1e293b;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.16);
+  background: #1765cc;
+  border-color: #1765cc;
 }
 
 .rejourney-replay-workbench .replay-share-action-button:disabled,
 .rejourney-replay-workbench .replay-share-create-button:disabled,
 .rejourney-replay-workbench .replay-share-link-action:disabled {
-  background: #e2e8f0;
-  border-color: #cbd5e1;
+  background: #f1f3f4;
+  border-color: #e8eaed;
   box-shadow: none;
-  color: #94a3b8;
+  color: #9aa0a6;
   cursor: not-allowed;
 }
 
 .rejourney-replay-workbench .replay-share-action-button.is-success,
 .rejourney-replay-workbench .replay-share-link-action.is-success {
-  background: #ecfdf5;
-  border-color: #86efac;
+  background: #e6f4ea;
+  border-color: #ceead6;
   box-shadow: none;
-  color: #047857;
+  color: #137333;
 }
 
 .rejourney-replay-workbench .replay-share-choice-grid {
@@ -5343,41 +4988,45 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-choice {
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 8px;
+  border: 1px solid #dadce0;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   min-height: 4.25rem;
   padding: 0.65rem;
   text-align: left;
-  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .rejourney-replay-workbench .replay-share-choice:hover,
 .rejourney-replay-workbench .replay-share-choice:focus-visible {
-  background: #f8fafc;
-  border-color: #93c5fd;
+  background: #f8fafd;
+  border-color: #bdc1c6;
 }
 
 .rejourney-replay-workbench .replay-share-choice.is-selected {
-  background: #eff6ff;
-  border-color: #2563eb;
-  box-shadow: inset 0 0 0 1px #2563eb;
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  box-shadow: none;
 }
 
 .rejourney-replay-workbench .replay-share-choice-title {
-  color: #0f172a;
-  font-size: 0.78rem;
-  font-weight: 800;
-  line-height: 1.2;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.rejourney-replay-workbench .replay-share-choice.is-selected .replay-share-choice-title {
+  color: #1967d2;
 }
 
 .rejourney-replay-workbench .replay-share-choice-description {
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1.35;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .rejourney-replay-workbench .replay-share-create-row {
@@ -5396,22 +5045,22 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-field-label {
   align-items: center;
-  color: #64748b;
+  color: #5f6368;
   display: inline-flex;
-  font-size: 0.68rem;
-  font-weight: 800;
+  font-size: 0.75rem;
+  font-weight: 500;
   gap: 0.3rem;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .rejourney-replay-workbench .replay-share-select {
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  border-radius: 8px;
-  color: #0f172a;
-  font-size: 0.82rem;
-  font-weight: 700;
-  height: 2.4rem;
+  border: 1px solid #dadce0;
+  border-radius: 0;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  height: 2.25rem;
   min-width: 0;
   padding: 0 0.7rem;
   width: 100%;
@@ -5428,9 +5077,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-share-link-row {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  background: #f8fafd;
+  border: 1px solid #e8eaed;
+  border-radius: 0;
   display: grid;
   gap: 0.6rem;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -5443,17 +5092,17 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-share-link-kind {
-  color: #0f172a;
-  font-size: 0.76rem;
-  font-weight: 800;
-  line-height: 1.2;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .rejourney-replay-workbench .replay-share-link-url {
-  color: #64748b;
+  color: #5f6368;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 400;
   margin-top: 0.25rem;
   min-width: 0;
   overflow: hidden;
@@ -5467,35 +5116,36 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-share-link-action.is-danger {
-  color: #e11d48;
+  color: #d93025;
 }
 
 .rejourney-replay-workbench .replay-share-link-action.is-danger:hover,
 .rejourney-replay-workbench .replay-share-link-action.is-danger:focus-visible {
-  background: #fff1f2;
-  border-color: #fecdd3;
-  color: #be123c;
+  background: #fce8e6;
+  border-color: #f6aea9;
+  color: #c5221f;
 }
 
 .rejourney-replay-workbench .replay-share-empty-state,
 .rejourney-replay-workbench .replay-share-error {
   align-items: center;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  color: #64748b;
+  background: #f8fafd;
+  border: 1px dashed #dadce0;
+  border-radius: 0;
+  color: #5f6368;
   display: flex;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.8125rem;
+  font-weight: 400;
   gap: 0.45rem;
   margin-top: 0.6rem;
   padding: 0.75rem;
 }
 
 .rejourney-replay-workbench .replay-share-error {
-  background: #fff1f2;
-  border-color: #fecdd3;
-  color: #be123c;
+  background: #fce8e6;
+  border-color: #f6aea9;
+  border-style: solid;
+  color: #c5221f;
   margin-top: 0;
 }
 
@@ -5521,7 +5171,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-header-detail-row {
   align-items: center;
-  border-radius: 7px;
+  border-radius: 0;
   display: grid;
   gap: 0.75rem;
   grid-template-columns: 4.5rem minmax(0, 1fr);
@@ -5530,20 +5180,20 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-header-detail-row + .replay-header-detail-row {
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid #e8eaed;
 }
 
 .rejourney-replay-workbench .replay-header-detail-row > span:first-child {
-  color: #64748b;
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  color: #5f6368;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: none;
 }
 
 .rejourney-replay-workbench .replay-header-detail-row strong {
-  color: #0f172a;
-  font-size: 0.78rem;
-  font-weight: 700;
+  color: #202124;
+  font-size: 0.8125rem;
+  font-weight: 500;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5552,10 +5202,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-header-detail-copy {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  color: #0f172a;
+  background: #f8fafd;
+  border: 1px solid #e8eaed;
+  border-radius: 0;
+  color: #202124;
   display: inline-flex;
   gap: 0.45rem;
   justify-content: space-between;
@@ -5568,13 +5218,13 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-header-detail-copy:hover,
 .rejourney-replay-workbench .replay-header-detail-copy:focus-visible {
   background: #ffffff;
-  border-color: #bcc5d0;
+  border-color: #dadce0;
 }
 
 .rejourney-replay-workbench .replay-header-detail-copy span {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 400;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5584,24 +5234,25 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .rejourney-replay-workbench .replay-header-copy-chip {
   align-items: center;
   background: #ffffff;
-  border: 1px solid #d7dce2;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-  color: #0f172a;
+  border: 1px solid #dadce0;
+  box-shadow: none;
+  color: #202124;
   display: inline-flex;
   gap: 0.35rem;
   min-width: 0;
   overflow: hidden;
   padding: 0.3rem 0.5rem;
   text-align: left;
-  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .rejourney-replay-workbench button.replay-header-copy-chip:hover,
 .rejourney-replay-workbench button.replay-header-copy-chip:focus-visible,
 .rejourney-replay-workbench .replay-header-icon-button:hover,
 .rejourney-replay-workbench .replay-header-icon-button:focus-visible {
-  border-color: #bcc5d0;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  background: #f8fafd;
+  border-color: #bdc1c6;
+  box-shadow: none;
 }
 
 .rejourney-replay-workbench .replay-header-meta-item {
@@ -5614,7 +5265,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-header-meta-item + .replay-header-meta-item::before,
 .rejourney-replay-workbench .replay-header-duration::before {
-  background: #cbd5e1;
+  background: #dadce0;
   border-radius: 999px;
   content: "";
   display: inline-block;
@@ -5625,10 +5276,11 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-header-duration {
   align-items: center;
-  color: #334155;
+  color: #3c4043;
   display: inline-flex;
-  font-size: 0.74rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
   line-height: 1;
   white-space: nowrap;
 }
@@ -5637,7 +5289,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   align-items: center;
   display: inline-flex;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 500;
   gap: 0.35rem;
   height: 2rem;
   justify-content: center;
@@ -5647,20 +5299,22 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .rejourney-replay-workbench .replay-header-nav-button:disabled {
-  color: #94a3b8;
+  color: #bdc1c6;
 }
 
 .rejourney-replay-workbench .replay-workbench-main {
   background: #f8fafd;
 }
 
+/* Flat square cards; beats the shared replays-page card rule (radius and shadow) above. */
 .rejourney-replay-workbench .replay-theater-section,
 .rejourney-replay-workbench .replay-side-panel {
   background: #ffffff !important;
   border-color: #dadce0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
-.rejourney-replay-workbench .replay-theater-section > div:first-child,
 .rejourney-replay-workbench .replay-workbench-tabs {
   background: #ffffff !important;
   border-color: #dadce0 !important;
@@ -5668,41 +5322,18 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .rejourney-replay-workbench .replay-theater-stage {
   background: #f8fafd !important;
-  border-color: #dadce0 !important;
+  border-color: #e8eaed !important;
 }
 
 .rejourney-replay-workbench .replay-device-placeholder {
-  border-color: #c7cbd1 !important;
-  border-radius: 12px;
+  border-color: #dadce0 !important;
+  border-radius: 0;
   background: #ffffff !important;
 }
 
-.rejourney-replay-workbench .replay-device-frame {
-  filter: drop-shadow(0 14px 26px rgba(60, 64, 67, 0.22));
-}
-
+/* Tab colors and the selected underline live on the buttons themselves. */
 .rejourney-replay-workbench .replay-workbench-tabs button {
   min-width: 6.5rem;
-  border-bottom-color: transparent !important;
-  border-radius: 0 !important;
-  color: #5f6368 !important;
-  font-size: 0.78rem;
-  font-weight: 600;
-  box-shadow: none !important;
-  text-transform: none;
-}
-
-.rejourney-replay-workbench .replay-workbench-tabs button[class*="bg-white"] {
-  background: #ffffff !important;
-  color: #202124 !important;
-  box-shadow: inset 0 -3px 0 #1a73e8 !important;
-}
-
-.rejourney-replay-workbench :where(.replay-controls-primary button, .replay-controls-secondary button) {
-  background: #ffffff !important;
-  border-color: #dadce0 !important;
-  border-radius: 999px;
-  color: #3c4043 !important;
 }
 
 .rejourney-replay-workbench .replay-control-button {
@@ -5749,12 +5380,12 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   max-width: min(16rem, 80vw);
   transform: translate(-50%, 0.25rem);
   border: 1px solid #202124;
-  border-radius: 6px;
+  border-radius: 0;
   background: #202124;
   color: #ffffff;
-  box-shadow: 0 8px 16px rgba(32, 33, 36, 0.18);
-  font-size: 0.72rem;
-  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(60, 64, 67, 0.2);
+  font-size: 0.75rem;
+  font-weight: 500;
   line-height: 1;
   opacity: 0;
   padding: 0.45rem 0.55rem;
@@ -5764,7 +5395,15 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   white-space: nowrap;
 }
 
-.rejourney-replay-workbench .replay-control-button[data-tooltip]:hover::after,
+/* Hover tooltips only for real hover pointers. On touch, :hover sticks after a tap (leaving
+   "Pause" on screen), and iOS Safari can treat the first tap as a hover when it reveals content. */
+@media (hover: hover) and (pointer: fine) {
+  .rejourney-replay-workbench .replay-control-button[data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .rejourney-replay-workbench .replay-control-button[data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
@@ -5774,57 +5413,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   display: none;
 }
 
-.rejourney-replay-workbench :where(.replay-controls-primary button:hover, .replay-controls-secondary button:hover) {
-  background: #f8fafd !important;
-}
-
-.rejourney-replay-workbench :where(.replay-controls-primary button:disabled, .replay-controls-secondary button:disabled) {
-  background: #f1f3f4 !important;
-  color: #9aa0a6 !important;
-}
-
-.rejourney-replay-workbench :where(.replay-controls-primary button[class*="bg-[#67e8f9]"], .replay-controls-primary button[class*="bg-[#f9a8d4]"]) {
-  background: #1a73e8 !important;
-  border-color: #1a73e8 !important;
-  color: #ffffff !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel .bg-slate-950) {
-  background: #202124 !important;
-}
-
+/* Playback controls, panel actions and activity rows carry their own dashboard classes;
+   only stray slate-50 fills in the side panel are still normalized here. */
 .rejourney-replay-workbench :where(.replay-side-panel .bg-\[\#f8fafc\], .replay-side-panel .bg-slate-50) {
   background: #f8fafd !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel table thead) {
-  background: #f8fafd !important;
-  color: #5f6368 !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel table th) {
-  border-color: #dadce0 !important;
-  font-weight: 600 !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index]) {
-  border-color: #edf0f3 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index]:hover) {
-  background: #f8fafd !important;
-}
-
-.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index][class*="border-l-4"]) {
-  border-left-color: #1a73e8 !important;
-  background: #f8fafd !important;
-  box-shadow: inset 3px 0 0 #1a73e8 !important;
-}
-
-.rejourney-replay-workbench :where(.replay-panel-actions button) {
-  border-radius: 999px;
 }
 
 @media (min-width: 640px) {
@@ -5922,10 +5514,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   box-shadow: none;
 }
 
-.dashboard-page-header .dashboard-page-header-accent {
-  box-shadow: 1px 1px 0 rgba(15, 23, 42, 0.18);
-}
-
 .dashboard-topbar :where(.border-black),
 .dashboard-sidebar :where(.border-black) {
   border-color: var(--dashboard-chrome-border-strong) !important;
@@ -5939,10 +5527,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   box-shadow: none !important;
 }
 
-.dashboard-sidebar :where(.dashboard-nav-item) {
-  border-radius: 0 999px 999px 0;
-}
-
 .dashboard-sidebar :where(.text-slate-400) {
   color: #80868b !important;
 }
@@ -5953,10 +5537,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 
 .dashboard-sidebar :where(.bg-white) {
   background-color: #ffffff !important;
-}
-
-.dashboard-topbar :where(button, a) {
-  border-radius: 0;
 }
 
 .dashboard-topbar :where(.shadow-sm) {
@@ -6006,31 +5586,30 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   box-shadow: none !important;
 }
 
-/* Tier 2 — Standard card surface */
-/* Use this for most content cards, chart containers, panels */
+/* Standard card surface: content cards, chart containers, panels */
 .dashboard-card-surface {
   background: var(--dashboard-surface);
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-md);
+  box-shadow: none;
   min-width: 0;
 }
 
-/* Tier 2 — Strong card: full neo treatment for KPI cards, primary CTAs */
+/* Emphasised card; same flat surface, kept for existing callers */
 .dashboard-card-strong {
   background: var(--dashboard-surface);
-  border: 2px solid var(--dashboard-border-strong);
+  border: 1px solid var(--dashboard-border-strong);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-strong);
+  box-shadow: none;
   min-width: 0;
 }
 
-/* Tier 3 — Inner surface: subtle background for nested panels */
+/* Inner surface: subtle background for nested panels */
 .dashboard-inner-surface {
   background: var(--dashboard-surface-muted);
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-sm);
+  box-shadow: none;
   min-width: 0;
 }
 
@@ -6038,56 +5617,49 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   background: var(--dashboard-surface);
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-sm);
+  box-shadow: none;
   min-width: 0;
 }
 
-/* Sessions replay archive — thead band tinted (reads vs white rows) */
+/* Sessions replay archive — neutral thead band (reads vs white rows) */
 .sessions-archive-table-header-bg {
-  background-color: #dbeafe;
+  background-color: #f8fafd;
 }
 
-/* Logo-aligned blue accents for a lightweight premium feel */
-.dashboard-modern .bg-blue-600 {
-  background-color: var(--dashboard-brand) !important;
+/* Tailwind's blues follow the dashboard's single primary blue. Exact class names only, so
+   hover-only classes such as hover:bg-blue-50 keep their resting look. */
+.dashboard-modern .bg-blue-600:not(:hover) {
+  background-color: #1a73e8;
 }
 
 .dashboard-modern .border-blue-600 {
-  border-color: var(--dashboard-brand) !important;
+  border-color: #1a73e8;
 }
 
 .dashboard-modern .text-blue-600 {
-  color: var(--dashboard-brand) !important;
+  color: #1a73e8;
 }
 
 .dashboard-modern .text-blue-700 {
-  color: var(--dashboard-brand-strong) !important;
+  color: #1967d2;
 }
 
-.dashboard-modern [class*="bg-blue-50"] {
-  background-color: #ecfeff !important;
-}
-
-.dashboard-modern [class*="border-blue-200"] {
-  border-color: var(--dashboard-border) !important;
-}
-
-.dashboard-modern [class*="border-blue-300"] {
-  border-color: var(--dashboard-border) !important;
+.dashboard-modern .bg-blue-50:not(:hover) {
+  background-color: #e8f0fe;
 }
 
 .dashboard-modern .dashboard-surface {
   background: var(--dashboard-surface);
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-sm);
+  box-shadow: none;
 }
 
 .dashboard-modern .dashboard-section {
   background: var(--dashboard-surface-muted);
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
-  box-shadow: var(--dashboard-shadow-sm);
+  box-shadow: none;
 }
 
 .dashboard-modern .dashboard-meta {
@@ -6095,29 +5667,12 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   letter-spacing: 0.02em;
 }
 
-.dashboard-modern .dashboard-nav-item {
-  border-radius: 0;
-  transition: all 0.18s ease;
-}
-
-.dashboard-modern .dashboard-nav-item:not([aria-current="page"]):hover {
-  background: #ecfeff;
-  color: var(--dashboard-text-strong);
-}
-
-.dashboard-modern .dashboard-nav-item-active {
-  background: #000000;
-  border-color: #000000;
-  color: #ffffff;
-  box-shadow: var(--dashboard-shadow-sm);
-}
-
 .dashboard-modern .dashboard-pill {
   border: 1px solid var(--dashboard-border);
   border-radius: 0;
   background: #ffffff;
   color: var(--dashboard-text-body);
-  box-shadow: var(--dashboard-shadow-sm);
+  box-shadow: none;
 }
 
 .dashboard-modern .dashboard-tab {
@@ -6129,12 +5684,12 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 .dashboard-modern .dashboard-tab-active {
   background: #ffffff;
   border-color: var(--dashboard-border);
-  box-shadow: inset 0 2px 0 0 var(--dashboard-brand);
+  box-shadow: inset 0 2px 0 0 #1a73e8;
 }
 
-.dashboard-modern select,
-.dashboard-modern input:not([type="checkbox"]):not([type="radio"]),
-.dashboard-modern textarea {
+/* Square fields by default, matching the landing page; zero specificity so a field's own
+   rounded-* class still wins. */
+:where(.dashboard-modern) :where(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
   border-radius: 0;
 }
 
@@ -6143,9 +5698,9 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .dashboard-modern .recharts-cartesian-axis-tick-value {
-  fill: #475569 !important;
+  fill: #5f6368 !important;
   font-size: 12px !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
 }
 
 .dashboard-modern .recharts-legend-item-text,
@@ -6155,7 +5710,7 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .dashboard-modern .recharts-cartesian-grid line {
-  stroke: #e8eef6;
+  stroke: #e8eaed;
 }
 
 .dashboard-mobile-scroll {
@@ -6324,27 +5879,10 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
     background-image: none !important;
   }
 
-  .dashboard-modern .shadow-neo,
-  .dashboard-modern .shadow-neo-lg {
-    box-shadow: 3px 3px 0 #0f172a;
-  }
-
-  .dashboard-modern .shadow-neo-sm {
-    box-shadow: 1.5px 1.5px 0 #0f172a;
-  }
-
   .dashboard-topbar {
     position: sticky;
     top: 0;
     z-index: 45;
-  }
-
-  .dashboard-modern .dashboard-card-surface,
-  .dashboard-modern .dashboard-card-strong,
-  .dashboard-modern .dashboard-inner-surface,
-  .dashboard-modern .dashboard-surface,
-  .dashboard-modern .dashboard-section {
-    box-shadow: var(--dashboard-shadow-sm);
   }
 
   .dashboard-modern table {
@@ -6391,7 +5929,6 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
   .replay-side-panel {
     max-width: 100% !important;
     min-width: 0 !important;
-    box-shadow: var(--dashboard-shadow-sm);
   }
 
   .replay-theater-stage {
@@ -6476,56 +6013,81 @@ body:has([data-rejourney-consent-banner]) .rejourney-login-panel {
 }
 
 .dashboard-ghost-block {
-  background-color: #eef2f7;
+  background-color: #f1f3f4;
   background-image: linear-gradient(
     90deg,
-    rgba(226, 232, 240, 0.82) 0%,
+    rgba(232, 234, 237, 0.85) 0%,
     rgba(255, 255, 255, 0.98) 45%,
-    rgba(226, 232, 240, 0.74) 100%
+    rgba(232, 234, 237, 0.75) 100%
   );
   background-size: 240% 100%;
   animation: dashboard-ghost-shimmer 2.1s ease-in-out infinite;
   opacity: 0.92;
 }
 
-/* Glassmorphic Billing Page Header Override */
-.rejourney-billing-settings-page .dashboard-page-header {
-  background: rgba(255, 255, 255, 0.45) !important;
-  backdrop-filter: blur(16px) saturate(120%) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.6) !important;
+/* Billing plan slider: the public pricing slider (.pricing-range-slider) restyled for the
+   dashboard only — square #e8eaed track, #1a73e8 fill and thumb, no hover scale. */
+.rejourney-billing-settings-page .pricing-range-slider {
+  height: 16px;
 }
 
-/* Glassmorphic Billing Cards */
-.rejourney-billing-settings-page .billing-glass-card {
-  position: relative;
-  min-width: 0;
-  background: rgba(255, 255, 255, 0.75) !important;
-  backdrop-filter: blur(16px) saturate(110%) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(110%) !important;
-  border: 1px solid rgba(226, 232, 240, 0.8) !important;
-  border-radius: 16px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+.rejourney-billing-settings-page .pricing-range-slider:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.4);
+  outline-offset: 4px;
 }
 
-.rejourney-billing-settings-page .billing-glass-card:hover {
-  background: rgba(255, 255, 255, 0.85) !important;
-  border-color: rgba(99, 102, 241, 0.35) !important;
-  box-shadow: 0 12px 24px rgba(99, 102, 241, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04) !important;
-  transform: translateY(-2px) !important;
+/* One engine per rule: a selector list mixing -webkit- and -moz- pseudo-elements is dropped whole. */
+.rejourney-billing-settings-page .pricing-range-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 0;
+  background: linear-gradient(
+    90deg,
+    #1a73e8 0%,
+    #1a73e8 var(--slider-fill, 0%),
+    #e8eaed var(--slider-fill, 0%),
+    #e8eaed 100%
+  );
 }
 
-.rejourney-billing-settings-page .billing-glass-card .dashboard-inner-surface {
-  background: rgba(248, 250, 253, 0.5) !important;
-  border: 1px solid rgba(232, 234, 237, 0.7) !important;
-  border-radius: 12px !important;
-  box-shadow: none !important;
+.rejourney-billing-settings-page .pricing-range-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+  transition: none;
 }
 
-.rejourney-billing-settings-page .billing-glass-card .billing-progress-track {
-  background: rgba(238, 242, 247, 0.5) !important;
-  border-color: rgba(218, 220, 224, 0.5) !important;
+.rejourney-billing-settings-page .pricing-range-slider::-webkit-slider-thumb:hover {
+  transform: none;
+}
+
+.rejourney-billing-settings-page .pricing-range-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 0;
+  background: #e8eaed;
+}
+
+.rejourney-billing-settings-page .pricing-range-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 0;
+  background: #1a73e8;
+}
+
+.rejourney-billing-settings-page .pricing-range-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+  transition: none;
+}
+
+.rejourney-billing-settings-page .pricing-range-slider::-moz-range-thumb:hover {
+  transform: none;
 }
 
 .landing-home .landing-hero-section,

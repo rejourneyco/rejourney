@@ -12,19 +12,21 @@ export const meta: Route.MetaFunction = () => [
         name: "description",
         content: "Third-party notices, trademark references, and attribution details for Rejourney.",
     },
+    { name: "robots", content: "index, follow" },
     { property: "og:title", content: "Attributions - Rejourney" },
     { property: "og:url", content: "https://rejourney.co/attributions" },
+    { tagName: "link", rel: "canonical", href: "https://rejourney.co/attributions" },
 ];
 
 export default function Attributions() {
     return (
-        <div className="public-readable-scope min-h-screen bg-background">
+        <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
             <Header />
             <main className="container mx-auto max-w-4xl px-6 py-16">
-                <h1 className="mb-4 text-4xl font-bold">Attributions</h1>
-                <p className="mb-8 text-sm text-muted-foreground">Last Updated: June 4, 2026</p>
+                <h1 className="mb-3 text-4xl font-extrabold tracking-tight text-[#202124]">Attributions</h1>
+                <p className="mb-8 text-sm font-medium text-[#5f6368]">Last Updated: June 4, 2026</p>
 
-                <div className="space-y-6 rounded-lg border border-input bg-muted/30 p-8 text-sm leading-relaxed">
+                <div className="space-y-6 rounded-none border border-[#dadce0] bg-white p-8 text-sm leading-relaxed text-[#3c4043] shadow-sm">
                     <section className="space-y-3">
                         <h2 className="text-base font-semibold">Brand Icons</h2>
                         <p>

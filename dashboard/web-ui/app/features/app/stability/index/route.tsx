@@ -57,6 +57,8 @@ import { KpiCardItem, KpiCardsGrid } from '~/features/app/shared/dashboard/KpiCa
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
+import { dashboardButtonClass, dashboardButtonVariants, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
+import { formatSetupPlatform } from '~/features/app/setup/setupUtils';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
@@ -192,12 +194,7 @@ const KIND_META: Record<
     badge: 'danger' | 'warning' | 'anr' | 'info';
     icon: React.ElementType;
     dotClass: string;
-    rowClass: string;
     hoverDotClass: string;
-    textClass: string;
-    badgeClass: string;
-    detailCardClass: string;
-    detailTextClass: string;
   }
 > = {
   crashes: {
@@ -205,53 +202,65 @@ const KIND_META: Record<
     plural: 'Crashes',
     badge: 'danger',
     icon: Bug,
-    dotClass: 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]',
-    rowClass: 'bg-rose-50/25',
-    hoverDotClass: 'group-hover/row:bg-rose-400',
-    textClass: 'text-rose-700',
-    badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
-    detailCardClass: 'bg-rose-50/50 border-rose-200',
-    detailTextClass: 'text-rose-700',
+    dotClass: 'bg-[#d93025]',
+    hoverDotClass: 'group-hover/row:bg-[#d93025]',
   },
   errors: {
     label: 'Error',
     plural: 'Errors',
     badge: 'warning',
     icon: AlertTriangle,
-    dotClass: 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]',
-    rowClass: 'bg-amber-50/30',
-    hoverDotClass: 'group-hover/row:bg-amber-400',
-    textClass: 'text-amber-700',
-    badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
-    detailCardClass: 'bg-amber-50/50 border-amber-200',
-    detailTextClass: 'text-amber-700',
+    dotClass: 'bg-[#e37400]',
+    hoverDotClass: 'group-hover/row:bg-[#e37400]',
   },
   anrs: {
     label: 'ANR',
     plural: 'ANRs',
     badge: 'anr',
     icon: Clock,
-    dotClass: 'bg-violet-500 shadow-[0_0_8px_rgba(139,92,246,0.5)]',
-    rowClass: 'bg-violet-50/25',
-    hoverDotClass: 'group-hover/row:bg-violet-400',
-    textClass: 'text-violet-700',
-    badgeClass: 'bg-violet-100 text-violet-800 border-violet-200',
-    detailCardClass: 'bg-violet-50/50 border-violet-200',
-    detailTextClass: 'text-violet-700',
+    dotClass: 'bg-[#9334e6]',
+    hoverDotClass: 'group-hover/row:bg-[#9334e6]',
   },
   api_spikes: {
-    label: 'API Spike',
-    plural: 'API Spikes',
+    label: 'API spike',
+    plural: 'API spikes',
     badge: 'info',
     icon: TrendingUp,
-    dotClass: 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.5)]',
-    rowClass: 'bg-sky-50/25',
-    hoverDotClass: 'group-hover/row:bg-sky-400',
-    textClass: 'text-sky-700',
-    badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
-    detailCardClass: 'bg-sky-50/50 border-sky-200',
-    detailTextClass: 'text-sky-700',
+    dotClass: 'bg-[#1a73e8]',
+    hoverDotClass: 'group-hover/row:bg-[#1a73e8]',
   },
+};
+
+// The dashboard's one code-block style for stack traces and thread dumps, whatever the issue type.
+const STACK_BLOCK_CLASS = 'm-4 max-h-[400px] overflow-auto whitespace-pre border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs leading-relaxed text-[#202124]';
+const PANEL_HEADER_CLASS = 'flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaed] px-4 py-2.5';
+const PANEL_TITLE_CLASS = 'flex items-center gap-2 text-sm font-medium text-[#202124]';
+const PANEL_ICON_CLASS = 'text-[#5f6368]';
+const CONTEXT_CHIP_CLASS = 'flex items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-2 py-1 text-[#3c4043]';
+const ENDPOINT_INPUT_CLASS = 'h-9 min-w-0 flex-1 rounded-none border border-[#dadce0] bg-white px-3 font-mono text-xs text-[#202124] outline-none transition-colors placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:bg-[#f8fafd] disabled:text-[#80868b]';
+const IGNORED_PATTERN_CHIP_CLASS = 'inline-flex max-w-full items-center gap-1.5 rounded-none border border-[#dadce0] bg-[#f8fafd] px-2 py-1 font-mono text-[11px] text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f1f3f4] disabled:opacity-60';
+const DIAGNOSTIC_CHIP_TONE: Record<StabilityDiagnosticState, 'success' | 'danger' | 'warning'> = {
+  complete: 'success',
+  partial: 'warning',
+  incomplete: 'danger',
+};
+const diagnosticChipClass = (state: StabilityDiagnosticState | null | undefined): string => (
+  dashboardChipClass((state && DIAGNOSTIC_CHIP_TONE[state]) || 'warning')
+);
+const sentenceCase = (value: string): string => (value ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : value);
+const filterChipClass = (selected: boolean): string => (
+  `inline-flex items-center gap-1.5 rounded-none border px-3 py-1.5 text-xs font-medium transition-colors ${
+    selected
+      ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+      : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f1f3f4]'
+  }`
+);
+// Secondary button that switches to the selected tonal state while its panel is open.
+const toggleButtonClass = (selected: boolean): string => {
+  const base = dashboardButtonClass('secondary', 'sm');
+  return selected
+    ? base.replace(dashboardButtonVariants.secondary, 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2] hover:bg-[#d2e3fc]')
+    : base;
 };
 
 const formatCompact = (value: number): string => {
@@ -495,13 +504,13 @@ const ApiSpikeTrendline: React.FC<{ spike: ApiErrorSpikeRecord; height?: number 
       {/* fill area under line */}
       <path
         d={`M${pts[0]} ${pts.slice(1).map(p => `L${p}`).join(' ')} L${(pad + (rates.length - 1) / (rates.length - 1) * (width - pad * 2)).toFixed(1)},${height - pad} L${pad},${height - pad} Z`}
-        fill="rgba(14,165,233,0.12)"
+        fill="rgba(26,115,232,0.12)"
       />
       {/* trend line */}
       <polyline
         points={pts.join(' ')}
         fill="none"
-        stroke="#0ea5e9"
+        stroke="#1a73e8"
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -512,7 +521,7 @@ const ApiSpikeTrendline: React.FC<{ spike: ApiErrorSpikeRecord; height?: number 
           cx={parseFloat(pts[peakIdx].split(',')[0])}
           cy={parseFloat(pts[peakIdx].split(',')[1])}
           r={3}
-          fill="#ef4444"
+          fill="#d93025"
           stroke="white"
           strokeWidth="1"
         />
@@ -554,7 +563,7 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
   }, [hoverIndex, spike.affectedSessions, spike.currentRate, spike.detectedAt, spike.previousRate, spike.trend]);
 
   if (spike.trend.length < 2) {
-    return <p className="text-sm text-slate-400">Not enough data to render trend.</p>;
+    return <p className="text-sm text-[#5f6368]">Not enough data to render trend.</p>;
   }
 
   const tooltip = chart.activePoint;
@@ -567,21 +576,21 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
   return (
     <div className="w-full">
       <div className="grid grid-cols-2 gap-2 px-4 pt-4 sm:grid-cols-4">
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-          <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Baseline</div>
-          <div className="mt-1 font-mono text-sm font-bold text-slate-800">{spike.previousRate.toFixed(1)}%</div>
+        <div className="rounded-none border border-[#e8eaed] bg-white px-3 py-2">
+          <div className="text-[11px] font-medium text-[#5f6368]">Baseline</div>
+          <div className="mt-1 text-sm font-medium tabular-nums text-[#202124]">{spike.previousRate.toFixed(1)}%</div>
         </div>
-        <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2">
-          <div className="text-[9px] font-bold uppercase tracking-wide text-red-400">Current</div>
-          <div className="mt-1 font-mono text-sm font-bold text-red-700">{spike.currentRate.toFixed(1)}%</div>
+        <div className="rounded-none border border-[#e8eaed] bg-white px-3 py-2">
+          <div className="text-[11px] font-medium text-[#5f6368]">Current</div>
+          <div className="mt-1 text-sm font-medium tabular-nums text-[#c5221f]">{spike.currentRate.toFixed(1)}%</div>
         </div>
-        <div className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
-          <div className="text-[9px] font-bold uppercase tracking-wide text-sky-500">Calls</div>
-          <div className="mt-1 font-mono text-sm font-bold text-sky-800">{spike.affectedSessions.toLocaleString()}</div>
+        <div className="rounded-none border border-[#e8eaed] bg-white px-3 py-2">
+          <div className="text-[11px] font-medium text-[#5f6368]">Calls</div>
+          <div className="mt-1 text-sm font-medium tabular-nums text-[#202124]">{spike.affectedSessions.toLocaleString()}</div>
         </div>
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-          <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Peak</div>
-          <div className="mt-1 font-mono text-sm font-bold text-slate-800">{chart.peakPoint.bucket.errorRate.toFixed(1)}%</div>
+        <div className="rounded-none border border-[#e8eaed] bg-white px-3 py-2">
+          <div className="text-[11px] font-medium text-[#5f6368]">Peak</div>
+          <div className="mt-1 text-sm font-medium tabular-nums text-[#202124]">{chart.peakPoint.bucket.errorRate.toFixed(1)}%</div>
         </div>
       </div>
       <div className="overflow-x-auto px-4 py-4">
@@ -596,8 +605,8 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
         >
           <defs>
             <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.03" />
+              <stop offset="0%" stopColor="#1a73e8" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#1a73e8" stopOpacity="0.02" />
             </linearGradient>
           </defs>
 
@@ -605,8 +614,8 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
             const y = chart.margin.top + (1 - rate / chart.yMax) * chart.plotHeight;
             return (
               <g key={rate.toFixed(2)}>
-                <line x1={chart.margin.left} x2={chart.width - chart.margin.right} y1={y} y2={y} stroke="#e2e8f0" strokeDasharray={rate === 0 ? undefined : '3 4'} />
-                <text x={chart.margin.left - 10} y={y + 3} textAnchor="end" className="fill-slate-400 text-[9px] font-semibold">
+                <line x1={chart.margin.left} x2={chart.width - chart.margin.right} y1={y} y2={y} stroke="#e8eaed" strokeDasharray={rate === 0 ? undefined : '3 4'} />
+                <text x={chart.margin.left - 10} y={y + 3} textAnchor="end" className="fill-[#5f6368] text-[10px] font-medium tabular-nums">
                   {rate.toFixed(rate >= 10 ? 0 : 1)}%
                 </text>
               </g>
@@ -618,11 +627,11 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
             x2={chart.width - chart.margin.right}
             y1={chart.baselineY}
             y2={chart.baselineY}
-            stroke="#f97316"
+            stroke="#e37400"
             strokeWidth="1.5"
             strokeDasharray="5 4"
           />
-          <text x={chart.width - chart.margin.right} y={Math.max(12, chart.baselineY - 6)} textAnchor="end" className="fill-orange-600 text-[9px] font-bold">
+          <text x={chart.width - chart.margin.right} y={Math.max(12, chart.baselineY - 6)} textAnchor="end" className="fill-[#b06000] text-[10px] font-medium tabular-nums">
             baseline {spike.previousRate.toFixed(1)}%
           </text>
 
@@ -634,23 +643,23 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
                   y={chart.margin.top + chart.plotHeight + 6 + (34 - point.volumeHeight)}
                   width={10}
                   height={point.volumeHeight}
-                  rx={2}
-                  fill="#bae6fd"
+                  rx={0}
+                  fill="#d2e3fc"
                 />
                 <rect
                   x={point.x - 5}
                   y={chart.margin.top + chart.plotHeight + 6 + (34 - point.errorShareHeight)}
                   width={10}
                   height={point.errorShareHeight}
-                  rx={2}
-                  fill="#fb7185"
+                  rx={0}
+                  fill="#d93025"
                 />
               </g>
             ))}
           </g>
 
           <path d={chart.areaPath} fill={`url(#${gradientId})`} />
-          <path d={chart.linePath} fill="none" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={chart.linePath} fill="none" stroke="#1a73e8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
           {chart.points.map((point) => {
             const isPeak = point.index === chart.peakPoint.index;
@@ -662,7 +671,7 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
                   cx={point.x}
                   cy={point.y}
                   r={isActive ? 5 : isPeak || isCurrent ? 4 : 2.5}
-                  fill={isPeak ? '#ef4444' : isCurrent ? '#0284c7' : '#0ea5e9'}
+                  fill={isPeak ? '#d93025' : isCurrent ? '#1967d2' : '#1a73e8'}
                   stroke="white"
                   strokeWidth="1.5"
                 />
@@ -682,43 +691,43 @@ const DetailedApiSpikeChart: React.FC<{ spike: ApiErrorSpikeRecord; rateChangeLa
             );
           })}
 
-          <line x1={tooltip.x} x2={tooltip.x} y1={chart.margin.top} y2={chart.margin.top + chart.plotHeight + 40} stroke="#0f172a" strokeOpacity="0.18" strokeDasharray="3 3" />
+          <line x1={tooltip.x} x2={tooltip.x} y1={chart.margin.top} y2={chart.margin.top + chart.plotHeight + 40} stroke="#202124" strokeOpacity="0.18" strokeDasharray="3 3" />
           <g transform={`translate(${tooltipX}, ${tooltipY})`} pointerEvents="none">
-            <rect width={tooltipWidth} height={72} rx={8} fill="white" stroke="#cbd5e1" filter="drop-shadow(0 8px 18px rgba(15,23,42,0.12))" />
-            <text x={10} y={17} className="fill-slate-500 text-[9px] font-bold uppercase tracking-wide">
+            <rect width={tooltipWidth} height={72} rx={0} fill="white" stroke="#dadce0" />
+            <text x={10} y={17} className="fill-[#5f6368] text-[10px] font-medium tabular-nums">
               {new Date(tooltip.bucket.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </text>
-            <text x={10} y={36} className="fill-slate-950 text-[14px] font-bold">
+            <text x={10} y={36} className="fill-[#202124] text-[14px] font-medium tabular-nums">
               {tooltip.bucket.errorRate.toFixed(1)}% error rate
             </text>
-            <text x={10} y={54} className="fill-slate-600 text-[10px] font-semibold">
+            <text x={10} y={54} className="fill-[#3c4043] text-[10px] tabular-nums">
               {tooltip.bucket.errorCount.toLocaleString()} errors / {tooltip.bucket.totalCount.toLocaleString()} calls
             </text>
-            <text x={10} y={66} className={`text-[9px] font-bold ${activeDelta >= 0 ? 'fill-red-600' : 'fill-emerald-600'}`}>
+            <text x={10} y={66} className={`text-[10px] font-medium tabular-nums ${activeDelta >= 0 ? 'fill-[#d93025]' : 'fill-[#188038]'}`}>
               {activeDelta >= 0 ? '+' : ''}{activeDelta.toFixed(1)} pts vs baseline
             </text>
           </g>
 
         </svg>
         <div
-          className="mx-auto mt-2 grid max-w-full grid-cols-[1fr_auto_1fr] items-center gap-3 text-[9px] font-semibold text-slate-400"
+          className="mx-auto mt-2 grid max-w-full grid-cols-[1fr_auto_1fr] items-center gap-3 text-[10px] font-medium tabular-nums text-[#5f6368]"
           style={{ width: chart.width }}
         >
           <span className="truncate">
             {new Date(spike.trend[0].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          <span className="whitespace-nowrap font-bold text-red-500">peak {chart.peakPoint.bucket.errorRate.toFixed(1)}%</span>
+          <span className="whitespace-nowrap font-medium text-[#d93025]">Peak {chart.peakPoint.bucket.errorRate.toFixed(1)}%</span>
           <span className="truncate text-right">
             {new Date(spike.trend[spike.trend.length - 1].bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-4 py-2 text-[10px] font-semibold text-slate-500">
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-500" /> Error rate</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-sm bg-sky-200" /> API calls</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-sm bg-rose-400" /> Errors</span>
-        <span className="inline-flex items-center gap-1"><span className="h-px w-5 border-t border-dashed border-orange-500" /> Baseline</span>
-        <span className="ml-auto text-sky-700">{spike.previousRate.toFixed(1)}% → {spike.currentRate.toFixed(1)}% ({rateChangeLabel})</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#e8eaed] px-4 py-2 text-[11px] font-medium text-[#5f6368]">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#1a73e8]" /> Error rate</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-none bg-[#d2e3fc]" /> API calls</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-none bg-[#d93025]" /> Errors</span>
+        <span className="inline-flex items-center gap-1"><span className="h-px w-5 border-t border-dashed border-[#e37400]" /> Baseline</span>
+        <span className="ml-auto tabular-nums text-[#3c4043]">{spike.previousRate.toFixed(1)}% → {spike.currentRate.toFixed(1)}% ({rateChangeLabel})</span>
       </div>
     </div>
   );
@@ -1187,8 +1196,8 @@ export const Stability: React.FC = () => {
     };
 
     return (
-      <NeoCard variant="flat" className="border-slate-200 bg-white p-4 shadow-sm">
-        <h4 className="mb-3 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+      <NeoCard variant="flat" disablePadding className="p-4">
+        <h4 className="mb-3 border-b border-[#e8eaed] pb-2 text-sm font-medium text-[#202124]">
           {title}
         </h4>
         <div className="grid grid-cols-2 gap-2">
@@ -1198,47 +1207,41 @@ export const Stability: React.FC = () => {
             ['Users', formatCompact(row.userCount)],
             ['App version', row.appVersion || '?'],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2">
-              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-              <p className="mt-0.5 truncate font-mono text-sm font-semibold text-slate-800" title={value}>
+            <div key={label} className="rounded-none border border-[#e8eaed] bg-[#f8fafd] px-2.5 py-2">
+              <p className="text-[11px] font-medium text-[#5f6368]">{label}</p>
+              <p className="mt-0.5 truncate text-sm font-medium tabular-nums text-[#202124]" title={value}>
                 {value}
               </p>
             </div>
           ))}
         </div>
-        <dl className="mt-4 space-y-3 border-t border-slate-100 pt-3 text-xs">
+        <dl className="mt-4 space-y-3 border-t border-[#e8eaed] pt-3 text-xs">
           <div>
-            <dt className="mb-0.5 text-slate-500">First seen</dt>
-            <dd className="font-medium text-slate-800">{new Date(row.firstSeen).toLocaleString()}</dd>
+            <dt className="mb-0.5 text-[#5f6368]">First seen</dt>
+            <dd className="font-medium tabular-nums text-[#202124]">{new Date(row.firstSeen).toLocaleString()}</dd>
           </div>
           <div>
-            <dt className="mb-0.5 text-slate-500">Latest event</dt>
-            <dd className="font-medium text-slate-800">{new Date(row.lastOccurred).toLocaleString()}</dd>
+            <dt className="mb-0.5 text-[#5f6368]">Latest event</dt>
+            <dd className="font-medium tabular-nums text-[#202124]">{new Date(row.lastOccurred).toLocaleString()}</dd>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <dt className="text-slate-500">Diagnostics</dt>
-            <dd className={`rounded border px-2 py-0.5 text-[10px] font-bold ${
-              row.diagnosticState === 'complete'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : row.diagnosticState === 'incomplete'
-                  ? 'border-red-200 bg-red-50 text-red-700'
-                  : 'border-amber-200 bg-amber-50 text-amber-700'
-            }`}>
+            <dt className="text-[#5f6368]">Diagnostics</dt>
+            <dd className={diagnosticChipClass(row.diagnosticState)}>
               {diagnosticLabel}
             </dd>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <dt className="text-slate-500">Stack symbols</dt>
-            <dd className={`text-right text-[11px] font-semibold ${
-              row.symbolicationState === 'symbolicated' ? 'text-emerald-700' : 'text-slate-700'
+            <dt className="text-[#5f6368]">Stack symbols</dt>
+            <dd className={`text-right text-[11px] font-medium ${
+              row.symbolicationState === 'symbolicated' ? 'text-[#137333]' : 'text-[#3c4043]'
             }`}>
               {row.symbolicationState ? symbolicationLabel[row.symbolicationState] : 'Unknown'}
             </dd>
           </div>
           {additionalProperties.map((property) => (
             <div key={property.label}>
-              <dt className="mb-0.5 text-slate-500">{property.label}</dt>
-              <dd className="break-words font-medium text-slate-800">{property.value}</dd>
+              <dt className="mb-0.5 text-[#5f6368]">{property.label}</dt>
+              <dd className="break-words font-medium text-[#202124]">{property.value}</dd>
             </div>
           ))}
         </dl>
@@ -1259,32 +1262,32 @@ export const Stability: React.FC = () => {
     };
 
     return (
-      <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+      <NeoCard variant="flat" disablePadding className="overflow-hidden">
+        <div className={PANEL_HEADER_CLASS}>
           <div>
-            <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-              <Clock size={14} className="text-sky-500" />
-              Occurrences &amp; Sessions
+            <h4 className={PANEL_TITLE_CLASS}>
+              <Clock size={14} className={PANEL_ICON_CLASS} />
+              Occurrences and sessions
             </h4>
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p className="mt-1 text-[11px] text-[#5f6368]">
               Every captured occurrence is listed here; duplicate transports are merged.
             </p>
           </div>
-          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] font-semibold text-slate-600">
+          <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
             {page ? `${page.items.length} of ${page.total}` : `${row.eventCount} events`}
           </span>
         </div>
 
         {!page || (page.isLoading && page.items.length === 0) ? (
-          <div className="flex items-center justify-center gap-2 px-6 py-10 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 px-6 py-10 text-sm text-[#5f6368]">
             <Loader size={17} className="animate-spin" />
             Loading occurrences...
           </div>
         ) : page.error && page.items.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
-            <p className="text-sm font-medium text-red-700">{page.error}</p>
+            <p className="text-sm font-medium text-[#c5221f]">{page.error}</p>
             <NeoButton
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={(event) => {
                 event.stopPropagation();
@@ -1296,59 +1299,52 @@ export const Stability: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="max-h-[420px] divide-y divide-slate-100 overflow-y-auto">
+            <div className="max-h-[420px] divide-y divide-[#e8eaed] overflow-y-auto">
               {page.items.map((occurrence) => (
                 <div key={occurrence.id} className="grid gap-3 px-4 py-3 text-xs sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:items-center">
                   <div>
-                    <div className="font-semibold text-slate-800">{new Date(occurrence.timestamp).toLocaleString()}</div>
-                    <div className="mt-1 font-mono text-[10px] text-slate-400">
+                    <div className="font-medium tabular-nums text-[#202124]">{new Date(occurrence.timestamp).toLocaleString()}</div>
+                    <div className="mt-1 font-mono text-[10px] text-[#80868b]">
                       {occurrence.id.slice(0, 12)}
                     </div>
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
-                        {occurrence.platform || 'Unknown platform'}
+                      <span className={dashboardChipClass('neutral')}>
+                        {occurrence.platform ? formatSetupPlatform(occurrence.platform) : 'Unknown platform'}
                       </span>
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+                      <span className={dashboardChipClass('neutral')}>
                         {formatDeviceModel(occurrence.deviceModel, 'Unknown device')}
                       </span>
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-600">
+                      <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                         v{occurrence.appVersion || '?'}
                       </span>
-                      <span className={`rounded border px-1.5 py-0.5 font-semibold ${
-                        occurrence.diagnosticState === 'complete'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : occurrence.diagnosticState === 'incomplete'
-                            ? 'border-red-200 bg-red-50 text-red-700'
-                            : 'border-amber-200 bg-amber-50 text-amber-700'
-                      }`}>
-                        {occurrence.diagnosticState} diagnostics
+                      <span className={diagnosticChipClass(occurrence.diagnosticState)}>
+                        {sentenceCase(occurrence.diagnosticState)} diagnostics
                       </span>
                     </div>
-                    <p className="mt-1.5 truncate font-mono text-[11px] text-slate-500" title={occurrence.stackTrace || occurrence.message || ''}>
+                    <p className="mt-1.5 truncate font-mono text-[11px] text-[#5f6368]" title={occurrence.stackTrace || occurrence.message || ''}>
                       {occurrence.stackTrace?.split('\n').find(Boolean) || occurrence.message || 'No stack captured'}
                     </p>
-                    <p className="mt-1 truncate text-[10px] text-slate-400" title={occurrence.sessionId || ''}>
+                    <p className="mt-1 truncate text-[11px] text-[#80868b]" title={occurrence.sessionId || ''}>
                       Session: {occurrence.sessionId || 'Unavailable'} · {replayStateLabel[occurrence.replayState]}
                     </p>
                   </div>
                   <div className="flex justify-end">
                     {occurrence.canOpenReplay && occurrence.sessionId ? (
                       <NeoButton
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
                         leftIcon={<Play size={12} />}
                         onClick={(event) => {
                           event.stopPropagation();
                           navigate(`${pathPrefix}/sessions/${occurrence.sessionId}`);
                         }}
-                        className="h-8 whitespace-nowrap text-xs"
                       >
                         Play
                       </NeoButton>
                     ) : (
-                      <span className="whitespace-nowrap text-[10px] font-medium text-slate-400">
+                      <span className="whitespace-nowrap text-[11px] text-[#80868b]">
                         {replayStateLabel[occurrence.replayState]}
                       </span>
                     )}
@@ -1357,11 +1353,11 @@ export const Stability: React.FC = () => {
               ))}
             </div>
             {(page.nextCursor || page.error) && (
-              <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
-                {page.error ? <p className="text-xs font-medium text-red-700">{page.error}</p> : <span />}
+              <div className="flex items-center justify-between gap-3 border-t border-[#e8eaed] px-4 py-3">
+                {page.error ? <p className="text-xs font-medium text-[#c5221f]">{page.error}</p> : <span />}
                 {page.nextCursor && (
                   <NeoButton
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     leftIcon={page.isLoading ? <Loader size={13} className="animate-spin" /> : undefined}
                     disabled={page.isLoading}
@@ -1369,7 +1365,6 @@ export const Stability: React.FC = () => {
                       event.stopPropagation();
                       void loadMoreOccurrences(row);
                     }}
-                    className="h-8 text-xs"
                   >
                     Load more
                   </NeoButton>
@@ -1391,11 +1386,11 @@ export const Stability: React.FC = () => {
       return (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
           <div className="flex flex-col gap-4 lg:col-span-3">
-            <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                  <Code size={14} className="text-rose-500" />
-                  Stack Trace Analysis
+            <NeoCard variant="flat" disablePadding className="overflow-hidden">
+              <div className={PANEL_HEADER_CLASS}>
+                <h4 className={PANEL_TITLE_CLASS}>
+                  <Code size={14} className={PANEL_ICON_CLASS} />
+                  Stack trace
                 </h4>
                 <div className="flex items-center gap-1.5">
                   <NeoButton
@@ -1404,7 +1399,6 @@ export const Stability: React.FC = () => {
                     leftIcon={copiedKey === `${row.key}:stack` ? <Check size={13} /> : <Copy size={13} />}
                     onClick={(event) => handleCopyText(stackTrace, `${row.key}:stack`, event)}
                     disabled={!stackTrace}
-                    className="h-7 px-2 text-xs"
                   >
                     Copy
                   </NeoButton>
@@ -1414,7 +1408,6 @@ export const Stability: React.FC = () => {
                     leftIcon={<Download size={13} />}
                     onClick={(event) => handleDownloadText(stackTrace, row.source.sampleCrashId, 'crash-trace', event)}
                     disabled={!stackTrace}
-                    className="h-7 px-2 text-xs"
                   >
                     Save
                   </NeoButton>
@@ -1422,39 +1415,39 @@ export const Stability: React.FC = () => {
               </div>
 
               {!detailLoaded ? (
-                <div className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-slate-500">
+                <div className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-[#5f6368]">
                   <Loader size={18} className="animate-spin" />
                   Loading crash details...
                 </div>
               ) : stackTrace ? (
-                <div className="max-h-[400px] overflow-auto bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-emerald-300 selection:bg-rose-900">
+                <div className={STACK_BLOCK_CLASS}>
                   {stackTrace}
                 </div>
               ) : (
-                <div className="bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">No stack trace captured.</div>
+                <div className="bg-[#f8fafd] px-6 py-10 text-center text-sm text-[#5f6368]">No stack trace captured.</div>
               )}
             </NeoCard>
 
             {renderOccurrencesCard(row)}
 
             <div className="flex flex-wrap gap-4 text-xs">
-              <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-                <Smartphone size={12} className="text-slate-400" />
-                <span className="font-semibold text-slate-700">Device:</span>
+              <div className={CONTEXT_CHIP_CLASS}>
+                <Smartphone size={12} className="text-[#80868b]" />
+                <span className="font-medium text-[#5f6368]">Device:</span>
                 <span title={detail?.deviceMetadata?.model || row.deviceModel}>
                   {formatDeviceModel(detail?.deviceMetadata?.model || row.deviceModel, 'Unknown')}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-                <Activity size={12} className="text-slate-400" />
-                <span className="font-semibold text-slate-700">OS:</span>
+              <div className={CONTEXT_CHIP_CLASS}>
+                <Activity size={12} className="text-[#80868b]" />
+                <span className="font-medium text-[#5f6368]">OS:</span>
                 {detail?.deviceMetadata?.systemName || 'Unknown'} {detail?.deviceMetadata?.systemVersion || ''}
               </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-4 lg:col-span-1">
-            {renderIssueSummaryCard(row, 'Crash Summary')}
+            {renderIssueSummaryCard(row, 'Crash summary')}
           </div>
         </div>
       );
@@ -1467,11 +1460,11 @@ export const Stability: React.FC = () => {
       return (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
           <div className="flex flex-col gap-4 lg:col-span-3">
-            <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                  <Code size={14} className="text-amber-500" />
-                  Stack Trace Analysis
+            <NeoCard variant="flat" disablePadding className="overflow-hidden">
+              <div className={PANEL_HEADER_CLASS}>
+                <h4 className={PANEL_TITLE_CLASS}>
+                  <Code size={14} className={PANEL_ICON_CLASS} />
+                  Stack trace
                 </h4>
                 <div className="flex items-center gap-1.5">
                   <NeoButton
@@ -1480,7 +1473,6 @@ export const Stability: React.FC = () => {
                     leftIcon={copiedKey === `${row.key}:stack` ? <Check size={13} /> : <Copy size={13} />}
                     onClick={(event) => handleCopyText(stackTrace, `${row.key}:stack`, event)}
                     disabled={!stackTrace}
-                    className="h-7 px-2 text-xs"
                   >
                     Copy
                   </NeoButton>
@@ -1490,7 +1482,6 @@ export const Stability: React.FC = () => {
                     leftIcon={<Download size={13} />}
                     onClick={(event) => handleDownloadText(stackTrace, row.source.fingerprint, 'error-trace', event)}
                     disabled={!stackTrace}
-                    className="h-7 px-2 text-xs"
                   >
                     Save
                   </NeoButton>
@@ -1498,26 +1489,26 @@ export const Stability: React.FC = () => {
               </div>
 
               {stackTrace ? (
-                <div className="max-h-[400px] overflow-auto bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-slate-300 selection:bg-amber-900">
+                <div className={STACK_BLOCK_CLASS}>
                   {stackTrace}
                 </div>
               ) : (
-                <div className="bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">No stack trace captured for this occurrence.</div>
+                <div className="bg-[#f8fafd] px-6 py-10 text-center text-sm text-[#5f6368]">No stack trace captured for this occurrence.</div>
               )}
             </NeoCard>
 
             {renderOccurrencesCard(row)}
 
             <div className="flex flex-wrap gap-4 text-xs">
-              <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-                <Smartphone size={12} className="text-slate-400" />
-                <span className="font-semibold text-slate-700">Device:</span>
+              <div className={CONTEXT_CHIP_CLASS}>
+                <Smartphone size={12} className="text-[#80868b]" />
+                <span className="font-medium text-[#5f6368]">Device:</span>
                 <span title={row.deviceModel}>{row.deviceLabel}</span>
               </div>
               {row.screenName && (
-                <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-                  <Activity size={12} className="text-slate-400" />
-                  <span className="font-semibold text-slate-700">Screen:</span>
+                <div className={CONTEXT_CHIP_CLASS}>
+                  <Activity size={12} className="text-[#80868b]" />
+                  <span className="font-medium text-[#5f6368]">Screen:</span>
                   {row.screenName}
                 </div>
               )}
@@ -1525,7 +1516,7 @@ export const Stability: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-4 lg:col-span-1">
-            {renderIssueSummaryCard(row, 'Error Summary', [
+            {renderIssueSummaryCard(row, 'Error summary', [
               { label: 'Fingerprint', value: row.source.fingerprint },
             ])}
           </div>
@@ -1540,13 +1531,13 @@ export const Stability: React.FC = () => {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
         <div className="flex flex-col gap-4 lg:col-span-3">
           {/* Trend chart */}
-          <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-              <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                <TrendingUp size={14} className="text-sky-500" />
-                API Error Rate — 90 min window
+          <NeoCard variant="flat" disablePadding className="overflow-hidden">
+            <div className={PANEL_HEADER_CLASS}>
+              <h4 className={PANEL_TITLE_CLASS}>
+                <TrendingUp size={14} className={PANEL_ICON_CLASS} />
+                API error rate, 90 min window
               </h4>
-              <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+              <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                 {spike.previousRate.toFixed(1)}% → {spike.currentRate.toFixed(1)}% ({rateChangeLabel})
               </span>
             </div>
@@ -1555,26 +1546,26 @@ export const Stability: React.FC = () => {
 
           {/* Top failing endpoints */}
           {spike.topEndpoints.length > 0 && (
-            <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                  <Wifi size={14} className="text-sky-500" />
-                  Top Failing Endpoints
+            <NeoCard variant="flat" disablePadding className="overflow-hidden">
+              <div className="border-b border-[#e8eaed] px-4 py-2.5">
+                <h4 className={PANEL_TITLE_CLASS}>
+                  <Wifi size={14} className={PANEL_ICON_CLASS} />
+                  Top failing endpoints
                 </h4>
               </div>
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-[#e8eaed]">
                 {spike.topEndpoints.map((ep, i) => {
                   const endpointPattern = endpointPatternFromTopEndpoint(ep);
                   const isIgnored = ignoredEndpointPatterns.some((pattern) => pattern.toLowerCase() === endpointPattern.toLowerCase());
                   return (
                     <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                      <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500">
+                      <span className={`shrink-0 font-mono ${dashboardChipClass('neutral')}`}>
                         {ep.method}
                       </span>
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-700" title={ep.endpoint}>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-[#3c4043]" title={ep.endpoint}>
                         {ep.endpoint}
                       </span>
-                      <span className="shrink-0 rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-red-700">
+                      <span className={`shrink-0 tabular-nums ${dashboardChipClass('danger')}`}>
                         {ep.errorCount} errors
                       </span>
                       <NeoButton
@@ -1583,7 +1574,7 @@ export const Stability: React.FC = () => {
                         leftIcon={<Plus size={12} />}
                         disabled={isIgnored || isSavingIgnoredEndpoints}
                         onClick={(event) => handleIgnoreEndpoint(ep, event)}
-                        className="h-7 shrink-0 px-2 text-xs"
+                        className="shrink-0"
                       >
                         {isIgnored ? 'Ignored' : 'Ignore'}
                       </NeoButton>
@@ -1594,11 +1585,11 @@ export const Stability: React.FC = () => {
             </NeoCard>
           )}
 
-          <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-              <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                <X size={14} className="text-sky-500" />
-                Ignored Endpoints
+          <NeoCard variant="flat" disablePadding className="overflow-hidden">
+            <div className={PANEL_HEADER_CLASS}>
+              <h4 className={PANEL_TITLE_CLASS}>
+                <X size={14} className={PANEL_ICON_CLASS} />
+                Ignored endpoints
               </h4>
             </div>
             <div className="space-y-3 p-4">
@@ -1609,15 +1600,14 @@ export const Stability: React.FC = () => {
                   onChange={(event) => setSelectedEndpointPattern(event.target.value)}
                   disabled={availableEndpointOptions.length === 0 || isSavingIgnoredEndpoints}
                   placeholder={availableEndpointOptions.length === 0 ? 'No recorded endpoints available' : 'Search recorded endpoints'}
-                  className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 font-mono text-xs text-slate-800 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                  className={ENDPOINT_INPUT_CLASS}
                 />
                 <NeoButton
                   variant="primary"
-                  size="sm"
+                  size="md"
                   leftIcon={isSavingIgnoredEndpoints ? <Loader size={13} className="animate-spin" /> : <Plus size={13} />}
                   disabled={!selectedEndpointOption || isSavingIgnoredEndpoints}
                   onClick={handleAddSelectedIgnoredEndpoint}
-                  className="h-9 justify-center px-3 text-xs"
                 >
                   Add
                 </NeoButton>
@@ -1630,46 +1620,46 @@ export const Stability: React.FC = () => {
                       type="button"
                       onClick={(event) => handleRemoveIgnoredEndpoint(pattern, event)}
                       disabled={isSavingIgnoredEndpoints}
-                      className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white disabled:opacity-60"
+                      className={IGNORED_PATTERN_CHIP_CLASS}
                     >
                       <span className="truncate">{pattern}</span>
-                      <X size={12} className="shrink-0 text-slate-400" />
+                      <X size={12} className="shrink-0 text-[#80868b]" />
                     </button>
                   ))}
                 </div>
               )}
-              {ignoreSettingsError && <p className="text-xs font-medium text-red-600">{ignoreSettingsError}</p>}
+              {ignoreSettingsError && <p className="text-xs font-medium text-[#c5221f]">{ignoreSettingsError}</p>}
             </div>
           </NeoCard>
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-1">
-          <NeoCard variant="flat" className="border-sky-200 bg-sky-50/50 p-4 shadow-sm">
-            <h4 className="mb-3 border-b border-sky-100 pb-2 text-[10px] font-bold uppercase tracking-widest text-sky-600">
-              Spike Properties
+          <NeoCard variant="flat" disablePadding className="p-4">
+            <h4 className="mb-3 border-b border-[#e8eaed] pb-2 text-sm font-medium text-[#202124]">
+              Spike properties
             </h4>
             <dl className="space-y-3 text-xs">
               <div>
-                <dt className="mb-0.5 text-slate-500">Detected At</dt>
-                <dd className="font-medium text-slate-800">{new Date(spike.detectedAt).toLocaleString()}</dd>
+                <dt className="mb-0.5 text-[#5f6368]">Detected at</dt>
+                <dd className="font-medium tabular-nums text-[#202124]">{new Date(spike.detectedAt).toLocaleString()}</dd>
               </div>
               <div>
-                <dt className="mb-0.5 text-slate-500">Error Rate</dt>
-                <dd className="font-medium text-slate-800">{spike.currentRate.toFixed(1)}% <span className="text-slate-400">(was {spike.previousRate.toFixed(1)}%)</span></dd>
+                <dt className="mb-0.5 text-[#5f6368]">Error rate</dt>
+                <dd className="font-medium tabular-nums text-[#202124]">{spike.currentRate.toFixed(1)}% <span className="text-[#80868b]">(was {spike.previousRate.toFixed(1)}%)</span></dd>
               </div>
               <div>
-                <dt className="mb-0.5 text-slate-500">Change</dt>
-                <dd className="font-bold text-red-600">{rateChangeLabel}</dd>
+                <dt className="mb-0.5 text-[#5f6368]">Change</dt>
+                <dd className="font-medium tabular-nums text-[#d93025]">{rateChangeLabel}</dd>
               </div>
               <div>
-                <dt className="mb-0.5 text-slate-500">API Calls in Window</dt>
-                <dd className="font-medium text-slate-800">{spike.affectedSessions.toLocaleString()}</dd>
+                <dt className="mb-0.5 text-[#5f6368]">API calls in window</dt>
+                <dd className="font-medium tabular-nums text-[#202124]">{spike.affectedSessions.toLocaleString()}</dd>
               </div>
             </dl>
           </NeoCard>
-          <NeoCard variant="flat" className="border-slate-200 bg-white p-4 shadow-sm">
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">What Is This?</p>
-            <p className="text-xs leading-relaxed text-slate-600">
+          <NeoCard variant="flat" disablePadding className="p-4">
+            <p className="mb-2 text-sm font-medium text-[#202124]">What is this?</p>
+            <p className="text-xs leading-relaxed text-[#3c4043]">
               An API error rate spike means more HTTP 4xx/5xx responses than normal from your app's network calls — not a crash or JS exception. Check your sessions from this time window for affected traffic.
             </p>
           </NeoCard>
@@ -1682,11 +1672,11 @@ export const Stability: React.FC = () => {
     return (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
         <div className="flex flex-col gap-4 lg:col-span-3">
-          <NeoCard variant="flat" disablePadding className="overflow-hidden border border-slate-200 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-              <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                <Code size={14} className="text-violet-500" />
-                Main Thread State
+          <NeoCard variant="flat" disablePadding className="overflow-hidden">
+            <div className={PANEL_HEADER_CLASS}>
+              <h4 className={PANEL_TITLE_CLASS}>
+                <Code size={14} className={PANEL_ICON_CLASS} />
+                Main thread state
               </h4>
               <div className="flex items-center gap-1.5">
                 <NeoButton
@@ -1695,7 +1685,6 @@ export const Stability: React.FC = () => {
                   leftIcon={copiedKey === `${row.key}:thread` ? <Check size={13} /> : <Copy size={13} />}
                   onClick={(event) => handleCopyText(threadState, `${row.key}:thread`, event)}
                   disabled={!threadState}
-                  className="h-7 px-2 text-xs"
                 >
                   Copy
                 </NeoButton>
@@ -1705,7 +1694,6 @@ export const Stability: React.FC = () => {
                   leftIcon={<Download size={13} />}
                   onClick={(event) => handleDownloadText(threadState, row.source.id, 'anr-thread', event)}
                   disabled={!threadState}
-                  className="h-7 px-2 text-xs"
                 >
                   Save
                 </NeoButton>
@@ -1713,32 +1701,32 @@ export const Stability: React.FC = () => {
             </div>
 
             {threadState ? (
-              <div className="max-h-[400px] overflow-auto bg-[#0d1117] p-4 font-mono text-[11px] leading-relaxed text-[#c6a0f6] selection:bg-violet-900">
+              <div className={STACK_BLOCK_CLASS}>
                 {threadState}
               </div>
             ) : (
-              <div className="bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">No thread state captured.</div>
+              <div className="bg-[#f8fafd] px-6 py-10 text-center text-sm text-[#5f6368]">No thread state captured.</div>
             )}
           </NeoCard>
 
           {renderOccurrencesCard(row)}
 
           <div className="flex flex-wrap gap-4 text-xs">
-            <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-              <Smartphone size={12} className="text-slate-400" />
-              <span className="font-semibold text-slate-700">Device:</span>
+            <div className={CONTEXT_CHIP_CLASS}>
+              <Smartphone size={12} className="text-[#80868b]" />
+              <span className="font-medium text-[#5f6368]">Device:</span>
               <span title={row.deviceModel}>{row.deviceLabel}</span>
             </div>
-            <div className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 shadow-sm">
-              <Activity size={12} className="text-slate-400" />
-              <span className="font-semibold text-slate-700">OS:</span>
+            <div className={CONTEXT_CHIP_CLASS}>
+              <Activity size={12} className="text-[#80868b]" />
+              <span className="font-medium text-[#5f6368]">OS:</span>
               {row.source.deviceMetadata?.osVersion || 'Unknown'}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-1">
-          {renderIssueSummaryCard(row, 'ANR Summary', [
+          {renderIssueSummaryCard(row, 'ANR summary', [
             { label: 'Block duration', value: `${row.durationMs}ms` },
           ])}
         </div>
@@ -1755,25 +1743,25 @@ export const Stability: React.FC = () => {
         role="dialog"
         aria-modal="false"
         aria-label={`${meta.label} issue details`}
-        className={`fixed inset-x-2 bottom-2 z-[70] flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-950/20 transition-[max-height] duration-200 ease-out sm:hidden ${
+        className={`fixed inset-x-2 bottom-2 z-[70] flex flex-col overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-lg transition-[max-height] duration-200 ease-out sm:hidden ${
           isExpanded ? 'max-h-[calc(100dvh-1rem)]' : 'max-h-[54dvh]'
         }`}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="shrink-0 border-b border-slate-200 bg-white px-3 pb-2.5 pt-2">
-          <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-slate-300" aria-hidden="true" />
+        <div className="shrink-0 border-b border-[#e8eaed] bg-white px-3 pb-2.5 pt-2">
+          <div className="mx-auto mb-2 h-1 w-12 rounded-none bg-[#dadce0]" aria-hidden="true" />
           <div className="flex min-w-0 items-center gap-2">
             <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${meta.dotClass}`} aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{meta.label} detail</div>
-              <div className="truncate text-sm font-semibold text-slate-950" title={row.title}>
+              <div className="text-[11px] font-medium text-[#5f6368]">{meta.label} detail</div>
+              <div className="truncate text-sm font-medium text-[#202124]" title={row.title}>
                 {row.title}
               </div>
             </div>
             <button
               type="button"
               onClick={() => setMobileIssueDetailSize(isExpanded ? 'compact' : 'expanded')}
-              className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-bold text-slate-700 transition hover:border-slate-300 hover:bg-white"
+              className={dashboardButtonClass('secondary', 'sm')}
               aria-pressed={isExpanded}
               aria-label={isExpanded ? 'Reduce issue detail sheet' : 'Expand issue detail sheet'}
             >
@@ -1783,14 +1771,14 @@ export const Stability: React.FC = () => {
             <button
               type="button"
               onClick={() => setExpandedIssueKey(null)}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
               aria-label="Close issue detail"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/60 p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f8fafd] p-3">
           {renderExpandedContent(row)}
         </div>
       </div>
@@ -1817,7 +1805,6 @@ export const Stability: React.FC = () => {
         comparisonText: stabilitySummary.totalSessions > 0
           ? `${formatCompact(stabilitySummary.crashFreeSessions)} of ${formatCompact(stabilitySummary.totalSessions)} sessions`
           : 'No sessions in this window',
-        comparisonClassName: stabilitySummary.totalSessions > 0 ? 'text-emerald-700' : 'text-slate-500',
       },
       {
         id: 'crash-free-users',
@@ -1828,7 +1815,6 @@ export const Stability: React.FC = () => {
         comparisonText: stabilitySummary.totalUsers > 0
           ? `${formatCompact(stabilitySummary.crashFreeUsers)} of ${formatCompact(stabilitySummary.totalUsers)} users`
           : 'No users in this window',
-        comparisonClassName: stabilitySummary.totalUsers > 0 ? 'text-emerald-700' : 'text-slate-500',
       },
       {
         id: 'stability-issues',
@@ -1845,7 +1831,6 @@ export const Stability: React.FC = () => {
         sortValue: stabilitySummary.events,
         info: 'Captured Stability occurrences after duplicate delivery paths are merged.',
         comparisonText: 'Deduplicated occurrences',
-        comparisonClassName: 'text-rose-700',
       },
       {
         id: 'affected-sessions',
@@ -1854,7 +1839,6 @@ export const Stability: React.FC = () => {
         sortValue: stabilitySummary.sessions,
         info: 'Distinct sessions represented by the Stability issues in this window.',
         comparisonText: 'Open any issue to inspect every session',
-        comparisonClassName: 'text-sky-700',
       },
       {
         id: 'complete-diagnostics',
@@ -1863,7 +1847,7 @@ export const Stability: React.FC = () => {
         sortValue: stabilitySummary.completeDiagnostics,
         info: 'Issues with a usable stack trace plus sufficient app, OS, and device context.',
         comparisonText: `${formatCompact(stabilitySummary.completeDiagnostics)} of ${formatCompact(stabilitySummary.issues)} issues`,
-        comparisonClassName: stabilitySummary.incompleteDiagnostics > 0 ? 'text-amber-700' : 'text-emerald-700',
+        comparisonClassName: stabilitySummary.incompleteDiagnostics > 0 ? 'text-[#b06000]' : 'text-[#137333]',
       },
     ];
   }, [stabilitySummary]);
@@ -1893,40 +1877,40 @@ export const Stability: React.FC = () => {
         />
 
         {failedSections.length > 0 && (
-          <div role="alert" className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm sm:flex-row sm:items-center">
-            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+          <div role="alert" className="mb-4 flex flex-col gap-3 rounded-none border border-[#feefc3] bg-[#fef7e0] px-4 py-3 text-[#b06000] sm:flex-row sm:items-center">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-[#b06000]" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold">Some Stability data could not be loaded</p>
-              <p className="mt-0.5 text-xs text-amber-800">
+              <p className="text-sm font-medium">Some Stability data could not be loaded</p>
+              <p className="mt-0.5 text-xs text-[#3c4043]">
                 Unavailable: {failedSections.join(', ')}. Existing results are partial and are not being presented as “no issues.”
               </p>
             </div>
             <NeoButton
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => setRetryVersion((version) => version + 1)}
-              className="shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+              className="shrink-0"
             >
               Retry
             </NeoButton>
           </div>
         )}
 
-        <NeoCard variant="flat" disablePadding className="overflow-hidden bg-white">
-          <div className="flex items-center gap-3 overflow-x-auto border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <NeoCard variant="flat" disablePadding className="overflow-hidden">
+          <div className="flex items-center gap-3 overflow-x-auto border-b border-[#e8eaed] bg-white px-4 py-3">
             <datalist id="stability-recorded-api-endpoints">
               {availableEndpointOptions.map((option) => (
                 <option key={option.pattern} value={option.pattern} label={formatEndpointOptionLabel(option)} />
               ))}
             </datalist>
             <div className="relative w-80 shrink-0">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#80868b]" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Search stability issues..."
-                  className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                  className="w-full rounded-none border border-[#dadce0] bg-white py-1.5 pl-9 pr-3 text-sm text-[#202124] outline-none transition-colors placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                 />
               </div>
 
@@ -1934,11 +1918,8 @@ export const Stability: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => updateKindFilter([])}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    activeKindSet.size === 0
-                      ? 'border-slate-900 bg-slate-900 text-white'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
-                  }`}
+                  aria-pressed={activeKindSet.size === 0}
+                  className={filterChipClass(activeKindSet.size === 0)}
                 >
                   All
                 </button>
@@ -1951,15 +1932,12 @@ export const Stability: React.FC = () => {
                       key={kind}
                       type="button"
                       onClick={() => toggleKind(kind)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                        selected
-                          ? 'border-slate-900 bg-slate-900 text-white'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
-                      }`}
+                      aria-pressed={selected}
+                      className={filterChipClass(selected)}
                     >
                       <Icon className="h-3.5 w-3.5" />
                       {meta.plural}
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${selected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                      <span className={`rounded-none px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${selected ? 'bg-white text-[#1967d2]' : 'bg-[#f1f3f4] text-[#5f6368]'}`}>
                         {formatCompact(kindCounts[kind])}
                       </span>
                     </button>
@@ -1967,34 +1945,34 @@ export const Stability: React.FC = () => {
                 })}
               </div>
 
-            <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-medium text-slate-500">
-              <NeoButton
-                variant="ghost"
-                size="sm"
-                leftIcon={<SlidersHorizontal size={13} />}
+            <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-medium text-[#5f6368]">
+              <button
+                type="button"
+                aria-pressed={isIgnoredEndpointPanelOpen}
                 onClick={() => setIsIgnoredEndpointPanelOpen((open) => !open)}
-                className={`h-8 whitespace-nowrap border px-2.5 text-xs ${isIgnoredEndpointPanelOpen ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`}
+                className={toggleButtonClass(isIgnoredEndpointPanelOpen)}
               >
+                <SlidersHorizontal size={13} className="shrink-0" />
                 Ignored endpoints
                 {ignoredEndpointPatterns.length > 0 && (
-                  <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isIgnoredEndpointPanelOpen ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  <span className={`rounded-none px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${isIgnoredEndpointPanelOpen ? 'bg-white text-[#1967d2]' : 'bg-[#f1f3f4] text-[#5f6368]'}`}>
                     {ignoredEndpointPatterns.length}
                   </span>
                 )}
-              </NeoButton>
+              </button>
             </div>
           </div>
 
           {isIgnoredEndpointPanelOpen && (
-            <div className="border-b border-slate-200 bg-white px-4 py-4">
+            <div className="border-b border-[#e8eaed] bg-white px-4 py-4">
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                 <div className="min-w-0 space-y-2">
                   <div>
-                    <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-700">
-                      <SlidersHorizontal size={14} className="text-sky-500" />
-                      Ignored API Endpoints
+                    <h3 className={PANEL_TITLE_CLASS}>
+                      <SlidersHorizontal size={14} className={PANEL_ICON_CLASS} />
+                      Ignored API endpoints
                     </h3>
-                    <p className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                    <p className="mt-1 text-xs leading-5 text-[#5f6368]">
                       Select from API endpoints already recorded for this project.
                     </p>
                   </div>
@@ -2005,15 +1983,14 @@ export const Stability: React.FC = () => {
                       onChange={(event) => setSelectedEndpointPattern(event.target.value)}
                       disabled={availableEndpointOptions.length === 0 || isSavingIgnoredEndpoints}
                       placeholder={availableEndpointOptions.length === 0 ? 'No recorded endpoints available' : 'Search recorded endpoints'}
-                      className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 font-mono text-xs text-slate-800 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      className={ENDPOINT_INPUT_CLASS}
                     />
                     <NeoButton
                       variant="primary"
-                      size="sm"
+                      size="md"
                       leftIcon={isSavingIgnoredEndpoints ? <Loader size={13} className="animate-spin" /> : <Plus size={13} />}
                       disabled={!selectedEndpointOption || isSavingIgnoredEndpoints}
                       onClick={handleAddSelectedIgnoredEndpoint}
-                      className="h-9 justify-center px-3 text-xs sm:w-auto"
                     >
                       Add
                     </NeoButton>
@@ -2026,15 +2003,15 @@ export const Stability: React.FC = () => {
                           type="button"
                           onClick={(event) => handleRemoveIgnoredEndpoint(pattern, event)}
                           disabled={isSavingIgnoredEndpoints}
-                          className="inline-flex max-w-full items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white disabled:opacity-60"
+                          className={IGNORED_PATTERN_CHIP_CLASS}
                         >
                           <span className="truncate">{pattern}</span>
-                          <X size={12} className="shrink-0 text-slate-400" />
+                          <X size={12} className="shrink-0 text-[#80868b]" />
                         </button>
                       ))}
                     </div>
                   )}
-                  {ignoreSettingsError && <p className="text-xs font-medium text-red-600">{ignoreSettingsError}</p>}
+                  {ignoreSettingsError && <p className="text-xs font-medium text-[#c5221f]">{ignoreSettingsError}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2 lg:justify-end">
                   <NeoButton
@@ -2042,7 +2019,6 @@ export const Stability: React.FC = () => {
                     size="sm"
                     leftIcon={<X size={13} />}
                     onClick={() => setIsIgnoredEndpointPanelOpen(false)}
-                    className="h-8 px-3 text-xs"
                   >
                     Close
                   </NeoButton>
@@ -2051,13 +2027,13 @@ export const Stability: React.FC = () => {
             </div>
           )}
 
-          <div className="border-b border-slate-200 bg-white px-4">
-            <div className="flex items-center gap-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <div className="border-b border-[#e8eaed] bg-white px-4">
+            <div className="flex items-center gap-4 py-3 text-xs font-medium text-[#5f6368]">
               <div className="w-24 shrink-0">Type</div>
-              <div className="min-w-0 flex-1">Issue Details</div>
+              <div className="min-w-0 flex-1">Issue details</div>
               <div className="hidden w-32 md:block">Environment</div>
-              <div className="hidden w-24 text-right sm:block">First Seen</div>
-              <div className="hidden w-24 text-right lg:block">Last Event</div>
+              <div className="hidden w-24 text-right sm:block">First seen</div>
+              <div className="hidden w-24 text-right lg:block">Last event</div>
               <div className="w-16 text-right">Events</div>
               <div className="w-16 text-right">Users</div>
               <div className="hidden w-16 text-right xl:block">Sessions</div>
@@ -2065,11 +2041,11 @@ export const Stability: React.FC = () => {
             </div>
           </div>
 
-          <div className="divide-y divide-slate-100 bg-white">
+          <div className="divide-y divide-[#e8eaed] bg-white">
             {filteredRows.length === 0 && failedSections.length === 0 && (
-              <div className="py-24 text-center text-slate-400">
-                <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-                <p className="text-lg font-semibold text-slate-700">No stability issues found</p>
+              <div className="py-24 text-center text-[#5f6368]">
+                <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-[#dadce0]" />
+                <p className="text-base font-medium text-[#202124]">No stability issues found</p>
                 <p className="mt-1 text-sm">Try a different issue type, search term, platform, or time range.</p>
               </div>
             )}
@@ -2082,46 +2058,46 @@ export const Stability: React.FC = () => {
                 <div
                   key={row.key}
                   id={makeDomId(row.key)}
-                  className={`transition-colors ${isExpanded ? meta.rowClass : 'hover:bg-slate-50'}`}
+                  className={`transition-colors ${isExpanded ? 'bg-[#f8fafd]' : 'hover:bg-[#f8fafd]'}`}
                 >
                   <div
                     className="group/row flex cursor-pointer items-center gap-4 px-4 py-3"
                     onClick={() => handleIssueRowClick(row, isExpanded)}
                   >
                     <div className="flex w-24 shrink-0 items-center gap-2">
-                      <div className={`h-2.5 w-2.5 rounded-full transition-all ${isExpanded ? meta.dotClass : `bg-slate-300 ${meta.hoverDotClass}`}`} />
-                      <NeoBadge variant={meta.badge} size="sm" className="shadow-none">
+                      <div className={`h-2.5 w-2.5 shrink-0 rounded-full transition-colors ${isExpanded ? meta.dotClass : `bg-[#dadce0] ${meta.hoverDotClass}`}`} />
+                      <NeoBadge variant={meta.badge} size="sm">
                         {meta.label}
                       </NeoBadge>
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="truncate text-[13px] font-semibold text-slate-900" title={row.title}>
+                        <h3 className="truncate text-[13px] font-medium text-[#202124]" title={row.title}>
                           {row.title}
                         </h3>
                         {row.kind === 'errors' && row.screenName && (
-                          <span className="hidden rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 xl:inline-block">
+                          <span className="hidden rounded-none bg-[#f1f3f4] px-1.5 py-0.5 text-[11px] font-medium text-[#5f6368] xl:inline-block">
                             {row.screenName}
                           </span>
                         )}
                         {row.kind === 'anrs' && (
-                          <span className="hidden rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 xl:inline-block">
+                          <span className="hidden rounded-none bg-[#f3e8fd] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[#8430ce] xl:inline-block">
                             {Math.round(row.durationMs / 100) / 10}s block
                           </span>
                         )}
                         {row.diagnosticState === 'incomplete' && (
-                          <span className="hidden rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-700 xl:inline-block">
+                          <span className="hidden rounded-none bg-[#fce8e6] px-1.5 py-0.5 text-[11px] font-medium text-[#c5221f] xl:inline-block">
                             Incomplete
                           </span>
                         )}
                         {row.symbolicationState === 'missing_symbols' && (
-                          <span className="hidden rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700 xl:inline-block">
+                          <span className="hidden rounded-none bg-[#fef7e0] px-1.5 py-0.5 text-[11px] font-medium text-[#b06000] xl:inline-block">
                             Symbols missing
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-slate-500" title={row.subtitle}>
+                      <p className="mt-0.5 truncate text-xs text-[#5f6368]" title={row.subtitle}>
                         {row.subtitle}
                       </p>
                     </div>
@@ -2131,48 +2107,48 @@ export const Stability: React.FC = () => {
                         <ApiSpikeTrendline spike={row.source} height={28} />
                       ) : (
                         <div className="flex flex-col items-start gap-1">
-                          <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400" title={row.deviceModel}>
+                          <span className="block max-w-full truncate rounded-none bg-[#f1f3f4] px-1.5 py-0.5 text-[11px] font-medium leading-4 text-[#3c4043]" title={row.deviceModel}>
                             {row.deviceLabel}
                           </span>
-                          <span className="rounded bg-slate-100 px-1.5 text-[10px] font-bold uppercase text-slate-400">v{row.appVersion}</span>
+                          <span className="block max-w-full truncate rounded-none bg-[#f1f3f4] px-1.5 py-0.5 text-[11px] font-medium leading-4 tabular-nums text-[#3c4043]">v{row.appVersion}</span>
                         </div>
                       )}
                     </div>
 
                     <div className="hidden w-24 text-right sm:block">
-                      <span className="text-xs font-medium text-slate-500" title={new Date(row.firstSeen).toLocaleString()}>
+                      <span className="text-xs tabular-nums text-[#5f6368]" title={new Date(row.firstSeen).toLocaleString()}>
                         {formatAge(row.firstSeen)}
                       </span>
                     </div>
 
                     <div className="hidden w-24 text-right lg:block">
-                      <span className="text-xs font-semibold text-slate-700" title={new Date(row.lastOccurred).toLocaleString()}>
+                      <span className="text-xs font-medium tabular-nums text-[#3c4043]" title={new Date(row.lastOccurred).toLocaleString()}>
                         {formatLastSeen(row.lastOccurred)}
                       </span>
                     </div>
 
                     <div className="w-16 text-right">
-                      <span className={`inline-block rounded border px-2 py-0.5 font-mono text-xs font-medium ${meta.badgeClass}`}>
+                      <span className="inline-block text-xs font-medium tabular-nums text-[#202124]">
                         {formatCompact(row.eventCount)}
                       </span>
                     </div>
 
                     <div className="w-16 text-right">
-                      <span className="inline-block font-mono text-xs font-medium text-slate-600">
+                      <span className="inline-block text-xs tabular-nums text-[#3c4043]">
                         {formatCompact(row.userCount)}
                       </span>
                     </div>
 
                     <div className="hidden w-16 text-right xl:block">
-                      <span className="inline-block font-mono text-xs font-medium text-slate-600">
+                      <span className="inline-block text-xs tabular-nums text-[#3c4043]">
                         {formatCompact(row.sessionCount)}
                       </span>
                     </div>
 
                     <div className="flex w-8 shrink-0 justify-end">
                       <div
-                        className={`flex h-6 w-6 items-center justify-center rounded text-slate-400 transition ${
-                          isExpanded ? 'rotate-180 bg-slate-100 text-slate-700' : 'group-hover/row:bg-slate-200 group-hover/row:text-slate-600'
+                        className={`flex h-6 w-6 items-center justify-center rounded-none text-[#80868b] transition ${
+                          isExpanded ? 'rotate-180 bg-[#f1f3f4] text-[#202124]' : 'group-hover/row:bg-[#f1f3f4] group-hover/row:text-[#3c4043]'
                         }`}
                       >
                         <ChevronDown size={14} />
@@ -2183,7 +2159,7 @@ export const Stability: React.FC = () => {
                   {isExpanded && (
                     <>
                       {renderMobileIssueDetailSheet(row)}
-                      <div className="hidden cursor-default border-t border-slate-200 bg-slate-50/50 p-4 shadow-inner sm:block sm:p-5">
+                      <div className="hidden cursor-default border-t border-[#e8eaed] bg-[#f8fafd] p-4 sm:block sm:p-5">
                         {renderExpandedContent(row)}
                       </div>
                     </>

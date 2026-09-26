@@ -26,6 +26,7 @@ import {
     MarkFlutter,
     MarkRedux,
     MarkSwift,
+    MarkUnity,
     MarkNextJs,
     MarkVue,
     MarkAngular,
@@ -202,7 +203,7 @@ const PLATFORM_GROUPS: PlatformGroup[] = [
                 Icon: MarkReactNative,
                 iconColor: "#2563eb",
                 iconBg: "#eff6ff",
-                badge: "Expo supported",
+                badge: "iOS + Android",
             },
             {
                 name: "Flutter",
@@ -221,6 +222,15 @@ const PLATFORM_GROUPS: PlatformGroup[] = [
                 iconColor: "#f97316",
                 iconBg: "#fff7ed",
             },
+            {
+                name: "Unity",
+                description: "Mobile games on iOS & Android, with gameplay markers and performance monitoring.",
+                href: "/docs/unity/overview",
+                Icon: MarkUnity,
+                iconColor: "#0f172a",
+                iconBg: "#f1f5f9",
+                badge: "iOS + Android",
+            },
         ],
     },
 ];
@@ -234,35 +244,35 @@ function PlatformCard({ platform, locale }: { platform: Platform; locale: Return
     return (
         <Link
             to={localizedHref}
-            className="group relative flex items-start gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+            className="group relative flex items-start gap-4 rounded-none border border-[#dadce0] bg-white p-5 transition-colors hover:border-[#1a73e8] hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
         >
             {/* Icon */}
             <div
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-none border border-[#dadce0]/60"
                 style={{ backgroundColor: iconBg }}
             >
-                <Icon className="h-6 w-6" style={{ color: iconColor }} />
+                <Icon className="h-5 w-5" style={{ color: iconColor }} />
             </div>
 
             {/* Text */}
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                    <span className="text-sm font-medium text-[#202124] group-hover:text-[#1a73e8] transition-colors">
                         {name}
                     </span>
                     {badge && (
-                        <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-600">
+                        <span className="inline-flex items-center rounded-none bg-[#e8f0fe] px-2 py-0.5 text-[11px] font-medium text-[#1967d2] leading-4">
                             {badge}
                         </span>
                     )}
                 </div>
-                <p className="mt-0.5 text-sm leading-snug text-slate-500">{description}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-[#5f6368]">{description}</p>
             </div>
 
             {/* Arrow */}
             <ArrowRight
                 size={16}
-                className="mt-0.5 flex-shrink-0 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-indigo-400"
+                className="mt-0.5 shrink-0 text-[#5f6368] transition-transform group-hover:translate-x-0.5 group-hover:text-[#1a73e8]"
             />
         </Link>
     );
@@ -278,13 +288,13 @@ export default function DocsIndex() {
         <DocsLayout sidebar={<DocsSidebar />}>
             {/* Hero */}
             <div className="mb-10">
-                <p className="mb-2 text-xs font-bold uppercase tracking-widest text-indigo-500">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#1a73e8]">
                     Documentation
                 </p>
-                <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
+                <h1 className="text-3xl font-normal tracking-tight text-[#202124] sm:text-4xl">
                     Choose your platform
                 </h1>
-                <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-500">
+                <p className="mt-3 max-w-2xl text-base leading-relaxed text-[#5f6368]">
                     Rejourney works across web, mobile, and e-commerce. Pick your stack below to get started with session replay, heatmaps, and product analytics in minutes.
                 </p>
             </div>
@@ -293,7 +303,7 @@ export default function DocsIndex() {
             <div className="space-y-10">
                 {PLATFORM_GROUPS.map((group) => (
                     <section key={group.heading}>
-                        <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-400">
+                        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-[#5f6368]">
                             {group.heading}
                         </h2>
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -310,19 +320,19 @@ export default function DocsIndex() {
             </div>
 
             {/* Self-hosting callout */}
-            <div className="mt-12 rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
+            <div className="mt-12 rounded-none border border-[#dadce0] bg-white p-6">
+                <p className="text-xs font-medium uppercase tracking-wider text-[#5f6368] mb-1">
                     Self-Hosting
                 </p>
-                <h3 className="text-base font-bold text-slate-900 mb-1">
+                <h3 className="text-base font-medium text-[#202124] mb-1">
                     Running your own infrastructure?
                 </h3>
-                <p className="text-sm text-slate-500 mb-4">
+                <p className="text-sm text-[#5f6368] mb-4">
                     Deploy Rejourney on your own servers with Docker or Kubernetes.
                 </p>
                 <Link
                     to={getLocalizedPublicPath(locale, "/docs/selfhosted")}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-indigo-200 hover:text-indigo-600 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+                    className="inline-flex items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3.5 py-2 text-sm font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                 >
                     Self-hosted docs
                     <ArrowRight size={14} />

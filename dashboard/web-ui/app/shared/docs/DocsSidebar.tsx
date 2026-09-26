@@ -82,6 +82,13 @@ const NAVIGATION: NavCategory[] = [
         sections: [{ title: "Getting Started", links: [
             { label: "Overview", href: "/docs/unity/overview", isRoute: true },
             { label: "Install and configure", href: "/docs/unity/overview#install-and-configure", isRoute: false },
+            { label: "Screen Tracking", href: "/docs/unity/overview#screen-tracking", isRoute: false },
+            { label: "User Identification", href: "/docs/unity/overview#user-identification", isRoute: false },
+            { label: "Custom Events", href: "/docs/unity/overview#custom-events", isRoute: false },
+            { label: "Metadata", href: "/docs/unity/overview#metadata", isRoute: false },
+            { label: "Gameplay markers", href: "/docs/unity/overview#gameplay-markers", isRoute: false },
+            { label: "Performance monitoring", href: "/docs/unity/overview#performance-monitoring", isRoute: false },
+            { label: "Errors and crashes", href: "/docs/unity/overview#errors-and-crashes", isRoute: false },
             { label: "Privacy and capture", href: "/docs/unity/overview#privacy-and-capture", isRoute: false },
             { label: "Automatic HTTP", href: "/docs/unity/overview#automatic-http-coverage", isRoute: false },
             { label: "Native builds", href: "/docs/unity/overview#native-builds-and-stripping", isRoute: false },
@@ -172,7 +179,7 @@ export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Flutter", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Unity", "Flutter", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
     const navigation = NAVIGATION.map((cat) => {
         if (cat.category !== "Web") {
@@ -290,19 +297,19 @@ export function DocsSidebar({ className }: { className?: string }) {
     };
 
     return (
-        <aside className={cn("relative z-20 hidden w-64 flex-shrink-0 self-stretch border-r border-slate-200/40 bg-transparent md:block", className)}>
+        <aside className={cn("relative z-20 hidden w-64 flex-shrink-0 self-stretch border-r border-[#dadce0] bg-transparent md:block", className)}>
             <div className="pt-28 pb-5 pr-6 pl-2">
                 {navigation.map((cat) => (
                     <div key={cat.category} className="mb-6 last:mb-0">
                         {/* Category Header */}
                         <button
                             onClick={() => toggleCategory(cat.category)}
-                            className="group mb-3 flex w-full items-center justify-between border-b border-slate-200/60 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 transition-all hover:text-slate-900"
+                            className="group mb-2.5 flex w-full items-center justify-between border-b border-[#e8eaed] py-2 text-xs font-medium uppercase tracking-wider text-[#5f6368] transition-colors hover:text-[#202124]"
                         >
                             <span>{cat.category}</span>
                             {expandedCategories.includes(cat.category)
-                                ? <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
-                                : <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                                ? <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform text-[#5f6368]" />
+                                : <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform text-[#5f6368]" />
                             }
                         </button>
 
@@ -311,7 +318,7 @@ export function DocsSidebar({ className }: { className?: string }) {
                             <div className="space-y-4">
                                 {cat.sections.map((section) => (
                                     <div key={section.title}>
-                                        <h4 className="px-2 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                        <h4 className="px-2.5 py-1 text-[11px] font-medium text-[#5f6368] uppercase tracking-wider mb-1">
                                             {section.title}
                                         </h4>
                                         <nav className="space-y-0.5">
@@ -320,16 +327,16 @@ export function DocsSidebar({ className }: { className?: string }) {
 
                                                 const LinkContent = (
                                                     <span className="flex items-center">
-                                                        {!link.isRoute && <Hash size={10} className="mr-1.5 opacity-50" />}
+                                                        {!link.isRoute && <Hash size={10} className="mr-1.5 opacity-40 text-[#5f6368]" />}
                                                         {link.label}
                                                     </span>
                                                 );
 
                                                 const className = cn(
-                                                    "block px-3 py-1.5 text-sm font-semibold transition-all border border-transparent rounded-lg",
+                                                    "block px-3 py-1.5 text-sm transition-colors rounded-none border-y-0 border-r-0 border-l-2",
                                                     active
-                                                        ? "text-indigo-600 bg-indigo-50 border-indigo-100/50 font-bold"
-                                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-200"
+                                                        ? "text-[#1967d2] bg-[#e8f0fe] font-medium border-l-[#1a73e8]"
+                                                        : "text-[#3c4043] border-l-transparent hover:text-[#202124] hover:bg-[#f1f3f4]"
                                                 );
 
                                                 const localizedHref = getLocalizedPublicPath(locale, link.href);

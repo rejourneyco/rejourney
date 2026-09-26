@@ -88,27 +88,27 @@ export function DocsAIPromptCallout({
 
     return (
         <div className={cn(
-            "border border-emerald-100 bg-emerald-50/60 p-5 rounded-2xl shadow-sm dark:bg-emerald-950/20 dark:border-emerald-900/30",
+            "border border-[#dadce0] bg-[#f8fafd] rounded-none",
             compact ? "p-4" : "p-6"
         )}>
             <p className={cn(
-                "flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300",
-                compact ? "mb-2 text-sm" : "mb-4 text-lg"
+                "flex items-center gap-2 font-medium text-[#202124]",
+                compact ? "mb-1.5 text-sm" : "mb-3 text-base"
             )}>
-                <Code2 className="h-4 w-4 shrink-0" />
+                <Code2 className="h-4 w-4 shrink-0 text-[#1a73e8]" />
                 {labels.heading}
             </p>
             <p className={cn(
-                "font-medium leading-relaxed text-emerald-700/95 dark:text-emerald-400/90",
-                compact ? "mb-3 text-sm" : "mb-6 text-base"
+                "font-normal leading-relaxed text-[#5f6368]",
+                compact ? "mb-3 text-xs" : "mb-5 text-sm"
             )}>
                 {promptText}
             </p>
             <button
                 onClick={handleCopyPrompt}
                 className={cn(
-                    "inline-flex items-center justify-center font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors rounded-lg shadow-sm",
-                    compact ? "px-4 py-2 text-sm" : "px-5 py-2.5"
+                    "inline-flex items-center justify-center font-medium border border-[#1a73e8] bg-[#1a73e8] hover:bg-[#1765cc] hover:border-[#1765cc] text-white transition-colors rounded-none",
+                    compact ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm"
                 )}
             >
                 {promptCopied ? labels.copied : labels.copyButton}
@@ -268,7 +268,7 @@ export function MarkdownContent({
     // Render AI prompt section if present
     const renderAIPromptSection = () => {
         return (
-            <section className="mb-12 pb-8 border-b border-slate-200">
+            <section className="mb-10 pb-6 border-b border-[#dadce0]">
                 <DocsAIPromptCallout promptText={aiPromptSection ?? ""} labels={aiPromptLabels} />
             </section>
         );
@@ -282,8 +282,8 @@ export function MarkdownContent({
     let checkboxFallbackIndex = 0;
 
     return (
-        <article className="border border-slate-200 bg-white px-5 py-8 shadow-sm rounded-2xl sm:px-8 sm:py-10 lg:px-12">
-            <div className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-p:text-slate-700 prose-a:text-indigo-600 prose-code:text-slate-800 prose-code:bg-slate-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+        <article className="border border-[#dadce0] bg-white px-5 py-8 rounded-none sm:px-8 sm:py-10 lg:px-12">
+            <div className="prose prose-slate max-w-none prose-headings:font-medium prose-headings:text-[#202124] prose-p:text-[#3c4043] prose-a:text-[#1a73e8] prose-code:text-[#202124] prose-code:bg-[#f1f3f4] prose-code:px-1 prose-code:py-0.5 prose-code:rounded-none prose-code:before:content-none prose-code:after:content-none">
                 {aiPromptSection && showAIPrompt && renderAIPromptSection()}
                 <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -317,11 +317,11 @@ export function MarkdownContent({
                             if (isTerminal) {
                                 // Terminal commands get a simple black terminal look
                                 return (
-                                    <div className="my-6 rounded-lg overflow-hidden bg-black border border-gray-800 shadow-sm relative">
-                                        <div className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 border-b border-gray-800">
-                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
-                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
-                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/70" />
+                                    <div className="my-6 rounded-none overflow-hidden bg-[#202124] border border-[#dadce0] relative">
+                                        <div className="flex items-center gap-1.5 px-4 py-2 bg-[#292a2d] border-b border-[#3c4043]">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-[#ea4335]/80" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-[#fbbc04]/80" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-[#34a853]/80" />
                                         </div>
                                         <DocsCodeBlock code={trimmedCode} language={language} isTerminal={true} />
                                     </div>
@@ -337,7 +337,7 @@ export function MarkdownContent({
 
                         // Inline code - make it subtle, not like a code block
                         return (
-                            <code className="bg-gray-100/80 text-gray-900 font-mono text-[0.85em] px-1.5 py-0.5 rounded border border-gray-200" {...props}>
+                            <code className="bg-[#f1f3f4] text-[#202124] font-mono text-[0.85em] px-1.5 py-0.5 rounded-none border border-[#dadce0]" {...props}>
                                 {children}
                             </code>
                         );
@@ -346,7 +346,7 @@ export function MarkdownContent({
                     h1: ({ children }) => {
                         const id = generateId(String(children));
                         return (
-                            <h2 id={id} className="text-3xl font-extrabold text-slate-900 mb-6 mt-10 first:mt-0 scroll-mt-32">
+                            <h2 id={id} className="text-3xl font-normal text-[#202124] mb-6 mt-10 first:mt-0 scroll-mt-32">
                                 {children}
                             </h2>
                         );
@@ -354,7 +354,7 @@ export function MarkdownContent({
                     h2: ({ children }) => {
                         const id = generateId(String(children));
                         return (
-                            <h2 id={id} className="scroll-mt-32 border-b border-slate-200 pb-2 mt-12 mb-4 text-2xl font-bold text-slate-800">
+                            <h2 id={id} className="scroll-mt-32 border-b border-[#e8eaed] pb-2 mt-12 mb-4 text-2xl font-normal text-[#202124]">
                                 {children}
                             </h2>
                         );
@@ -362,7 +362,7 @@ export function MarkdownContent({
                     h3: ({ children }) => {
                         const id = generateId(String(children));
                         return (
-                            <h3 id={id} className="text-xl font-bold text-slate-800 mb-3 mt-8 scroll-mt-32">
+                            <h3 id={id} className="text-xl font-medium text-[#202124] mb-3 mt-8 scroll-mt-32">
                                 {children}
                             </h3>
                         );
@@ -370,25 +370,25 @@ export function MarkdownContent({
                     h4: ({ children }) => {
                         const id = generateId(String(children));
                         return (
-                            <h4 id={id} className="text-lg font-bold text-slate-700 mb-2 mt-6 scroll-mt-32 uppercase tracking-wide">
+                            <h4 id={id} className="text-base font-medium text-[#3c4043] mb-2 mt-6 scroll-mt-32 uppercase tracking-wide">
                                 {children}
                             </h4>
                         );
                     },
                     // Style paragraphs
                     p: ({ children }) => (
-                        <p className="mb-6 text-base leading-relaxed text-slate-600">
+                        <p className="mb-6 text-base leading-relaxed text-[#3c4043]">
                             {children}
                         </p>
                     ),
                     // Style lists
                     ul: ({ children }) => (
-                        <ul className="mb-6 ml-6 list-outside list-disc space-y-2 text-slate-600">
+                        <ul className="mb-6 ml-6 list-outside list-disc space-y-2 text-[#3c4043]">
                             {children}
                         </ul>
                     ),
                     ol: ({ children }) => (
-                        <ol className="mb-6 ml-6 list-outside list-decimal space-y-2 text-slate-600">
+                        <ol className="mb-6 ml-6 list-outside list-decimal space-y-2 text-[#3c4043]">
                             {children}
                         </ol>
                     ),
@@ -432,7 +432,7 @@ export function MarkdownContent({
                                         return nextState;
                                     });
                                 }}
-                                className="mr-3 mt-1 h-4 w-4 cursor-pointer accent-indigo-600 disabled:cursor-wait disabled:opacity-60 rounded"
+                                className="mr-3 mt-1 h-4 w-4 cursor-pointer accent-[#1a73e8] disabled:cursor-wait disabled:opacity-60 rounded-none"
                                 aria-label="Toggle checklist item"
                             />
                         );
@@ -441,7 +441,7 @@ export function MarkdownContent({
                     a: ({ href, children }) => (
                         <a
                             href={href}
-                            className="text-indigo-600 dark:text-indigo-400 font-semibold underline decoration-1 underline-offset-4 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+                            className="text-[#1a73e8] font-medium underline decoration-1 underline-offset-4 hover:text-[#1765cc] transition-colors"
                             target={href?.startsWith('http') ? '_blank' : undefined}
                             rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
                         >
@@ -452,7 +452,7 @@ export function MarkdownContent({
                     img: ({ src, alt }) => {
                         if (!src) return null;
                         return (
-                            <figure className="my-8 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
+                            <figure className="my-8 overflow-hidden rounded-none border border-[#dadce0] bg-[#f8fafd]">
                                 <img
                                     src={src as string}
                                     alt={alt || 'Documentation image'}
@@ -513,34 +513,34 @@ export function MarkdownContent({
                         if (alertType) {
                             const alertStyles = {
                                 note: {
-                                    bg: 'bg-blue-50/60 dark:bg-blue-950/20',
-                                    border: 'border border-blue-100 dark:border-blue-900/30 border-l-4 border-l-blue-600',
-                                    text: 'text-blue-800 dark:text-blue-300',
-                                    icon: <Info className="w-5 h-5 text-blue-600 shrink-0" />
+                                    bg: 'bg-[#e8f0fe]',
+                                    border: 'border border-[#dadce0] border-l-4 border-l-[#1a73e8]',
+                                    text: 'text-[#1967d2]',
+                                    icon: <Info className="w-5 h-5 text-[#1a73e8] shrink-0" />
                                 },
                                 tip: {
-                                    bg: 'bg-emerald-50/60 dark:bg-emerald-950/20',
-                                    border: 'border border-emerald-100 dark:border-emerald-900/30 border-l-4 border-l-emerald-600',
-                                    text: 'text-emerald-800 dark:text-emerald-300',
-                                    icon: <Lightbulb className="w-5 h-5 text-emerald-600 shrink-0" />
+                                    bg: 'bg-[#e6f4ea]',
+                                    border: 'border border-[#dadce0] border-l-4 border-l-[#137333]',
+                                    text: 'text-[#137333]',
+                                    icon: <Lightbulb className="w-5 h-5 text-[#137333] shrink-0" />
                                 },
                                 important: {
-                                    bg: 'bg-purple-50/60 dark:bg-purple-950/20',
-                                    border: 'border border-purple-100 dark:border-purple-900/30 border-l-4 border-l-purple-600',
-                                    text: 'text-purple-800 dark:text-purple-300',
-                                    icon: <Info className="w-5 h-5 text-purple-600 shrink-0" />
+                                    bg: 'bg-[#f3e8fd]',
+                                    border: 'border border-[#dadce0] border-l-4 border-l-[#8430ce]',
+                                    text: 'text-[#8430ce]',
+                                    icon: <Info className="w-5 h-5 text-[#8430ce] shrink-0" />
                                 },
                                 warning: {
-                                    bg: 'bg-amber-50/60 dark:bg-amber-950/20',
-                                    border: 'border border-amber-100 dark:border-amber-900/30 border-l-4 border-l-amber-500',
-                                    text: 'text-amber-800 dark:text-amber-300',
-                                    icon: <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                                    bg: 'bg-[#fef7e0]',
+                                    border: 'border border-[#dadce0] border-l-4 border-l-[#b06000]',
+                                    text: 'text-[#b06000]',
+                                    icon: <AlertTriangle className="w-5 h-5 text-[#b06000] shrink-0" />
                                 },
                                 caution: {
-                                    bg: 'bg-red-50/60 dark:bg-red-950/20',
-                                    border: 'border border-red-100 dark:border-red-900/30 border-l-4 border-l-red-600',
-                                    text: 'text-red-800 dark:text-red-300',
-                                    icon: <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+                                    bg: 'bg-[#fce8e6]',
+                                    border: 'border border-[#dadce0] border-l-4 border-l-[#c5221f]',
+                                    text: 'text-[#c5221f]',
+                                    icon: <XCircle className="w-5 h-5 text-[#c5221f] shrink-0" />
                                 }
                             };
 
@@ -548,12 +548,12 @@ export function MarkdownContent({
 
                             return (
                                 <div className={cn(
-                                    "flex items-start gap-4 p-4 my-6 rounded-r-xl transition-all shadow-sm",
+                                    "flex items-start gap-4 p-4 my-6 rounded-none transition-colors",
                                     style.bg,
                                     style.border
                                 )}>
                                     <div className="mt-0.5">{style.icon}</div>
-                                    <div className={cn("prose-p:my-0 text-base leading-relaxed flex-1", style.text)}>
+                                    <div className={cn("prose-p:my-0 text-base leading-relaxed flex-1 font-normal", style.text)}>
                                         {processedChildren}
                                     </div>
                                 </div>
@@ -562,41 +562,41 @@ export function MarkdownContent({
 
                         // Standard blockquote
                         return (
-                            <blockquote className="my-6 border-l-4 border-slate-300 bg-slate-50/60 py-4 pl-4 pr-4 text-slate-600 rounded-r-lg italic">
+                            <blockquote className="my-6 border border-[#dadce0] border-l-4 border-l-[#5f6368] bg-[#f8fafd] py-3.5 pl-4 pr-4 text-[#5f6368] rounded-none italic">
                                 {children}
                             </blockquote>
                         );
                     },
                     // Style tables
                     table: ({ children }) => (
-                        <div className="overflow-x-auto my-8 rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <div className="overflow-x-auto my-8 rounded-none border border-[#dadce0] bg-white">
                             <table className="min-w-full bg-white text-left text-sm">
                                 {children}
                             </table>
                         </div>
                     ),
                     thead: ({ children }) => (
-                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-900 uppercase tracking-wider font-bold">
+                        <thead className="bg-[#f8fafd] border-b border-[#dadce0] text-[#202124] uppercase tracking-wider font-medium text-xs">
                             {children}
                         </thead>
                     ),
                     th: ({ children }) => (
-                        <th className="px-6 py-4 font-bold text-slate-800">
+                        <th className="px-6 py-3 font-medium text-[#202124]">
                             {children}
                         </th>
                     ),
                     td: ({ children }) => (
-                        <td className="px-6 py-4 border-t border-slate-200 text-slate-600">
+                        <td className="px-6 py-3 border-t border-[#e8eaed] text-[#3c4043]">
                             {children}
                         </td>
                     ),
                     // Style horizontal rules
                     hr: () => (
-                        <hr className="my-10 border-t border-slate-200" />
+                        <hr className="my-10 border-t border-[#dadce0]" />
                     ),
                     // Style strong/bold
                     strong: ({ children }) => (
-                        <strong className="font-bold text-slate-900">
+                        <strong className="font-medium text-[#202124]">
                             {children}
                         </strong>
                     ),

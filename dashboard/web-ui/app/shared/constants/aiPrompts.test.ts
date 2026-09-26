@@ -171,6 +171,10 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(prompt).toContain('- Selected platforms: Unity');
     expect(prompt).not.toContain('PUBLIC_KEY_HERE');
     expect(prompt).not.toContain('IF SWIFT');
+    expect(prompt).toContain('StartGameplay');
+    expect(prompt).toContain('EndGameplay');
+    expect(prompt).toContain('BeginSceneLoad');
+    expect(prompt).toContain('CaptureException');
     expect(AI_INTEGRATION_PROMPT).toContain('IF UNITY');
   });
 });

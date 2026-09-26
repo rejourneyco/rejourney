@@ -65,7 +65,8 @@ export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLo
         }
 
         const filePath = join(DOCS_ROOT, docInfo.file);
-        const cachedContent = DOC_CONTENT_CACHE.get(filePath);
+        const isDev = process.env.NODE_ENV !== 'production';
+        const cachedContent = isDev ? undefined : DOC_CONTENT_CACHE.get(filePath);
         if (cachedContent !== undefined) {
             return {
                 content: cachedContent,

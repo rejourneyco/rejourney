@@ -192,7 +192,8 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
                 body: parsed ?? text,
             });
         }
-        if (isTransientStatus(response.status)) {
+        const errorCode = parsed && typeof parsed === 'object' && 'error' in parsed ? (parsed as { error: unknown }).error : undefined;
+        if (isTransientStatus(response.status) && errorCode !== 'SEARCH_TIMEOUT') {
             const message =
                 parsed && typeof parsed === 'object' && 'message' in parsed && typeof (parsed as { message: unknown }).message === 'string'
                     ? (parsed as { message: string }).message
@@ -1163,8 +1164,12 @@ export type SessionArchiveQuery = {
     eventCountValue?: string;
     eventPropKey?: string;
     eventPropValue?: string;
-    /** Server-side substring search (session id, user, device, model, anonymous fields) */
+    /** Server-side search: exact ID match first, then substring (session id, user, device, model, anonymous fields) */
     q?: string;
+    /** Exact SDK user ID, e.g. one user's recordings. */
+    userId?: string;
+    /** Exact device ID, the identity for users without an SDK user ID. */
+    deviceId?: string;
     sort?: SessionArchiveSortKey;
     sortDir?: 'asc' | 'desc';
     /** When false, server omits expensive count(*) — use getSessionsArchiveTotalCount for the total */
@@ -1204,6 +1209,8 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
         eventPropKey,
         eventPropValue,
         q,
+        userId,
+        deviceId,
         sort,
         sortDir,
         includeTotal,
@@ -1243,6 +1250,8 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     if (eventPropKey) queryParams.set('eventPropKey', eventPropKey);
     if (eventPropValue) queryParams.set('eventPropValue', eventPropValue);
     if (q && q.trim()) queryParams.set('q', q.trim());
+    if (userId) queryParams.set('userId', userId);
+    if (deviceId) queryParams.set('deviceId', deviceId);
     if (sort) queryParams.set('sort', sort);
     if (sortDir) queryParams.set('sortDir', sortDir);
     if (includeTotal === false) queryParams.set('includeTotal', 'false');
@@ -1254,20 +1263,34 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
 /**
  * Total matching rows for the same filters as the archive list (cheap to call after list without includeTotal).
  */
-export async function getSessionsArchiveTotalCount(params: Omit<SessionArchiveQuery, 'cursor' | 'limit' | 'includeTotal'>): Promise<number> {
+function matchesDemoArchiveQuery(session: RecordingSession, params: SessionArchiveQuery): boolean {
+    if (params.projectId && session.projectId !== params.projectId) return false;
+    if (!matchesPlatformFilter(session.platform, params.platform)) return false;
+    if (params.geoCountry && session.geoLocation?.country !== params.geoCountry) return false;
+    if (params.geoCity && session.geoLocation?.city !== params.geoCity) return false;
+    if (params.userId && session.userId !== params.userId) return false;
+    if (params.deviceId && session.deviceId !== params.deviceId) return false;
+    const q = params.q?.trim().toLowerCase();
+    if (q) {
+        const haystack = [session.id, session.userId, session.deviceId, session.anonymousDisplayName, session.deviceModel];
+        if (!haystack.some((value) => value?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+}
+
+export async function getSessionsArchiveTotalCount(
+    params: Omit<SessionArchiveQuery, 'cursor' | 'limit' | 'includeTotal'>,
+    options: { signal?: AbortSignal; fresh?: boolean } = {},
+): Promise<number> {
     if (isDemoMode()) {
-        return demoSessions.filter((session) => {
-            if (params.projectId && session.projectId !== params.projectId) return false;
-            if (!matchesPlatformFilter(session.platform, params.platform)) return false;
-            if (params.geoCountry && session.geoLocation?.country !== params.geoCountry) return false;
-            if (params.geoCity && session.geoLocation?.city !== params.geoCity) return false;
-            return true;
-        }).length;
+        return demoSessions.filter((session) => matchesDemoArchiveQuery(session, params)).length;
     }
 
     const queryParams = buildSessionArchiveQueryString({ ...params, countOnly: true, limit: 1 });
     const endpoint = `/api/sessions?${queryParams}`;
-    const response = await fetchWithCache<{ totalCount: number }>(endpoint, {}, `sessions:archive:count:${queryParams}`, ARCHIVE_CACHE_TTL);
+    const cacheKey = `sessions:archive:count:${queryParams}`;
+    if (options.fresh) cache.delete(cacheKey);
+    const response = await fetchWithCache<{ totalCount: number }>(endpoint, { signal: options.signal }, cacheKey, ARCHIVE_CACHE_TTL);
     return response?.totalCount ?? 0;
 }
 
@@ -1277,17 +1300,12 @@ export async function getSessionsArchiveTotalCount(params: Omit<SessionArchiveQu
  */
 export async function getSessionsPaginated(
     params: SessionArchiveQuery,
+    options: { signal?: AbortSignal; fresh?: boolean } = {},
 ): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean; totalCount: number | null }> {
     // Demo mode: return the broad demo session pool for dashboards.
     if (isDemoMode()) {
         const includeTotal = params.includeTotal !== false;
-        const filteredSessions = demoSessions.filter((session) => {
-            if (params.projectId && session.projectId !== params.projectId) return false;
-            if (!matchesPlatformFilter(session.platform, params.platform)) return false;
-            if (params.geoCountry && session.geoLocation?.country !== params.geoCountry) return false;
-            if (params.geoCity && session.geoLocation?.city !== params.geoCity) return false;
-            return true;
-        });
+        const filteredSessions = demoSessions.filter((session) => matchesDemoArchiveQuery(session, params));
         const limit = params.limit && params.limit > 0 ? params.limit : filteredSessions.length;
         return {
             sessions: filteredSessions.slice(0, limit),
@@ -1299,19 +1317,23 @@ export async function getSessionsPaginated(
 
     const queryParams = buildSessionArchiveQueryString(params);
     const endpoint = `/api/sessions?${queryParams}`;
+    const cacheKey = `sessions:archive:list:${queryParams}`;
+    // An explicit search or retry must hit the server, not replay a cached answer.
+    if (options.fresh) cache.delete(cacheKey);
+    const requestOptions: RequestInit = options.signal ? { signal: options.signal } : {};
     const response = params.cursor
-        ? await fetchJson<{
+        ? await fetchJsonWithTransientRetry<{
               sessions: ApiSessionSummary[];
               nextCursor: string | null;
               hasMore: boolean;
               totalCount: number | null;
-          }>(endpoint)
+          }>(endpoint, requestOptions)
         : await fetchWithCache<{
               sessions: ApiSessionSummary[];
               nextCursor: string | null;
               hasMore: boolean;
               totalCount: number | null;
-          }>(endpoint, {}, `sessions:archive:list:${queryParams}`, ARCHIVE_CACHE_TTL);
+          }>(endpoint, requestOptions, cacheKey, ARCHIVE_CACHE_TTL);
 
     const sessions = (response?.sessions || []).map(transformToRecordingSession);
     return {
@@ -1473,8 +1495,8 @@ export async function getAvailableLocations(
     return result.locations;
 }
 
-export async function buildSessionQueryFromPrompt(projectId: string, prompt: string): Promise<{ groups: any[]; explanation: string }> {
-    return fetchJson<{ groups: any[]; explanation: string }>(`/api/projects/${projectId}/query-builder`, {
+export async function buildSessionQueryFromPrompt(projectId: string, prompt: string): Promise<{ groups: any[]; explanation: string; searchQuery?: string }> {
+    return fetchJson<{ groups: any[]; explanation: string; searchQuery?: string }>(`/api/projects/${projectId}/query-builder`, {
         method: 'POST',
         body: JSON.stringify({ prompt }),
     });

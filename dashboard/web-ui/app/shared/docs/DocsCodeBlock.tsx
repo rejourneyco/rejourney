@@ -30,16 +30,16 @@ export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, is
     // Terminal commands get simpler, terminal-like styling
     if (isTerminal) {
         return (
-            <div className="relative p-4 overflow-x-auto">
+            <div className="relative p-4 overflow-x-auto bg-[#202124]">
                 <button
                     onClick={handleCopy}
-                    className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 text-xs font-mono font-bold text-gray-400 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all z-10"
+                    className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 text-xs font-mono font-medium text-[#bdc1c6] hover:text-white hover:bg-white/10 border border-[#5f6368]/60 rounded-none transition-colors z-10"
                     title={copy.docsCopyCommandTitle}
                 >
                     {copied ? (
                         <>
-                            <Check size={12} className="text-green-400" />
-                            <span className="text-green-400">{copy.docsCopied}</span>
+                            <Check size={12} className="text-[#81c995]" />
+                            <span className="text-[#81c995]">{copy.docsCopied}</span>
                         </>
                     ) : (
                         <>
@@ -49,7 +49,7 @@ export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, is
                     )}
                 </button>
                 <pre className="text-sm font-mono leading-relaxed m-0">
-                    <code className="text-green-400">
+                    <code className="text-[#81c995]">
                         {code}
                     </code>
                 </pre>
@@ -59,34 +59,41 @@ export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, is
 
     // Application code gets the full styled code block
     return (
-        <div className="group relative bg-[#0f172a] border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden hover:shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] transition-all duration-300 mb-8">
-            {/* Header with macOS style buttons and glassmorphism */}
-            <div className="flex items-center justify-between border-b-2 border-black bg-white/5 backdrop-blur-md px-4 py-3">
-                <div className="flex gap-2">
-                    <div className="w-3 h-3 rounded-full bg-[#ff5f56] border border-black/20 shadow-inner"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-black/20 shadow-inner"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#27c93f] border border-black/20 shadow-inner"></div>
+        <div className="group relative bg-[#202124] border border-[#dadce0] rounded-none overflow-hidden mb-6">
+            {/* Header with clean indicator and language */}
+            <div className="flex items-center justify-between border-b border-[#3c4043] bg-[#292a2d] px-4 py-2">
+                <div className="flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#ea4335]/80"></div>
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#fbbc04]/80"></div>
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#34a853]/80"></div>
+                    </div>
+                    {language && (
+                        <span className="ml-2 text-[11px] font-mono uppercase tracking-wider text-[#9aa0a6]">
+                            {language}
+                        </span>
+                    )}
                 </div>
                 <button
                     onClick={handleCopy}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold text-gray-400 hover:text-white hover:bg-white/10 border border-white/10 rounded-md transition-all active:scale-95"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium text-[#bdc1c6] hover:text-white hover:bg-white/10 border border-[#5f6368]/60 rounded-none transition-colors"
                     title={copy.docsCopyCodeTitle}
                 >
                     {copied ? (
                         <>
-                            <Check size={14} className="text-[#34d399]" />
-                            <span className="text-[#34d399]">{copy.docsCopied}</span>
+                            <Check size={13} className="text-[#81c995]" />
+                            <span className="text-[#81c995]">{copy.docsCopied}</span>
                         </>
                     ) : (
                         <>
-                            <Copy size={14} />
+                            <Copy size={13} />
                             <span>{copy.docsCopyCode}</span>
                         </>
                     )}
                 </button>
             </div>
             {/* Code content with enhanced padding */}
-            <div className="p-6 overflow-x-auto text-sm font-mono leading-relaxed">
+            <div className="p-5 overflow-x-auto text-sm font-mono leading-relaxed text-[#e8eaed]">
                 <CodeBlock code={code} language={language} />
             </div>
         </div>

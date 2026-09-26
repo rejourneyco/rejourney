@@ -40,10 +40,10 @@ export default function BillingPortalReturn() {
   }, [pathPrefix, searchParams]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white">
+    <div className="flex min-h-screen items-center justify-center bg-[#f8fafd] font-sans">
       <div className="text-center">
-        <div className="mb-2 text-lg font-bold text-slate-700">Completing...</div>
-        <div className="text-sm text-slate-500">Please wait while we update your billing information.</div>
+        <div className="mb-1 text-[15px] font-medium text-[#202124]">Completing...</div>
+        <div className="text-sm text-[#5f6368]">Please wait while we update your billing information.</div>
       </div>
     </div>
   );

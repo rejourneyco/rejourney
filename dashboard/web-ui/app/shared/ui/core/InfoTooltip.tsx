@@ -44,7 +44,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       {trigger ? (
         <span
           tabIndex={0}
-          className="cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+          className="cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 focus-visible:ring-offset-2"
           aria-describedby={isVisible ? tooltipId : undefined}
           onFocus={() => setIsVisible(true)}
           onBlur={() => setIsVisible(false)}
@@ -54,7 +54,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       ) : (
         <button
           type="button"
-          className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-bold text-gray-700 transition hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-black"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#f1f3f4] text-[10px] font-medium text-[#5f6368] transition-colors hover:bg-[#e8eaed] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
           aria-label="Show info"
           aria-describedby={isVisible ? tooltipId : undefined}
           onFocus={() => setIsVisible(true)}
@@ -67,7 +67,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       <div
         id={tooltipId}
         role="tooltip"
-        className={`pointer-events-none absolute z-30 mt-1 max-w-xs rounded bg-black px-2 py-1 text-[10px] leading-snug text-white shadow transition-all duration-150 ${alignmentClass} ${isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+        className={`pointer-events-none absolute z-30 mt-1 max-w-xs rounded-none bg-[#202124] px-2.5 py-1.5 text-xs font-normal normal-case leading-snug text-white shadow-[0_2px_6px_rgba(60,64,67,0.3)] transition-opacity duration-150 ${alignmentClass} ${isVisible ? 'opacity-100' : 'opacity-0'}`}
       >
         {content}
       </div>

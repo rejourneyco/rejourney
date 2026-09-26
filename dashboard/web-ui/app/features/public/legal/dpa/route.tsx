@@ -12,22 +12,24 @@ export const meta: Route.MetaFunction = () => [
         name: "description",
         content: "Data Processing Agreement (DPA) for Rejourney. GDPR compliant data processing terms.",
     },
+    { name: "robots", content: "index, follow" },
     { property: "og:title", content: "Data Processing Agreement - Rejourney" },
     { property: "og:url", content: "https://rejourney.co/dpa" },
+    { tagName: "link", rel: "canonical", href: "https://rejourney.co/dpa" },
 ];
 
 export default function DPA() {
     return (
-        <div className="public-readable-scope min-h-screen bg-background">
+        <div className="public-readable-scope min-h-screen bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
             <Header />
             <div className="container mx-auto px-6 py-16 max-w-4xl">
                 {/* Main Content */}
                 <div>
-                    <h1 className="text-4xl font-bold mb-4">Data Processing Agreement</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: July 16, 2026</p>
+                    <h1 className="text-4xl font-extrabold tracking-tight text-[#202124] mb-3">Data Processing Agreement</h1>
+                    <p className="text-sm font-medium text-[#5f6368] mb-8">Last Updated: July 16, 2026</p>
 
-                    <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
-                        <div className="text-sm leading-relaxed space-y-6">
+                    <div className="bg-white border border-[#dadce0] rounded-none p-8 space-y-6 shadow-sm">
+                        <div className="text-sm leading-relaxed space-y-6 text-[#3c4043]">
                             <p>
                                 This Data Processing Agreement ("DPA") is between Rejourney ("Processor") and the Customer ("Controller"). It outlines the parties' obligations regarding the processing of Personal Data under the General Data Protection Regulation (GDPR).
                             </p>

@@ -35,6 +35,7 @@ import {
     MarkShopify,
     MarkSvelte,
     MarkSwift,
+    MarkUnity,
     MarkVue,
 } from './PlatformMarks';
 import { FaqSection } from './FaqSection';
@@ -61,6 +62,7 @@ const supportedPlatforms = [
     { label: 'React Native / Expo', icon: MarkReactNative, color: '#2563eb', href: '/docs/reactnative/overview' },
     { label: 'Flutter', icon: MarkFlutter, color: '#54c5f8', href: '/docs/flutter/overview' },
     { label: 'Swift', icon: MarkSwift, color: '#f97316', href: '/docs/swift/overview' },
+    { label: 'Unity', icon: MarkUnity, color: '#0f172a', href: '/docs/unity/overview' },
     { label: 'Vue / Nuxt', icon: MarkVue, color: '#42b883', href: '/docs/web/getting-started#vue' },
     { label: 'Angular', icon: MarkAngular, color: '#dd0031', href: '/docs/web/getting-started#angular' },
     { label: 'SvelteKit', icon: MarkSvelte, color: '#ff3e00', href: '/docs/web/getting-started#svelte-sveltekit' },
@@ -226,7 +228,7 @@ const SpinningGlobe: React.FC = () => {
     const longitudes = [0, Math.PI/3, 2*Math.PI/3, Math.PI, 4*Math.PI/3, 5*Math.PI/3];
 
     return (
-        <div className="relative h-64 w-64 sm:h-80 sm:w-80 rounded-full border border-slate-200/60 bg-white flex items-center justify-center shadow-[0_15px_45px_rgba(15,23,42,0.06)] overflow-hidden">
+        <div className="relative h-64 w-64 sm:h-80 sm:w-80 rounded-full border border-[#dadce0] bg-white flex items-center justify-center shadow-sm overflow-hidden">
             {/* Globe grid lines SVG */}
             <svg className="absolute inset-0 h-full w-full text-slate-200" viewBox="0 0 200 200" fill="none">
                 {/* Outer rings */}
@@ -521,47 +523,45 @@ export const AiLeakHomepage: React.FC = () => {
     const activeSdkSetup = `${activeSdk.terminalCommands.join('\n')}\n\n${activeSdk.code}`;
 
     return (
-        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[#fdfbf7] text-slate-900">
+        <div className="landing-home relative isolate w-full overflow-x-hidden bg-[var(--dashboard-canvas,#f8fafd)] text-slate-900">
 
             <div className="relative z-10">
                 {/* Hero Section */}
-                <section className="landing-hero-section relative z-20 overflow-hidden bg-[#fdfbf7] px-5 pb-16 pt-12 text-center sm:px-8 sm:pb-20 sm:pt-28 lg:px-10 lg:pb-24 lg:pt-32 xl:pb-28">
+                <section className="landing-hero-section relative z-20 overflow-hidden bg-[var(--dashboard-canvas,#f8fafd)] px-5 pb-16 pt-12 text-center sm:px-8 sm:pb-20 sm:pt-28 lg:px-10 lg:pb-24 lg:pt-32 xl:pb-28">
 
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-36 bg-gradient-to-t from-white/75 via-white/35 to-transparent" aria-hidden="true" />
 
                     <div className="relative z-10 mx-auto flex max-w-7xl flex-col items-center">
-                        <h1 className="landing-hero-title mx-auto max-w-7xl text-balance font-display text-[clamp(1.875rem,9vw,3rem)] font-black leading-[0.98] tracking-[-0.045em] text-slate-950 sm:text-[clamp(3rem,6vw,4.75rem)]">
+                        <h1 className="landing-hero-title mx-auto max-w-7xl text-balance font-display text-[clamp(1.875rem,9vw,3rem)] font-black leading-[0.98] tracking-[-0.045em] text-[#202124] sm:text-[clamp(3rem,6vw,4.75rem)]">
                             <span className="block font-semibold sm:inline">Lightweight</span>{' '}
                             <span className="whitespace-nowrap font-black">Product Analytics</span>
                         </h1>
-                        <p className="landing-hero-subtitle mx-auto mt-8 max-w-2xl text-balance text-base font-medium leading-relaxed text-slate-600 sm:text-lg">
+                        <p className="landing-hero-subtitle mx-auto mt-8 max-w-2xl text-balance text-base font-medium leading-relaxed text-[#5f6368] sm:text-lg">
                             Tiny SDK. Big Impact.
                         </p>
                         {/* Action buttons matching style */}
                         <div className="landing-hero-actions mt-12 flex w-full max-w-[20.5rem] flex-col items-center justify-center gap-3 sm:w-auto sm:max-w-none sm:flex-row">
                             <Link
                                 to={LOGIN_PATH}
-                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-950 bg-[#86efac] px-7 text-[0.95rem] font-extrabold uppercase text-black shadow-[2px_2px_0_#0f172a] transition-[background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none sm:w-auto sm:px-8"
+                                className="group inline-flex min-h-[48px] w-full min-w-[190px] items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-7 text-[0.95rem] font-semibold text-white shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:bg-[#1765cc] active:bg-[#1967d2] sm:w-auto sm:px-8"
                             >
                                 <span>Get Started $0</span>
                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                             </Link>
                             <Link
                                 to="/demo"
-                                className="group inline-flex min-h-[52px] w-full min-w-[190px] items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-7 text-[0.95rem] font-extrabold uppercase text-black shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-slate-400 hover:bg-[#ecfeff] hover:shadow-md active:translate-y-0 sm:w-auto sm:px-8"
+                                className="group inline-flex min-h-[48px] w-full min-w-[190px] items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-7 text-[0.95rem] font-semibold text-[#3c4043] shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:bg-[#f8fafd] hover:text-[#202124] sm:w-auto sm:px-8"
                             >
-                                <span className="flex h-5 w-5 items-center justify-center rounded-sm bg-slate-900 text-white transition-transform duration-300 group-hover:scale-105">
-                                    <Play className="ml-px h-3 w-3 fill-current" aria-hidden="true" />
-                                </span>
-                                Live Demo
+                                <Play className="h-4 w-4 text-[#1a73e8] fill-[#1a73e8] transition-transform duration-150 group-hover:scale-110" aria-hidden="true" />
+                                <span>Live Demo</span>
                             </Link>
                         </div>
 
                         {/* Compliance & Data Sovereignty Trust Bar */}
                         <ComplianceSection />
 
-                        <div className="landing-platforms mx-auto mt-16 flex w-full max-w-6xl flex-col items-center justify-center gap-3 border-t border-slate-200/70 pt-6">
-                            <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.18em] text-slate-400">
+                        <div className="landing-platforms mx-auto mt-16 flex w-full max-w-6xl flex-col items-center justify-center gap-3 border-t border-[#dadce0] pt-6">
+                            <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#5f6368]">
                                 Supported platforms
                             </p>
                             <div className="landing-platform-marquee relative w-full overflow-hidden py-1">
@@ -580,7 +580,7 @@ export const AiLeakHomepage: React.FC = () => {
                                                         to={platform.href}
                                                         aria-label={`${platform.label} setup documentation`}
                                                         tabIndex={groupIndex === 1 ? -1 : undefined}
-                                                        className="group inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3.5 text-xs font-extrabold text-slate-600 shadow-sm shadow-slate-200/60 ring-1 ring-white/60 backdrop-blur-sm transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:text-indigo-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+                                                        className="group inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-3.5 text-xs font-medium text-[#3c4043] shadow-sm transition-all duration-200 hover:border-[#1a73e8] hover:bg-[#f8fafd] hover:text-[#1a73e8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
                                                     >
                                                         <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" style={{ color: platform.color }} />
                                                         <span className="whitespace-nowrap">{platform.label}</span>
@@ -595,11 +595,11 @@ export const AiLeakHomepage: React.FC = () => {
                 </div>
             </section>
 
-            <div className="landing-after-hero relative z-10 overflow-hidden bg-[#fdfbf7]">
-                <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-slate-200/60 to-transparent" aria-hidden="true" />
+            <div className="landing-after-hero relative z-10 overflow-hidden bg-[var(--dashboard-canvas,#f8fafd)]">
+                <div className="pointer-events-none absolute inset-x-0 top-[33rem] z-[1] h-px bg-gradient-to-r from-transparent via-[#dadce0] to-transparent" aria-hidden="true" />
 
             {/* Interactive Features tab section */}
-            <section className="landing-section relative z-10 overflow-hidden border-t border-slate-200/70 bg-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
+            <section className="landing-section relative z-10 overflow-hidden border-t border-[#dadce0] bg-transparent px-5 py-20 sm:px-8 sm:py-24 lg:px-10">
                 <div className="mx-auto max-w-[1440px]">
                     <div className="grid gap-8 lg:grid-cols-[minmax(320px,0.36fr)_minmax(0,0.64fr)] lg:items-center xl:gap-10">
                         
@@ -616,7 +616,7 @@ export const AiLeakHomepage: React.FC = () => {
                             </div>
                             
                             {/* Vertical Tabs stack */}
-                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+                            <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm divide-y divide-[#e8eaed]">
                                 {[
                                     {
                                         id: 'replay',
@@ -682,13 +682,13 @@ export const AiLeakHomepage: React.FC = () => {
                                             onClick={() => setActiveFeatureTab(tab.id as 'replay' | 'heatmaps' | 'api' | 'stability' | 'geo' | 'leaks')}
                                             className={`flex w-full flex-col items-start gap-2.5 border-l-2 px-4 py-3.5 text-left transition-colors duration-200 ${
                                                 isActive
-                                                    ? 'border-l-indigo-500 bg-slate-50 text-slate-950'
-                                                    : 'border-l-transparent bg-white text-slate-600 hover:bg-slate-50/70 hover:text-slate-950'
+                                                    ? 'border-l-[#1a73e8] bg-[#f8fafd] text-[#202124]'
+                                                    : 'border-l-transparent bg-white text-[#5f6368] hover:bg-[#f8fafd]/70 hover:text-[#202124]'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                                                    isActive ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-slate-50 border-slate-100 text-slate-500'
+                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-none border transition-colors ${
+                                                    isActive ? 'bg-[#e8f0fe] border-[#d2e3fc] text-[#1a73e8]' : 'bg-[#f8fafd] border-[#dadce0] text-[#5f6368]'
                                                 }`}>
                                                     <Icon className="h-4 w-4" />
                                                 </div>
@@ -697,12 +697,12 @@ export const AiLeakHomepage: React.FC = () => {
                                             
                                             {isActive && (
                                                 <div className="space-y-2.5 pl-11 pr-2">
-                                                    <p className="text-sm font-normal leading-6 text-slate-600">
+                                                    <p className="text-sm font-normal leading-6 text-[#5f6368]">
                                                         {tab.description}
                                                     </p>
                                                     <Link
                                                         to={tab.href}
-                                                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 transition"
+                                                        className="inline-flex items-center gap-1 text-xs font-semibold text-[#1a73e8] hover:text-[#1765cc] transition"
                                                     >
                                                         <span>Learn more</span>
                                                         <ArrowRight className="h-3 w-3" />
@@ -716,7 +716,7 @@ export const AiLeakHomepage: React.FC = () => {
                         </div>
                         
                         {/* Right Column: Active Image Display */}
-                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                        <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
                             {[
                                 { id: 'replay', image: SESSION_REPLAY_IMAGE, alt: 'User recording workbench' },
                                 { id: 'heatmaps', image: HEATMAPS_IMAGE, alt: 'Heatmaps attention mapping' },
@@ -734,7 +734,7 @@ export const AiLeakHomepage: React.FC = () => {
                                         alt={item.alt}
                                         loading="lazy"
                                         decoding="async"
-                                        className="w-full rounded-lg object-cover"
+                                        className="w-full rounded-none object-cover"
                                     />
                                 );
                             })}
@@ -748,12 +748,12 @@ export const AiLeakHomepage: React.FC = () => {
             <PerformanceMetrics copy={homeCopy.performance} />
 
             {/* ── Customer success gallery ── */}
-            <section className="landing-section relative z-10 overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10 border-t border-black/15 bg-[#fdfbf7]">
+            <section className="landing-section relative z-10 overflow-hidden px-5 py-24 sm:px-8 sm:py-28 lg:px-10 border-t border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)]">
                 <div className="mx-auto max-w-5xl">
                     <div className="mb-8 flex flex-col items-center justify-between gap-4 sm:flex-row">
                         <div>
-                            <p className="text-center text-xs font-black uppercase tracking-[0.18em] text-slate-500 sm:text-left">Customer success</p>
-                            <h2 className="mt-2 text-center font-sans text-3xl font-black uppercase tracking-tight text-slate-955 sm:text-left">One story at a time.</h2>
+                            <p className="text-center text-xs font-bold uppercase tracking-[0.18em] text-[#5f6368] sm:text-left">Customer success</p>
+                            <h2 className="mt-2 text-center font-sans text-3xl font-bold uppercase tracking-tight text-[#202124] sm:text-left">One story at a time.</h2>
                         </div>
                     </div>
 
@@ -762,27 +762,27 @@ export const AiLeakHomepage: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+                            className="absolute left-0 sm:left-2 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] shadow-sm hover:bg-[#f8fafd] hover:text-[#202124] transition-all active:scale-95 shrink-0"
                             aria-label="Previous story"
                         >
-                            <ChevronLeft className="h-5 w-5 stroke-[2.5px]" />
+                            <ChevronLeft className="h-5 w-5 stroke-[2px]" />
                         </button>
                         <button
                             type="button"
                             onClick={() => setActiveSuccessStory(activeSuccessStory === 'burst' ? 'merch' : 'burst')}
-                            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-md hover:bg-slate-50 hover:text-black transition-all active:scale-95 shrink-0"
+                            className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] shadow-sm hover:bg-[#f8fafd] hover:text-[#202124] transition-all active:scale-95 shrink-0"
                             aria-label="Next story"
                         >
-                            <ChevronRight className="h-5 w-5 stroke-[2.5px]" />
+                            <ChevronRight className="h-5 w-5 stroke-[2px]" />
                         </button>
 
                         {/* Case study card — white background */}
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white px-6 py-10 text-black shadow-[0_8px_24px_rgba(15,23,42,0.06)] sm:px-10 sm:py-12">
+                        <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white px-6 py-10 text-[#202124] shadow-sm sm:px-10 sm:py-12">
                             {activeSuccessStory === 'burst' ? (
                                 <div>
                                     {/* Top: logo circle + headline */}
                                     <div className="flex flex-col items-center text-center gap-5 mb-14">
-                                        <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                        <div className="h-16 w-16 rounded-none overflow-hidden border border-[#dadce0] bg-white shadow-sm shrink-0">
                                             <img
                                                 src="/images/burst-creatine-logo-red.webp"
                                                 alt="Burst Creatine"
@@ -792,10 +792,10 @@ export const AiLeakHomepage: React.FC = () => {
                                             />
                                         </div>
                                         <div className="space-y-3">
-                                            <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-955 sm:text-3xl">
+                                            <h3 className="font-sans text-2xl font-bold uppercase leading-tight tracking-tight text-[#202124] sm:text-3xl">
                                                 Burst Creatine Increased Sales by 103%.
                                             </h3>
-                                            <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                            <p className="max-w-lg mx-auto text-sm font-medium leading-relaxed text-[#3c4043]">
                                                 Rejourney surfaced the UX friction points causing drop-off. Simple fixes.
                                             </p>
                                         </div>
@@ -824,15 +824,15 @@ export const AiLeakHomepage: React.FC = () => {
                                     </div>
 
                                     {/* Result line */}
-                                    <p className="mt-8 text-center text-sm font-bold text-slate-800">
-                                        Same Meta Ads Budget. <span className="text-emerald-700 font-extrabold">+2,189 more checkouts</span> from fixing easy UX leaks.
+                                    <p className="mt-8 text-center text-sm font-medium text-[#3c4043]">
+                                        Same Meta Ads Budget. <span className="text-[#137333] font-bold">+2,189 more checkouts</span> from fixing easy UX leaks.
                                     </p>
                                 </div>
                             ) : (
                                 <div>
                                     {/* Top: logo circle + headline */}
                                     <div className="flex flex-col items-center text-center gap-5 mb-14">
-                                        <div className="h-16 w-16 rounded-full overflow-hidden border border-black bg-white shadow-neo-sm shrink-0">
+                                        <div className="h-16 w-16 rounded-none overflow-hidden border border-[#dadce0] bg-white shadow-sm shrink-0">
                                             <img
                                                 src="/images/customer-onboarding-logo.webp"
                                                 alt="Campus Merch Live"
@@ -842,10 +842,10 @@ export const AiLeakHomepage: React.FC = () => {
                                             />
                                         </div>
                                         <div className="space-y-3">
-                                            <h3 className="font-sans text-2xl font-black uppercase leading-tight tracking-tight text-slate-955 sm:text-3xl">
+                                            <h3 className="font-sans text-2xl font-bold uppercase leading-tight tracking-tight text-[#202124] sm:text-3xl">
                                                 Campus Merch Live Increased Onboarding to 93%.
                                             </h3>
-                                            <p className="max-w-lg mx-auto text-sm font-bold leading-relaxed text-slate-800">
+                                            <p className="max-w-lg mx-auto text-sm font-medium leading-relaxed text-[#3c4043]">
                                                 Rejourney revealed where new users were getting stuck, turning onboarding friction into a clear path.
                                             </p>
                                         </div>
@@ -876,8 +876,8 @@ export const AiLeakHomepage: React.FC = () => {
                                             completionLabel="Verified"
                                         />
                                     </div>
-                                    <p className="mt-8 text-center text-sm font-bold text-slate-800">
-                                        Same Onboarding Traffic. <span className="text-emerald-700 font-extrabold">+630 more verified users</span> from fixing safari layout bug.
+                                    <p className="mt-8 text-center text-sm font-medium text-[#3c4043]">
+                                        Same Onboarding Traffic. <span className="text-[#137333] font-bold">+630 more verified users</span> from fixing safari layout bug.
                                     </p>
                                 </div>
                             )}
@@ -887,41 +887,41 @@ export const AiLeakHomepage: React.FC = () => {
             </section>
 
             {/* Full-width Bottom CTA Bar */}
-            <section className="relative z-10 w-full overflow-hidden border-t border-[#e7e5e1] bg-[#faf9f7] px-5 py-14 text-slate-900 sm:px-8 sm:py-16 lg:px-12 lg:py-20">
+            <section className="relative z-10 w-full overflow-hidden border-t border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-14 text-[#202124] sm:px-8 sm:py-16 lg:px-12 lg:py-20">
                 <div className="mx-auto max-w-[1440px]">
                     <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center xl:gap-16">
                         
                         {/* Left Headline */}
                         <div className="max-w-2xl">
-                            <h2 className="font-display text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl leading-[1.08]">
+                            <h2 className="font-display text-4xl font-extrabold tracking-tight text-[#202124] sm:text-5xl lg:text-6xl leading-[1.08]">
                                 Ready for lighter analytics?
                             </h2>
                         </div>
 
                         {/* Right Content & Actions */}
                         <div className="flex flex-col gap-5 max-w-md">
-                            <p className="text-base font-medium leading-relaxed text-slate-700 sm:text-lg">
+                            <p className="text-base font-normal leading-relaxed text-[#3c4043] sm:text-lg">
                                 The complete analytics & replay suite for Web & Mobile: GDPR compliant, hosted in Germany, open source, and live in minutes.
                             </p>
 
                             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                 <Link
                                     to={LOGIN_PATH}
-                                    className="group inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg border border-[#4f8a63] bg-[#86efac] px-4 text-sm font-extrabold text-slate-950 shadow-sm transition-colors hover:border-[#3f7552] hover:bg-[#74e79b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f8a63]/30 focus-visible:ring-offset-2 sm:px-6"
+                                    className="group inline-flex min-h-[48px] items-center justify-center gap-2 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1765cc] active:bg-[#1967d2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 sm:px-6"
                                 >
                                     <span>Start for $0</span>
                                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                                 </Link>
                                 <Link
                                     to="/demo"
-                                    className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-extrabold text-slate-900 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 sm:px-6"
+                                    className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-5 text-sm font-semibold text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8fafd] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 sm:px-6"
                                 >
                                     <span>Live demo</span>
-                                    <ExternalLink className="h-3.5 w-3.5 text-slate-500" />
+                                    <ExternalLink className="h-3.5 w-3.5 text-[#5f6368]" />
                                 </Link>
                             </div>
 
-                            <p className="text-xs font-semibold text-slate-500" aria-live="polite">
+                            <p className="text-xs font-medium text-[#5f6368]" aria-live="polite">
                                 {catHasBeenPet
                                     ? 'The cat agrees. Start free whenever you are ready.'
                                     : 'No credit card required. Free tier forever.'}

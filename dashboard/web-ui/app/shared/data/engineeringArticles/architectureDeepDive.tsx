@@ -459,7 +459,7 @@ export const architectureDeepDiveArticle: Article = {
         url: "https://www.linkedin.com/in/mohammad-rashid7337/",
         github: "https://github.com/Mohammad-R-Rashid",
     },
-    image: "https://rejourney.co/assets/engineering/architecture-deep-dive.png",
+    image: "/images/engineering/multi-bucket-topology.svg",
     schema: techArticleSchema,
     content: <TechArticleContent />,
 };

@@ -153,8 +153,8 @@ const GEO_MAP_OVERVIEW_FIT_PADDING = 96;
 const LIVE_ANALYTICS_WINDOW_MINUTES = 30;
 const LIVE_ANALYTICS_BUCKET_COUNT = 15;
 const GEO_ICON_BUTTON_CLASS =
-    'dashboard-pill inline-flex h-7 w-7 items-center justify-center text-black transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] disabled:cursor-not-allowed disabled:opacity-40';
-const GEO_CLEAR_SELECTION_BUTTON_CLASS = `${GEO_ICON_BUTTON_CLASS} !border-rose-300 !bg-rose-50 !text-rose-700 hover:!border-rose-500 hover:!bg-[#fecaca] hover:!text-rose-950`;
+    'inline-flex h-7 w-7 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:bg-[#f8fafd] disabled:cursor-not-allowed disabled:opacity-40';
+const GEO_CLEAR_SELECTION_BUTTON_CLASS = GEO_ICON_BUTTON_CLASS;
 const GEO_SIDEBAR_COLLAPSE_BUTTON_CLASS =
     'flex w-full items-center justify-center gap-2 py-2 text-slate-400 transition-all hover:bg-slate-50 hover:text-slate-700';
 
@@ -221,33 +221,33 @@ const EMPTY_LATENCY: ApiLatencyByLocationResponse = {
 
 const LATENCY_STYLE: Record<LatencyTier, MarkerStyle> = {
     excellent: {
-        fill: 'rgba(34, 197, 94, 0.9)',
-        solid: 'rgba(21, 128, 61, 1)',
-        ring: 'rgba(34, 197, 94, 0.46)',
+        fill: 'rgba(24, 128, 56, 0.9)',
+        solid: '#188038',
+        ring: 'rgba(24, 128, 56, 0.46)',
         face: 'happy',
     },
     good: {
-        fill: 'rgba(93, 173, 236, 0.92)',
-        solid: 'rgba(37, 99, 235, 1)',
-        ring: 'rgba(93, 173, 236, 0.5)',
+        fill: 'rgba(26, 115, 232, 0.9)',
+        solid: '#1a73e8',
+        ring: 'rgba(26, 115, 232, 0.5)',
         face: 'neutral',
     },
     degraded: {
-        fill: 'rgba(249, 168, 212, 0.92)',
-        solid: 'rgba(190, 24, 93, 1)',
-        ring: 'rgba(249, 168, 212, 0.52)',
+        fill: 'rgba(227, 116, 0, 0.92)',
+        solid: '#e37400',
+        ring: 'rgba(227, 116, 0, 0.52)',
         face: 'neutral',
     },
     critical: {
-        fill: 'rgba(255, 71, 87, 0.94)',
-        solid: 'rgba(185, 28, 28, 1)',
-        ring: 'rgba(255, 71, 87, 0.54)',
+        fill: 'rgba(217, 48, 37, 0.94)',
+        solid: '#d93025',
+        ring: 'rgba(217, 48, 37, 0.54)',
         face: 'angry',
     },
     unknown: {
-        fill: 'rgba(107, 114, 128, 0.86)',
-        solid: 'rgba(55, 65, 81, 1)',
-        ring: 'rgba(100, 116, 139, 0.46)',
+        fill: 'rgba(128, 134, 139, 0.86)',
+        solid: '#80868b',
+        ring: 'rgba(128, 134, 139, 0.46)',
         face: 'neutral',
     },
 };
@@ -1245,13 +1245,13 @@ function formatGeoMetricValue(location: Pick<GeoCountryAnalytics, 'sessions' | '
 }
 
 function getGeoMetricColor(country: Pick<GeoCountryAnalytics, 'sessions' | 'issueRate' | 'avgLatencyMs'>, metric: GeoMetric): string {
-    if (metric === 'sessions') return '#059669';
+    if (metric === 'sessions') return '#1a73e8';
     if (metric === 'latency') return LATENCY_STYLE[getLatencyTier(country.avgLatencyMs)].solid;
-    if (country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT) return '#64748b';
-    if (country.issueRate >= 0.2) return '#e11d48';
-    if (country.issueRate >= 0.1) return '#f97316';
-    if (country.issueRate >= 0.05) return '#f59e0b';
-    return '#059669';
+    if (country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT) return '#80868b';
+    if (country.issueRate >= 0.2) return '#d93025';
+    if (country.issueRate >= 0.1) return '#e37400';
+    if (country.issueRate >= 0.05) return '#f9ab00';
+    return '#188038';
 }
 
 function getCountryMarkerSize(country: GeoCountryAnalytics, metric: GeoMetric, maxValue: number): number {
@@ -1267,19 +1267,19 @@ function GeoMetricLegend({ metric }: { metric: GeoMetric }) {
     if (metric === 'issueRate') {
         return (
             <span className="flex flex-wrap items-center gap-3">
-                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-emerald-600" />Low</span>
-                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />Elevated</span>
-                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-rose-600" />Critical</span>
-                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-slate-500" />Low sample</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#188038]" />Low</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#e37400]" />Elevated</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#d93025]" />Critical</span>
+                <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#80868b]" />Low sample</span>
             </span>
         );
     }
     return (
         <span className="flex flex-wrap items-center gap-3">
-            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-emerald-600" />&lt;600 ms</span>
-            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-blue-600" />600–899 ms</span>
-            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-pink-600" />900–1199 ms</span>
-            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-red-700" />≥1200 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#188038]" />&lt;600 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#1a73e8]" />600–899 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#e37400]" />900–1199 ms</span>
+            <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-[#d93025]" />≥1200 ms</span>
         </span>
     );
 }
@@ -1573,36 +1573,36 @@ export const RedesignedGeo: React.FC = () => {
     if (shouldShowInitialGhost && selectedProject?.id) return <DashboardGhostLoader variant="map" />;
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-[#f8fafc] font-sans text-slate-950">
-            <DashboardPageHeader title="Geographic Analysis" {...dashboardPageHeaderProps('geo')}>
+        <div className="flex h-full min-h-0 flex-col bg-[#f8fafd] font-sans text-[#202124]">
+            <DashboardPageHeader title="Geographic" {...dashboardPageHeaderProps('geo')}>
                 <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
             </DashboardPageHeader>
 
             {!selectedProject?.id ? (
-                <div className="grid min-h-0 flex-1 place-items-center text-sm text-slate-500">Select a project.</div>
+                <div className="grid min-h-0 flex-1 place-items-center text-sm text-[#5f6368]">Select a project.</div>
             ) : (
                 <main className="relative flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:p-4">
                     {loadError && (
-                        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{loadError}</div>
+                        <div className="shrink-0 rounded-none border border-[#feefc3] bg-[#fef7e0] px-3 py-2 text-xs text-[#b06000]">{loadError}</div>
                     )}
 
-                    <section className="relative grid min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[minmax(0,1fr)_360px]">
-                        <div className="relative flex min-h-[360px] min-w-0 flex-col border-b border-slate-200 lg:min-h-0 lg:border-b-0 lg:border-r">
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4">
-                                <div className="inline-flex rounded-lg bg-slate-100 p-1" role="group" aria-label="Map metric">
+                    <section className="relative grid min-h-0 flex-1 overflow-hidden rounded-none border border-[#dadce0] bg-white lg:grid-cols-[minmax(0,1fr)_360px]">
+                        <div className="relative flex min-h-[360px] min-w-0 flex-col border-b border-[#e8eaed] lg:min-h-0 lg:border-b-0 lg:border-r">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e8eaed] bg-white px-3 py-2.5 sm:px-4">
+                                <div className="inline-flex rounded-none border border-[#dadce0] bg-white p-0.5" role="group" aria-label="Map metric">
                                     {GEO_METRICS.map((option) => (
                                         <button
                                             key={option.id}
                                             type="button"
                                             aria-pressed={metric === option.id}
-                                            className={`rounded-md px-3 py-1.5 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 ${metric === option.id ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:bg-white/70 hover:text-slate-900'}`}
+                                            className={`rounded-none px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 ${metric === option.id ? 'bg-[#e8f0fe] text-[#1967d2]' : 'text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]'}`}
                                             onClick={() => setMetric(option.id)}
                                         >
                                             {option.label}
                                         </button>
                                     ))}
                                 </div>
-                                <div className="text-[11px] font-semibold text-slate-500"><GeoMetricLegend metric={metric} /></div>
+                                <div className="text-[11px] font-medium text-[#5f6368]"><GeoMetricLegend metric={metric} /></div>
                             </div>
 
                             <div
@@ -1612,10 +1612,10 @@ export const RedesignedGeo: React.FC = () => {
                             >
                                 {!isMapboxConfigured() ? (
                                     <div className="absolute inset-0 grid place-items-center p-6 text-center">
-                                        <div className="max-w-xs rounded-xl border border-slate-200 bg-white/95 p-5 shadow-sm">
-                                            <ShieldAlert className="mx-auto h-7 w-7 text-slate-400" />
-                                            <h2 className="mt-2 text-sm font-bold text-slate-900">Map unavailable</h2>
-                                            <p className="mt-1 text-xs leading-relaxed text-slate-500">Country rankings and drill-down analytics remain available.</p>
+                                        <div className="max-w-xs rounded-none border border-[#dadce0] bg-white p-5">
+                                            <ShieldAlert className="mx-auto h-7 w-7 text-[#9aa0a6]" />
+                                            <h2 className="mt-2 text-sm font-medium text-[#202124]">Map unavailable</h2>
+                                            <p className="mt-1 text-xs leading-relaxed text-[#5f6368]">Country rankings and drill-down analytics remain available.</p>
                                         </div>
                                     </div>
                                 ) : (
@@ -1656,7 +1656,7 @@ export const RedesignedGeo: React.FC = () => {
                                                 <Marker key={country.id} latitude={country.lat} longitude={country.lng} anchor="center" style={{ pointerEvents: 'none' }}>
                                                     <button
                                                         type="button"
-                                                        className="grid place-items-center rounded-full border-2 border-white text-[10px] font-black text-white shadow-lg transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                        className="grid place-items-center rounded-full border-2 border-white text-[10px] font-semibold text-white shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
                                                         style={{ width: size, height: size, backgroundColor: getGeoMetricColor(country, metric), pointerEvents: 'auto', transform: active ? 'scale(1.14)' : 'scale(1)' }}
                                                         aria-label={`${country.country}: ${formatGeoMetricValue(country, metric)}, ${country.sessions.toLocaleString()} sessions`}
                                                         onClick={() => focusCountry(country)}
@@ -1677,7 +1677,7 @@ export const RedesignedGeo: React.FC = () => {
                                                 <Marker key={city.id} latitude={city.lat} longitude={city.lng} anchor="center" style={{ pointerEvents: 'none' }}>
                                                     <button
                                                         type="button"
-                                                        className="rounded-full border-2 border-white bg-emerald-600 shadow-md transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                        className="rounded-full border-2 border-white bg-[#1a73e8] shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
                                                         style={{ width: size, height: size, pointerEvents: 'auto', backgroundColor: getGeoMetricColor(city, metric), transform: active ? 'scale(1.2)' : 'scale(1)' }}
                                                         aria-label={`${city.city}: ${city.sessions.toLocaleString()} sessions, ${city.uniqueUsers.toLocaleString()} users, ${city.totalIssues.toLocaleString()} issues, ${city.avgLatencyMs ? `${Math.round(city.avgLatencyMs).toLocaleString()} milliseconds API latency` : 'no API latency data'}`}
                                                         onClick={() => focusCity(city)}
@@ -1700,38 +1700,38 @@ export const RedesignedGeo: React.FC = () => {
                                                 className="geo-analytics-popup"
                                                 style={{ pointerEvents: 'none' }}
                                             >
-                                                <div className="min-w-[210px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
-                                                    <div className="font-bold text-slate-950">{hoveredCityData.city}</div>
-                                                    <div className="mt-0.5 text-[11px] font-semibold text-slate-500">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</div>
-                                                    <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-slate-500">
+                                                <div className="min-w-[210px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
+                                                    <div className="font-medium text-[#202124]">{hoveredCityData.city}</div>
+                                                    <div className="mt-0.5 text-[11px] text-[#5f6368]">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</div>
+                                                    <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-[#5f6368]">
                                                         <dt>{GEO_METRICS.find((item) => item.id === metric)?.label}</dt>
-                                                        <dd className="font-mono font-bold text-slate-950">{formatGeoMetricValue(hoveredCityData, metric)}</dd>
+                                                        <dd className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCityData, metric)}</dd>
                                                         <dt>Sessions</dt>
-                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.sessions.toLocaleString()}</dd>
+                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.sessions.toLocaleString()}</dd>
                                                         <dt>Users</dt>
-                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.uniqueUsers.toLocaleString()}</dd>
+                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.uniqueUsers.toLocaleString()}</dd>
                                                         <dt>Issues</dt>
-                                                        <dd className="font-mono font-bold text-slate-950">{hoveredCityData.totalIssues.toLocaleString()}</dd>
+                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.totalIssues.toLocaleString()}</dd>
                                                         <dt>Country traffic</dt>
-                                                        <dd className="font-mono font-bold text-slate-950">{((hoveredCityData.sessions / Math.max(selectedCountryData.sessions, 1)) * 100).toFixed(1)}%</dd>
+                                                        <dd className="font-medium tabular-nums text-[#202124]">{((hoveredCityData.sessions / Math.max(selectedCountryData.sessions, 1)) * 100).toFixed(1)}%</dd>
                                                     </dl>
-                                                    <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-400">Click to filter the drawer to this city</div>
+                                                    <div className="mt-2 border-t border-[#e8eaed] pt-2 text-[11px] text-[#80868b]">Click to filter the drawer to this city</div>
                                                 </div>
                                             </Popup>
                                         )}
                                         {hoveredCountryData && !selectedCountryData && (
                                             <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32} className="geo-analytics-popup">
-                                                <div className="min-w-[180px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
-                                                    <div className="font-bold text-slate-950">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
-                                                    <div className="mt-1 flex items-center justify-between gap-4 text-slate-500"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-mono text-slate-950">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
-                                                    <div className="mt-1 flex items-center justify-between gap-4 text-slate-500"><span>Traffic share</span><strong className="font-mono text-slate-950">{(hoveredCountryData.trafficShare * 100).toFixed(1)}%</strong></div>
+                                                <div className="min-w-[180px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
+                                                    <div className="font-medium text-[#202124]">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
+                                                    <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
+                                                    <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>Traffic share</span><strong className="font-medium tabular-nums text-[#202124]">{(hoveredCountryData.trafficShare * 100).toFixed(1)}%</strong></div>
                                                 </div>
                                             </Popup>
                                         )}
                                     </MapGL>
                                 )}
                                 {selectedCountryData && (
-                                    <button type="button" onClick={clearSelection} className="absolute left-3 top-3 z-20 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                                    <button type="button" onClick={clearSelection} className="absolute left-3 top-3 z-20 inline-flex items-center gap-2 rounded-none border border-[#dadce0] bg-white px-3 py-2 text-xs font-medium text-[#3c4043] transition-colors hover:bg-[#f8fafd]">
                                         <Globe className="h-3.5 w-3.5" /> All countries
                                     </button>
                                 )}
@@ -1741,45 +1741,45 @@ export const RedesignedGeo: React.FC = () => {
                         <aside className="flex min-h-[360px] flex-col bg-white lg:min-h-0" aria-label={selectedCountryData ? `${selectedCountryData.country} details` : 'Country ranking'}>
                             {selectedCountryData ? (
                                 <>
-                                    <div className="flex items-start gap-3 border-b border-slate-200 px-4 py-4">
+                                    <div className="flex items-start gap-3 border-b border-[#e8eaed] px-4 py-4">
                                         <CountryFlag countryCode={getCountryCodeForName(selectedCountryData.country)} countryLabel={selectedCountryData.country} className="h-8" imageClassName="h-8 w-8" decorative />
                                         <div className="min-w-0 flex-1">
-                                            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Country detail</div>
-                                            <h2 className="truncate text-lg font-black text-slate-950">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</h2>
-                                            {selectedCityData && <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-emerald-700"><MapPin className="h-3 w-3" /> {selectedCityData.city}</div>}
+                                            <div className="text-xs font-medium text-[#5f6368]">Country detail</div>
+                                            <h2 className="truncate text-lg font-medium text-[#202124]">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</h2>
+                                            {selectedCityData && <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-[#1967d2]"><MapPin className="h-3 w-3" /> {selectedCityData.city}</div>}
                                         </div>
-                                        <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-700 bg-rose-600 text-white shadow-sm transition hover:bg-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2" onClick={clearSelection} aria-label="Close country details"><X className="h-4 w-4" /></button>
+                                        <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40" onClick={clearSelection} aria-label="Close country details"><X className="h-4 w-4" /></button>
                                     </div>
                                     <div className="min-h-0 flex-1 overflow-y-auto">
-                                        <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4 lg:grid-cols-2">
+                                        <div className="grid grid-cols-2 gap-px border-b border-[#e8eaed] bg-[#e8eaed] sm:grid-cols-4 lg:grid-cols-2">
                                             {[
                                                 ['Sessions', (selectedCityData?.sessions ?? selectedCountryData.sessions).toLocaleString()],
                                                 ['Users', (selectedCityData?.uniqueUsers ?? selectedCountryData.uniqueUsers).toLocaleString()],
                                                 ['Issues', (selectedCityData?.totalIssues ?? selectedCountryData.totalIssues).toLocaleString()],
                                                 ['API latency', (selectedCityData?.avgLatencyMs ?? selectedCountryData.avgLatencyMs) ? `${Math.round(selectedCityData?.avgLatencyMs ?? selectedCountryData.avgLatencyMs ?? 0).toLocaleString()} ms` : 'No data'],
                                             ].map(([label, value]) => (
-                                                <div key={label} className="bg-white px-4 py-3"><div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</div><div className="mt-1 font-mono text-base font-black text-slate-950">{value}</div></div>
+                                                <div key={label} className="bg-white px-4 py-3"><div className="text-xs font-medium text-[#5f6368]">{label}</div><div className="mt-1 text-base font-medium tabular-nums text-[#202124]">{value}</div></div>
                                             ))}
                                         </div>
-                                        <section className="border-b border-slate-200">
-                                            <div className="flex items-center justify-between px-4 py-3"><h3 className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Top cities</h3>{selectedCityData && <button type="button" onClick={() => setSelectedCity(null)} className="text-xs font-bold text-emerald-700 hover:text-emerald-900">All cities</button>}</div>
+                                        <section className="border-b border-[#e8eaed]">
+                                            <div className="flex items-center justify-between px-4 py-3"><h3 className="text-sm font-medium text-[#202124]">Top cities</h3>{selectedCityData && <button type="button" onClick={() => setSelectedCity(null)} className="text-xs font-medium text-[#1a73e8] hover:text-[#1765cc]">All cities</button>}</div>
                                             <div className="px-2 pb-2">
                                                 {selectedCountryData.cities.slice(0, 8).map((city) => {
                                                     const active = selectedCityData?.id === city.id;
-                                                    return <button key={city.id} type="button" onClick={() => focusCity(city)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left ${active ? 'bg-emerald-50 text-emerald-900' : 'hover:bg-slate-50'}`}><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="min-w-0 flex-1 truncate text-xs font-bold">{city.city}</span><span className="font-mono text-xs font-bold">{city.sessions.toLocaleString()}</span></button>;
+                                                    return <button key={city.id} type="button" onClick={() => focusCity(city)} className={`flex w-full items-center gap-2 rounded-none px-2 py-2 text-left transition-colors ${active ? 'bg-[#e8f0fe] text-[#1967d2]' : 'text-[#3c4043] hover:bg-[#f8fafd]'}`}><MapPin className="h-3.5 w-3.5 shrink-0 text-[#80868b]" /><span className="min-w-0 flex-1 truncate text-xs font-medium">{city.city}</span><span className="text-xs font-medium tabular-nums">{city.sessions.toLocaleString()}</span></button>;
                                                 })}
                                             </div>
                                         </section>
                                         <section>
-                                            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><h3 className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Latest replays</h3><p className="mt-0.5 text-[11px] text-slate-500">{selectedCityData ? selectedCityData.city : selectedCountryData.country}</p></div><Users className="h-4 w-4 text-slate-400" /></div>
-                                            {detailSessionsState === 'loading' && <div className="px-4 py-8 text-center text-xs font-semibold text-slate-500">Loading replay sessions…</div>}
-                                            {detailSessionsState === 'error' && <div className="px-4 py-8 text-center text-xs font-semibold text-rose-700">Could not load replay sessions.</div>}
-                                            {detailSessionsState === 'idle' && detailSessions.length === 0 && <div className="px-4 py-8 text-center text-xs font-semibold text-slate-500">No replay-ready sessions for this location.</div>}
+                                            <div className="flex items-center justify-between border-b border-[#e8eaed] px-4 py-3"><div><h3 className="text-sm font-medium text-[#202124]">Latest replays</h3><p className="mt-0.5 text-[11px] text-[#5f6368]">{selectedCityData ? selectedCityData.city : selectedCountryData.country}</p></div><Users className="h-4 w-4 text-[#80868b]" /></div>
+                                            {detailSessionsState === 'loading' && <div className="px-4 py-8 text-center text-xs text-[#5f6368]">Loading replay sessions…</div>}
+                                            {detailSessionsState === 'error' && <div className="px-4 py-8 text-center text-xs text-[#c5221f]">Could not load replay sessions.</div>}
+                                            {detailSessionsState === 'idle' && detailSessions.length === 0 && <div className="px-4 py-8 text-center text-xs text-[#5f6368]">No replay-ready sessions for this location.</div>}
                                             {detailSessions.map((session) => (
-                                                <Link key={session.id} to={`${pathPrefix}/sessions/${session.id}`} state={{ returnTo: geoReturnTo, returnState: { geoNavigation: navigationState } }} className="group flex items-center gap-3 border-b border-slate-100 px-4 py-3 hover:bg-slate-50">
-                                                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"><Play className="h-3.5 w-3.5" /></span>
-                                                    <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs font-black text-slate-900">{formatRoute(session)}</span><span className="mt-0.5 block truncate text-[11px] font-semibold text-slate-500">{formatSessionStarted(session.startedAt)} · {formatSessionDuration(session.durationSeconds)} · {getSessionStatusLabel(session)}</span></span>
-                                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-slate-600" />
+                                                <Link key={session.id} to={`${pathPrefix}/sessions/${session.id}`} state={{ returnTo: geoReturnTo, returnState: { geoNavigation: navigationState } }} className="group flex items-center gap-3 border-b border-[#e8eaed] px-4 py-3 transition-colors hover:bg-[#f8fafd]">
+                                                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-none bg-[#f1f3f4] text-[#5f6368]"><Play className="h-3.5 w-3.5" /></span>
+                                                    <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs font-medium text-[#202124]">{formatRoute(session)}</span><span className="mt-0.5 block truncate text-[11px] tabular-nums text-[#5f6368]">{formatSessionStarted(session.startedAt)} · {formatSessionDuration(session.durationSeconds)} · {getSessionStatusLabel(session)}</span></span>
+                                                    <ChevronRight className="h-4 w-4 shrink-0 text-[#bdc1c6] group-hover:text-[#5f6368]" />
                                                 </Link>
                                             ))}
                                         </section>
@@ -1787,38 +1787,38 @@ export const RedesignedGeo: React.FC = () => {
                                 </>
                             ) : (
                                 <>
-                                    <div className="border-b border-slate-200 px-4 py-3">
-                                        <div className="text-sm font-black text-slate-950">Countries</div>
-                                        <div className="mt-0.5 text-xs text-slate-500">Ranked by {GEO_METRICS.find((item) => item.id === metric)?.label.toLowerCase()}</div>
+                                    <div className="border-b border-[#e8eaed] px-4 py-3">
+                                        <div className="text-[15px] font-medium text-[#202124]">Countries</div>
+                                        <div className="mt-0.5 text-xs text-[#5f6368]">Ranked by {GEO_METRICS.find((item) => item.id === metric)?.label.toLowerCase()}</div>
                                     </div>
                                     <div className="min-h-0 flex-1 overflow-y-auto">
-                                        {rankedCountries.length === 0 && !isLoading && <div className="px-4 py-10 text-center text-sm text-slate-500">No geographic activity for this filter.</div>}
+                                        {rankedCountries.length === 0 && !isLoading && <div className="px-4 py-10 text-center text-sm text-[#5f6368]">No geographic activity for this filter.</div>}
                                         {rankedCountries.map((country, index) => (
                                             <button
                                                 key={country.id}
                                                 type="button"
-                                                className="group w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50"
+                                                className="group w-full border-b border-[#e8eaed] px-4 py-3 text-left transition-colors hover:bg-[#f8fafd]"
                                                 onClick={() => focusCountry(country)}
                                                 onMouseEnter={() => setHoveredCountry(country.id)}
                                                 onMouseLeave={() => setHoveredCountry(null)}
                                             >
                                                 <span className="flex items-center gap-3">
-                                                    <span className="w-5 shrink-0 text-right font-mono text-[11px] font-bold text-slate-400">{index + 1}</span>
+                                                    <span className="w-5 shrink-0 text-right text-[11px] font-medium tabular-nums text-[#80868b]">{index + 1}</span>
                                                     <CountryFlag countryCode={getCountryCodeForName(country.country)} countryLabel={country.country} className="h-5" imageClassName="h-5 w-5" decorative />
                                                     <span className="min-w-0 flex-1">
                                                         <span className="flex items-center justify-between gap-3">
-                                                            <span className="truncate text-sm font-bold text-slate-900">{formatCountryDisplayName(country.country) || country.country}</span>
-                                                            <span className="shrink-0 font-mono text-sm font-black text-slate-950">{formatGeoMetricValue(country, metric)}</span>
+                                                            <span className="truncate text-sm font-medium text-[#202124]">{formatCountryDisplayName(country.country) || country.country}</span>
+                                                            <span className="shrink-0 text-sm font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(country, metric)}</span>
                                                         </span>
                                                         <span className="mt-1.5 flex items-center gap-2">
-                                                            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                                                                <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (getGeoMetricValue(country, metric) / maxMetricValue) * 100)}%`, backgroundColor: getGeoMetricColor(country, metric) }} />
+                                                            <span className="h-1.5 flex-1 overflow-hidden rounded-none bg-[#f1f3f4]">
+                                                                <span className="block h-full rounded-none" style={{ width: `${Math.max(2, (getGeoMetricValue(country, metric) / maxMetricValue) * 100)}%`, backgroundColor: getGeoMetricColor(country, metric) }} />
                                                             </span>
-                                                            <span className="w-12 text-right font-mono text-[10px] font-semibold text-slate-500">{(country.trafficShare * 100).toFixed(1)}%</span>
+                                                            <span className="w-12 text-right text-[11px] tabular-nums text-[#5f6368]">{(country.trafficShare * 100).toFixed(1)}%</span>
                                                         </span>
-                                                        {metric === 'issueRate' && country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT && <span className="mt-1 block text-[10px] font-semibold text-slate-500">Low sample · {country.sessions.toLocaleString()} sessions</span>}
+                                                        {metric === 'issueRate' && country.sessions < GEO_LOW_SAMPLE_SESSION_COUNT && <span className="mt-1 block text-[11px] text-[#5f6368]">Low sample · {country.sessions.toLocaleString()} sessions</span>}
                                                     </span>
-                                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" />
+                                                    <ChevronRight className="h-4 w-4 shrink-0 text-[#bdc1c6] transition-colors group-hover:text-[#5f6368]" />
                                                 </span>
                                             </button>
                                         ))}
@@ -2747,7 +2747,7 @@ export const Geo: React.FC = () => {
     return (
         <div className="flex h-full min-h-0 flex-col bg-transparent font-sans text-slate-900">
             <div className="shrink-0">
-                <DashboardPageHeader title="Geographic Analysis" {...dashboardPageHeaderProps('geo')}>
+                <DashboardPageHeader title="Geographic" {...dashboardPageHeaderProps('geo')}>
                     <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
                 </DashboardPageHeader>
             </div>

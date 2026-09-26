@@ -32,6 +32,7 @@ import {
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
+import { dashboardChipTones } from '~/shared/ui/core/dashboardStyles';
 import { type TimeRange } from '~/shared/ui/core/TimeFilter';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
@@ -201,13 +202,13 @@ const buildReleaseLineLabel = (version: string, index: number) => ({ viewBox }: 
                 y={textY - 8.5}
                 width={textWidth + 6}
                 height={11}
-                rx={2}
+                rx={0}
                 fill="#ffffff"
                 fillOpacity={0.9}
-                stroke="#0f172a"
+                stroke="#5f6368"
                 strokeWidth={0.85}
             />
-            <text x={textX} y={textY} fill="#0f172a" fontSize={9.5} fontWeight={700}>
+            <text x={textX} y={textY} fill="#3c4043" fontSize={9.5} fontWeight={500}>
                 {text}
             </text>
         </g>
@@ -255,13 +256,13 @@ const formatStatusCodeLabel = (value: string | null | undefined): string => {
 };
 
 const getStatusCodeBadgeClass = (value: string | null | undefined): string => {
-    if (!value) return 'border-slate-200 bg-slate-50 text-slate-500';
-    if (value === UNKNOWN_STATUS_CODE_KEY) return 'border-slate-300 bg-slate-100 text-slate-700';
+    if (!value) return 'bg-[#f1f3f4] text-[#80868b]';
+    if (value === UNKNOWN_STATUS_CODE_KEY) return dashboardChipTones.neutral;
 
     const statusCode = parseStatusCode(value);
-    if (statusCode !== null && statusCode >= 500) return 'border-rose-200 bg-rose-50 text-rose-700';
-    if (statusCode !== null && statusCode >= 400) return 'border-rose-200 bg-rose-50 text-rose-700';
-    return 'border-slate-200 bg-slate-50 text-slate-600';
+    if (statusCode !== null && statusCode >= 500) return dashboardChipTones.danger;
+    if (statusCode !== null && statusCode >= 400) return dashboardChipTones.danger;
+    return dashboardChipTones.neutral;
 };
 
 const getSelectedErrorCount = (
@@ -292,48 +293,48 @@ const parseExcludedEndpointTerms = (value: string): string[] => value
 const serializeExcludedEndpointTerms = (terms: string[]): string => terms.join(', ');
 
 const getFailRateToneClass = (failRate: number): string => {
-    if (failRate >= 5) return 'text-rose-700';
-    if (failRate >= 2) return 'text-rose-700';
-    return 'text-emerald-700';
+    if (failRate >= 5) return 'text-[#c5221f]';
+    if (failRate >= 2) return 'text-[#c5221f]';
+    return 'text-[#137333]';
 };
 
 const getLatencyToneClass = (latencyMs: number): string => {
-    if (latencyMs >= 1000) return 'text-rose-800';
-    if (latencyMs >= 500) return 'text-rose-700';
-    return 'text-slate-700';
+    if (latencyMs >= 1000) return 'text-[#c5221f]';
+    if (latencyMs >= 500) return 'text-[#b06000]';
+    return 'text-[#3c4043]';
 };
 
 const getRiskBadgeClass = (riskScore: number): string => {
-    if (riskScore >= 80) return 'border-rose-300 bg-rose-50 text-rose-700';
-    if (riskScore >= 50) return 'border-rose-300 bg-rose-50 text-rose-700';
-    return 'border-emerald-300 bg-emerald-50 text-emerald-700';
+    if (riskScore >= 80) return dashboardChipTones.danger;
+    if (riskScore >= 50) return dashboardChipTones.danger;
+    return dashboardChipTones.success;
 };
 
 const getFailurePresetButtonClass = (selected: boolean): string =>
     selected
-        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-        : 'border-transparent bg-transparent text-slate-500 hover:bg-[#f8fafc] hover:text-slate-800';
+        ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'
+        : 'border-transparent bg-transparent text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]';
 
 const getFailureCodeFilterClass = (code: string, selected: boolean): string => {
-    if (selected) return 'border-emerald-300 bg-emerald-50 text-emerald-800';
+    if (selected) return 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]';
 
     const statusCode = parseStatusCode(code);
     if (statusCode !== null && statusCode >= 500) {
-        return 'border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-800';
+        return 'border-[#dadce0] bg-white text-[#3c4043] hover:border-[#f6aea9] hover:bg-[#fce8e6] hover:text-[#a50e0e]';
     }
     if (statusCode !== null && statusCode >= 400) {
-        return 'border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-800';
+        return 'border-[#dadce0] bg-white text-[#3c4043] hover:border-[#feefc3] hover:bg-[#fef7e0] hover:text-[#b06000]';
     }
-    return 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-[#f8fafc]';
+    return 'border-[#dadce0] bg-white text-[#3c4043] hover:border-[#bdc1c6] hover:bg-[#f8fafd]';
 };
 
 const getFailureCodeCountClass = (code: string, selected: boolean): string => {
-    if (selected) return 'text-emerald-700';
+    if (selected) return 'text-[#1967d2]';
 
     const statusCode = parseStatusCode(code);
-    if (statusCode !== null && statusCode >= 500) return 'text-rose-500';
-    if (statusCode !== null && statusCode >= 400) return 'text-amber-600';
-    return 'text-slate-400';
+    if (statusCode !== null && statusCode >= 500) return 'text-[#d93025]';
+    if (statusCode !== null && statusCode >= 400) return 'text-[#b06000]';
+    return 'text-[#80868b]';
 };
 
 const parseScaledNumber = (rawValue: string): number | null => {
@@ -971,7 +972,7 @@ export const ApiAnalytics: React.FC = () => {
         return [
             {
                 id: 'total-api-calls',
-                label: 'API Calls',
+                label: 'API calls',
                 value: formatCompact(endpointStats?.summary.totalCalls || 0),
                 sortValue: endpointStats?.summary.totalCalls || 0,
                 info: 'Total API requests captured for the active project and filter.',
@@ -987,7 +988,7 @@ export const ApiAnalytics: React.FC = () => {
             },
             {
                 id: 'avg-response',
-                label: 'Avg Response',
+                label: 'Avg response',
                 value: formatMs(endpointStats?.summary.avgLatency),
                 sortValue: endpointStats?.summary.avgLatency ?? null,
                 info: 'Average response time across captured endpoint traffic.',
@@ -1003,7 +1004,7 @@ export const ApiAnalytics: React.FC = () => {
             },
             {
                 id: 'fail-rate',
-                label: 'Fail Rate',
+                label: 'Fail rate',
                 value: pct(endpointStats?.summary.errorRate, 2),
                 sortValue: endpointStats?.summary.errorRate ?? null,
                 info: 'Share of captured API calls that returned an error status.',
@@ -1035,9 +1036,9 @@ export const ApiAnalytics: React.FC = () => {
     }
 
     return (
-        <div className="rejourney-api-page min-h-screen bg-[#f8fafd] font-sans text-slate-900 pb-12">
+        <div className="rejourney-api-page min-h-screen bg-[#f8fafd] font-sans text-[#202124] pb-12">
             <DashboardPageHeader
-                title="API Endpoint Database"
+                title="API insights"
                 {...dashboardPageHeaderProps('api')}
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
@@ -1047,13 +1048,13 @@ export const ApiAnalytics: React.FC = () => {
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
                 {!selectedProject?.id && (
-                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+                    <div className="rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-4 py-3 text-sm text-[#1967d2]">
                         Select a project to load API insights.
                     </div>
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="dashboard-surface p-6 text-sm text-slate-600">
+                    <div className="dashboard-surface p-6 text-sm text-[#5f6368]">
                         No API telemetry available for this window.
                     </div>
                 )}
@@ -1068,15 +1069,15 @@ export const ApiAnalytics: React.FC = () => {
                         />
 
                         <section className="dashboard-surface overflow-hidden p-0">
-                            <div className="border-b border-slate-200 px-5 py-4">
+                            <div className="border-b border-[#e8eaed] px-5 py-4">
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-3">
-                                        <div className="inline-flex h-10 w-10 items-center justify-center dashboard-inner-surface text-slate-700">
+                                        <div className="inline-flex h-10 w-10 items-center justify-center dashboard-inner-surface text-[#5f6368]">
                                             <Database className="h-5 w-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-semibold text-slate-950">Endpoint Database</h2>
-                                            <p className="mt-1 text-sm text-slate-500">
+                                            <h2 className="text-[15px] font-medium text-[#202124]">Endpoint database</h2>
+                                            <p className="mt-1 text-sm tabular-nums text-[#5f6368]">
                                                 {filteredEndpoints.length.toLocaleString()} rows from {endpointRisks.length.toLocaleString()} indexed endpoints
                                             </p>
                                         </div>
@@ -1084,27 +1085,27 @@ export const ApiAnalytics: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border-b border-slate-200 bg-white px-5 py-4">
+                            <div className="border-b border-[#e8eaed] bg-white px-5 py-4">
                                 <div className="grid gap-3 xl:grid-cols-[minmax(300px,1.2fr)_repeat(5,minmax(140px,0.55fr))_auto] xl:items-end">
                                     <label className="block min-w-0">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Query</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Query</span>
                                         <div className="relative">
-                                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#80868b]" />
                                             <input
                                                 value={searchQuery}
                                                 onChange={(event) => setSearchQuery(event.target.value)}
                                                 placeholder="method:POST path:/checkout status:5xx latency:>500"
-                                                className="w-full border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none"
+                                                className="w-full rounded-none border border-[#dadce0] bg-white py-2 pl-9 pr-3 text-sm text-[#202124] outline-none placeholder:text-[#80868b] focus:border-[#1a73e8]"
                                             />
                                         </div>
                                     </label>
 
                                     <label className="block">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Method</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Method</span>
                                         <select
                                             value={methodFilter}
                                             onChange={(event) => setMethodFilter(event.target.value)}
-                                            className="w-full border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-2 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                         >
                                             <option value="all">All</option>
                                             {methodOptions.map((method) => (
@@ -1114,11 +1115,11 @@ export const ApiAnalytics: React.FC = () => {
                                     </label>
 
                                     <label className="block">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Status</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Status</span>
                                         <select
                                             value={statusFamilyFilter}
                                             onChange={(event) => setStatusFamilyFilter(event.target.value as EndpointStatusFamilyFilter)}
-                                            className="w-full border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-2 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                         >
                                             <option value="all">All</option>
                                             <option value="errors">Errors</option>
@@ -1128,11 +1129,11 @@ export const ApiAnalytics: React.FC = () => {
                                     </label>
 
                                     <label className="block">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Latency</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Latency</span>
                                         <select
                                             value={latencyFilter}
                                             onChange={(event) => setLatencyFilter(event.target.value as EndpointLatencyFilter)}
-                                            className="w-full border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-2 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                         >
                                             <option value="all">All</option>
                                             <option value="fast">≤ 250 ms</option>
@@ -1143,11 +1144,11 @@ export const ApiAnalytics: React.FC = () => {
                                     </label>
 
                                     <label className="block">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Volume</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Volume</span>
                                         <select
                                             value={volumeFilter}
                                             onChange={(event) => setVolumeFilter(event.target.value as EndpointVolumeFilter)}
-                                            className="w-full border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-2 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                         >
                                             <option value="all">All</option>
                                             <option value="active">≥ 100</option>
@@ -1157,11 +1158,11 @@ export const ApiAnalytics: React.FC = () => {
                                     </label>
 
                                     <label className="block">
-                                        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-500">Risk</span>
+                                        <span className="mb-1 block text-xs font-medium text-[#5f6368]">Risk</span>
                                         <select
                                             value={riskFilter}
                                             onChange={(event) => setRiskFilter(event.target.value as EndpointRiskFilter)}
-                                            className="w-full border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-2 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                         >
                                             <option value="all">All</option>
                                             <option value="watch">≥ 50</option>
@@ -1172,7 +1173,7 @@ export const ApiAnalytics: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={clearEndpointHotspotFilters}
-                                        className="inline-flex h-[38px] items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                        className="inline-flex h-[38px] items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-3 text-sm font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd]"
                                     >
                                         <X className="h-4 w-4" />
                                         Reset
@@ -1182,15 +1183,15 @@ export const ApiAnalytics: React.FC = () => {
                                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.46fr)]">
                                     <div className="dashboard-inner-surface p-3">
                                         <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                                            <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase text-slate-500">
+                                            <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-[#5f6368]">
                                                 <Filter className="h-3.5 w-3.5" />
                                                 Failure codes
                                             </div>
-                                            <span className="min-w-0 truncate text-xs font-medium text-slate-500">{failureCodeSummary}</span>
+                                            <span className="min-w-0 truncate text-xs text-[#5f6368]">{failureCodeSummary}</span>
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                            <div className="mr-1 flex items-center gap-1 border-r border-slate-200 pr-2">
+                                            <div className="mr-1 flex items-center gap-1 border-r border-[#e8eaed] pr-2">
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -1228,7 +1229,7 @@ export const ApiAnalytics: React.FC = () => {
                                             </div>
 
                                             {availableFailureCodes.length === 0 ? (
-                                                <span className="px-2 py-1 text-xs font-medium text-slate-400">No captured failure codes</span>
+                                                <span className="px-2 py-1 text-xs text-[#80868b]">No captured failure codes</span>
                                             ) : (
                                                 availableFailureCodes.map(({ code, total }) => {
                                                     const selected = selectedFailureCodeSet.has(code);
@@ -1249,8 +1250,8 @@ export const ApiAnalytics: React.FC = () => {
                                                             }}
                                                             className={`inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition ${getFailureCodeFilterClass(code, selected)}`}
                                                         >
-                                                            <span className="font-mono font-semibold">{formatStatusCodeLabel(code)}</span>
-                                                            <span className={`font-mono text-[10px] ${getFailureCodeCountClass(code, selected)}`}>
+                                                            <span className="font-mono font-medium">{formatStatusCodeLabel(code)}</span>
+                                                            <span className={`text-[10px] tabular-nums ${getFailureCodeCountClass(code, selected)}`}>
                                                                 {formatCompact(total)}
                                                             </span>
                                                         </button>
@@ -1261,10 +1262,10 @@ export const ApiAnalytics: React.FC = () => {
                                     </div>
 
                                     <div className="dashboard-inner-surface p-3">
-                                        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-slate-500">
+                                        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#5f6368]">
                                             <SlidersHorizontal className="h-3.5 w-3.5" />
                                             Exclusions
-                                            {activeFacetCount > 0 && <span className="ml-auto text-slate-400">{activeFacetCount} active</span>}
+                                            {activeFacetCount > 0 && <span className="ml-auto tabular-nums text-[#80868b]">{activeFacetCount} active</span>}
                                         </div>
                                         <input
                                             value={excludedEndpointQuery}
@@ -1278,7 +1279,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 setExcludedEndpointQuery((current) => serializeExcludedEndpointTerms(parseExcludedEndpointTerms(current)));
                                             }}
                                             placeholder="/health, /metrics"
-                                            className="w-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none"
+                                            className="w-full rounded-none border border-[#dadce0] bg-white px-3 py-2 text-sm text-[#202124] outline-none placeholder:text-[#80868b] focus:border-[#1a73e8]"
                                         />
                                         {excludedEndpointTerms.length > 0 && (
                                             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1287,7 +1288,7 @@ export const ApiAnalytics: React.FC = () => {
                                                         key={term}
                                                         type="button"
                                                         onClick={() => removeExcludedEndpointTerm(term)}
-                                                        className="inline-flex items-center gap-1.5 border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-800 hover:bg-blue-100"
+                                                        className="inline-flex items-center gap-1.5 rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-2 py-1 font-mono text-[11px] text-[#1967d2] transition-colors hover:bg-[#d2e3fc]"
                                                     >
                                                         {term}
                                                         <X className="h-3 w-3" />
@@ -1301,10 +1302,10 @@ export const ApiAnalytics: React.FC = () => {
 
                             <div className="overflow-x-auto">
                                 <table className="w-full min-w-[1220px] text-left text-sm">
-                                    <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                                    <thead className="sticky top-0 z-10 border-b border-[#e8eaed] bg-[#f8fafd] text-xs font-medium text-[#5f6368]">
                                         <tr>
                                             <th
-                                                className="cursor-pointer px-4 py-3 hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'endpoint') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('endpoint'); setSortOrder('asc'); }
@@ -1316,7 +1317,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer px-4 py-3 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 text-right hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'totalCalls') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('totalCalls'); setSortOrder('desc'); }
@@ -1328,7 +1329,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer px-4 py-3 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 text-right hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'filteredErrorCount') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('filteredErrorCount'); setSortOrder('desc'); }
@@ -1340,7 +1341,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer px-4 py-3 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 text-right hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'filteredErrorRate') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('filteredErrorRate'); setSortOrder('desc'); }
@@ -1352,7 +1353,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer px-4 py-3 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 text-right hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'avgLatencyMs') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('avgLatencyMs'); setSortOrder('desc'); }
@@ -1365,7 +1366,7 @@ export const ApiAnalytics: React.FC = () => {
                                             </th>
                                             <th className="px-4 py-3 text-right">Status codes</th>
                                             <th
-                                                className="cursor-pointer px-4 py-3 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 text-right hover:text-[#202124]"
                                                 onClick={() => {
                                                     if (sortKey === 'riskScore') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('riskScore'); setSortOrder('desc'); }
@@ -1378,10 +1379,10 @@ export const ApiAnalytics: React.FC = () => {
                                             </th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-200">
+                                    <tbody className="divide-y divide-[#e8eaed]">
                                         {paginatedEndpoints.length === 0 ? (
                                             <tr>
-                                                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
+                                                <td colSpan={7} className="px-4 py-12 text-center text-sm text-[#5f6368]">
                                                     No endpoints match the current query.
                                                 </td>
                                             </tr>
@@ -1391,45 +1392,45 @@ export const ApiAnalytics: React.FC = () => {
                                                 const topCodes = getTopStatusCodes(endpoint.statusCodeBreakdown);
 
                                                 return (
-                                                    <tr key={endpoint.endpoint} className="transition-colors">
+                                                    <tr key={endpoint.endpoint} className="transition-colors hover:bg-[#f8fafd]">
                                                         <td className="max-w-[540px] px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-2">
                                                                 {method && (
-                                                                    <span className="inline-flex min-w-[48px] justify-center border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-700">
+                                                                    <span className="inline-flex min-w-[48px] justify-center rounded-none bg-[#f1f3f4] px-2 py-0.5 font-mono text-[11px] font-medium text-[#3c4043]">
                                                                         {method}
                                                                     </span>
                                                                 )}
-                                                                <span className="truncate font-mono text-[12px] font-semibold text-slate-950">{path}</span>
+                                                                <span className="truncate font-mono text-[12px] font-medium text-[#202124]">{path}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
-                                                            <div className="text-sm font-semibold tabular-nums text-slate-900">{formatCompact(endpoint.totalCalls)}</div>
+                                                            <div className="text-sm tabular-nums text-[#202124]">{formatCompact(endpoint.totalCalls)}</div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
+                                                        <td className="px-4 py-3 text-right tabular-nums text-[#3c4043]">
                                                             {formatCompact(endpoint.filteredErrorCount)}
                                                         </td>
-                                                        <td className={`px-4 py-3 text-right font-semibold tabular-nums ${getFailRateToneClass(endpoint.filteredErrorRate)}`}>
+                                                        <td className={`px-4 py-3 text-right font-medium tabular-nums ${getFailRateToneClass(endpoint.filteredErrorRate)}`}>
                                                             {endpoint.filteredErrorRate.toFixed(2)}%
                                                         </td>
-                                                        <td className={`px-4 py-3 text-right font-semibold tabular-nums ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>
+                                                        <td className={`px-4 py-3 text-right font-medium tabular-nums ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>
                                                             {endpoint.avgLatencyMs} ms
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
                                                             {topCodes.length > 0 ? (
                                                                 <div className="flex justify-end gap-1.5">
                                                                     {topCodes.map(({ code, total }) => (
-                                                                        <span key={code} className={`inline-flex items-center gap-1 border px-2 py-0.5 font-mono text-[11px] font-semibold ${getStatusCodeBadgeClass(code)}`}>
+                                                                        <span key={code} className={`inline-flex items-center gap-1 rounded-none px-2 py-0.5 font-mono text-[11px] font-medium ${getStatusCodeBadgeClass(code)}`}>
                                                                             {formatStatusCodeLabel(code)}
-                                                                            <span className="text-[10px] opacity-70">{formatCompact(total)}</span>
+                                                                            <span className="font-sans text-[10px] tabular-nums opacity-70">{formatCompact(total)}</span>
                                                                         </span>
                                                                     ))}
                                                                 </div>
                                                             ) : (
-                                                                <span className="text-xs font-medium text-slate-300">-</span>
+                                                                <span className="text-xs text-[#bdc1c6]">-</span>
                                                             )}
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
-                                                            <span className={`inline-flex min-w-[48px] justify-center border px-2 py-0.5 text-xs font-semibold tabular-nums ${getRiskBadgeClass(endpoint.riskScore)}`}>
+                                                            <span className={`inline-flex min-w-[48px] justify-center rounded-none px-2 py-0.5 text-xs font-medium tabular-nums ${getRiskBadgeClass(endpoint.riskScore)}`}>
                                                                 {endpoint.riskScore.toFixed(1)}
                                                             </span>
                                                         </td>
@@ -1442,18 +1443,18 @@ export const ApiAnalytics: React.FC = () => {
                             </div>
 
                             {filteredEndpoints.length > 0 && (
-                                <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                    <p className="text-sm text-slate-600">
+                                <div className="flex flex-col gap-3 border-t border-[#e8eaed] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-sm text-[#5f6368]">
                                         Showing{' '}
-                                        <span className="font-semibold text-slate-900">
+                                        <span className="font-medium tabular-nums text-[#202124]">
                                             {(endpointTablePageClamped - 1) * endpointPageSize + 1}
                                             –
                                             {Math.min(endpointTablePageClamped * endpointPageSize, filteredEndpoints.length)}
                                         </span>{' '}
-                                        of <span className="font-semibold text-slate-900">{filteredEndpoints.length.toLocaleString()}</span>
+                                        of <span className="font-medium tabular-nums text-[#202124]">{filteredEndpoints.length.toLocaleString()}</span>
                                     </p>
                                     <div className="flex flex-wrap items-center gap-3">
-                                        <label className="flex items-center gap-2 text-sm text-slate-600">
+                                        <label className="flex items-center gap-2 text-sm text-[#5f6368]">
                                             <span className="whitespace-nowrap">Rows</span>
                                             <select
                                                 value={endpointPageSize}
@@ -1462,7 +1463,7 @@ export const ApiAnalytics: React.FC = () => {
                                                     setEndpointPageSize(next);
                                                     setEndpointTablePage(1);
                                                 }}
-                                                className="border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none"
+                                                className="rounded-none border border-[#dadce0] bg-white px-2 py-1.5 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                                             >
                                                 {ENDPOINT_TABLE_PAGE_SIZES.map((n) => (
                                                     <option key={n} value={n}>{n}</option>
@@ -1475,11 +1476,11 @@ export const ApiAnalytics: React.FC = () => {
                                                 aria-label="Previous page"
                                                 disabled={endpointTablePageClamped <= 1}
                                                 onClick={() => setEndpointTablePage((p) => Math.max(1, p - 1))}
-                                                className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:bg-[#f8fafd] disabled:pointer-events-none disabled:opacity-40"
                                             >
                                                 <ChevronLeft className="h-4 w-4" />
                                             </button>
-                                            <span className="min-w-[7rem] px-2 text-center text-sm tabular-nums text-slate-700">
+                                            <span className="min-w-[7rem] px-2 text-center text-sm tabular-nums text-[#3c4043]">
                                                 Page {endpointTablePageClamped} / {endpointTableTotalPages}
                                             </span>
                                             <button
@@ -1487,7 +1488,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 aria-label="Next page"
                                                 disabled={endpointTablePageClamped >= endpointTableTotalPages}
                                                 onClick={() => setEndpointTablePage((p) => Math.min(endpointTableTotalPages, p + 1))}
-                                                className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#3c4043] transition-colors hover:bg-[#f8fafd] disabled:pointer-events-none disabled:opacity-40"
                                             >
                                                 <ChevronRight className="h-4 w-4" />
                                             </button>
@@ -1499,38 +1500,38 @@ export const ApiAnalytics: React.FC = () => {
 
                         <section className="dashboard-surface p-5">
                             <div className="mb-4 flex items-center justify-between">
-                                <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Traffic vs Errors vs Latency</h2>
-                                <Activity className="h-5 w-5 text-blue-600" />
+                                <h2 className="text-[15px] font-medium text-[#202124]">Traffic, errors and latency</h2>
+                                <Activity className="h-5 w-5 text-[#5f6368]" />
                             </div>
                             {trendChartData.length > 0 ? (
                                 <div className="h-[300px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={trendChartData} margin={{ top: 26, right: 8, left: 0, bottom: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                            <XAxis dataKey="dateKey" tick={{ fontSize: 11 }} tickFormatter={formatDateLabel} minTickGap={24} />
-                                            <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e8eaed" />
+                                            <XAxis dataKey="dateKey" tick={{ fontSize: 11, fill: '#5f6368' }} tickFormatter={formatDateLabel} minTickGap={24} />
+                                            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#5f6368' }} />
+                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#5f6368' }} />
                                             <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
                                             <Legend />
                                             {trendReleaseMarkers.map((marker, index) => (
                                                 <ReferenceLine
                                                     key={`api-trend-release-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
-                                                    stroke="#0f172a"
+                                                    stroke="#5f6368"
                                                     strokeDasharray="4 3"
-                                                    strokeWidth={1.9}
+                                                    strokeWidth={1.5}
                                                     ifOverflow="extendDomain"
                                                     label={buildReleaseLineLabel(marker.version, index)}
                                                 />
                                             ))}
-                                            <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.45} isAnimationActive={false} />
-                                            <Line yAxisId="left" type="monotone" dataKey="errorCount" name="Errors" stroke="#dc2626" strokeWidth={2} dot={false} isAnimationActive={false} />
-                                            <Line yAxisId="right" type="monotone" dataKey="avgApiResponseMs" name="Avg API ms" stroke="#f9a8d4" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                            <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#1a73e8" fill="#d2e3fc" fillOpacity={0.5} isAnimationActive={false} />
+                                            <Line yAxisId="left" type="monotone" dataKey="errorCount" name="Errors" stroke="#d93025" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                            <Line yAxisId="right" type="monotone" dataKey="avgApiResponseMs" name="Avg API ms" stroke="#e37400" strokeWidth={2} dot={false} isAnimationActive={false} />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 </div>
                             ) : (
-                                <p className="text-sm text-slate-500">No traffic/error/latency trend data available for this range.</p>
+                                <p className="text-sm text-[#5f6368]">No traffic/error/latency trend data available for this range.</p>
                             )}
                         </section>
 

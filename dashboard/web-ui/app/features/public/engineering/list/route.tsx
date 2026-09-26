@@ -44,25 +44,25 @@ const ENGINEERING_SECTIONS: Array<{
         id: "latest",
         label: "Latest",
         description: "Newest engineering notes from the Rejourney team.",
-        badgeClassName: "bg-[#fef08a]",
+        badgeClassName: "bg-[#e8f0fe] text-[#1a73e8] border-[#d2e3fc]",
     },
     {
         id: "sdk-technicals",
         label: "SDK Technicals",
         description: "Native SDK capture, mobile replay internals, maps, and runtime architecture.",
-        badgeClassName: "bg-[#bfdbfe]",
+        badgeClassName: "bg-white text-[#3c4043] border-[#dadce0]",
     },
     {
         id: "performance-benchmarks",
         label: "Performance & Benchmarks",
         description: "Measured SDK performance, capture overhead, rendering behavior, and replay cost decisions.",
-        badgeClassName: "bg-[#bbf7d0]",
+        badgeClassName: "bg-[#e6f4ea] text-[#137333] border-[#ceead6]",
     },
     {
         id: "backend-technicals",
         label: "Backend Technicals",
         description: "Infrastructure, replay storage, cost controls, ingest pipelines, and scaling notes.",
-        badgeClassName: "bg-[#fbcfe8]",
+        badgeClassName: "bg-white text-[#3c4043] border-[#dadce0]",
     },
 ];
 
@@ -134,7 +134,7 @@ function ArticleGrid({
                         aria-label={copy.readArticleLabel(localizedArticle.title)}
                         className="group block"
                     >
-                        <div className="aspect-[1.95/1] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm transition duration-300 group-hover:shadow-md group-hover:scale-[1.01]">
+                        <div className="aspect-[1.95/1] overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-sm transition duration-200 group-hover:shadow-md">
                             <img
                                 src={getArticleImage(article)}
                                 alt={article.imageAlt ?? localizedArticle.title}
@@ -144,17 +144,17 @@ function ArticleGrid({
                             />
                         </div>
                         <div className="mt-6 flex flex-wrap items-center gap-3">
-                            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 ${articleSection.badgeClassName}`}>
+                            <span className={`rounded-none border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${articleSection.badgeClassName}`}>
                                 {articleSection.label}
                             </span>
-                            <p className="text-sm font-medium text-slate-400">
+                            <p className="text-sm font-medium text-[#5f6368]">
                                 {article.date} <span className="px-1 text-slate-300">·</span> {localizedArticle.readTime}
                             </p>
                         </div>
-                        <h2 className="mt-4 text-2xl font-bold leading-snug tracking-tight text-slate-950 transition duration-200 group-hover:text-indigo-600">
+                        <h2 className="mt-4 text-2xl font-bold leading-snug tracking-tight text-[#202124] transition duration-200 group-hover:text-[#1a73e8]">
                             {localizedArticle.title}
                         </h2>
-                        <p className="mt-3 text-base font-normal leading-relaxed text-slate-500">
+                        <p className="mt-3 text-base font-normal leading-relaxed text-[#5f6368]">
                             {localizedArticle.subtitle}
                         </p>
                     </Link>
@@ -232,7 +232,7 @@ export default function EngineeringIndexPage() {
     const selectedArticles = getEngineeringArticlesForSection(selectedSection.id);
 
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-950 font-sans selection:bg-sky-100 selection:text-slate-950 flex flex-col" lang={locale.languageTag} dir={locale.dir}>
+        <div className="public-readable-scope min-h-screen w-full bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124] font-sans selection:bg-[#e8f0fe] selection:text-[#1967d2] flex flex-col" lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -279,14 +279,14 @@ export default function EngineeringIndexPage() {
 
             <main className="w-full flex-grow">
                 <section className="mx-auto max-w-[1500px] px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:px-10 lg:pb-24">
-                    <div className="border-b border-slate-200 pb-12">
-                        <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">{copy.engineeringFromTeam}</p>
-                        <h1 className="mt-6 max-w-5xl text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                    <div className="border-b border-[#dadce0] pb-12">
+                        <p className="font-mono text-xs font-semibold uppercase tracking-wider text-[#5f6368]">{copy.engineeringFromTeam}</p>
+                        <h1 className="mt-6 max-w-5xl text-4xl font-extrabold tracking-tight text-[#202124] sm:text-5xl lg:text-6xl">
                             {copy.engineeringHeading}
                         </h1>
                     </div>
 
-                    <nav aria-label="Engineering sections" className="flex gap-8 overflow-x-auto border-b border-slate-200 pt-8">
+                    <nav aria-label="Engineering sections" className="flex gap-8 overflow-x-auto border-b border-[#dadce0] pt-8">
                         {ENGINEERING_SECTIONS.map((section) => {
                             const isActive = section.id === selectedSection.id;
                             const href = section.id === "latest" ? engineeringPath : `${engineeringPath}?section=${section.id}`;
@@ -298,8 +298,8 @@ export default function EngineeringIndexPage() {
                                     aria-current={isActive ? "page" : undefined}
                                     className={`shrink-0 border-b-2 px-1 pb-4 text-sm font-semibold transition ${
                                         isActive
-                                            ? "border-indigo-600 text-indigo-600"
-                                            : "border-transparent text-slate-500 hover:text-slate-800"
+                                            ? "border-[#1a73e8] text-[#1967d2]"
+                                            : "border-transparent text-[#5f6368] hover:text-[#202124]"
                                     }`}
                                 >
                                     {section.label}
@@ -311,14 +311,14 @@ export default function EngineeringIndexPage() {
                     <div className="mt-14">
                         <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                                <p className="font-mono text-xs font-bold uppercase tracking-wider text-slate-400">
+                                <p className="font-mono text-xs font-semibold uppercase tracking-wider text-[#5f6368]">
                                     {selectedSection.id === "latest" ? "Newest first" : "Selected track"}
                                 </p>
-                                <p className="mt-2 max-w-2xl text-lg font-semibold leading-7 text-slate-600">
+                                <p className="mt-2 max-w-2xl text-lg font-medium leading-7 text-[#5f6368]">
                                     {selectedSection.description}
                                 </p>
                             </div>
-                            <p className="w-fit rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-slate-600">
+                            <p className="w-fit rounded-none border border-[#dadce0] bg-white px-3 py-1 text-xs font-medium text-[#5f6368] shadow-xs">
                                 {selectedArticles.length} articles
                             </p>
                         </div>

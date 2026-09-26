@@ -1,6 +1,7 @@
 import React, { startTransition, useEffect, useMemo, useState } from 'react';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { InfoTooltip } from '~/shared/ui/core/InfoTooltip';
+import { dashboardButtonClass } from '~/shared/ui/core/dashboardStyles';
 
 export type KpiTrendState = 'improving' | 'declining' | 'flat' | 'unknown';
 export type KpiTrendFilter = 'all' | KpiTrendState;
@@ -52,7 +53,6 @@ type SeriesDeltaResult = {
 };
 
 const STORAGE_PREFIX = 'kpi-cards-v1:';
-const KPI_CARD_ACCENTS = ['#67e8f9', '#86efac', '#f9a8d4', '#c4b5fd'];
 
 const WINDOW_DAYS_BY_RANGE: Record<TimeRange, number> = {
     '24h': 1,
@@ -90,9 +90,9 @@ function getTrendState(delta?: KpiCardDelta): KpiTrendState {
 }
 
 function getTrendToneClass(trendState: KpiTrendState): string {
-    if (trendState === 'improving') return 'text-emerald-700';
-    if (trendState === 'declining') return 'text-rose-700';
-    return 'text-slate-600';
+    if (trendState === 'improving') return 'text-[#188038]';
+    if (trendState === 'declining') return 'text-[#d93025]';
+    return 'text-[#5f6368]';
 }
 
 function formatDelta(delta: KpiCardDelta): string {
@@ -306,29 +306,29 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
     return (
         <section className={className}>
             {showControls && (
-                <div className="dashboard-surface mb-4 p-4">
+                <div className="mb-4 rounded-none border border-[#dadce0] bg-white p-4">
                     <div className="flex flex-wrap items-center gap-3">
-                        <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600 uppercase">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-[#5f6368]">
                             Trend
                             <select
                                 value={trendFilter}
                                 onChange={(event) => setTrendFilter(event.target.value as KpiTrendFilter)}
-                                className="border-2 border-black bg-white px-2.5 py-1.5 text-xs font-black text-black shadow-neo-sm focus:outline-none focus:ring-2 focus:ring-black"
+                                className="h-8 rounded-none border border-[#dadce0] bg-white px-2.5 text-xs text-[#202124] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                             >
                                 <option value="all">All</option>
                                 <option value="improving">Improving</option>
                                 <option value="declining">Declining</option>
                                 <option value="flat">Flat</option>
-                                <option value="unknown">Missing Delta</option>
+                                <option value="unknown">Missing delta</option>
                             </select>
                         </label>
 
-                        <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600 uppercase">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-[#5f6368]">
                             Sort
                             <select
                                 value={sortMode}
                                 onChange={(event) => setSortMode(event.target.value as KpiSortMode)}
-                                className="border-2 border-black bg-white px-2.5 py-1.5 text-xs font-black text-black shadow-neo-sm focus:outline-none focus:ring-2 focus:ring-black"
+                                className="h-8 rounded-none border border-[#dadce0] bg-white px-2.5 text-xs text-[#202124] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                             >
                                 <option value="default">Default</option>
                                 <option value="value-desc">Highest value</option>
@@ -340,25 +340,25 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
 
                         <button
                             type="button"
-                            className="border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black uppercase shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo transition-all"
+                            className={dashboardButtonClass('secondary', 'sm')}
                             onClick={() => setCustomizeOpen((open) => !open)}
                         >
-                            {customizeOpen ? 'Hide Customize' : 'Customize'}
+                            {customizeOpen ? 'Hide customize' : 'Customize'}
                         </button>
 
-                        <span className="dashboard-meta w-full text-[11px] text-gray-500 sm:ml-auto sm:w-auto">
+                        <span className="dashboard-meta w-full text-[11px] tabular-nums text-[#5f6368] sm:ml-auto sm:w-auto">
                             {filteredCards.length} cards visible
                         </span>
                     </div>
 
                     {customizeOpen && (
-                        <div className="mt-3 space-y-3 border-t-2 border-black pt-3">
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                        <div className="mt-3 space-y-3 border-t border-[#e8eaed] pt-3">
+                            <label className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
                                 <input
                                     type="checkbox"
                                     checked={showDetails}
                                     onChange={(event) => setShowDetails(event.target.checked)}
-                                    className="h-3.5 w-3.5 rounded-none border-black text-slate-900 focus:ring-black"
+                                    className="h-3.5 w-3.5 rounded-none border-[#dadce0] text-[#1a73e8] focus:ring-[#1a73e8]/40"
                                 />
                                 Show KPI detail line
                             </label>
@@ -369,13 +369,13 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                                     return (
                                         <label
                                             key={card.id}
-                                        className={`inline-flex items-center gap-1.5 border-2 px-2 py-1.5 text-[11px] font-bold transition-all ${selected ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm' : 'border-black bg-white text-gray-600 hover:bg-[#ecfeff]'}`}
+                                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-none border px-2 py-1.5 text-[11px] font-medium transition-colors ${selected ? 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]' : 'border-[#dadce0] bg-white text-[#3c4043] hover:bg-[#f8fafd]'}`}
                                         >
                                             <input
                                                 type="checkbox"
                                                 checked={selected}
                                                 onChange={() => toggleCardVisibility(card.id)}
-                                                className="h-3 w-3 rounded-none border-black text-slate-900 focus:ring-black"
+                                                className="h-3 w-3 rounded-none border-[#dadce0] text-[#1a73e8] focus:ring-[#1a73e8]/40"
                                             />
                                             {card.label}
                                         </label>
@@ -385,7 +385,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
 
                             <button
                                 type="button"
-                                className="border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black uppercase shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo transition-all"
+                                className={dashboardButtonClass('secondary', 'sm')}
                                 onClick={resetPreferences}
                             >
                                 Reset
@@ -396,16 +396,12 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
             )}
 
             <div className={gridClassName}>
-                {filteredCards.map((card, index) => {
+                {filteredCards.map((card) => {
                     const trendState = getTrendState(card.delta);
                     const deltaLabel = card.delta?.label ?? comparisonLabel;
 
                     return (
                         <div key={card.id} className="dashboard-analytics-card dashboard-kpi-card min-w-0">
-                            <div
-                                className="dashboard-kpi-accent"
-                                style={{ backgroundColor: KPI_CARD_ACCENTS[index % KPI_CARD_ACCENTS.length] }}
-                            />
                             <div className="dashboard-kpi-header">
                                 <InfoTooltip
                                     content={card.info}
@@ -415,7 +411,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                                 />
                             </div>
 
-                            <div className="dashboard-kpi-value break-words">
+                            <div className="dashboard-kpi-value break-words tabular-nums">
                                 {card.value}
                             </div>
 
@@ -442,8 +438,8 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                 })}
 
                 {filteredCards.length === 0 && (
-                    <div className="dashboard-surface col-span-full border-dashed border-slate-300 bg-white">
-                        <div className="py-5 text-center text-xs font-medium text-slate-500">
+                    <div className="col-span-full rounded-none border border-dashed border-[#dadce0] bg-white">
+                        <div className="py-5 text-center text-xs font-medium text-[#5f6368]">
                             No KPI cards match the current filters
                         </div>
                     </div>

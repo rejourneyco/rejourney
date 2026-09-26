@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Plus, ChevronDown, Loader, AlertOctagon, Calendar, LayoutGrid, Zap,
   Tag, Users, Route, GitMerge, Trash2, MousePointerClick,
-  Timer, UserPlus, CheckCircle, AlertCircle, Search,
+  Timer, UserPlus, CheckCircle, AlertCircle, Search, Bot,
   MonitorSmartphone, Globe2, Megaphone, ScanEye, MapPin,
 } from 'lucide-react';
 import { buildSessionQueryFromPrompt, type SmartCaptureRule } from '~/shared/api/client';
+import { dashboardButtonClass, dashboardCardClass, dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
 import {
   type QueryCondition, type QueryGroup, type ConditionType,
   type IssueCondition, type DateCondition, type ScreenCondition,
@@ -27,6 +28,7 @@ interface QueryBuilderProps {
   groups: QueryGroup[];
   onGroupsChange: (groups: QueryGroup[]) => void;
   onClearQueries: () => void;
+  onSearchQuery?: (value: string) => void;
   availableFilters: AvailableFilters;
   isLoadingFilters: boolean;
   projectId?: string;
@@ -50,7 +52,7 @@ const ADD_MENU: { type: ConditionType; label: string; desc: string; icon: React.
   { type: 'issue',     label: 'Issue type',        desc: 'Crashes, ANRs, rage taps…',           icon: <AlertOctagon className="w-4 h-4" /> },
   { type: 'event',     label: 'Event fired',       desc: 'Custom event with optional count',    icon: <Zap className="w-4 h-4" /> },
   { type: 'lifecycle', label: 'Lifecycle',         desc: 'First-time or returning users',       icon: <Users className="w-4 h-4" /> },
-  { type: 'date',      label: 'Date / Time',       desc: 'When the session occurred',           icon: <Calendar className="w-4 h-4" /> },
+  { type: 'date',      label: 'Date / time',       desc: 'When the session occurred',           icon: <Calendar className="w-4 h-4" /> },
   { type: 'location',  label: 'Location',          desc: 'Country, city, or a precise match',    icon: <MapPin className="w-4 h-4" /> },
   { type: 'referral',  label: 'Referral',          desc: 'Web sessions by referrer/source',     icon: <Globe2 className="w-4 h-4" /> },
   { type: 'utm',       label: 'UTM',               desc: 'Web sessions by campaign tags',       icon: <Megaphone className="w-4 h-4" /> },
@@ -60,17 +62,6 @@ const ADD_MENU: { type: ConditionType; label: string; desc: string; icon: React.
 ];
 
 const UTM_ADD_FIELD_ORDER: UtmField[] = ['source', 'medium', 'campaign', 'term', 'content', 'campaignId', 'sourcePlatform'];
-
-const BG: Record<ConditionType, string> = {
-  screen: 'bg-violet-50 text-violet-700', journey: 'bg-teal-50 text-teal-700',
-  issue: 'bg-rose-50 text-rose-700', event: 'bg-blue-50 text-blue-700',
-  lifecycle: 'bg-pink-50 text-pink-700', date: 'bg-sky-50 text-sky-700',
-  location: 'bg-blue-50 text-blue-700',
-  referral: 'bg-cyan-50 text-cyan-700', utm: 'bg-amber-50 text-amber-700',
-  smart_capture: 'bg-cyan-50 text-cyan-700',
-  metadata: 'bg-emerald-50 text-emerald-700', platform: 'bg-cyan-50 text-cyan-700',
-  conversion: 'bg-pink-50 text-pink-700',
-};
 
 function AddRuleMenu({
   onAdd,
@@ -92,12 +83,12 @@ function AddRuleMenu({
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-dashed border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-        <Plus className="w-3.5 h-3.5" /> Add rule <ChevronDown className="w-3 h-3" />
+        className={dashboardButtonClass('secondary', 'sm')}>
+        <Plus className="w-3.5 h-3.5" /> Add rule <ChevronDown className="w-3 h-3 text-[#5f6368]" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
-          <div className="p-2">
+        <div className="absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-none border border-[#dadce0] bg-white shadow-[0_4px_16px_rgba(60,64,67,0.2)]">
+          <div className="p-1">
             {ADD_MENU.map((item) => {
               const firstAvailableUtmField = UTM_ADD_FIELD_ORDER.find((field) => !presentUtmFields.has(field)) ?? 'source';
               const used = item.type === 'utm'
@@ -111,11 +102,11 @@ function AddRuleMenu({
                       setOpen(false);
                     }
                   }}
-                  className={`flex w-full items-center gap-3 rounded-[6px] px-3 py-2.5 text-left transition ${used ? 'cursor-not-allowed opacity-35' : 'cursor-pointer hover:bg-slate-50'}`}>
-                  <div className={`rounded-[6px] border border-slate-200 p-2 ${BG[item.type]}`}>{item.icon}</div>
+                  className={`flex w-full items-center gap-3 rounded-none px-3 py-2 text-left transition-colors ${used ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-[#f1f3f4]'}`}>
+                  <div className="shrink-0 bg-[#f1f3f4] p-2 text-[#5f6368]">{item.icon}</div>
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">{item.label}</div>
-                    <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{item.desc}</div>
+                    <div className="text-sm font-medium text-[#202124]">{item.label}</div>
+                    <div className="mt-0.5 text-[11px] leading-4 text-[#5f6368]">{item.desc}</div>
                   </div>
                 </button>
               );
@@ -210,22 +201,22 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
   }
 
   return (
-    <div className="rounded-[8px] border border-slate-200 bg-white shadow-sm">
+    <div className={dashboardCardClass}>
       {/* Group header */}
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[#e8eaed] bg-[#f8fafd] px-3 py-2">
         <div className="flex items-center gap-2">
-          <GitMerge className="w-3.5 h-3.5 text-slate-500" />
-          <span className="text-xs font-semibold text-slate-700">
+          <GitMerge className="w-3.5 h-3.5 text-[#5f6368]" />
+          <span className="text-[13px] font-medium text-[#202124]">
             {totalGroups > 1 ? `Group ${groupIndex + 1}` : 'Rules'}
           </span>
           {totalGroups > 1 && (
-            <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+            <span className={dashboardChipClass('neutral')}>
               AND within group
             </span>
           )}
         </div>
         {totalGroups > 1 && (
-          <button onClick={onRemove} className="rounded-[6px] border border-transparent p-1.5 text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" title="Remove group">
+          <button onClick={onRemove} className="rounded-none p-1.5 text-[#5f6368] transition-colors hover:bg-[#fce8e6] hover:text-[#d93025]" title="Remove group">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
@@ -234,12 +225,12 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
       {/* Conditions */}
       <div className="space-y-2 p-2.5">
         {group.conditions.length === 0 && !loading && (
-          <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50 py-3 text-center text-sm text-slate-500">
+          <div className="rounded-none border border-dashed border-[#dadce0] bg-[#f8fafd] py-3 text-center text-sm text-[#5f6368]">
             Add a rule below to filter sessions
           </div>
         )}
         {loading && group.conditions.length === 0 && (
-          <div className="flex items-center justify-center gap-2 rounded-[8px] border border-dashed border-slate-200 bg-slate-50 py-3 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 rounded-none border border-dashed border-[#dadce0] bg-[#f8fafd] py-3 text-sm text-[#5f6368]">
             <Loader className="w-4 h-4 animate-spin" /> Loading filter options…
           </div>
         )}
@@ -248,9 +239,9 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
             <ConditionRow cond={cond} onChange={(u) => updateCond(cond.id, u)} onRemove={() => removeCond(cond.id)} filters={filters} loading={loading} smartCaptureRules={smartCaptureRules} loadLocationOptions={loadLocationOptions} />
             {idx < group.conditions.length - 1 && (
               <div className="flex items-center gap-2 px-4">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500">AND</span>
-                <div className="h-px flex-1 bg-slate-200" />
+                <div className="h-px flex-1 bg-[#e8eaed]" />
+                <span className="border border-[#dadce0] bg-white px-2 py-0.5 text-[11px] font-medium text-[#5f6368]">AND</span>
+                <div className="h-px flex-1 bg-[#e8eaed]" />
               </div>
             )}
           </React.Fragment>
@@ -270,6 +261,7 @@ export function QueryBuilder({
   groups,
   onGroupsChange,
   onClearQueries,
+  onSearchQuery,
   availableFilters,
   isLoadingFilters,
   projectId,
@@ -314,6 +306,7 @@ export function QueryBuilder({
       const result = await buildSessionQueryFromPrompt(projectId, trimmedPrompt);
       const nextGroups = result.groups?.length ? result.groups as QueryGroup[] : [{ id: generateGroupId(), conditions: [] }];
       onGroupsChange(nextGroups);
+      if (result.searchQuery !== undefined) onSearchQuery?.(result.searchQuery);
       setBuilderExplanation(result.explanation || 'Built a query from your description.');
     } catch (err) {
       setBuilderError(err instanceof Error ? err.message : 'Could not build a query from that description.');
@@ -324,15 +317,15 @@ export function QueryBuilder({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-[8px] border border-slate-200 bg-white p-2.5 shadow-sm">
+      <div className={`${dashboardCardClass} p-2.5`}>
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
           <div className="flex min-w-0 items-center gap-2 xl:w-56">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-slate-950 text-white">
-              <Search className="h-4 w-4" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-[#e8f0fe] text-[#1967d2]">
+              <Bot className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-950">AI query builder</div>
-              <div className="flex flex-wrap gap-1 text-[10px] font-semibold text-slate-500">
+              <div className="text-sm font-medium text-[#202124]">AI query builder</div>
+              <div className="flex flex-wrap gap-1 text-[11px] tabular-nums text-[#5f6368]">
                 {isLoadingFilters ? (
                   <span>Loading context</span>
                 ) : (
@@ -357,12 +350,12 @@ export function QueryBuilder({
               maxLength={500}
               rows={1}
               placeholder="sessions in Austin, US with crashes in the last 7 days"
-              className="min-h-10 flex-1 resize-none rounded-[8px] border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              className="min-h-10 flex-1 resize-none rounded-none border border-[#dadce0] bg-white px-3 py-2 text-sm text-[#202124] outline-none transition-colors placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
             />
             <button
               onClick={() => void handleBuildQuery()}
               disabled={!projectId || !trimmedPrompt || isBuilding}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-slate-950 bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 sm:w-36"
+              className={`${dashboardButtonClass('primary', 'lg')} sm:w-36`}
             >
               {isBuilding ? <Loader className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Generate
@@ -371,7 +364,7 @@ export function QueryBuilder({
           {totalConditions > 0 && (
             <button
               onClick={clearQueries}
-              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[8px] border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 xl:ml-1"
+              className={`${dashboardButtonClass('secondary', 'lg')} xl:ml-1`}
             >
               <Trash2 className="h-3.5 w-3.5" />
               Clear
@@ -381,13 +374,13 @@ export function QueryBuilder({
         {(builderError || (builderExplanation && !builderError)) && (
           <div className="mt-2">
           {builderError && (
-            <div className="flex items-start gap-2 rounded-[8px] border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">
+            <div className="flex items-start gap-2 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-sm text-[#a50e0e]">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{builderError}</span>
             </div>
           )}
           {builderExplanation && !builderError && (
-            <div className="flex items-start gap-2 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+            <div className="flex items-start gap-2 rounded-none border border-[#ceead6] bg-[#e6f4ea] px-3 py-2 text-sm text-[#137333]">
               <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{builderExplanation}</span>
             </div>
@@ -410,11 +403,9 @@ export function QueryBuilder({
             />
             {idx < groups.length - 1 && (
               <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-200" />
-                <div className="flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1">
-                  <span className="text-[11px] font-semibold text-violet-700">OR</span>
-                </div>
-                <div className="h-px flex-1 bg-slate-200" />
+                <div className="h-px flex-1 bg-[#dadce0]" />
+                <span className="border border-[#dadce0] bg-white px-2.5 py-0.5 text-[11px] font-medium text-[#5f6368]">OR</span>
+                <div className="h-px flex-1 bg-[#dadce0]" />
               </div>
             )}
           </React.Fragment>
@@ -423,18 +414,18 @@ export function QueryBuilder({
 
       {/* Add OR group */}
       <button onClick={addGroup}
-        className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-slate-300 bg-white px-3 py-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 sm:w-auto sm:py-2">
+        className={`${dashboardButtonClass('secondary', 'md')} w-full sm:w-auto`}>
         <Plus className="w-4 h-4" /> Add OR group
       </button>
 
       {/* Summary */}
       {totalConditions > 0 && (
-        <div className="flex items-start gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-700 shadow-sm">
-          <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-          <span className="font-medium">{summary}</span>
+        <div className="flex items-start gap-2 rounded-none border border-[#dadce0] bg-white px-4 py-3 text-xs text-[#3c4043]">
+          <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5f6368]" />
+          <span>{summary}</span>
           {groups.length > 1 && (
-            <span className="ml-auto shrink-0 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[10px] font-semibold text-pink-700">
-              multi-group approx.
+            <span className={`${dashboardChipClass('info')} ml-auto shrink-0`}>
+              Multi-group approx.
             </span>
           )}
         </div>

@@ -217,7 +217,7 @@ export default function EngineeringArticlePage() {
         },
     };
     return (
-        <div className={`public-readable-scope ${isEngineering ? "engineering" : "guide"}-article-page flex min-h-screen w-full flex-col bg-[#fbfbf8] font-sans text-slate-900 selection:bg-emerald-100 selection:text-slate-950`} lang={locale.languageTag} dir={locale.dir}>
+        <div className={`public-readable-scope ${isEngineering ? "engineering" : "guide"}-article-page flex min-h-screen w-full flex-col bg-[var(--dashboard-canvas,#f8fafd)] font-sans text-[#202124] selection:bg-[#e8f0fe] selection:text-[#1967d2]`} lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -228,29 +228,29 @@ export default function EngineeringArticlePage() {
 
             <main className="flex-grow w-full">
                 {/* Progress Bar (Conceptual - sticky top) */}
-                <div className="sticky left-0 top-0 z-50 h-1 w-full bg-slate-200/70">
-                    <div className="h-full w-full origin-left scale-x-0 bg-sky-600 animate-scroll-progress" />
+                <div className="sticky left-0 top-0 z-50 h-1 w-full bg-[#dadce0]">
+                    <div className="h-full w-full origin-left scale-x-0 bg-[#1a73e8] animate-scroll-progress" />
                 </div>
 
                 <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
 
-                    <Link to={isEngineering ? getLocalizedPublicPath(locale, collectionPath) : collectionPath} className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-950">
+                    <Link to={isEngineering ? getLocalizedPublicPath(locale, collectionPath) : collectionPath} className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-[#5f6368] transition-colors hover:text-[#202124]">
                         <ArrowLeft size={16} /> {isEngineering ? copy.backToEngineering : "Back to guides"}
                     </Link>
 
                     <article className="mx-auto max-w-[760px]">
-                        <header className="mb-14 border-b border-slate-200 pb-10">
-                            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-sky-700">
+                        <header className="mb-14 border-b border-[#dadce0] pb-10">
+                            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-[#1a73e8]">
                                 <span>{article.date}</span>
                                 <span className="h-1 w-1 rounded-full bg-slate-300" />
                                 <span>{localizedArticle.readTime}</span>
                             </div>
 
-                            <h1 className="mb-7 text-pretty font-display text-[2.45rem] font-extrabold leading-[1.06] tracking-normal text-slate-950">
+                            <h1 className="mb-7 text-pretty font-display text-[2.45rem] font-extrabold leading-[1.06] tracking-normal text-[#202124]">
                                 {localizedArticle.title}
                             </h1>
 
-                            <p className="max-w-[720px] text-[1.15rem] font-normal leading-8 text-slate-600">
+                            <p className="max-w-[720px] text-[1.15rem] font-normal leading-8 text-[#5f6368]">
                                 {localizedArticle.subtitle}
                             </p>
 
@@ -259,9 +259,9 @@ export default function EngineeringArticlePage() {
                                     {article.author.name.charAt(0)}
                                 </div>
                                 <div className="text-sm">
-                                    <div className="font-semibold text-slate-900">{article.author.name}</div>
+                                    <div className="font-semibold text-[#202124]">{article.author.name}</div>
                                     <div className="flex flex-wrap gap-x-3 gap-y-1">
-                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="font-medium text-sky-700 hover:underline">
+                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="font-medium text-[#1a73e8] hover:underline">
                                             {copy.viewLinkedIn}
                                         </a>
                                         {article.author.github && (
@@ -283,12 +283,12 @@ export default function EngineeringArticlePage() {
 
                         {article.tableOfContents?.length ? (
                             <aside className="absolute left-[calc(50%+25rem)] top-0 hidden w-56 2xl:block">
-                                <nav className="sticky top-24 border-l border-slate-200 pl-5" aria-label={copy.articleOnThisPage}>
-                                    <p className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-500">{copy.articleOnThisPage}</p>
+                                <nav className="sticky top-24 border-l border-[#dadce0] pl-5" aria-label={copy.articleOnThisPage}>
+                                    <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-[#5f6368]">{copy.articleOnThisPage}</p>
                                     <ol className="space-y-3">
                                         {article.tableOfContents.map((item) => (
                                             <li key={item.id} className={item.level === 3 ? "pl-4" : undefined}>
-                                                <a href={`#${item.id}`} className="block text-sm font-medium leading-snug text-slate-600 transition hover:text-slate-950">
+                                                <a href={`#${item.id}`} className="block text-sm font-medium leading-snug text-[#5f6368] transition hover:text-[#1a73e8]">
                                                     {item.title}
                                                 </a>
                                             </li>
@@ -300,8 +300,8 @@ export default function EngineeringArticlePage() {
                     </div>
 
                     <article className="mx-auto max-w-[760px]">
-                        <div className="mt-20 border-t border-slate-200 pt-10">
-                            <h3 className="mb-8 font-display text-2xl font-bold tracking-normal text-slate-950">{copy.authorHeading}</h3>
+                        <div className="mt-20 border-t border-[#dadce0] pt-10">
+                            <h3 className="mb-8 font-display text-2xl font-bold tracking-normal text-[#202124]">{copy.authorHeading}</h3>
                             <div className="flex items-start gap-4">
                                 <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-2xl font-bold text-slate-500">
                                     {article.author.name.charAt(0)}

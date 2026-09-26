@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Database, Search } from 'lucide-react';
+import { dashboardChipClass } from '~/shared/ui/core/dashboardStyles';
 
 export interface ReduxReplayEvent {
     type: string;
@@ -71,30 +72,30 @@ export default function ReduxReplayPanel({
     const detailValue = activeProperties[detailTab];
 
     return (
-        <div className="absolute inset-0 flex min-h-0 flex-col bg-slate-950 text-slate-100">
-            <div className="border-b-2 border-black bg-slate-900 px-3 py-3">
+        <div className="absolute inset-0 flex min-h-0 flex-col bg-white text-[#3c4043]">
+            <div className="border-b border-[#e8eaed] bg-white px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-[#67e8f9]">Redux replay</p>
-                        <h3 className="truncate text-sm font-bold text-white">Actions and state synchronized to playback</h3>
+                        <h3 className="text-[15px] font-medium text-[#202124]">Redux replay</h3>
+                        <p className="truncate text-xs text-[#5f6368]">Actions and state synchronized to playback</p>
                     </div>
-                    <span className="shrink-0 border border-slate-600 bg-slate-950 px-2 py-1 font-mono text-[10px] font-bold">
+                    <span className={`${dashboardChipClass('neutral')} shrink-0 tabular-nums`}>
                         {events.length} actions
                     </span>
                 </div>
-                <label className="mt-2 flex h-8 items-center gap-2 border border-slate-700 bg-slate-950 px-2">
-                    <Search className="h-3.5 w-3.5 text-slate-500" />
+                <label className="relative mt-2 block">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#80868b]" />
                     <input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Filter action types"
-                        className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-slate-600"
+                        className="h-8 w-full rounded-none border border-[#dadce0] bg-white pl-8 pr-3 text-xs text-[#202124] outline-none placeholder:text-[#80868b] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                     />
                 </label>
             </div>
 
             <div className="grid min-h-0 flex-1 grid-rows-[minmax(8rem,0.8fr)_minmax(12rem,1.2fr)]">
-                <div className="min-h-0 overflow-y-auto border-b-2 border-black bg-white text-slate-900">
+                <div className="min-h-0 overflow-y-auto border-b border-[#dadce0] bg-white text-[#202124]">
                     {filteredEvents.map((event, index) => {
                         const actionType = getReduxActionType(event);
                         const isActive = event === activeEvent;
@@ -103,29 +104,29 @@ export default function ReduxReplayPanel({
                             <button
                                 key={`${event.timestamp}-${actionType}-${index}`}
                                 onClick={() => onSeek(playbackSeconds)}
-                                className={`flex w-full items-start gap-2 border-b border-slate-200 px-3 py-2 text-left ${isActive ? 'border-l-4 border-l-[#0891b2] bg-cyan-50' : 'hover:bg-slate-50'}`}
+                                className={`flex w-full items-start gap-2 border-b border-[#e8eaed] px-3 py-2 text-left transition-colors ${isActive ? 'bg-[#e8f0fe]' : 'hover:bg-[#f8fafd]'}`}
                             >
-                                <Database className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-cyan-700' : 'text-slate-400'}`} />
+                                <Database className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-[#1967d2]' : 'text-[#9aa0a6]'}`} />
                                 <span className="min-w-0 flex-1">
-                                    <span className="block truncate font-mono text-[11px] font-bold">{actionType}</span>
-                                    <span className="mt-0.5 block text-[10px] text-slate-500">
+                                    <span className={`block truncate font-mono text-[11px] font-medium ${isActive ? 'text-[#1967d2]' : 'text-[#202124]'}`}>{actionType}</span>
+                                    <span className="mt-0.5 block text-[11px] tabular-nums text-[#5f6368]">
                                         #{event.properties?.sequence ?? index}
                                         {typeof event.properties?.durationMs === 'number' ? ` · ${event.properties.durationMs} ms` : ''}
                                     </span>
                                 </span>
-                                <span className="shrink-0 border border-slate-300 bg-white px-1 py-0.5 font-mono text-[9px] font-bold">
+                                <span className="shrink-0 text-[11px] tabular-nums text-[#5f6368]">
                                     {playbackSeconds.toFixed(2)}s
                                 </span>
                             </button>
                         );
                     })}
                     {filteredEvents.length === 0 ? (
-                        <div className="p-6 text-center text-xs text-slate-500">No Redux actions match this filter.</div>
+                        <div className="p-6 text-center text-xs text-[#5f6368]">No Redux actions match this filter.</div>
                     ) : null}
                 </div>
 
-                <div className="flex min-h-0 flex-col bg-slate-950">
-                    <div className="flex shrink-0 border-b border-slate-700">
+                <div className="flex min-h-0 flex-col bg-white">
+                    <div className="flex shrink-0 border-b border-[#e8eaed]">
                         {([
                             ['action', 'Action'],
                             ['previousState', 'Before'],
@@ -134,21 +135,22 @@ export default function ReduxReplayPanel({
                             <button
                                 key={id}
                                 onClick={() => setDetailTab(id)}
-                                className={`flex-1 border-b-2 px-2 py-2 text-[10px] font-black uppercase ${detailTab === id ? 'border-[#67e8f9] bg-slate-900 text-[#67e8f9]' : 'border-transparent text-slate-400 hover:text-white'}`}
+                                aria-pressed={detailTab === id}
+                                className={`flex-1 rounded-none px-2 py-2 text-xs font-medium transition-colors ${detailTab === id ? 'text-[#1967d2] shadow-[inset_0_-2px_0_#1a73e8]' : 'text-[#5f6368] hover:bg-[#f8fafd] hover:text-[#202124]'}`}
                             >
                                 {label}
                             </button>
                         ))}
                     </div>
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
-                        <span className="truncate font-mono text-[11px] font-bold text-white">
+                    <div className="flex items-center justify-between gap-2 border-b border-[#e8eaed] px-3 py-2">
+                        <span className="truncate font-mono text-[11px] font-medium text-[#202124]">
                             {activeEvent ? getReduxActionType(activeEvent) : 'No action selected'}
                         </span>
                         {activeProperties.truncated ? (
-                            <span className="shrink-0 border border-amber-600 bg-amber-950 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">TRUNCATED</span>
+                            <span className={`${dashboardChipClass('warning')} shrink-0`}>Truncated</span>
                         ) : null}
                     </div>
-                    <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[10px] leading-4 text-slate-200">
+                    <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words bg-[#f8fafd] p-3 font-mono text-[11px] leading-4 text-[#3c4043]">
                         {formatJson(detailValue)}
                     </pre>
                 </div>

@@ -5,9 +5,8 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useAuth } from '~/shared/providers/AuthContext';
-import { ImageIcon, Video } from 'lucide-react';
+import { AlertTriangle, ImageIcon, Video } from 'lucide-react';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
-import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { Input } from '~/shared/ui/core/Input';
 import { Modal } from '~/shared/ui/core/Modal';
@@ -16,6 +15,11 @@ import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { InfoTooltip } from '~/shared/ui/core/InfoTooltip';
 import { formatWebAllowedDomainsInput, getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
+import {
+  dashboardChipClass,
+  dashboardLabelClass,
+  dashboardSectionTitleClass,
+} from '~/shared/ui/core/dashboardStyles';
 import {
   getProject,
   updateProject,
@@ -41,21 +45,36 @@ const PROJECT_SETTINGS_TONES: Record<ProjectSettingsTone, {
   pill: string;
 }> = {
   blue: {
-    pill: 'project-settings-status-neutral',
+    pill: dashboardChipClass('info'),
   },
   emerald: {
-    pill: 'project-settings-status-success',
+    pill: dashboardChipClass('success'),
   },
   amber: {
-    pill: 'project-settings-status-warning',
+    pill: dashboardChipClass('warning'),
   },
   rose: {
-    pill: 'project-settings-status-danger',
+    pill: dashboardChipClass('danger'),
   },
   slate: {
-    pill: 'project-settings-status-neutral',
+    pill: dashboardChipClass('neutral'),
   },
 };
+
+const PLATFORM_LABELS: Record<string, string> = {
+  ios: 'iOS',
+  android: 'Android',
+  web: 'Web',
+  'react-native': 'React Native',
+  flutter: 'Flutter',
+  unity: 'Unity',
+};
+
+const formatPlatformLabel = (platform: string): string => (
+  PLATFORM_LABELS[platform.toLowerCase()] ?? platform
+);
+
+const dangerTextButtonClass = 'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-none border border-transparent bg-transparent px-3 text-xs font-medium text-[#c5221f] transition-colors hover:bg-[#fce8e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50';
 
 interface SettingsSectionProps {
   id: string;
@@ -74,14 +93,14 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
 }) => {
   return (
     <section id={id} className="project-settings-section dashboard-surface scroll-mt-24 overflow-hidden">
-      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[#e8eaed] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-black">{title}</h2>
-          <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-500">{description}</p>
+          <h2 className={dashboardSectionTitleClass}>{title}</h2>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-[#5f6368]">{description}</p>
         </div>
-        {action}
+        {action && <div className="shrink-0">{action}</div>}
       </div>
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-[#e8eaed]">
         {children}
       </div>
     </section>
@@ -97,8 +116,8 @@ interface SettingRowProps {
 const SettingRow: React.FC<SettingRowProps> = ({ title, description, children }) => (
   <div className="project-settings-row grid gap-4 px-5 py-4 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1fr)] lg:items-start">
     <div className="min-w-0">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-      {description && <p className="mt-1 max-w-md text-xs font-medium leading-5 text-slate-500">{description}</p>}
+      <h3 className="text-sm font-medium text-[#202124]">{title}</h3>
+      {description && <p className="mt-1 max-w-md text-xs leading-5 text-[#5f6368]">{description}</p>}
     </div>
     <div className="min-w-0">
       {children}
@@ -112,7 +131,7 @@ interface StatusPillProps {
 }
 
 const StatusPill: React.FC<StatusPillProps> = ({ label, tone = 'slate' }) => (
-  <span className={`project-settings-status-pill ${PROJECT_SETTINGS_TONES[tone].pill}`}>
+  <span className={`${PROJECT_SETTINGS_TONES[tone].pill} shrink-0`}>
     {label}
   </span>
 );
@@ -178,7 +197,7 @@ const RangeSetting: React.FC<RangeSettingProps> = ({
   return (
     <div className="project-settings-range-card dashboard-inner-surface bg-white p-4">
       <div className="project-settings-range-header">
-        <label className="project-settings-range-label text-sm font-semibold text-slate-900">
+        <label className="project-settings-range-label text-sm font-medium text-[#202124]">
           <span className="project-settings-range-label-text">{label}</span>
           {tooltip ? <span className="project-settings-range-tooltip">{tooltip}</span> : null}
         </label>
@@ -218,11 +237,11 @@ const RangeSetting: React.FC<RangeSettingProps> = ({
         className="project-settings-range-input"
         style={{ '--range-progress': `${rangeProgress}%` } as React.CSSProperties}
       />
-      <div className="mt-3 flex justify-between text-xs font-medium text-slate-400">
+      <div className="mt-3 flex justify-between text-xs tabular-nums text-[#5f6368]">
         <span>{min}{unit}</span><span>{max}{unit}</span>
       </div>
       {(saveState || error) && (
-        <p className={`mt-2 text-xs font-semibold ${error ? 'text-red-600' : 'text-slate-500'}`}>
+        <p className={`mt-2 text-xs font-medium ${error ? 'text-[#c5221f]' : 'text-[#5f6368]'}`}>
           {error || saveState}
         </p>
       )}
@@ -1074,18 +1093,17 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     return (
       <SettingsLayout
         className="rejourney-project-settings-page"
-        title="Project Settings"
+        title="Project settings"
         description="Configure project"
         {...dashboardPageHeaderProps('project')}
       >
-        <NeoCard className="p-6 border-rose-600 bg-rose-50">
-          <div className="flex gap-4 items-center">
-            <div>
-              <h3 className="text-rose-900 font-semibold uppercase tracking-tight">Error Loading Project</h3>
-              <p className="text-rose-700 text-sm font-bold mt-1">{error || 'Project not found'}</p>
-            </div>
+        <div className="flex items-start gap-3 border border-[#f6aea9] bg-[#fce8e6] p-4 text-[#a50e0e]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#d93025]" />
+          <div>
+            <div className="text-sm font-medium">Error loading project</div>
+            <p className="mt-0.5 text-sm">{error || 'Project not found'}</p>
           </div>
-        </NeoCard>
+        </div>
       </SettingsLayout>
     );
   }
@@ -1112,7 +1130,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     ? 'Paused'
     : recordingEnabled
       ? 'Recording'
-      : 'Observe Only';
+      : 'Observe only';
   const observabilityTone: ProjectSettingsTone = !rejourneyEnabled
     ? 'slate'
     : recordingEnabled
@@ -1123,19 +1141,19 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     ? project.platforms.map((platform: string) => String(platform))
     : [];
   const platformCountLabel = platformLabels.length === 1 ? '1 platform' : `${platformLabels.length} platforms`;
-  const privacyTone: ProjectSettingsTone = textInputMasking === 'all' || imageVideoMasking === 'all' ? 'emerald' : 'amber';
+  const privacyTone: ProjectSettingsTone = textInputMasking === 'all' || imageVideoMasking === 'all' ? 'slate' : 'amber';
   const privacyStatusLabel = isSavingMasking || isSavingMediaMasking
     ? 'Saving'
     : textInputMasking === 'all' || imageVideoMasking === 'all'
       ? 'Privacy controls'
       : 'Debug detail';
   const navItems = [
-    { href: '#project-profile', label: 'Project Profile' },
-    { href: '#sdk-intake', label: 'SDK Intake' },
-    { href: '#capture-budget', label: 'Replay Quality' },
+    { href: '#project-profile', label: 'Project profile' },
+    { href: '#sdk-intake', label: 'SDK intake' },
+    { href: '#capture-budget', label: 'Replay quality' },
     { href: '#privacy', label: 'Privacy' },
-    { href: '#developer-setup', label: 'Developer Setup' },
-    ...(canEdit ? [{ href: '#danger-zone', label: 'Danger Zone' }] : []),
+    { href: '#developer-setup', label: 'Developer setup' },
+    ...(canEdit ? [{ href: '#danger-zone', label: 'Danger zone' }] : []),
   ];
   const activeSectionHref = navItems.some((item) => item.href === location.hash)
     ? location.hash
@@ -1144,15 +1162,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   return (
     <SettingsLayout
       className="rejourney-project-settings-page"
-      title="Project Settings"
+      title="Project settings"
       description={`Configure ${project.name}`}
       {...dashboardPageHeaderProps('project')}
-      headerAction={!canEdit ? <NeoBadge variant="warning">View Only</NeoBadge> : undefined}
+      headerAction={!canEdit ? <NeoBadge variant="neutral">View only</NeoBadge> : undefined}
     >
       <div className="project-settings-console grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="project-settings-rail" aria-label="Project settings navigation">
           <div className="project-settings-rail-header">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sections</p>
+            <p className={dashboardLabelClass}>Sections</p>
           </div>
 
           <nav className="project-settings-rail-nav" aria-label="Project settings sections">
@@ -1173,7 +1191,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
         <div className="min-w-0 space-y-5">
           <SettingsSection
             id="project-profile"
-            title="Project Profile"
+            title="Project profile"
             description="The human name and client app identifiers Rejourney uses to accept sessions."
             action={<StatusPill label={platformCountLabel} tone="slate" />}
           >
@@ -1190,10 +1208,9 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     setSaveError(null);
                   }}
                   disabled={!canEdit}
-                  className="font-mono font-semibold"
                 />
                 <NeoButton
-                  variant="primary"
+                  variant="secondary"
                   onClick={handleSaveName}
                   disabled={!canEdit || isSaving || !appName || appName === project.name}
                 >
@@ -1201,7 +1218,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 </NeoButton>
               </div>
               {saveError && (
-                <p className="mt-2 text-xs font-semibold text-red-600">
+                <p className="mt-2 text-xs font-medium text-[#c5221f]">
                   {saveError}
                 </p>
               )}
@@ -1213,15 +1230,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             >
               <div className="mb-3 flex flex-wrap gap-2">
                 {platformLabels.length > 0 ? platformLabels.map((platform) => (
-                  <span key={platform} className="project-settings-platform-pill">
-                    {platform}
+                  <span key={platform} className={dashboardChipClass('neutral')}>
+                    {formatPlatformLabel(platform)}
                   </span>
-                )) : <span className="text-xs font-semibold text-slate-400">No platforms configured</span>}
+                )) : <span className="text-xs text-[#5f6368]">No platforms configured</span>}
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="project-settings-field-card dashboard-inner-surface bg-white p-4">
-                  <label className="mb-2 block text-sm font-semibold text-slate-900">
-                    iOS Bundle ID
+                  <label className="mb-2 block text-sm font-medium text-[#202124]">
+                    iOS bundle ID
                   </label>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
@@ -1229,11 +1246,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                       value={iosBundleDraft}
                       onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
                       disabled={!canEdit}
-                      className="flex-1 font-mono text-sm font-semibold"
+                      aria-label="iOS bundle ID"
+                      className="flex-1 font-mono"
                     />
                     <NeoButton
-                      variant="primary"
-                      size="sm"
+                      variant="secondary"
                       disabled={
                         !canEdit ||
                         !iosBundleDraft ||
@@ -1256,15 +1273,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     </NeoButton>
                   </div>
                   {iosBundleError && (
-                    <p className="mt-2 text-xs font-semibold text-red-600">
+                    <p className="mt-2 text-xs font-medium text-[#c5221f]">
                       {iosBundleError}
                     </p>
                   )}
                 </div>
 
                 <div className="project-settings-field-card dashboard-inner-surface bg-white p-4">
-                  <label className="mb-2 block text-sm font-semibold text-slate-900">
-                    Android Package Name
+                  <label className="mb-2 block text-sm font-medium text-[#202124]">
+                    Android package name
                   </label>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
@@ -1272,11 +1289,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                       value={androidPackageDraft}
                       onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
                       disabled={!canEdit}
-                      className="flex-1 font-mono text-sm font-semibold"
+                      aria-label="Android package name"
+                      className="flex-1 font-mono"
                     />
                     <NeoButton
-                      variant="primary"
-                      size="sm"
+                      variant="secondary"
                       disabled={
                         !canEdit ||
                         !androidPackageDraft ||
@@ -1299,7 +1316,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     </NeoButton>
                   </div>
                   {androidPackageError && (
-                    <p className="mt-2 text-xs font-semibold text-red-600">
+                    <p className="mt-2 text-xs font-medium text-[#c5221f]">
                       {androidPackageError}
                     </p>
                   )}
@@ -1321,7 +1338,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   />
                 </div>
                 <NeoButton
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
                   disabled={!canEdit || isSavingWebDomains || !hasWebAllowedDomainsChanges || !!webAllowedDomainsValidationError}
                   onClick={handleSaveWebAllowedDomains}
@@ -1338,10 +1355,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 }}
                 rows={3}
                 disabled={!canEdit}
-                className="min-h-[88px] w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-sm font-semibold text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+                aria-label="Web allowed domains"
+                className="min-h-[88px] w-full resize-y rounded-none border border-[#dadce0] bg-white px-3 py-2 text-sm text-[#202124] placeholder:text-[#80868b] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:bg-[#f8fafd] disabled:text-[#80868b]"
               />
               {(webDomainsSaveError || webAllowedDomainsValidationError) && (
-                <p className="mt-2 text-xs font-semibold text-red-600">
+                <p className="mt-2 text-xs font-medium text-[#c5221f]">
                   {webDomainsSaveError || webAllowedDomainsValidationError}
                 </p>
               )}
@@ -1350,7 +1368,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
           <SettingsSection
             id="sdk-intake"
-            title="SDK Intake"
+            title="SDK intake"
             description="Gate incoming data before it becomes replay, analytics, and diagnostics."
             action={<StatusPill label={observabilityLabel} tone={observabilityTone} />}
           >
@@ -1361,7 +1379,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
               <div className="project-settings-toggle-card dashboard-inner-surface flex items-center justify-between gap-4 bg-white p-4">
                 <div className="min-w-0">
                   <StatusPill label={isSavingRejourney ? 'Saving' : rejourneyEnabled ? 'Active' : 'Disabled'} tone={rejourneyEnabled ? 'emerald' : 'slate'} />
-                  {rejourneySaveError && <p className="mt-2 text-xs font-semibold text-red-600">{rejourneySaveError}</p>}
+                  {rejourneySaveError && <p className="mt-2 text-xs font-medium text-[#c5221f]">{rejourneySaveError}</p>}
                 </div>
                 <SwitchControl
                   checked={rejourneyEnabled}
@@ -1374,7 +1392,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
             <SettingRow
               title="Session replay"
-              description="Turn off for OBSERVE ONLY mode."
+              description="Turn off for observe-only mode."
             >
               <div className="project-settings-toggle-card dashboard-inner-surface flex items-center justify-between gap-4 bg-white p-4">
                 <div className="min-w-0">
@@ -1382,8 +1400,8 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     label={isSavingRecording ? 'Saving' : recordingEnabled && rejourneyEnabled ? 'Capturing' : 'Observe only'}
                     tone={recordingEnabled && rejourneyEnabled ? 'emerald' : 'slate'}
                   />
-                  {!rejourneyEnabled && <p className="mt-2 text-xs font-semibold text-slate-400">Requires SDK collection.</p>}
-                  {recordingSaveError && <p className="mt-2 text-xs font-semibold text-red-600">{recordingSaveError}</p>}
+                  {!rejourneyEnabled && <p className="mt-2 text-xs text-[#5f6368]">Requires SDK collection.</p>}
+                  {recordingSaveError && <p className="mt-2 text-xs font-medium text-[#c5221f]">{recordingSaveError}</p>}
                 </div>
                 <SwitchControl
                   checked={recordingEnabled}
@@ -1397,7 +1415,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
           <SettingsSection
             id="capture-budget"
-            title="Replay Quality"
+            title="Replay quality"
             description="Set capture length, sample volume, and mobile frame rate without hunting through separate panels."
           >
             <SettingRow
@@ -1406,7 +1424,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <RangeSetting
-                  label="Max Mobile Replay"
+                  label="Max mobile replay"
                   value={displayedMaxRecordingMinutes}
                   unit=" min"
                   min={1}
@@ -1419,7 +1437,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   onCommit={() => void commitMaxRecordingMinutesDraft()}
                 />
                 <RangeSetting
-                  label="Max Web Replay"
+                  label="Max web replay"
                   value={displayedWebMaxObservabilityMinutes}
                   unit=" min"
                   min={1}
@@ -1445,7 +1463,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   onCommit={() => void commitSampleRateDraft()}
                 />
                 <RangeSetting
-                  label="Recording FPS [Mobile Only]"
+                  label="Recording FPS (mobile only)"
                   value={displayedRecordingFps}
                   unit=" fps"
                   min={1}
@@ -1477,15 +1495,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   aria-pressed={textInputMasking === 'all'}
                   onClick={() => handleTextInputMaskingChange('all')}
                   disabled={!canEdit || isSavingMasking}
-                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'all' ? 'dashboard-inner-surface border-emerald-300 bg-emerald-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                  className="settings-option-card dashboard-inner-surface p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-900">Mask All Inputs</span>
-                    {textInputMasking === 'all' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className={`text-sm font-medium ${textInputMasking === 'all' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Mask all inputs</span>
+                    {textInputMasking === 'all' && <span className="text-xs font-medium text-[#1967d2]">Selected</span>}
                   </div>
                   <div className="space-y-2">
-                    <div className="h-3 w-24 max-w-full rounded bg-slate-900" />
-                    <div className="h-3 w-36 max-w-full rounded bg-slate-900" />
+                    <div className="h-3 w-24 max-w-full bg-[#5f6368]" />
+                    <div className="h-3 w-36 max-w-full bg-[#5f6368]" />
                   </div>
                 </button>
                 <button
@@ -1493,26 +1511,26 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   aria-pressed={textInputMasking === 'secure_only'}
                   onClick={() => handleTextInputMaskingChange('secure_only')}
                   disabled={!canEdit || isSavingMasking}
-                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'secure_only' ? 'dashboard-inner-surface border-amber-300 bg-amber-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                  className="settings-option-card dashboard-inner-surface p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-900">Secure Fields Only</span>
-                    {textInputMasking === 'secure_only' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className={`text-sm font-medium ${textInputMasking === 'secure_only' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Secure fields only</span>
+                    {textInputMasking === 'secure_only' && <span className="text-xs font-medium text-[#1967d2]">Selected</span>}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded border border-slate-200 bg-white p-2">
-                      <div className="mb-1 text-xs font-medium text-slate-400">Name</div>
-                      <div className="truncate font-mono text-xs font-bold text-slate-800">Alex Morgan</div>
+                    <div className="border border-[#dadce0] bg-white p-2">
+                      <div className="mb-1 text-xs text-[#5f6368]">Name</div>
+                      <div className="truncate text-xs font-medium text-[#202124]">Alex Morgan</div>
                     </div>
-                    <div className="rounded border border-slate-200 bg-white p-2">
-                      <div className="mb-1 text-xs font-medium text-slate-400">Password</div>
-                      <div className="h-3 w-24 max-w-full rounded bg-slate-900" />
+                    <div className="border border-[#dadce0] bg-white p-2">
+                      <div className="mb-1 text-xs text-[#5f6368]">Password</div>
+                      <div className="h-3 w-24 max-w-full bg-[#5f6368]" />
                     </div>
                   </div>
                 </button>
               </div>
               {maskingSaveError && (
-                <p className="mt-3 text-xs font-semibold text-red-600">
+                <p className="mt-3 text-xs font-medium text-[#c5221f]">
                   {maskingSaveError}
                 </p>
               )}
@@ -1527,20 +1545,20 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   aria-pressed={imageVideoMasking === 'all'}
                   onClick={() => handleImageVideoMaskingChange('all')}
                   disabled={!canEdit || isSavingMediaMasking}
-                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${imageVideoMasking === 'all' ? 'dashboard-inner-surface border-emerald-300 bg-emerald-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                  className="settings-option-card dashboard-inner-surface p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-900">Mask Images and Videos</span>
-                    {imageVideoMasking === 'all' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className={`text-sm font-medium ${imageVideoMasking === 'all' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Mask images and videos</span>
+                    {imageVideoMasking === 'all' && <span className="text-xs font-medium text-[#1967d2]">Selected</span>}
                   </div>
                   <div className="grid grid-cols-[1fr_0.72fr] gap-2">
-                    <div className="flex h-16 items-center justify-center gap-2 rounded border border-slate-200 bg-white text-slate-900">
+                    <div className="flex h-16 items-center justify-center gap-2 border border-[#dadce0] bg-white text-[#3c4043]">
                       <ImageIcon aria-hidden="true" size={18} />
-                      <span className="text-xs font-semibold">Image</span>
+                      <span className="text-xs font-medium">Image</span>
                     </div>
-                    <div className="flex h-16 items-center justify-center gap-2 rounded border border-slate-200 bg-white text-slate-900">
+                    <div className="flex h-16 items-center justify-center gap-2 border border-[#dadce0] bg-white text-[#3c4043]">
                       <Video aria-hidden="true" size={18} />
-                      <span className="text-xs font-semibold">Video</span>
+                      <span className="text-xs font-medium">Video</span>
                     </div>
                   </div>
                 </button>
@@ -1549,24 +1567,24 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   aria-pressed={imageVideoMasking === 'none'}
                   onClick={() => handleImageVideoMaskingChange('none')}
                   disabled={!canEdit || isSavingMediaMasking}
-                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${imageVideoMasking === 'none' ? 'dashboard-inner-surface border-amber-300 bg-amber-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                  className="settings-option-card dashboard-inner-surface p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-900">Show Images and Videos</span>
-                    {imageVideoMasking === 'none' && <span className="text-xs font-semibold uppercase text-slate-500">Selected</span>}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className={`text-sm font-medium ${imageVideoMasking === 'none' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Show images and videos</span>
+                    {imageVideoMasking === 'none' && <span className="text-xs font-medium text-[#1967d2]">Selected</span>}
                   </div>
                   <div className="grid grid-cols-[1fr_0.72fr] gap-2">
-                    <div className="flex h-16 items-center justify-center rounded border border-slate-200 bg-sky-100 text-sky-700">
+                    <div className="flex h-16 items-center justify-center border border-[#dadce0] bg-[#e8f0fe] text-[#1967d2]">
                       <ImageIcon aria-hidden="true" size={22} />
                     </div>
-                    <div className="flex h-16 items-center justify-center rounded border border-slate-200 bg-rose-100 text-rose-700">
+                    <div className="flex h-16 items-center justify-center border border-[#dadce0] bg-[#f3e8fd] text-[#8430ce]">
                       <Video aria-hidden="true" size={22} />
                     </div>
                   </div>
                 </button>
               </div>
               {mediaMaskingSaveError && (
-                <p className="mt-3 text-xs font-semibold text-red-600">
+                <p className="mt-3 text-xs font-medium text-[#c5221f]">
                   {mediaMaskingSaveError}
                 </p>
               )}
@@ -1575,7 +1593,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
           <SettingsSection
             id="developer-setup"
-            title="Developer Setup"
+            title="Developer setup"
             description="The stable identifiers needed by SDK setup, support, and backend integrations."
           >
             <SettingRow
@@ -1584,34 +1602,34 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <div>
-                  <div className="mb-1 text-xs font-medium text-slate-500">
+                  <div className={`mb-1 ${dashboardLabelClass}`}>
                     Project ID
                   </div>
                   <div className="project-settings-code-row dashboard-inner-surface flex items-center gap-2 bg-white px-3 py-2">
-                    <code className="min-w-0 flex-1 break-all font-mono text-xs font-semibold text-slate-900">{project.id}</code>
+                    <code className="min-w-0 flex-1 break-all font-mono text-xs text-[#202124]">{project.id}</code>
                     <button
                       type="button"
                       onClick={() => handleCopy(project.id, 'projectId')}
                       className="project-settings-copy-button"
-                      title="Copy Project ID"
-                      aria-label="Copy Project ID"
+                      title="Copy project ID"
+                      aria-label="Copy project ID"
                     >
                       {copyLabel('projectId')}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <div className="mb-1 text-xs font-medium text-slate-500">
-                    Public Key
+                  <div className={`mb-1 ${dashboardLabelClass}`}>
+                    Public key
                   </div>
                   <div className="project-settings-code-row dashboard-inner-surface flex items-center gap-2 bg-white px-3 py-2">
-                    <code className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-slate-900">{project.publicKey}</code>
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-[#202124]">{project.publicKey}</code>
                     <button
                       type="button"
                       onClick={() => handleCopy(project.publicKey, 'publicKey')}
                       className="project-settings-copy-button"
-                      title="Copy Public Key"
-                      aria-label="Copy Public Key"
+                      title="Copy public key"
+                      aria-label="Copy public key"
                     >
                       {copyLabel('publicKey')}
                     </button>
@@ -1638,15 +1656,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     </NeoButton>
                   </div>
                   {keyError && (
-                    <p className="mb-3 text-xs font-semibold text-red-600">
+                    <p className="mb-3 text-xs font-medium text-[#c5221f]">
                       {keyError}
                     </p>
                   )}
                   {isLoadingKeys ? (
-                    <div className="dashboard-inner-surface py-6 text-center text-sm font-semibold text-slate-500 animate-pulse">Loading keys...</div>
+                    <div className="dashboard-inner-surface animate-pulse py-6 text-center text-sm text-[#5f6368]">Loading keys...</div>
                   ) : apiKeys.length === 0 ? (
                     <div className="dashboard-inner-surface border-dashed py-8 text-center">
-                      <p className="text-xs font-semibold text-slate-500">No API keys created yet</p>
+                      <p className="text-xs text-[#5f6368]">No API keys created yet</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1654,23 +1672,22 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                         <div key={key.id} className="dashboard-inner-surface flex items-center justify-between gap-3 p-3">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="truncate font-mono text-sm font-semibold text-slate-900">{key.truncatedKey}</span>
+                              <span className="truncate font-mono text-sm text-[#202124]">{key.truncatedKey}</span>
                               <NeoBadge variant="success" size="sm">Active</NeoBadge>
                             </div>
-                            <div className="mt-1 text-xs font-medium text-slate-400">
+                            <div className="mt-1 text-xs tabular-nums text-[#5f6368]">
                               Created {new Date(key.createdAt).toLocaleDateString()}
                               {key.lastUsedAt && ` / Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
                             </div>
                           </div>
-                          <NeoButton
-                            variant="ghost"
-                            size="sm"
+                          <button
+                            type="button"
                             disabled={!canEdit}
-                            className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            className={dangerTextButtonClass}
                             onClick={() => handleRevokeApiKey(key.id)}
                           >
                             Revoke
-                          </NeoButton>
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -1683,7 +1700,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
           {canEdit && (
             <SettingsSection
               id="danger-zone"
-              title="Danger Zone"
+              title="Danger zone"
               description="Permanent project deletion lives alone so it is visible but never mixed with routine setup."
               action={<StatusPill label="Irreversible" tone="rose" />}
             >
@@ -1691,14 +1708,14 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 title="Delete project"
                 description="All recordings, analytics, and project data will be permanently removed."
               >
-                <div className="dashboard-inner-surface flex flex-col justify-between gap-4 border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center">
-                  <p className="text-sm font-medium text-rose-700">Requires the project name and email verification code.</p>
+                <div className="dashboard-inner-surface flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center">
+                  <p className="text-sm text-[#3c4043]">Requires the project name and email verification code.</p>
                   <NeoButton
                     variant="danger"
                     onClick={() => setShowDeleteModal(true)}
                     className="shrink-0"
                   >
-                    Delete Project
+                    Delete project
                   </NeoButton>
                 </div>
               </SettingRow>
@@ -1711,7 +1728,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
         <Modal
           isOpen={recordingFpsConfirmation !== null}
           onClose={handleCancelRecordingFpsChange}
-          title="Confirm Recording FPS"
+          title="Confirm recording FPS"
           footer={
             <div className="flex gap-2">
               <NeoButton
@@ -1731,9 +1748,10 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             </div>
           }
         >
-          <div className="space-y-4 py-2">
-            <div className="flex gap-3 border border-amber-200 bg-amber-50 p-4 text-amber-900">
-              <div className="space-y-2 text-sm font-bold">
+          <div className="space-y-4">
+            <div className="flex gap-3 border border-[#feefc3] bg-[#fef7e0] p-4 text-[#b06000]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="space-y-2 text-sm">
                 <p>
                   Increasing capture FPS may result in performance issues and higher battery usage.
                 </p>
@@ -1742,7 +1760,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 </p>
               </div>
             </div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            <p className="text-sm tabular-nums text-[#3c4043]">
               Change recording from {recordingFps} FPS to {recordingFpsConfirmation ?? recordingFps} FPS?
             </p>
           </div>
@@ -1755,7 +1773,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             setShowCreateKeyModal(false);
             setCreatedApiKey(null);
           }}
-          title="Create API Key"
+          title="Create API key"
           footer={
             createdApiKey ? (
               <NeoButton onClick={() => setShowCreateKeyModal(false)}>Done</NeoButton>
@@ -1763,7 +1781,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
               <div className="flex gap-2">
                 <NeoButton variant="secondary" onClick={() => setShowCreateKeyModal(false)}>Cancel</NeoButton>
                 <NeoButton onClick={handleCreateApiKey} disabled={isCreatingKey} variant="primary">
-                  {isCreatingKey ? 'Creating...' : 'Create Key'}
+                  {isCreatingKey ? 'Creating...' : 'Create key'}
                 </NeoButton>
               </div>
             )
@@ -1771,15 +1789,13 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
         >
           {createdApiKey ? (
             <div className="space-y-4">
-              <div className="bg-green-50 text-green-700 p-3 border border-green-200 text-sm font-bold">
-                <div>
-                  <strong>KEY CREATED!</strong> Securely store this key now. It will not be shown again.
-                </div>
+              <div className="border border-[#ceead6] bg-[#e6f4ea] p-3 text-sm text-[#137333]">
+                <span className="font-medium">Key created.</span> Securely store this key now. It will not be shown again.
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700 uppercase">API Key</label>
+                <label className={`block ${dashboardLabelClass}`}>API key</label>
                 <div className="flex gap-2">
-                  <code className="flex-1 p-3 bg-slate-900 text-white rounded font-mono break-all text-xs">
+                  <code className="flex-1 break-all border border-[#dadce0] bg-[#f8fafd] p-3 font-mono text-xs text-[#202124]">
                     {createdApiKey.key}
                   </code>
                   <NeoButton
@@ -1793,12 +1809,12 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
               </div>
             </div>
           ) : (
-            <div className="space-y-4 py-4">
-              <p className="text-slate-600 text-sm font-medium">
-                This will create a new API key with full access scopes for the <strong>{project.name}</strong> project.
+            <div className="space-y-4">
+              <p className="text-sm text-[#3c4043]">
+                This will create a new API key with full access scopes for the <strong className="font-medium text-[#202124]">{project.name}</strong> project.
               </p>
-              <div className="bg-rose-50 text-rose-800 p-3 border border-rose-200 text-xs font-bold">
-                Usually you only need the Public Key for client-side recording. Secret API keys are for backend administrative access.
+              <div className="border border-[#d2e3fc] bg-[#e8f0fe] p-3 text-xs text-[#1967d2]">
+                Usually you only need the public key for client-side recording. Secret API keys are for backend administrative access.
               </div>
             </div>
           )}
@@ -1815,7 +1831,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             setDeleteOtpMessage(null);
             setDeleteError(null);
           }}
-          title="Delete Project"
+          title="Delete project"
           footer={
             <div className="flex gap-2">
               <NeoButton variant="secondary" onClick={() => {
@@ -1831,24 +1847,24 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 onClick={handleDelete}
                 disabled={isDeleting || deleteConfirmText !== project.name || !deleteOtpCode.trim()}
               >
-                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+                {isDeleting ? 'Deleting...' : 'Permanently delete'}
               </NeoButton>
             </div>
           }
         >
           <div className="space-y-5">
-            <div className="bg-red-50 border border-red-200 p-4">
-              <div className="text-red-800 font-semibold mb-2">
-                Warning: Final Confirmation
+            <div className="border border-[#f6aea9] bg-[#fce8e6] p-4 text-[#a50e0e]">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <AlertTriangle className="h-4 w-4 text-[#d93025]" /> Final confirmation
               </div>
-              <p className="text-red-700 text-sm">
-                This action will permanently purge <strong>{project.name}</strong> from the database. All recordings, analytics, funnel data, and user sessions will be immediately destroyed. This action <strong>cannot</strong> be undone.
+              <p className="text-sm">
+                This action will permanently purge <strong className="font-medium">{project.name}</strong> from the database. All recordings, analytics, funnel data, and user sessions will be immediately destroyed. This action <strong className="font-medium">cannot</strong> be undone.
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">
-                Type <strong className="font-mono">{project.name}</strong> to confirm:
+              <label className="text-sm text-[#3c4043]">
+                Type <strong className="font-medium text-[#202124]">{project.name}</strong> to confirm:
               </label>
               <Input
                 value={deleteConfirmText}
@@ -1857,7 +1873,6 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   setDeleteError(null);
                 }}
                 placeholder={project.name}
-                className="border-red-200 focus:ring-red-500 focus:border-red-500"
               />
             </div>
 
@@ -1868,16 +1883,16 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 disabled={isSendingDeleteOtp || deleteConfirmText !== project.name}
                 className="w-full"
               >
-                {isSendingDeleteOtp ? 'Sending OTP...' : deleteOtpSent ? 'Resend OTP' : 'Send OTP to Email'}
+                {isSendingDeleteOtp ? 'Sending OTP...' : deleteOtpSent ? 'Resend OTP' : 'Send OTP to email'}
               </NeoButton>
               {deleteOtpMessage && (
-                <p className="text-sm text-green-700 bg-green-50 border border-green-200 p-2">{deleteOtpMessage}</p>
+                <p className="border border-[#ceead6] bg-[#e6f4ea] p-2 text-sm text-[#137333]">{deleteOtpMessage}</p>
               )}
             </div>
 
             {deleteOtpSent && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Enter OTP code:</label>
+                <label className="text-sm text-[#3c4043]">Enter OTP code:</label>
                 <Input
                   value={deleteOtpCode}
                   onChange={(e) => {
@@ -1886,13 +1901,13 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   }}
                   placeholder="XXXXXXXXXX"
                   maxLength={10}
-                  className="border-red-200 focus:ring-red-500 focus:border-red-500 font-mono tracking-widest"
+                  className="font-mono"
                 />
               </div>
             )}
 
             {deleteError && (
-              <div className="text-sm text-red-600 bg-red-50 border border-red-100 p-2">{deleteError}</div>
+              <div className="border border-[#f6aea9] bg-[#fce8e6] p-2 text-sm text-[#a50e0e]">{deleteError}</div>
             )}
           </div>
         </Modal>

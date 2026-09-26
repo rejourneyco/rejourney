@@ -531,7 +531,7 @@ export type ConditionTypeMeta = {
 
 export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
   issue: {
-    label: 'ISSUE',
+    label: 'Issue',
     description: 'Filter by issue type (crashes, errors, etc.)',
     pillBg: 'bg-slate-900',
     pillBorder: 'border-slate-700',
@@ -539,7 +539,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-slate-100',
   },
   date: {
-    label: 'DATE',
+    label: 'Date',
     description: 'Filter by date or time range',
     pillBg: 'bg-sky-50',
     pillBorder: 'border-sky-200',
@@ -547,7 +547,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-sky-50',
   },
   screen: {
-    label: 'SCREEN',
+    label: 'Screen',
     description: 'Sessions that visited a specific screen',
     pillBg: 'bg-violet-50',
     pillBorder: 'border-violet-200',
@@ -555,7 +555,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-violet-50',
   },
   event: {
-    label: 'EVENT',
+    label: 'Event',
     description: 'Sessions where an event was fired',
     pillBg: 'bg-indigo-50',
     pillBorder: 'border-indigo-200',
@@ -563,7 +563,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-indigo-50',
   },
   metadata: {
-    label: 'METADATA',
+    label: 'Metadata',
     description: 'Filter by session metadata value',
     pillBg: 'bg-emerald-50',
     pillBorder: 'border-emerald-200',
@@ -571,7 +571,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-emerald-50',
   },
   location: {
-    label: 'LOCATION',
+    label: 'Location',
     description: 'Filter by country, city, or both',
     pillBg: 'bg-blue-50',
     pillBorder: 'border-blue-200',
@@ -579,7 +579,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-blue-50',
   },
   referral: {
-    label: 'REFERRAL',
+    label: 'Referral',
     description: 'Web sessions by referral source',
     pillBg: 'bg-cyan-50',
     pillBorder: 'border-cyan-200',
@@ -595,7 +595,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-amber-50',
   },
   lifecycle: {
-    label: 'LIFECYCLE',
+    label: 'Lifecycle',
     description: 'Filter by user lifecycle stage',
     pillBg: 'bg-pink-50',
     pillBorder: 'border-pink-200',
@@ -603,7 +603,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-pink-50',
   },
   conversion: {
-    label: 'CONVERSION',
+    label: 'Conversion',
     description: 'Filter by checkout / conversion outcome',
     pillBg: 'bg-pink-50',
     pillBorder: 'border-pink-200',
@@ -611,7 +611,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-pink-50',
   },
   platform: {
-    label: 'PLATFORM',
+    label: 'Platform',
     description: 'Filter by SDK platform',
     pillBg: 'bg-cyan-50',
     pillBorder: 'border-cyan-200',
@@ -619,7 +619,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-cyan-50',
   },
   journey: {
-    label: 'JOURNEY',
+    label: 'Journey',
     description: 'Sessions that followed a screen path in order',
     pillBg: 'bg-teal-50',
     pillBorder: 'border-teal-200',
@@ -627,7 +627,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
     menuBg: 'bg-teal-50',
   },
   smart_capture: {
-    label: 'SMART CAPTURE',
+    label: 'Smart Capture',
     description: 'Filter by Smart Capture rule or decision',
     pillBg: 'bg-cyan-50',
     pillBorder: 'border-cyan-200',

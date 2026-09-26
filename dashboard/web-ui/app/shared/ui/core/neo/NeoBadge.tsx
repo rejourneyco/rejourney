@@ -1,4 +1,5 @@
 import React from 'react';
+import { dashboardChipTones, type DashboardChipTone } from '../dashboardStyles';
 
 interface NeoBadgeProps {
     children: React.ReactNode;
@@ -8,6 +9,21 @@ interface NeoBadgeProps {
     onClick?: () => void;
 }
 
+// The name is historical; this renders the dashboard's rounded, sentence-case status chip.
+const VARIANT_TONES: Record<NonNullable<NeoBadgeProps['variant']>, DashboardChipTone> = {
+    neutral: 'neutral',
+    success: 'success',
+    warning: 'warning',
+    danger: 'danger',
+    info: 'info',
+    anr: 'purple',
+    rage: 'danger',
+    dead_tap: 'neutral',
+    slow_start: 'warning',
+    slow_api: 'warning',
+    low_exp: 'warning',
+};
+
 export const NeoBadge: React.FC<NeoBadgeProps> = ({
     children,
     variant = 'neutral',
@@ -15,33 +31,24 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
     size = 'md',
     onClick
 }) => {
-    const baseStyles = "inline-flex items-center border-2 border-black font-black uppercase shadow-neo-sm rounded-none";
-
-    const variants = {
-        neutral: "bg-white text-black",
-        success: "bg-[#86efac] text-black",
-        warning: "bg-[#f9a8d4] text-black",
-        danger: "bg-[#fb7185] text-black",
-        info: "bg-[#67e8f9] text-black",
-        anr: "bg-[#c4b5fd] text-black",
-        rage: "bg-[#f9a8d4] text-black",
-        dead_tap: "bg-[#f4f4f5] text-black",
-        slow_start: "bg-[#f9a8d4] text-black",
-        slow_api: "bg-[#dbeafe] text-black",
-        low_exp: "bg-[#fef3c7] text-black"
-    };
+    const baseStyles = "inline-flex items-center gap-1 whitespace-nowrap rounded-none font-medium leading-4";
 
     const sizes = {
-        sm: "text-[10px] px-2 py-0.5",
-        md: "text-xs px-3 py-1"
+        sm: "text-[11px] px-2 py-0.5",
+        md: "text-xs px-2.5 py-0.5"
     };
+
+    // Raw data values such as "active" or "fatal crash" read as sentence case.
+    const content = typeof children === 'string' && /^[a-z]/.test(children)
+        ? children.charAt(0).toUpperCase() + children.slice(1)
+        : children;
 
     return (
         <span
-            className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+            className={`${baseStyles} ${dashboardChipTones[VARIANT_TONES[variant]]} ${sizes[size]} ${onClick ? 'cursor-pointer hover:opacity-80' : ''} ${className}`}
             onClick={onClick}
         >
-            {children}
+            {content}
         </span>
     );
 };

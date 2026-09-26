@@ -80,13 +80,13 @@ const getViewIcon = (node: ViewNode) => {
 const getViewTypeColor = (node: ViewNode): string => {
   const type = (node?.type || '').toLowerCase();
 
-  if (type.includes('button') || type.includes('touchable') || node.interactive) return 'text-blue-500';
-  if (type.includes('text') || type.includes('label')) return 'text-emerald-500';
-  if (type.includes('image')) return 'text-purple-500';
-  if (type.includes('scroll') || type.includes('flatlist')) return 'text-pink-500';
-  if (type.includes('input')) return 'text-pink-500';
-  if (node.masked) return 'text-red-500';
-  return 'text-slate-500';
+  if (type.includes('button') || type.includes('touchable') || node.interactive) return 'text-[#1a73e8]';
+  if (type.includes('text') || type.includes('label')) return 'text-[#188038]';
+  if (type.includes('image')) return 'text-[#9334e6]';
+  if (type.includes('scroll') || type.includes('flatlist')) return 'text-[#b06000]';
+  if (type.includes('input')) return 'text-[#b06000]';
+  if (node.masked) return 'text-[#d93025]';
+  return 'text-[#5f6368]';
 };
 
 export const DOMInspector: React.FC<DOMInspectorProps> = ({
@@ -224,7 +224,7 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
         <div
           className={`
             flex items-center gap-1 py-1.5 px-2 cursor-pointer transition-colors
-            ${isSelected ? 'bg-blue-100 border-l-2 border-blue-500' : isHovered ? 'bg-slate-100' : 'hover:bg-slate-50'}
+            ${isSelected ? 'bg-[#e8f0fe]' : isHovered ? 'bg-[#f1f3f4]' : 'hover:bg-[#f8fafd]'}
             ${!matches && childrenMatch ? 'opacity-50' : ''}
           `}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
@@ -239,12 +239,12 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
                 e.stopPropagation();
                 toggleNode(path);
               }}
-              className="p-0.5 hover:bg-slate-200 rounded flex-shrink-0"
+              className="flex-shrink-0 rounded-none p-0.5 hover:bg-[#e8eaed]"
             >
               {isExpanded ? (
-                <ChevronDown className="w-3 h-3 text-slate-500" />
+                <ChevronDown className="w-3 h-3 text-[#5f6368]" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-slate-500" />
+                <ChevronRight className="w-3 h-3 text-[#5f6368]" />
               )}
             </button>
           ) : (
@@ -255,13 +255,13 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
           <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${typeColor}`} />
 
           {/* Type name */}
-          <span className={`text-xs font-mono font-semibold ${typeColor}`}>
+          <span className={`text-xs font-mono font-medium ${typeColor}`}>
             {simpleType}
           </span>
 
           {/* Display label */}
           {displayLabel && (
-            <span className="text-xs text-slate-500 truncate flex-1">
+            <span className="text-xs text-[#5f6368] truncate flex-1">
               "{displayLabel.length > 25 ? displayLabel.substring(0, 22) + '...' : displayLabel}"
             </span>
           )}
@@ -270,17 +270,17 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
           <div className="flex items-center gap-1 flex-shrink-0">
             {(node.hidden || node.visible === false) && (
               <span title="Hidden">
-                <EyeOff className="w-3 h-3 text-slate-400" />
+                <EyeOff className="w-3 h-3 text-[#9aa0a6]" />
               </span>
             )}
             {node.alpha !== undefined && node.alpha < 1 && node.alpha > 0 && (
-              <span className="text-[9px] text-slate-400 font-mono">
+              <span className="text-[10px] tabular-nums text-[#80868b]">
                 {Math.round(node.alpha * 100)}%
               </span>
             )}
             {node.masked && (
               <span title="Masked (Privacy)">
-                <Lock className="w-3 h-3 text-red-400" />
+                <Lock className="w-3 h-3 text-[#d93025]" />
               </span>
             )}
           </div>
@@ -300,9 +300,9 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
 
   if (!currentHierarchy) {
     return (
-      <div className={`flex flex-col items-center justify-center p-8 text-slate-400 ${className}`}>
-        <Layers className="w-12 h-12 mb-4 opacity-30" />
-        <p className="font-medium">No Hierarchy Data</p>
+      <div className={`flex flex-col items-center justify-center p-8 text-[#5f6368] ${className}`}>
+        <Layers className="mb-4 h-12 w-12 text-[#bdc1c6]" />
+        <p className="font-medium text-[#202124]">No hierarchy data</p>
         <p className="text-sm mt-2 text-center">
           View hierarchy snapshots were not captured for this session.
           <br />
@@ -313,26 +313,27 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
   }
 
   return (
-    <div className={`flex flex-col bg-white h-full ${className}`}>
+    <div className={`flex h-full flex-col bg-white ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-[#e8eaed] bg-[#f8fafd] px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <Layers className="w-4 h-4 text-slate-600" />
+          <Layers className="h-4 w-4 text-[#5f6368]" />
           <div>
-            <h3 className="font-bold text-sm text-slate-900">DOM Inspector</h3>
-            <p className="text-[10px] text-slate-500">
-              {nodeCount} elements • {screenWidth}×{screenHeight}
+            <h3 className="text-sm font-medium text-[#202124]">DOM inspector</h3>
+            <p className="text-[11px] tabular-nums text-[#5f6368]">
+              {nodeCount} elements · {screenWidth}×{screenHeight}
             </p>
           </div>
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-1 bg-slate-200 p-0.5 rounded">
+        <div className="flex items-center gap-0.5 rounded-none border border-[#dadce0] bg-white p-0.5">
           <button
             onClick={() => setViewMode('wireframe')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'wireframe'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+            aria-pressed={viewMode === 'wireframe'}
+            className={`flex h-7 items-center gap-1.5 rounded-none px-2.5 text-xs font-medium transition-colors ${viewMode === 'wireframe'
+                ? 'bg-[#e8f0fe] text-[#1967d2]'
+                : 'text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]'
               }`}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
@@ -340,9 +341,10 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
           </button>
           <button
             onClick={() => setViewMode('tree')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'tree'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+            aria-pressed={viewMode === 'tree'}
+            className={`flex h-7 items-center gap-1.5 rounded-none px-2.5 text-xs font-medium transition-colors ${viewMode === 'tree'
+                ? 'bg-[#e8f0fe] text-[#1967d2]'
+                : 'text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]'
               }`}
           >
             <List className="w-3.5 h-3.5" />
@@ -353,32 +355,33 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-200 rounded transition-colors"
+            className="rounded-none p-1.5 transition-colors hover:bg-[#f1f3f4]"
             title="Close"
           >
-            <X className="w-4 h-4 text-slate-600" />
+            <X className="h-4 w-4 text-[#5f6368]" />
           </button>
         )}
       </div>
 
       {/* Search (Tree view only) */}
       {viewMode === 'tree' && (
-        <div className="p-3 border-b border-slate-200 flex-shrink-0">
+        <div className="flex-shrink-0 border-b border-[#e8eaed] p-3">
           <div className="relative">
-            <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#80868b]" />
             <input
               type="text"
               placeholder="Search by type, testID, label, or text..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              className="h-8 w-full rounded-none border border-[#dadce0] bg-white pl-8 pr-8 text-xs text-[#202124] placeholder:text-[#80868b] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1.5 p-0.5 hover:bg-slate-200 rounded"
+                className="absolute inset-y-0 right-1.5 my-auto flex h-5 w-5 items-center justify-center rounded-none hover:bg-[#f1f3f4]"
+                aria-label="Clear search"
               >
-                <X className="w-3 h-3 text-slate-400" />
+                <X className="h-3 w-3 text-[#80868b]" />
               </button>
             )}
           </div>
@@ -409,20 +412,21 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
 
         {/* Property Inspector Panel */}
         {selectedNode && (
-          <div className="max-h-[42%] w-full flex-shrink-0 overflow-y-auto border-t border-slate-200 bg-slate-50 md:max-h-none md:w-72 md:max-w-[40%] md:border-l md:border-t-0">
-            <div className="p-3 border-b border-slate-200 bg-white sticky top-0">
+          <div className="max-h-[42%] w-full flex-shrink-0 overflow-y-auto border-t border-[#e8eaed] bg-[#f8fafd] md:max-h-none md:w-72 md:max-w-[40%] md:border-l md:border-t-0">
+            <div className="sticky top-0 border-b border-[#e8eaed] bg-white p-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wide">
+                <h4 className="text-sm font-medium text-[#202124]">
                   Properties
                 </h4>
                 <button
                   onClick={() => setSelectedNode(null)}
-                  className="p-1 hover:bg-slate-100 rounded"
+                  className="rounded-none p-1 hover:bg-[#f1f3f4]"
+                  aria-label="Close properties"
                 >
-                  <X className="w-3 h-3 text-slate-400" />
+                  <X className="h-3 w-3 text-[#80868b]" />
                 </button>
               </div>
-              <p className="text-[10px] text-slate-500 mt-1 font-mono truncate">
+              <p className="mt-1 truncate font-mono text-[11px] text-[#5f6368]">
                 {selectedNode.type}
               </p>
             </div>
@@ -483,30 +487,30 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
                 <PropertyRow
                   label="Visible"
                   value={selectedNode.hidden ? 'No' : selectedNode.visible === false ? 'No' : 'Yes'}
-                  valueColor={selectedNode.hidden || selectedNode.visible === false ? 'text-red-600' : 'text-emerald-600'}
+                  valueColor={selectedNode.hidden || selectedNode.visible === false ? 'text-[#c5221f]' : 'text-[#137333]'}
                 />
                 {selectedNode.alpha !== undefined && (
                   <PropertyRow
                     label="Alpha"
                     value={selectedNode.alpha.toFixed(2)}
-                    valueColor={selectedNode.alpha < 1 ? 'text-pink-600' : undefined}
+                    valueColor={selectedNode.alpha < 1 ? 'text-[#b06000]' : undefined}
                   />
                 )}
                 {selectedNode.bg && (
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500 min-w-[70px]">Background:</span>
+                    <span className="min-w-[70px] text-[#5f6368]">Background:</span>
                     <div
-                      className="w-4 h-4 rounded border border-slate-300"
+                      className="h-4 w-4 rounded-none border border-[#dadce0]"
                       style={{ backgroundColor: selectedNode.bg }}
                     />
-                    <span className="font-mono text-slate-700">{selectedNode.bg}</span>
+                    <span className="font-mono text-[#3c4043]">{selectedNode.bg}</span>
                   </div>
                 )}
                 {selectedNode.cornerRadius !== undefined && selectedNode.cornerRadius > 0 && (
-                  <PropertyRow label="Corner Radius" value={selectedNode.cornerRadius.toString()} />
+                  <PropertyRow label="Corner radius" value={selectedNode.cornerRadius.toString()} />
                 )}
                 {selectedNode.borderWidth !== undefined && selectedNode.borderWidth > 0 && (
-                  <PropertyRow label="Border Width" value={selectedNode.borderWidth.toString()} />
+                  <PropertyRow label="Border width" value={selectedNode.borderWidth.toString()} />
                 )}
               </PropertySection>
 
@@ -515,20 +519,20 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
                 <PropertyRow
                   label="Interactive"
                   value={selectedNode.interactive ? 'Yes' : 'No'}
-                  valueColor={selectedNode.interactive ? 'text-blue-600' : undefined}
+                  valueColor={selectedNode.interactive ? 'text-[#1a73e8]' : undefined}
                 />
                 {selectedNode.enabled !== undefined && (
                   <PropertyRow
                     label="Enabled"
                     value={selectedNode.enabled ? 'Yes' : 'No'}
-                    valueColor={!selectedNode.enabled ? 'text-red-600' : undefined}
+                    valueColor={!selectedNode.enabled ? 'text-[#c5221f]' : undefined}
                   />
                 )}
                 {selectedNode.masked && (
                   <PropertyRow
-                    label="Privacy Masked"
+                    label="Privacy masked"
                     value="Yes"
-                    valueColor="text-red-600"
+                    valueColor="text-[#c5221f]"
                   />
                 )}
               </PropertySection>
@@ -542,7 +546,7 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
 
               {/* Additional properties */}
               {selectedNode.properties && Object.keys(selectedNode.properties).length > 0 && (
-                <PropertySection title="Other Properties">
+                <PropertySection title="Other properties">
                   {Object.entries(selectedNode.properties).map(([key, value]) => (
                     <PropertyRow
                       key={key}
@@ -558,12 +562,12 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
       </div>
 
       {/* Footer stats */}
-      <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center justify-between border-t border-[#e8eaed] bg-[#f8fafd] px-4 py-2 text-xs tabular-nums text-[#5f6368]">
         <span>
           {hierarchySnapshots.length} snapshot{hierarchySnapshots.length !== 1 ? 's' : ''} captured
         </span>
         {selectedNode && (
-          <span className="font-mono text-slate-400">
+          <span className="font-mono text-[#80868b]">
             {selectedNode.type.split('.').pop()}
           </span>
         )}
@@ -575,7 +579,7 @@ export const DOMInspector: React.FC<DOMInspectorProps> = ({
 // Property Section Component
 const PropertySection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div>
-    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+    <h5 className="mb-2 text-xs font-medium text-[#5f6368]">
       {title}
     </h5>
     <div className="space-y-1.5">
@@ -604,14 +608,14 @@ const PropertyRow: React.FC<PropertyRowProps> = ({
   onCopy,
   copied,
 }) => (
-  <div className={`flex items-start gap-2 text-xs ${compact ? 'text-[11px]' : ''}`}>
-    <span className={`text-slate-500 ${compact ? 'min-w-[45px]' : 'min-w-[70px]'} flex-shrink-0`}>
+  <div className={`group flex items-start gap-2 text-xs ${compact ? 'text-[11px]' : ''}`}>
+    <span className={`text-[#5f6368] ${compact ? 'min-w-[45px]' : 'min-w-[70px]'} flex-shrink-0`}>
       {label}:
     </span>
     <span
       className={`
         font-mono flex-1 break-all
-        ${highlight ? 'text-blue-600 font-semibold bg-blue-50 px-1 rounded' : valueColor || 'text-slate-800'}
+        ${highlight ? 'bg-[#e8f0fe] px-1 font-medium text-[#1967d2]' : valueColor || 'text-[#202124]'}
       `}
     >
       {value}
@@ -619,13 +623,14 @@ const PropertyRow: React.FC<PropertyRowProps> = ({
     {onCopy && (
       <button
         onClick={() => onCopy(value)}
-        className="p-0.5 hover:bg-slate-200 rounded flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="flex-shrink-0 rounded-none p-0.5 opacity-0 transition-opacity hover:bg-[#e8eaed] focus-visible:opacity-100 group-hover:opacity-100"
         title="Copy"
+        aria-label={`Copy ${label}`}
       >
         {copied ? (
-          <Check className="w-3 h-3 text-emerald-500" />
+          <Check className="w-3 h-3 text-[#137333]" />
         ) : (
-          <Copy className="w-3 h-3 text-slate-400" />
+          <Copy className="w-3 h-3 text-[#80868b]" />
         )}
       </button>
     )}

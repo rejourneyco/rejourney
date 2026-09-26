@@ -50,7 +50,7 @@ export default function RejourneyMarlinPage() {
   const canonicalUrl = `${SITE_URL}/rejourney-marlin`;
 
   return (
-    <div className="public-readable-scope min-h-screen overflow-x-hidden bg-white text-slate-950">
+    <div className="public-readable-scope min-h-screen overflow-x-hidden bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -92,17 +92,15 @@ export default function RejourneyMarlinPage() {
       <Header noSpacer />
       <main aria-label="Rejourney Marlin GitHub App">
         <section className="relative overflow-hidden px-5 pb-20 pt-36 sm:px-8 sm:pb-28 sm:pt-44 lg:px-10">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(45,212,191,0.18),transparent_42%),radial-gradient(circle_at_82%_18%,rgba(37,99,235,0.16),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.86))]" aria-hidden="true" />
-
           <div className="relative z-10 mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
             <div className="max-w-3xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-cyan-700">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#1a73e8]">
                 Rejourney Marlin for GitHub
               </p>
-              <h1 className="mt-5 max-w-4xl font-display text-4xl font-extrabold leading-tight tracking-normal text-slate-950 sm:text-6xl lg:text-7xl">
+              <h1 className="mt-5 max-w-4xl font-display text-4xl font-extrabold leading-tight tracking-normal text-[#202124] sm:text-6xl lg:text-7xl">
                 Fix the leaks your replays expose.
               </h1>
-              <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-slate-600 sm:text-xl">
+              <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-[#3c4043] sm:text-xl">
                 Marlin is the Rejourney GitHub App that uses replay context to identify funnel and revenue issues, then suggests code fixes your team can review from the repository.
               </p>
 
@@ -111,14 +109,14 @@ export default function RejourneyMarlinPage() {
                   href={MARLIN_APP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[54px] items-center justify-center gap-2 rounded-full bg-slate-950 px-7 text-sm font-bold text-white shadow-xl shadow-slate-300/40 transition hover:-translate-y-0.5 hover:bg-slate-800"
+                  className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-none bg-[#1a73e8] px-7 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1765cc] active:bg-[#1967d2]"
                 >
                   <Github className="h-4 w-4" />
                   Install GitHub App
                 </a>
                 <Link
                   to="/pricing"
-                  className="inline-flex min-h-[54px] items-center justify-center gap-2 rounded-full border border-slate-300 bg-white/70 px-7 text-sm font-bold text-slate-700 shadow-sm backdrop-blur-md transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white"
+                  className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-none border border-[#dadce0] bg-white px-7 text-sm font-semibold text-[#3c4043] shadow-sm transition hover:bg-[#f8fafd] hover:text-[#202124]"
                 >
                   See pricing
                   <ArrowRight className="h-4 w-4" />
@@ -127,77 +125,76 @@ export default function RejourneyMarlinPage() {
             </div>
 
             <div className="relative mx-auto w-full max-w-xl">
-              <div className="absolute -inset-5 rounded-[2rem] bg-cyan-200/30 blur-3xl" aria-hidden="true" />
-              <div className="relative overflow-hidden rounded-[1.75rem] border border-cyan-100 bg-white/70 p-3 shadow-2xl shadow-cyan-900/10 backdrop-blur-xl">
+              <div className="relative overflow-hidden rounded-none border border-[#dadce0] bg-white p-3 shadow-sm">
                 <img
                   src={MARLIN_DISPLAY_IMAGE}
                   alt="Rejourney Marlin artwork"
-                  className="aspect-square w-full rounded-[1.35rem] object-cover"
+                  className="aspect-square w-full rounded-none object-cover"
                   decoding="async"
                 />
               </div>
-              <div className="relative -mt-12 ml-auto w-[88%] rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-xl backdrop-blur-md sm:w-[78%]">
+              <div className="relative -mt-12 ml-auto w-[88%] rounded-none border border-[#dadce0] bg-white p-4 shadow-md sm:w-[78%]">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#5f6368]">
                     Marlin suggestion
                   </span>
-                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                  <span className="rounded-none border border-[#ceead6] bg-[#e6f4ea] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#137333]">
                     Found Fix
                   </span>
                 </div>
-                <div className="mt-3 space-y-2 font-mono text-xs font-semibold text-slate-700">
+                <div className="mt-3 space-y-2 font-mono text-xs font-semibold text-[#3c4043]">
                   <p>checkout/PaymentSheet.tsx</p>
-                  <p className="text-emerald-700">+ retry failed intent before empty state</p>
-                  <p className="text-blue-700">+ guard CTA when plan quote is stale</p>
+                  <p className="text-[#137333]">+ retry failed intent before empty state</p>
+                  <p className="text-[#1a73e8]">+ guard CTA when plan quote is stale</p>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="bg-white px-5 py-20 sm:px-8 lg:px-10">
+        <section className="bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-20 sm:px-8 lg:px-10">
           <div className="mx-auto max-w-7xl space-y-24">
 
             <section id="issue-detection" className="grid gap-10 lg:grid-cols-[0.48fr_0.52fr] lg:items-center">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Issue detection</p>
-                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Issue detection</p>
+                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
                   The fix starts from the recorded user sessions by Rejourney.
                 </h3>
-                <p className="mt-4 text-base font-medium leading-8 text-slate-600">
+                <p className="mt-4 text-base font-medium leading-8 text-[#3c4043]">
                   Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
                 </p>
               </div>
-              <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70">
-                <img src={ISSUE_FEED_IMAGE} alt="Rejourney issue detection feed with ranked funnel leaks" className="w-full object-cover" loading="lazy" decoding="async" />
+              <figure className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
+                <img src={ISSUE_FEED_IMAGE} alt="Rejourney issue detection feed with ranked funnel leaks" className="w-full rounded-none object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
 
             <section id="replay-context" className="space-y-8">
               <div className="mx-auto max-w-4xl text-center">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Replay context</p>
-                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Replay context</p>
+                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
                   Then it creates a ranked "leaks" cause and fix feed.
                 </h3>
-                <p className="mt-4 text-base font-medium leading-8 text-slate-600">
+                <p className="mt-4 text-base font-medium leading-8 text-[#3c4043]">
                   The repair note is grounded in the replay timeline: user actions, console events, network failures, DOM state, and the specific sessions that prove the leak is real.
                 </p>
               </div>
-              <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-200/70">
-                <img src={REPLAY_CONTEXT_IMAGE} alt="Rejourney replay theater showing session timeline and diagnostic context" className="w-full rounded-[1.35rem] object-cover" loading="lazy" decoding="async" />
+              <figure className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
+                <img src={REPLAY_CONTEXT_IMAGE} alt="Rejourney replay theater showing session timeline and diagnostic context" className="w-full rounded-none object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
 
             <section id="revenue-impact" className="grid gap-10 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-              <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70 lg:order-first">
-                <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" className="w-full object-cover" loading="lazy" decoding="async" />
+              <figure className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm lg:order-first">
+                <img src={REVENUE_IMAGE} alt="Rejourney revenue growth dashboard with revenue trend and release markers" className="w-full rounded-none object-cover" loading="lazy" decoding="async" />
               </figure>
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Revenue priority</p>
-                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Revenue priority</p>
+                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
                   The issue is ranked by business impact.
                 </h3>
-                <p className="mt-4 text-base font-medium leading-8 text-slate-600">
+                <p className="mt-4 text-base font-medium leading-8 text-[#3c4043]">
                   Marlin can tell the difference between cosmetic noise and a checkout path that blocks revenue. Revenue movement, affected cohorts, and release timing travel into the GitHub suggestion so engineers know why the fix should move now.
                 </p>
               </div>
@@ -205,20 +202,18 @@ export default function RejourneyMarlinPage() {
 
             <section id="stability" className="grid gap-10 lg:grid-cols-[0.42fr_0.58fr] lg:items-center">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Stability evidence</p>
-                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Stability evidence</p>
+                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
                   Crashes, ANRs, and API spikes become fix paths too.
                 </h3>
-                <p className="mt-4 text-base font-medium leading-8 text-slate-600">
+                <p className="mt-4 text-base font-medium leading-8 text-[#3c4043]">
                   When the leak is technical, Marlin uses the same issue feed to connect stack traces, device cohorts, endpoint spikes, and replay context to likely files. The result is a focused repair brief instead of a vague stability ticket.
                 </p>
               </div>
-              <figure className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200/70">
-                <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" className="w-full object-cover" loading="lazy" decoding="async" />
+              <figure className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
+                <img src={STABILITY_IMAGE} alt="Rejourney stability monitoring table with crashes, ANRs, API spikes, events, and affected users" className="w-full rounded-none object-cover" loading="lazy" decoding="async" />
               </figure>
             </section>
-
-            
           </div>
         </section>
       </main>

@@ -7,7 +7,8 @@ import { useTeam } from '~/shared/providers/TeamContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { clearCache, getTeamBillingUsage, getTeamPlan, TeamUsage } from '~/features/app/billing/api';
 import { clearCacheMatching } from '~/shared/api/client';
-import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, Check, Menu, Home } from 'lucide-react';
+import { RefreshCw, User as UserIcon, LogOut, ChevronDown, Copy, Check, Menu, Home } from 'lucide-react';
+import { formatSetupPlatform } from '~/features/app/setup/setupUtils';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE, DASHBOARD_MANUAL_REFRESH_START } from '~/shared/constants/events';
 
 interface TopBarProps {
@@ -179,13 +180,11 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
   const quotaChipLabel = quotaRemainingPercent === null
     ? 'Replays: Unlimited'
     : `Replays: ${quotaRemainingPercent}% remaining`;
-  const quotaChipClass = quotaRemainingPercent === null
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-950 hover:border-emerald-300 hover:bg-emerald-100'
-    : quotaRemainingPercent <= 20
-      ? 'border-rose-300 bg-rose-100 text-rose-950 hover:border-rose-400 hover:bg-rose-200'
-      : quotaRemainingPercent <= 50
-        ? 'border-amber-300 bg-amber-100 text-amber-950 hover:border-amber-400 hover:bg-amber-200'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-950 hover:border-emerald-300 hover:bg-emerald-100';
+  const quotaChipClass = quotaRemainingPercent !== null && quotaRemainingPercent <= 20
+    ? 'border-[#fad2cf] bg-[#fce8e6] text-[#c5221f] hover:bg-[#fad2cf]'
+    : quotaRemainingPercent !== null && quotaRemainingPercent <= 50
+      ? 'border-[#feefc3] bg-[#fef7e0] text-[#b06000] hover:bg-[#feefc3]'
+      : 'border-[#ceead6] bg-[#e6f4ea] text-[#137333] hover:bg-[#ceead6]';
 
   const planLabel = user?.isSelfHosted
     ? 'Self-Hosted'
@@ -224,20 +223,20 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
         {/* Mobile Menu Button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50 md:hidden"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] md:hidden"
           aria-label="Toggle sidebar"
         >
-          <Menu className="h-4 w-4 stroke-[3]" />
+          <Menu className="h-4 w-4" />
         </button>
 
         {pathPrefix === '/demo' && !hideDemoHomeLink && (
           <Link
             to="/"
-            className="flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50 sm:hidden"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] sm:hidden"
             aria-label="Back to Rejourney home"
             title="Back to Rejourney home"
           >
-            <Home className="h-4 w-4 stroke-[3]" />
+            <Home className="h-4 w-4" />
           </Link>
         )}
 
@@ -249,16 +248,16 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
         {currentProject ? (
           <>
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-sm font-extrabold leading-none text-slate-950">{currentProject.name}</h1>
+              <h1 className="truncate text-sm font-medium leading-none text-[#202124]">{currentProject.name}</h1>
               <div className="hidden items-center gap-1.5 sm:flex">
-                {currentProject.platforms.map((platform, index) => (
-                  <span key={platform} className={`flex items-center gap-1 border border-slate-200 px-1.5 py-px text-[10px] font-bold uppercase leading-none text-slate-600 ${index % 2 === 0 ? 'bg-cyan-50' : 'bg-emerald-50'}`}>
-                    {platform}
+                {currentProject.platforms.map((platform) => (
+                  <span key={platform} className="flex items-center gap-1 rounded-none bg-[#f1f3f4] px-2 py-0.5 text-[11px] font-medium leading-4 text-[#3c4043]">
+                    {formatSetupPlatform(platform)}
                   </span>
                 ))}
                 {compactRetentionLabel && (
                   <span
-                    className="hidden items-center gap-1 border border-slate-200 bg-pink-50 px-1.5 py-px text-[10px] font-bold uppercase leading-none text-slate-600 lg:flex"
+                    className="hidden items-center gap-1 rounded-none bg-[#f1f3f4] px-2 py-0.5 text-[11px] font-medium leading-4 text-[#3c4043] lg:flex"
                     title={`${teamPlan?.videoRetentionLabel} video retention`}
                   >
                     {compactRetentionLabel} video retention
@@ -268,7 +267,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
             </div>
           </>
         ) : (
-          <div className="text-sm font-semibold text-slate-500">Select a project</div>
+          <div className="text-sm text-[#5f6368]">Select a project</div>
         )}
       </div>
 
@@ -277,15 +276,15 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
         {currentProject?.publicKey && (
           <button
             onClick={handleCopyPublicKey}
-            className="group hidden h-8 shrink-0 items-center justify-center gap-1.5 border border-slate-200 bg-white px-2 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:shadow-none sm:flex"
+            className="group hidden h-8 shrink-0 items-center justify-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3 transition-colors hover:bg-[#f8fafd] sm:flex"
             title={`Copy Public Key: ${currentProject.publicKey}`}
             aria-label="Copy public key"
           >
-            <span className="font-mono text-[11px] font-black leading-none text-slate-950">{compactPublicKey}</span>
+            <span className="font-mono text-[11px] leading-none text-[#3c4043]">{compactPublicKey}</span>
             {copiedKey ? (
-              <Check className="h-4 w-4 text-black stroke-[3]" />
+              <Check className="h-4 w-4 text-[#137333]" />
             ) : (
-              <Copy className="h-4 w-4 text-black transition-colors group-hover:text-[#5dadec] stroke-[2]" />
+              <Copy className="h-4 w-4 text-[#5f6368] transition-colors group-hover:text-[#1a73e8]" />
             )}
           </button>
         )}
@@ -294,27 +293,27 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
         <button
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className={`flex h-8 w-8 shrink-0 items-center justify-center border border-slate-200 shadow-sm transition-all active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${isRefreshing
-            ? 'bg-white'
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isRefreshing
+            ? 'text-[#5f6368]'
             : refreshCompletedPulse
-              ? 'bg-emerald-100 border-emerald-200'
-              : 'bg-white hover:bg-slate-50 hover:border-slate-300'
+              ? 'bg-[#e6f4ea] text-[#137333]'
+              : 'text-[#5f6368] hover:bg-[#f1f3f4]'
             }`}
           title={refreshTitle}
           aria-label="Refresh dashboard data"
         >
-          <RefreshCw className={`h-4 w-4 text-black stroke-[3] ${isRefreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
         </button>
 
         {/* Plan / Usage - Team usage this month */}
         {user && currentTeam && (
           <Link
             to={`${pathPrefix}/billing`}
-            className={`hidden h-8 min-w-8 shrink-0 items-center justify-center whitespace-nowrap border px-2.5 shadow-sm transition-all active:shadow-none lg:flex ${quotaChipClass}`}
+            className={`hidden h-8 min-w-8 shrink-0 items-center justify-center whitespace-nowrap rounded-none border px-3 transition-colors lg:flex ${quotaChipClass}`}
             title={usageChipTitle}
             aria-label={`${quotaChipLabel}. Open Plan & Billing for ${currentTeam.name}`}
           >
-            <span className="text-xs font-black">
+            <span className="text-xs font-medium">
               {quotaChipLabel}
             </span>
           </Link>
@@ -324,29 +323,29 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
         <div className="relative shrink-0">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="group flex h-8 max-w-full items-center gap-1.5 border border-slate-200 bg-white px-1.5 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:shadow-none focus:outline-none"
+            className="group flex h-8 max-w-full items-center gap-1 rounded-none border border-[#dadce0] bg-white pl-1 pr-1.5 transition-colors hover:bg-[#f8fafd] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
             title={displayLabel || userEmail || 'Account menu'}
             aria-label="Open account menu"
           >
-            <div className="flex h-5 w-5 items-center justify-center bg-slate-700 text-white">
-              <UserIcon className="h-3.5 w-3.5 stroke-[3]" />
+            <div className="flex h-6 w-6 items-center justify-center rounded-none bg-[#e8f0fe] text-[#1967d2]">
+              <UserIcon className="h-3.5 w-3.5" />
             </div>
-            <ChevronDown className="h-3.5 w-3.5 text-black stroke-[3]" />
+            <ChevronDown className="h-3.5 w-3.5 text-[#5f6368]" />
           </button>
 
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 p-1 shadow-lg rounded-md z-[100] w-56 animate-in fade-in zoom-in-95 duration-100">
-                <div className="mb-1 border-b border-slate-100 bg-slate-50 px-4 py-3 rounded-t-sm">
-                  <div className="truncate text-xs font-bold text-black">{displayLabel}</div>
-                  <div className="text-[10px] text-slate-500 truncate font-mono">{userEmail}</div>
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-none border border-[#dadce0] bg-white p-1 shadow-[0_4px_16px_rgba(60,64,67,0.2)] z-[100]">
+                <div className="mb-1 border-b border-[#e8eaed] px-3 py-2.5">
+                  <div className="truncate text-sm font-medium text-[#202124]">{displayLabel}</div>
+                  <div className="truncate text-xs text-[#5f6368]">{userEmail}</div>
                 </div>
                 <button
                   onClick={() => navigate(`${pathPrefix}/account`)}
-                  className="w-full text-left px-4 py-2 text-xs font-bold text-black hover:bg-[#ecfeff] flex items-center gap-2"
+                  className="flex w-full items-center gap-2 rounded-none px-3 py-2 text-left text-sm text-[#3c4043] hover:bg-[#f1f3f4]"
                 >
-                  <CreditCard className="w-3.5 h-3.5 text-slate-500" />
+                  <UserIcon className="h-4 w-4 text-[#5f6368]" />
                   Account
                 </button>
                 <button
@@ -354,10 +353,10 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
                     setShowUserMenu(false);
                     logout();
                   }}
-                  className="w-full text-left px-4 py-2 text-xs font-bold text-red-600 hover:bg-[#fecaca] flex items-center gap-2"
+                  className="flex w-full items-center gap-2 rounded-none px-3 py-2 text-left text-sm text-[#d93025] hover:bg-[#fce8e6]"
                 >
-                  <LogOut className="w-3.5 h-3.5 stroke-[2px]" />
-                  Logout
+                  <LogOut className="h-4 w-4" />
+                  Log out
                 </button>
               </div>
             </>

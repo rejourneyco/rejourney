@@ -47,7 +47,18 @@ import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
+import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { Modal } from '~/shared/ui/core/Modal';
+import {
+    dashboardButtonClass,
+    dashboardChipClass,
+    dashboardFieldClass,
+    dashboardLabelClass,
+    dashboardSelectedClass,
+    type DashboardButtonVariant,
+    type DashboardChipTone,
+} from '~/shared/ui/core/dashboardStyles';
+import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { projectHasRecentData } from '~/features/app/setup/setupUtils';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
@@ -162,23 +173,17 @@ function affectedEstimateSampleLabel(leak: LeakSummary): string | null {
 }
 
 function affectedBadgeLabel(leak: LeakSummary, percent: number | null): string {
-    if (percent !== null) return `Est affected ${formatPercentLabel(percent)}`;
+    if (percent !== null) return `Est. affected ${formatPercentLabel(percent)}`;
     const users = estimatedAffectedUsers(leak);
-    return users === null ? 'Users unknown' : `Est ${formatCountLabel(users, 'user')}`;
+    return users === null ? 'Users unknown' : `Est. ${formatCountLabel(users, 'user')}`;
 }
 
-function generalAccentClass(leak: LeakSummary): string {
-    const accents = ['bg-[#67e8f9]', 'bg-[#86efac]', 'bg-[#f9a8d4]', 'bg-[#c4b5fd]', 'bg-[#5dadec]'];
-    const key = `${leak.issueType}:${leak.shortId}:${leak.title}`;
-    const index = Array.from(key).reduce((sum, char) => sum + char.charCodeAt(0), 0) % accents.length;
-    return accents[index];
-}
-
-function affectedPercentClass(percent: number | null): string {
-    if (percent === null) return 'border-slate-200 bg-slate-50 text-slate-600';
-    if (percent >= 75) return 'border-rose-200 bg-rose-50 text-rose-700';
-    if (percent >= 50) return 'border-amber-200 bg-amber-50 text-amber-700';
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+// Tone follows the High / Medium / Low affected filter, so the chip color carries severity.
+function affectedPercentTone(percent: number | null): DashboardChipTone {
+    if (percent === null) return 'neutral';
+    if (percent >= 75) return 'danger';
+    if (percent >= 50) return 'warning';
+    return 'neutral';
 }
 
 function affectedFilterMatches(leak: LeakSummary, filter: AffectedFilter): boolean {
@@ -277,7 +282,7 @@ function formatDateTimeValue(value: string | null | undefined, timeZone: string)
 function humanizeToken(value: string): string {
     return value
         .replace(/[_-]+/g, ' ')
-        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+        .replace(/\b\w/, (letter) => letter.toUpperCase());
 }
 
 function formatRunTrigger(trigger: string): string {
@@ -289,15 +294,15 @@ function formatRunTrigger(trigger: string): string {
 function runStatusMeta(status: string): { className: string; label: string } {
     const normalized = status.toLowerCase();
     if (normalized === 'success' || normalized === 'succeeded') {
-        return { label: 'Completed', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+        return { label: 'Completed', className: dashboardChipClass('success') };
     }
     if (normalized === 'running') {
-        return { label: 'Running', className: 'border-blue-200 bg-blue-50 text-blue-700' };
+        return { label: 'Running', className: dashboardChipClass('info') };
     }
     if (normalized === 'failed') {
-        return { label: 'Failed', className: 'border-rose-200 bg-rose-50 text-rose-700' };
+        return { label: 'Failed', className: dashboardChipClass('danger') };
     }
-    return { label: humanizeToken(status || 'unknown'), className: 'border-slate-200 bg-slate-50 text-slate-600' };
+    return { label: humanizeToken(status || 'unknown'), className: dashboardChipClass('neutral') };
 }
 
 function formatEmailStatus(run: LeakRunHistoryItem): { className: string; label: string; detail: string } {
@@ -307,7 +312,7 @@ function formatEmailStatus(run: LeakRunHistoryItem): { className: string; label:
         return {
             label: 'Email sent',
             detail: recipients > 0 ? `${recipients} recipient${recipients === 1 ? '' : 's'}` : 'Digest recorded as sent',
-            className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            className: dashboardChipClass('success'),
         };
     }
     if (status === 'skipped') {
@@ -316,19 +321,19 @@ function formatEmailStatus(run: LeakRunHistoryItem): { className: string; label:
             : run.email?.reason === 'no_issues'
                 ? 'No inbox issues were created, so no email was sent.'
                 : 'Digest was skipped for this run.';
-        return { label: 'No email', detail: reason, className: 'border-slate-200 bg-slate-50 text-slate-600' };
+        return { label: 'No email', detail: reason, className: dashboardChipClass('neutral') };
     }
     if (status === 'unknown') {
         return {
             label: 'Email unknown',
             detail: 'Issue-detection found inbox issues, but delivery is verified in Rejourney alert history.',
-            className: 'border-amber-200 bg-amber-50 text-amber-700',
+            className: dashboardChipClass('warning'),
         };
     }
     return {
         label: 'Not recorded',
         detail: 'This run did not include a delivery audit.',
-        className: 'border-slate-200 bg-slate-50 text-slate-600',
+        className: dashboardChipClass('neutral'),
     };
 }
 
@@ -633,19 +638,21 @@ function PaneButton({
     disabled,
     icon,
     onClick,
+    variant = 'secondary',
 }: {
     children: React.ReactNode;
     className?: string;
     disabled?: boolean;
     icon?: React.ReactNode;
     onClick?: () => void;
+    variant?: DashboardButtonVariant;
 }) {
     return (
         <button
             type="button"
             disabled={disabled}
             onClick={onClick}
-            className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold leading-snug text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+            className={`${dashboardButtonClass(variant, 'md')} ${className}`}
         >
             {icon}
             {children}
@@ -654,7 +661,7 @@ function PaneButton({
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-    return <h3 className="dashboard-label leading-5">{children}</h3>;
+    return <h3 className="text-sm font-medium leading-5 text-[#202124]">{children}</h3>;
 }
 
 function LeakReplayLink({
@@ -673,11 +680,16 @@ function LeakReplayLink({
     return (
         <Link
             to={session.replayUrl || (sessionId ? `${pathPrefix}/sessions/${sessionId}` : `${pathPrefix}/sessions`)}
-            className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#dadce0] bg-white px-3 py-2 text-sm font-semibold text-[#1a73e8] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+            className="flex min-w-0 items-center justify-between gap-3 rounded-none border border-[#dadce0] bg-white px-3 py-2 text-sm font-medium text-[#1a73e8] transition-colors hover:bg-[#f1f3f4]"
             title={`Open replay ${sessionUuid}`}
         >
             <span className="flex min-w-0 items-center gap-2">
-                <AnimalAvatar animal={replayAnimal} seed={replayAnimalSeed} size={24} neutral />
+                <AnimalAvatar
+                    animal={replayAnimal}
+                    seed={replayAnimalSeed}
+                    size={24}
+                    neutral
+                />
                 <span className="min-w-0 truncate font-mono" title={sessionUuid}>
                     {sessionUuid}
                 </span>
@@ -700,43 +712,38 @@ function LeakRow({
         ? 'Why it matters:'
         : 'Split from group:';
     const affectedPercent = estimateAffectedPercent(leak);
-    const accentClass = generalAccentClass(leak);
-
-    const isZoomLeak = leak.id === 'demo-leak-ready-checkout-coupon';
 
     return (
         <button
             type="button"
             onClick={onSelect}
-            className={`group relative block w-full border-b border-[#dadce0] px-4 py-3 text-left transition-colors sm:px-5 ${
-                active ? 'bg-[#f1f3ed]' : isZoomLeak ? 'bg-white animate-priority-leak-pulse' : 'bg-white hover:bg-[#f8fafd]'
+            className={`block w-full border-b border-[#e8eaed] px-4 py-3 text-left transition-colors sm:px-5 ${
+                active ? dashboardSelectedClass : 'bg-white hover:bg-[#f1f3f4]'
             }`}
         >
-            <span className={`absolute bottom-0 left-0 top-0 w-[3px] ${accentClass}`} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_128px]">
                 <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${accentClass}`} />
                         <span className="min-w-0 truncate text-sm font-medium leading-5 text-[#202124]">
                             {leak.title}
                         </span>
                     </div>
-                    <p className="mt-1.5 line-clamp-2 pr-2 text-xs font-medium leading-5 text-[#5f6368]">
-                        <span className={leadLabel === 'Why it matters:' ? 'font-semibold text-[#b3261e]' : 'font-semibold text-[#3c4043]'}>
+                    <p className="mt-1 line-clamp-2 pr-2 text-xs leading-5 text-[#5f6368]">
+                        <span className="font-medium text-[#3c4043]">
                             {leadLabel}
                         </span>{' '}
                         {leak.whyItMatters}
                     </p>
-                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-[#6f7785]">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium tabular-nums text-[#5f6368]">
                         <span>{formatCountLabel(leak.affectedSessionsCount, 'session')}</span>
                         <span className="truncate">{formatIssueType(leak.issueType)}</span>
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-	                    <span className={`inline-flex h-6 items-center rounded-sm border px-2 text-[10px] font-bold uppercase leading-none tabular-nums ${affectedPercentClass(affectedPercent)}`}>
-	                        {affectedBadgeLabel(leak, affectedPercent)}
-	                    </span>
-                    <span className="text-[11px] font-semibold tabular-nums text-[#6f7785]">{affectedUsersLabel(leak)}</span>
+                    <span className={`${dashboardChipClass(affectedPercentTone(affectedPercent))} tabular-nums`}>
+                        {affectedBadgeLabel(leak, affectedPercent)}
+                    </span>
+                    <span className="text-[11px] font-medium tabular-nums text-[#5f6368]">{affectedUsersLabel(leak)}</span>
                 </div>
             </div>
         </button>
@@ -748,11 +755,11 @@ function NoIssuesDetectedState() {
 
     return (
         <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f1f3f4]">
-                <Inbox className="h-7 w-7 text-[#9aa0a6]" aria-hidden />
+            <span className="flex h-14 w-14 items-center justify-center rounded-none bg-[#f1f3f4]">
+                <Inbox className="h-7 w-7 text-[#80868b]" aria-hidden />
             </span>
             <div className="max-w-xs">
-                <p className="text-sm font-semibold text-[#202124]">Your inbox is empty</p>
+                <p className="text-sm font-medium text-[#202124]">Your inbox is empty</p>
                 <p className="mt-1.5 text-sm font-medium leading-6 text-[#5f6368]">
                     Scans run daily around {timing.localScanLabel}. Issues appear here once Rejourney groups problems across sessions.
                 </p>
@@ -794,41 +801,41 @@ function GithubRepositorySettings({
             : needsAttention
                 ? 'Needs attention'
                 : 'Not connected';
-    const stateClassName = linked
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    const stateClassName = dashboardChipClass(linked
+        ? 'success'
         : needsAttention
-            ? 'border-amber-200 bg-amber-50 text-amber-700'
-            : 'border-slate-200 bg-slate-50 text-slate-600';
+            ? 'warning'
+            : 'neutral');
 
     return (
         <div className="px-5 py-4 sm:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                        <Github className="h-4 w-4 text-[#3c4043]" />
-                        <h3 className="text-sm font-semibold text-[#202124]">
-                            GitHub repository <span className="font-medium text-[#6f7785]">(optional)</span>
+                        <Github className="h-4 w-4 text-[#5f6368]" />
+                        <h3 className="text-sm font-medium text-[#202124]">
+                            GitHub repository <span className="font-normal text-[#5f6368]">(optional)</span>
                         </h3>
                     </div>
                     <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
                         Add exact source locations and code-specific fix plans to future leak context.
                     </p>
                 </div>
-                <span className={`inline-flex h-7 shrink-0 items-center self-start rounded-md border px-2.5 text-xs font-semibold ${stateClassName}`}>
+                <span className={`${stateClassName} shrink-0 self-start`}>
                     {stateLabel}
                 </span>
             </div>
 
             {loading ? (
-                <div className="mt-4 flex h-12 items-center border-t border-[#edf0f3] text-sm font-semibold text-[#5f6368]">
+                <div className="mt-4 flex h-12 items-center border-t border-[#e8eaed] text-sm font-medium text-[#5f6368]">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Checking GitHub repository
                 </div>
             ) : (
-                <div className="mt-4 border-t border-[#edf0f3] pt-4">
+                <div className="mt-4 border-t border-[#e8eaed] pt-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-[#202124]">{repoName}</p>
+                            <p className="truncate text-sm font-medium text-[#202124]">{repoName}</p>
                             {repo ? (
                                 <>
                                     <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
@@ -840,7 +847,7 @@ function GithubRepositorySettings({
                                     </p>
                                     <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
                                         Readable scope:{' '}
-                                        <span className="font-semibold text-[#202124]">
+                                        <span className="font-medium text-[#202124]">
                                             {readableScope.label}{readableScope.extraCount > 0 ? `, +${readableScope.extraCount} more` : ''}
                                         </span>
                                     </p>
@@ -853,7 +860,7 @@ function GithubRepositorySettings({
                         </div>
                         <Link
                             to={setupHref}
-                            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold !text-white transition-colors hover:bg-[#2563eb] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                            className={`${dashboardButtonClass('primary', 'md')} !text-white`}
                             style={{ color: '#ffffff' }}
                         >
                             <Settings className="h-4 w-4 text-white" />
@@ -862,7 +869,7 @@ function GithubRepositorySettings({
                     </div>
 
                     {installError && (
-                        <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                        <p className="mt-3 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-xs font-medium text-[#a50e0e]">
                             {installError}
                         </p>
                     )}
@@ -872,7 +879,7 @@ function GithubRepositorySettings({
                             type="button"
                             onClick={onInstall}
                             disabled={installBusy}
-                            className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className={`mt-3 ${dashboardButtonClass('secondary', 'md')}`}
                         >
                             {installBusy ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -898,17 +905,17 @@ function RunMetric({
     tone?: 'default' | 'good' | 'warn' | 'bad';
 }) {
     const toneClass = tone === 'good'
-        ? 'text-emerald-700'
+        ? 'text-[#137333]'
         : tone === 'warn'
-            ? 'text-amber-700'
+            ? 'text-[#b06000]'
             : tone === 'bad'
-                ? 'text-rose-700'
+                ? 'text-[#c5221f]'
                 : 'text-[#202124]';
 
     return (
-        <div className="min-w-0 border-b border-[#edf0f3] py-3">
-            <p className={`text-lg font-semibold tabular-nums ${toneClass}`}>{value}</p>
-            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">{label}</p>
+        <div className="min-w-0 border-b border-[#e8eaed] py-3">
+            <p className={`text-lg font-medium tabular-nums ${toneClass}`}>{value}</p>
+            <p className={`mt-0.5 ${dashboardLabelClass}`}>{label}</p>
         </div>
     );
 }
@@ -965,11 +972,11 @@ function RunHistoryModal({
             panelClassName="max-w-[1120px]"
         >
             <div className="bg-white">
-                <div className="border-b border-[#edf0f3] px-5 py-4 sm:px-6">
+                <div className="border-b border-[#e8eaed] px-5 py-4 sm:px-6">
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                         <div className="min-w-0">
-                            <div className="flex items-center gap-2 text-sm font-semibold text-[#202124]">
-                                <CalendarClock className="h-4 w-4 text-[#1a73e8]" />
+                            <div className="flex items-center gap-2 text-sm font-medium text-[#202124]">
+                                <CalendarClock className="h-4 w-4 text-[#5f6368]" />
                                 Daily leak scans run around {localScanLabel}
                             </div>
                             <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-[#5f6368]">
@@ -980,7 +987,7 @@ function RunHistoryModal({
                             type="button"
                             onClick={onRefresh}
                             disabled={loading}
-                            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] disabled:cursor-not-allowed disabled:opacity-60"
+                            className={dashboardButtonClass('secondary', 'md')}
                         >
                             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                             Refresh
@@ -988,42 +995,42 @@ function RunHistoryModal({
                     </div>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <div className="border-y border-[#edf0f3] py-3">
-                            <p className="text-lg font-semibold tabular-nums text-[#202124]">{formatCompactNumber(totalRuns)}</p>
-                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Runs recorded</p>
+                        <div className="border-y border-[#e8eaed] py-3">
+                            <p className="text-lg font-medium tabular-nums text-[#202124]">{formatCompactNumber(totalRuns)}</p>
+                            <p className={`mt-0.5 ${dashboardLabelClass}`}>Runs recorded</p>
                         </div>
-                        <div className="border-y border-[#edf0f3] py-3">
-                            <p className="truncate text-sm font-semibold text-[#202124]">{latestRunLabel}</p>
-                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Latest run</p>
+                        <div className="border-y border-[#e8eaed] py-3">
+                            <p className="truncate text-sm font-medium tabular-nums text-[#202124]">{latestRunLabel}</p>
+                            <p className={`mt-0.5 ${dashboardLabelClass}`}>Latest run</p>
                         </div>
-                        <div className="border-y border-[#edf0f3] py-3">
-                            <p className="truncate text-sm font-semibold text-[#202124]">{lastSuccessLabel}</p>
-                            <p className="mt-0.5 text-xs font-semibold uppercase text-[#6f7785]">Last completed</p>
+                        <div className="border-y border-[#e8eaed] py-3">
+                            <p className="truncate text-sm font-medium tabular-nums text-[#202124]">{lastSuccessLabel}</p>
+                            <p className={`mt-0.5 ${dashboardLabelClass}`}>Last completed</p>
                         </div>
                     </div>
                 </div>
 
                 {unavailableMessage && (
-                    <div className="mx-5 mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 sm:mx-6">
+                    <div className="mx-5 mt-4 rounded-none bg-[#fef7e0] px-3 py-2 text-sm font-medium text-[#b06000] sm:mx-6">
                         {unavailableMessage}
                     </div>
                 )}
 
                 {error && (
-                    <div className="mx-5 mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 sm:mx-6">
+                    <div className="mx-5 mt-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-sm font-medium text-[#a50e0e] sm:mx-6">
                         {error}
                     </div>
                 )}
 
                 {loading && runs.length === 0 ? (
-                    <div className="flex h-72 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                    <div className="flex h-72 items-center justify-center text-sm font-medium text-[#5f6368]">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Loading run history
                     </div>
                 ) : runs.length === 0 ? (
                     <div className="flex h-72 flex-col items-center justify-center px-6 text-center">
-                        <History className="h-9 w-9 text-[#9aa0a6]" />
-                        <p className="mt-3 text-sm font-semibold text-[#202124]">
+                        <History className="h-9 w-9 text-[#80868b]" />
+                        <p className="mt-3 text-sm font-medium text-[#202124]">
                             {unavailableMessage ? 'Run history is not connected yet' : 'No scans recorded yet'}
                         </p>
                         <p className="mt-1 max-w-sm text-sm font-medium leading-6 text-[#5f6368]">
@@ -1032,7 +1039,7 @@ function RunHistoryModal({
                     </div>
                 ) : (
                     <div className="grid min-h-[520px] lg:grid-cols-[360px_minmax(0,1fr)]">
-                        <div className="border-b border-[#edf0f3] lg:border-b-0 lg:border-r">
+                        <div className="border-b border-[#e8eaed] lg:border-b-0 lg:border-r">
                             <div className="max-h-[520px] overflow-y-auto">
                                 {runs.map((run) => {
                                     const status = runStatusMeta(run.status);
@@ -1042,24 +1049,24 @@ function RunHistoryModal({
                                             key={run.id}
                                             type="button"
                                             onClick={() => setSelectedRunId(run.id)}
-                                            className={`block w-full border-b border-[#edf0f3] px-5 py-4 text-left transition-colors ${
-                                                active ? 'bg-[#f8fafd]' : 'bg-white hover:bg-[#f8fafd]'
+                                            className={`block w-full border-b border-[#e8eaed] px-5 py-4 text-left transition-colors ${
+                                                active ? dashboardSelectedClass : 'bg-white hover:bg-[#f1f3f4]'
                                             }`}
                                         >
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0">
-                                                    <p className="truncate text-sm font-semibold text-[#202124]">
+                                                    <p className="truncate text-sm font-medium tabular-nums text-[#202124]">
                                                         {formatDateTimeValue(run.startedAt, timeZone)}
                                                     </p>
                                                     <p className="mt-1 text-xs font-medium leading-5 text-[#5f6368]">
                                                         {getRunPrimaryExplanation(run)}
                                                     </p>
                                                 </div>
-                                                <span className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold ${status.className}`}>
+                                                <span className={`${status.className} shrink-0`}>
                                                     {status.label}
                                                 </span>
                                             </div>
-                                            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-[#6f7785]">
+                                            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium tabular-nums text-[#5f6368]">
                                                 <span>{formatCompactNumber(run.sessionsScanned)} scanned</span>
                                                 <span>{formatCompactNumber(run.admittedSessions)} admitted</span>
                                                 <span>{formatCompactNumber(run.visibleIssues)} issues</span>
@@ -1073,26 +1080,26 @@ function RunHistoryModal({
 
                         {selectedRun && selectedStatus && selectedEmail && (
                             <div className="max-h-[520px] overflow-y-auto px-5 py-4 sm:px-6">
-                                <div className="flex flex-col gap-3 border-b border-[#edf0f3] pb-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex flex-col gap-3 border-b border-[#e8eaed] pb-4 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="min-w-0">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <span className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${selectedStatus.className}`}>
+                                            <span className={selectedStatus.className}>
                                                 {selectedStatus.label}
                                             </span>
-                                            <span className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${selectedEmail.className}`}>
+                                            <span className={selectedEmail.className}>
                                                 {selectedEmail.label}
                                             </span>
                                         </div>
-                                        <h3 className="mt-3 text-lg font-semibold text-[#202124]">
+                                        <h3 className="mt-3 text-lg font-medium text-[#202124]">
                                             {formatRunTrigger(selectedRun.trigger)}
                                         </h3>
-                                        <p className="mt-1 font-mono text-xs font-semibold text-[#6f7785]">
+                                        <p className="mt-1 font-mono text-xs text-[#5f6368]">
                                             {selectedRun.id}
                                         </p>
                                     </div>
                                     <div className="text-left sm:text-right">
-                                        <p className="text-sm font-semibold text-[#202124]">{formatDateTimeValue(selectedRun.startedAt, timeZone)}</p>
-                                        <p className="mt-1 text-xs font-semibold text-[#6f7785]">Duration {formatDurationMs(selectedRun.durationMs)}</p>
+                                        <p className="text-sm font-medium tabular-nums text-[#202124]">{formatDateTimeValue(selectedRun.startedAt, timeZone)}</p>
+                                        <p className="mt-1 text-xs font-medium tabular-nums text-[#5f6368]">Duration {formatDurationMs(selectedRun.durationMs)}</p>
                                     </div>
                                 </div>
 
@@ -1107,8 +1114,8 @@ function RunHistoryModal({
 
                                 <div className="mt-5 grid gap-5 xl:grid-cols-2">
                                     <section>
-                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">What happened</h4>
-                                        <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                        <h4 className={dashboardLabelClass}>What happened</h4>
+                                        <div className="mt-2 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                             {(selectedRun.notes.length ? selectedRun.notes : [getRunPrimaryExplanation(selectedRun)]).map((note) => (
                                                 <p key={note} className="py-2.5 text-sm font-medium leading-6 text-[#3c4043]">
                                                     {note}
@@ -1118,12 +1125,12 @@ function RunHistoryModal({
                                     </section>
 
                                     <section>
-                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Digest email</h4>
-                                        <div className="mt-2 border-y border-[#edf0f3] py-3">
-                                            <p className="text-sm font-semibold text-[#202124]">{selectedEmail.label}</p>
+                                        <h4 className={dashboardLabelClass}>Digest email</h4>
+                                        <div className="mt-2 border-y border-[#e8eaed] py-3">
+                                            <p className="text-sm font-medium text-[#202124]">{selectedEmail.label}</p>
                                             <p className="mt-1 text-sm font-medium leading-6 text-[#5f6368]">{selectedEmail.detail}</p>
                                             {selectedRun.email?.sentAt && (
-                                                <p className="mt-1 text-xs font-semibold text-[#6f7785]">
+                                                <p className="mt-1 text-xs font-medium tabular-nums text-[#5f6368]">
                                                     Sent {formatDateTimeValue(selectedRun.email.sentAt, timeZone)}
                                                 </p>
                                             )}
@@ -1133,34 +1140,34 @@ function RunHistoryModal({
 
                                 <div className="mt-5 grid gap-5 xl:grid-cols-2">
                                     <section>
-                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Scan settings</h4>
-                                        <dl className="mt-2 grid grid-cols-2 gap-x-4 border-y border-[#edf0f3] py-2 text-sm">
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Dry run</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.dryRun)}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Window</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.lookbackHours, 'h')}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Daily cap</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.dailyCap)}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Admission</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.topPercent, '%')}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">SPA gate</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.spaGate)}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Promotion threshold</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionThreshold)}</dd>
-                                            <dt className="py-1.5 font-medium text-[#6f7785]">Analyzed for promotion</dt>
-                                            <dd className="py-1.5 text-right font-semibold text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionAnalyzedSessions)}</dd>
+                                        <h4 className={dashboardLabelClass}>Scan settings</h4>
+                                        <dl className="mt-2 grid grid-cols-2 gap-x-4 border-y border-[#e8eaed] py-2 text-sm">
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Dry run</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.dryRun)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Window</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.lookbackHours, 'h')}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Daily cap</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.dailyCap)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Admission</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.topPercent, '%')}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">SPA gate</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.spaGate)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Promotion threshold</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionThreshold)}</dd>
+                                            <dt className="py-1.5 font-medium text-[#5f6368]">Analyzed for promotion</dt>
+                                            <dd className="py-1.5 text-right font-medium tabular-nums text-[#202124]">{formatSettingValue(selectedRun.settings?.adaptivePromotionAnalyzedSessions)}</dd>
                                         </dl>
                                     </section>
 
                                     <section>
-                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Decision breakdown</h4>
-                                        <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                        <h4 className={dashboardLabelClass}>Decision breakdown</h4>
+                                        <div className="mt-2 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                             {objectEntriesSorted(selectedRun.decisionBreakdown).length === 0 ? (
                                                 <p className="py-3 text-sm font-medium text-[#5f6368]">No decision rows were recorded.</p>
                                             ) : objectEntriesSorted(selectedRun.decisionBreakdown).map(([key, value]) => (
                                                 <div key={key} className="flex items-center justify-between gap-3 py-2 text-sm">
                                                     <span className="font-medium text-[#5f6368]">{humanizeToken(key)}</span>
-                                                    <span className="font-semibold tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
+                                                    <span className="font-medium tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -1168,14 +1175,14 @@ function RunHistoryModal({
                                 </div>
 
                                 <section className="mt-5">
-                                    <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Analysis breakdown</h4>
-                                    <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                    <h4 className={dashboardLabelClass}>Analysis breakdown</h4>
+                                    <div className="mt-2 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                         {objectEntriesSorted(selectedRun.analysisBreakdown).length === 0 ? (
                                             <p className="py-3 text-sm font-medium text-[#5f6368]">No per-session analysis rows were attached to this run.</p>
                                         ) : objectEntriesSorted(selectedRun.analysisBreakdown).map(([key, value]) => (
                                             <div key={key} className="flex items-center justify-between gap-3 py-2 text-sm">
                                                 <span className="font-medium text-[#5f6368]">{humanizeToken(key)}</span>
-                                                <span className="font-semibold tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
+                                                <span className="font-medium tabular-nums text-[#202124]">{formatCompactNumber(value)}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -1183,11 +1190,11 @@ function RunHistoryModal({
 
                                 {selectedRun.errors.length > 0 && (
                                     <section className="mt-5">
-                                        <h4 className="text-xs font-semibold uppercase text-[#6f7785]">Warnings and errors</h4>
-                                        <div className="mt-2 divide-y divide-rose-100 border-y border-rose-100">
+                                        <h4 className={dashboardLabelClass}>Warnings and errors</h4>
+                                        <div className="mt-2 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                             {selectedRun.errors.map((item, index) => (
                                                 <div key={`${item.message}-${index}`} className="py-2.5">
-                                                    <p className="text-sm font-semibold text-rose-700">
+                                                    <p className="text-sm font-medium text-[#c5221f]">
                                                         {item.stage ? humanizeToken(item.stage) : 'Warning'}
                                                         {item.sessionId ? ` · ${item.sessionId}` : ''}
                                                     </p>
@@ -1694,9 +1701,7 @@ export const Leaks: React.FC = () => {
     const showNoIssuesDetectedState = !showSetupEmptyState && !isLoading && !error && leaks.length === 0 && !hasSignalViewFilter;
     const showFilteredEmptyState = !showSetupEmptyState && !showNoIssuesDetectedState && !isLoading && !error && filteredLeaks.length === 0;
     const loadingSignalsLabel = 'Loading signals';
-    const copyButtonClassName = copied
-        ? 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-800 !bg-emerald-800 !text-white hover:!border-emerald-900 hover:!bg-emerald-900 ring-2 ring-emerald-200'
-        : 'w-full sm:w-auto sm:min-w-[152px] !border-emerald-700 !bg-emerald-700 !text-white hover:!border-emerald-800 hover:!bg-emerald-800 disabled:!border-[#dadce0] disabled:!bg-slate-100 disabled:!text-slate-400';
+    const copyButtonClassName = 'w-full sm:w-auto sm:min-w-[152px]';
     const copyButtonIcon = copied
         ? <CheckCircle2 className="h-4 w-4" />
         : <FileText className="h-4 w-4" />;
@@ -1709,55 +1714,38 @@ export const Leaks: React.FC = () => {
 
     return (
         <div className="rejourney-general-page flex h-full min-h-0 flex-col overflow-hidden bg-[#f8fafd] font-sans text-[#202124]">
-            <style>{`
-                @keyframes leak-priority-pulse {
-                    0%, 100% {
-                        box-shadow: inset 4px 0 0 #06b6d4;
-                    }
-                    50% {
-                        box-shadow: inset 4px 0 0 #06b6d4, 0 0 16px rgba(6, 182, 212, 0.42);
-                        background-color: #f0fdfa;
-                    }
-                }
-                .animate-priority-leak-pulse {
-                    animation: leak-priority-pulse 2.2s ease-in-out infinite;
-                }
-            `}</style>
-            <div className="shrink-0 border-b border-[#dadce0] bg-white">
-                <div className="flex h-11 w-full items-center justify-between gap-3 px-4 sm:px-6">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <Inbox className="h-4 w-4 shrink-0 text-[#6f7785]" />
-                        <h1 className="truncate text-[15px] font-semibold leading-none text-[#202124]">Inbox</h1>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setShowRunHistory(true);
-                                void loadRunHistory();
-                            }}
-                            className="relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
-                        >
-                            <History className="h-4 w-4" />
-                            Run history
-                            {runHistoryBadge && (
-                                <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-[#1a73e8] px-1.5 text-[10px] font-bold leading-5 text-white">
-                                    {runHistoryBadge}
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setShowLeakAlertSettings(true);
-                            }}
-                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-3 text-xs font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] focus:outline-none focus:ring-2 focus:ring-blue-100"
-                        >
-                            <Settings className="h-4 w-4" />
-                            Settings
-                        </button>
-                    </div>
-                </div>
+            <div className="shrink-0">
+                <DashboardPageHeader
+                    title="Leaks"
+                    {...dashboardPageHeaderProps('leaks')}
+                >
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowRunHistory(true);
+                            void loadRunHistory();
+                        }}
+                        className={dashboardButtonClass('secondary', 'sm')}
+                    >
+                        <History className="h-4 w-4" />
+                        Run history
+                        {runHistoryBadge && (
+                            <span className={`${dashboardChipClass('neutral')} ml-0.5 min-w-5 justify-center tabular-nums`}>
+                                {runHistoryBadge}
+                            </span>
+                        )}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowLeakAlertSettings(true);
+                        }}
+                        className={dashboardButtonClass('secondary', 'sm')}
+                    >
+                        <Settings className="h-4 w-4" />
+                        Settings
+                    </button>
+                </DashboardPageHeader>
             </div>
 
             <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
@@ -1766,13 +1754,10 @@ export const Leaks: React.FC = () => {
                         <div className="border-b border-[#dadce0] bg-white px-4 py-4 sm:px-5">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <div className="flex min-w-0 items-center gap-2">
-                                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#67e8f9]" />
-                                        <h2 className="truncate text-base font-medium leading-6 text-[#3c4043]">
-                                            Signals ({leaks.length})
-                                        </h2>
-                                    </div>
-                                    <p className="mt-0.5 text-sm font-medium leading-5 text-[#6f7785]">
+                                    <h2 className="truncate text-[15px] font-medium leading-6 text-[#202124]">
+                                        Signals <span className="tabular-nums">({leaks.length})</span>
+                                    </h2>
+                                    <p className="mt-0.5 text-xs leading-5 text-[#5f6368]">
                                         Ranked by estimated affected users
                                     </p>
                                 </div>
@@ -1780,20 +1765,20 @@ export const Leaks: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setIsFilterOpen((open) => !open)}
-                                        className={`mt-1 inline-flex h-8 w-8 items-center justify-center rounded-md border text-[#6f7785] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff] hover:text-[#202124] ${affectedFilter === 'all' ? 'border-transparent' : 'border-[#1a73e8] bg-[#eef4ff] text-[#1a73e8]'}`}
+                                        className={`mt-1 inline-flex h-8 w-8 items-center justify-center rounded-none border transition-colors ${affectedFilter === 'all' ? 'border-transparent text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]' : 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'}`}
                                         aria-label="Filter signals"
                                         aria-expanded={isFilterOpen}
                                     >
                                         <SlidersHorizontal className="h-4 w-4" />
                                     </button>
                                     {isFilterOpen && (
-                                        <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-md border border-[#dadce0] bg-white shadow-lg">
+                                        <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-none border border-[#dadce0] bg-white py-1 shadow-[0_4px_16px_rgba(60,64,67,0.2)]">
                                             {(['all', 'high', 'medium', 'low'] as const).map((filter) => (
                                                 <button
                                                     key={filter}
                                                     type="button"
                                                     onClick={() => applyAffectedFilter(filter)}
-                                                    className={`block w-full px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-[#f8fafd] ${affectedFilter === filter ? 'bg-[#eef4ff] text-[#1a73e8]' : 'text-[#3c4043]'}`}
+                                                    className={`block w-full rounded-none px-3 py-2 text-left text-sm transition-colors ${affectedFilter === filter ? dashboardSelectedClass : 'text-[#3c4043] hover:bg-[#f1f3f4]'}`}
                                                 >
                                                     {affectedFilterLabel(filter)}
                                                 </button>
@@ -1803,24 +1788,24 @@ export const Leaks: React.FC = () => {
                                 </div>
                             </div>
 
-                            <label className="mt-3 flex h-9 min-w-0 items-center gap-2 rounded-md border border-[#bfc5bd] bg-white px-3 transition-colors focus-within:border-[#1a73e8] focus-within:ring-2 focus-within:ring-blue-100">
-                                <Search className="h-4 w-4 shrink-0 text-[#6f7785]" />
+                            <label className="mt-3 flex h-9 min-w-0 items-center gap-2 rounded-none border border-[#dadce0] bg-white px-3 transition-colors focus-within:border-[#1a73e8] focus-within:ring-2 focus-within:ring-[#1a73e8]/20">
+                                <Search className="h-4 w-4 shrink-0 text-[#5f6368]" />
                                 <input
                                     value={search}
                                     onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Search signals..."
-                                    className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#202124] outline-none placeholder:text-[#8a9288]"
+                                    placeholder="Search signals"
+                                    className="min-w-0 flex-1 bg-transparent text-sm text-[#202124] outline-none placeholder:text-[#80868b]"
                                 />
                             </label>
                             {affectedFilter !== 'all' && (
                                 <div className="mt-2 flex items-center gap-2">
-                                    <span className="rounded-full border border-[#dadce0] bg-[#f8fafd] px-2.5 py-1 text-[11px] font-semibold text-[#3c4043]">
+                                    <span className={dashboardChipClass('info')}>
                                         {affectedFilterLabel(affectedFilter)}
                                     </span>
                                     <button
                                         type="button"
                                         onClick={() => applyAffectedFilter('all')}
-                                        className="text-[11px] font-semibold text-[#1a73e8] hover:underline"
+                                        className="text-xs font-medium text-[#1a73e8] hover:underline"
                                     >
                                         Clear
                                     </button>
@@ -1830,22 +1815,22 @@ export const Leaks: React.FC = () => {
 
                             <div className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden">
                                 {isLoading && (
-                                    <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                                    <div className="flex h-56 items-center justify-center text-sm font-medium text-[#5f6368]">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {loadingSignalsLabel}
                                     </div>
                                 )}
                             {!isLoading && error && !showSetupEmptyState && (
-                                <div className="m-5 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+                                <div className="m-5 rounded-none border border-[#f6aea9] bg-[#fce8e6] p-4 text-sm font-medium text-[#a50e0e]">
                                     Issue detection is not configured.
                                 </div>
                             )}
                             {showSetupEmptyState && (
                                 <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-                                    <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#e6f4ea]">
-                                        <Wrench className="h-7 w-7 text-[#137333]" aria-hidden />
+                                    <span className="flex h-14 w-14 items-center justify-center rounded-none bg-[#f1f3f4]">
+                                        <Wrench className="h-7 w-7 text-[#5f6368]" aria-hidden />
                                     </span>
                                     <div className="max-w-xs">
-                                        <p className="text-sm font-semibold text-[#202124]">Finish setting up your project</p>
+                                        <p className="text-sm font-medium text-[#202124]">Finish setting up your project</p>
                                         <p className="mt-1.5 text-sm font-medium leading-6 text-[#5f6368]">
                                             Issues appear here once the SDK sends sessions. Complete setup to get started.
                                         </p>
@@ -1853,7 +1838,7 @@ export const Leaks: React.FC = () => {
                                     <div className="flex flex-wrap justify-center gap-2">
                                         <Link
                                             to={`${pathPrefix}/setup`}
-                                            className="inline-flex h-9 items-center gap-2 rounded-md bg-[#1a73e8] px-3 text-sm font-semibold !text-white transition-colors hover:bg-[#2563eb] hover:!text-white focus-visible:!text-white"
+                                            className={`${dashboardButtonClass('primary', 'md')} !text-white`}
                                         >
                                             <Wrench className="h-4 w-4" />
                                             Open setup
@@ -1861,7 +1846,7 @@ export const Leaks: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => void handleCopySetupPrompt()}
-                                            className="inline-flex h-9 items-center gap-2 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+                                            className={dashboardButtonClass('secondary', 'md')}
                                         >
                                             <BookOpen className="h-4 w-4" />
                                             {copiedSetupPrompt ? 'Copied' : 'Copy AI prompt'}
@@ -1873,8 +1858,8 @@ export const Leaks: React.FC = () => {
                                 <NoIssuesDetectedState />
                             )}
                             {showFilteredEmptyState && (
-                                <div className="flex h-56 flex-col items-center justify-center px-6 text-center text-sm font-semibold text-[#5f6368]">
-                                    <CheckCircle2 className="mb-3 h-8 w-8 text-emerald-500" />
+                                <div className="flex h-56 flex-col items-center justify-center px-6 text-center text-sm font-medium text-[#5f6368]">
+                                    <CheckCircle2 className="mb-3 h-8 w-8 text-[#80868b]" />
                                     No signals match this view.
                                 </div>
                             )}
@@ -1902,7 +1887,7 @@ export const Leaks: React.FC = () => {
                                             setSelectedLeakId(null);
                                             setSelectedLeak(null);
                                         }}
-                                        className="mt-0.5 shrink-0 rounded-md p-1 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
+                                        className="mt-0.5 shrink-0 rounded-none p-1.5 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
                                         aria-label="Close signal detail"
                                     >
                                         <X className="h-5 w-5" />
@@ -1916,6 +1901,7 @@ export const Leaks: React.FC = () => {
                                             onClick={copyContext}
                                             disabled={isGeneratingContext}
                                             className={copyButtonClassName}
+                                            variant="primary"
                                         >
                                             {copied ? 'Copied to clipboard' : 'Copy context'}
                                         </PaneButton>
@@ -1925,6 +1911,7 @@ export const Leaks: React.FC = () => {
                                             onClick={() => void generateContext()}
                                             disabled={!canGenerateContext || isGeneratingContext}
                                             className="w-full sm:w-auto"
+                                            variant="primary"
                                         >
                                             {isGeneratingContext
                                                 ? 'Generating...'
@@ -1950,13 +1937,13 @@ export const Leaks: React.FC = () => {
                                     <div
                                         role={copied ? 'status' : undefined}
                                         aria-live={copied ? 'polite' : undefined}
-                                        className={`mt-3 flex max-w-3xl items-center gap-2 text-xs font-semibold leading-5 ${
+                                        className={`mt-3 flex max-w-3xl items-center gap-2 text-xs font-medium leading-5 ${
                                             copied
-                                                ? 'rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800 shadow-sm'
+                                                ? 'rounded-none bg-[#e6f4ea] px-3 py-2 text-[#137333]'
                                                 : 'text-[#3c4043]'
                                         }`}
                                     >
-                                        {copied && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                        {copied && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#137333]" />}
                                         <span>{handoffStatus}</span>
                                     </div>
                                 )}
@@ -1964,7 +1951,7 @@ export const Leaks: React.FC = () => {
 
                             <div className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden">
                                 {isDetailLoading ? (
-                                    <div className="flex h-56 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                                    <div className="flex h-56 items-center justify-center text-sm font-medium text-[#5f6368]">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading context
                                     </div>
                                 ) : (
@@ -1974,14 +1961,14 @@ export const Leaks: React.FC = () => {
                                                 Split from group: {formatIssueType(activeLeak.issueType)}
                                             </p>
                                             <div className="mt-3 flex flex-wrap gap-2">
-                                                <span className="inline-flex h-8 items-center rounded-sm bg-[#e6e7e1] px-3 text-sm font-semibold text-[#3c4043]">
+                                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                     {formatCountLabel(activeLeak.affectedSessionsCount, 'occurrence')}
                                                 </span>
-                                                <span className="inline-flex h-8 items-center rounded-sm bg-[#e6e7e1] px-3 text-sm font-semibold text-[#3c4043]">
+                                                <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                     {affectedUsersDetailLabel(activeLeak)}
                                                 </span>
                                                 {affectedEstimateSampleLabel(activeLeak) && (
-                                                    <span className="inline-flex h-8 items-center rounded-sm bg-[#eef4ff] px-3 text-sm font-semibold text-[#34517a]">
+                                                    <span className={`${dashboardChipClass('neutral')} tabular-nums`}>
                                                         {affectedEstimateSampleLabel(activeLeak)}
                                                     </span>
                                                 )}
@@ -1990,15 +1977,15 @@ export const Leaks: React.FC = () => {
 
                                         <section className="border-b border-[#dadce0] px-4 py-4 sm:px-5">
                                             <SectionTitle>Signals ({Math.max(activeLeak.topSignals.length, activeLeak.affectedSessionsCount)})</SectionTitle>
-                                            <div className="mt-3 grid grid-cols-[42px_minmax(0,1fr)] overflow-hidden border border-[#dadce0] bg-[#f5f6f1]">
-                                                <div className="flex items-center justify-center border-r border-[#dadce0] text-[#6f7785]">
+                                            <div className="mt-3 grid grid-cols-[42px_minmax(0,1fr)] overflow-hidden border border-[#dadce0] bg-white">
+                                                <div className="flex items-center justify-center border-r border-[#dadce0] bg-[#f8fafd] text-[#5f6368]">
                                                     <AlertCircle className="h-4 w-4" />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 p-3">
                                                     {activeLeak.topSignals.map((signal) => (
                                                         <span
                                                             key={signal}
-                                                            className="inline-flex rounded-sm bg-[#e0e2dc] px-3 py-1.5 font-mono text-xs font-semibold text-[#3c4043]"
+                                                            className={`${dashboardChipClass('neutral')} font-mono`}
                                                         >
                                                             {signal}
                                                         </span>
@@ -2038,6 +2025,7 @@ export const Leaks: React.FC = () => {
                                                             onClick={copyContext}
                                                             disabled={isGeneratingContext}
                                                             className={copyButtonClassName}
+                                                            variant="primary"
                                                         >
                                                             {copied ? 'Copied to clipboard' : 'Copy context'}
                                                         </PaneButton>
@@ -2046,6 +2034,7 @@ export const Leaks: React.FC = () => {
                                                             icon={isGeneratingContext ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                                                             onClick={() => void generateContext()}
                                                             disabled={!canGenerateContext || isGeneratingContext}
+                                                            variant="primary"
                                                         >
                                                             {isGeneratingContext
                                                                 ? 'Generating...'
@@ -2063,7 +2052,7 @@ export const Leaks: React.FC = () => {
                                                     </PaneButton>
                                                 </div>
                                             </div>
-                                            <pre className="mt-3 max-h-[380px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-[#e8eaed] bg-[#f8fafd] p-4 font-mono text-xs font-medium leading-6 text-[#3c4043]">
+                                            <pre className="mt-3 max-h-[380px] overflow-auto whitespace-pre-wrap break-words rounded-none border border-[#dadce0] bg-[#f8fafd] p-4 font-mono text-xs leading-6 text-[#3c4043]">
                                                 {selectedLeak?.contextMarkdown || 'Markdown context is not ready yet.'}
                                             </pre>
                                         </section>
@@ -2088,12 +2077,12 @@ export const Leaks: React.FC = () => {
                 <div
                     role="status"
                     aria-live="polite"
-                    className="fixed bottom-5 right-5 z-[1200] flex max-w-[min(360px,calc(100vw-2rem))] items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 shadow-lg shadow-emerald-950/10"
+                    className="fixed bottom-5 right-5 z-[1200] flex max-w-[min(360px,calc(100vw-2rem))] items-start gap-3 rounded-none bg-[#202124] px-4 py-3 text-sm font-medium text-white shadow-[0_3px_10px_rgba(60,64,67,0.3)]"
                 >
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-white" />
                     <div>
-                        <p>Markdown copied to clipboard</p>
-                        <p className="mt-0.5 text-xs font-medium text-emerald-700">Ready for the issue handoff.</p>
+                        <p className="text-white">Markdown copied to clipboard</p>
+                        <p className="mt-0.5 text-xs font-normal text-[#bdc1c6]">Ready for the issue handoff.</p>
                     </div>
                 </div>
             )}
@@ -2117,7 +2106,7 @@ export const Leaks: React.FC = () => {
                 variant="modern"
                 bodyClassName="p-0"
             >
-                <div className="divide-y divide-slate-100 bg-white">
+                <div className="divide-y divide-[#e8eaed] bg-white">
                     <GithubRepositorySettings
                         status={linkStatus}
                         loading={linkLoading && !linkStatus}
@@ -2132,15 +2121,15 @@ export const Leaks: React.FC = () => {
                         <div className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2">
-                                    <Bell className="h-4 w-4 text-[#3c4043]" />
-                                    <p className="text-sm font-semibold text-[#202124]">Daily digest email</p>
+                                    <Bell className="h-4 w-4 text-[#5f6368]" />
+                                    <p className="text-sm font-medium text-[#202124]">Daily digest email</p>
                                 </div>
                                 <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
                                     Sent after each scan that finds new issues. Scans run around {leakScanTiming.localScanLabel}.
                                 </p>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
-                                <span className={`text-xs font-semibold ${leakAlertSettings.leakScanAlertsEnabled ? 'text-[#1a73e8]' : 'text-[#5f6368]'}`}>
+                                <span className={`text-xs font-medium ${leakAlertSettings.leakScanAlertsEnabled ? 'text-[#1967d2]' : 'text-[#5f6368]'}`}>
                                     {leakAlertSettings.leakScanAlertsEnabled ? 'On' : 'Off'}
                                 </span>
                                 <button
@@ -2150,14 +2139,14 @@ export const Leaks: React.FC = () => {
                                     aria-label="Receive leak scan digest emails"
                                     disabled={leakAlertLoading || leakAlertSaving || isDemoMode}
                                     onClick={() => void toggleLeakScanAlerts(!leakAlertSettings.leakScanAlertsEnabled)}
-                                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60 ${
+                                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-none border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50 ${
                                         leakAlertSettings.leakScanAlertsEnabled
                                             ? 'border-[#1a73e8] bg-[#1a73e8]'
-                                            : 'border-slate-300 bg-slate-200'
+                                            : 'border-[#dadce0] bg-[#e8eaed]'
                                     }`}
                                 >
                                     <span
-                                        className={`pointer-events-none absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform ${
+                                        className={`pointer-events-none absolute left-[3px] top-[3px] h-5 w-5 rounded-none bg-white ring-1 ring-[#dadce0] transition-transform ${
                                             leakAlertSettings.leakScanAlertsEnabled ? 'translate-x-5' : 'translate-x-0'
                                         }`}
                                     />
@@ -2169,47 +2158,47 @@ export const Leaks: React.FC = () => {
                     <div className="px-5 py-4 sm:px-6">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
-                                <h3 className="text-sm font-semibold text-[#202124]">Recipients</h3>
+                                <h3 className="text-sm font-medium text-[#202124]">Recipients</h3>
                                 <p className="mt-0.5 text-xs font-medium leading-5 text-[#5f6368]">
                                     Add team members who should receive the daily digest.
                                 </p>
                             </div>
-                            <span className="inline-flex h-7 shrink-0 items-center self-start rounded-md border border-[#dadce0] bg-white px-2.5 text-xs font-semibold text-[#5f6368]">
+                            <span className={`${dashboardChipClass('neutral')} shrink-0 self-start tabular-nums`}>
                                 {leakAlertRecipients.length} / 5 recipients
                             </span>
                         </div>
 
                         {leakAlertRecipients.length < 5 && leakAlertAvailableMembers.length > 0 && (
-                            <div className="mt-4 border-t border-[#edf0f3] pt-3">
-                                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1967d2]">
+                            <div className="mt-4 border-t border-[#e8eaed] pt-3">
+                                <div className={`flex items-center gap-1.5 ${dashboardLabelClass}`}>
                                     <UserPlus className="h-3.5 w-3.5" />
                                     Add recipient
                                 </div>
-                                <div className="mt-2 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                                <div className="mt-2 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                     {leakAlertAvailableMembers.map((member) => (
                                         <button
                                             key={member.userId}
                                             type="button"
                                             disabled={leakAlertSaving || leakAlertLoading}
                                             onClick={() => void handleAddLeakAlertRecipient(member.userId)}
-                                            className="group flex w-full items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-[#f8fafd] disabled:cursor-not-allowed disabled:opacity-60"
+                                            className="group flex w-full items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:opacity-50"
                                         >
                                             <span className="flex min-w-0 items-center gap-2.5">
                                                 {member.avatarUrl ? (
-                                                    <img src={member.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                                    <img src={member.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-none border border-[#dadce0] object-cover" />
                                                 ) : (
-                                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-[#1a73e8] ring-1 ring-blue-100">
+                                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-none bg-[#e8f0fe] text-xs font-medium text-[#1967d2]">
                                                         {(member.displayName || member.email)[0].toUpperCase()}
                                                     </span>
                                                 )}
                                                 <span className="min-w-0">
-                                                    <span className="block truncate text-sm font-semibold text-[#202124]">{member.displayName || member.email}</span>
+                                                    <span className="block truncate text-sm font-medium text-[#202124]">{member.displayName || member.email}</span>
                                                     {member.displayName && member.displayName !== member.email && (
                                                         <span className="block truncate text-xs font-medium text-[#5f6368]">{member.email}</span>
                                                     )}
                                                 </span>
                                             </span>
-                                            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-[#1a73e8] px-2.5 text-xs font-semibold text-white transition-colors group-hover:bg-[#1558b0]">
+                                            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-none border border-[#1a73e8] bg-[#1a73e8] px-2.5 text-xs font-medium text-white transition-colors group-hover:border-[#1765cc] group-hover:bg-[#1765cc]">
                                                 <UserPlus className="h-3.5 w-3.5" />
                                                 Add
                                             </span>
@@ -2220,35 +2209,35 @@ export const Leaks: React.FC = () => {
                         )}
 
                         {leakAlertError && (
-                            <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                            <div className="mt-3 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-xs font-medium text-[#a50e0e]">
                                 {leakAlertError}
                             </div>
                         )}
 
                         {leakAlertLoading ? (
-                            <div className="flex h-24 items-center justify-center text-sm font-semibold text-[#5f6368]">
+                            <div className="flex h-24 items-center justify-center text-sm font-medium text-[#5f6368]">
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 Loading…
                             </div>
                         ) : leakAlertRecipients.length === 0 ? (
                             <div className="mt-4 border-y border-dashed border-[#dadce0] px-4 py-6 text-center">
-                                <p className="text-sm font-semibold text-[#3c4043]">No recipients yet</p>
+                                <p className="text-sm font-medium text-[#3c4043]">No recipients yet</p>
                                 <p className="mt-1 text-xs font-medium text-[#5f6368]">Add a team member above to receive digests.</p>
                             </div>
                         ) : (
-                            <div className="mt-4 divide-y divide-[#edf0f3] border-y border-[#edf0f3]">
+                            <div className="mt-4 divide-y divide-[#e8eaed] border-y border-[#e8eaed]">
                                 {leakAlertRecipients.map((recipient) => (
                                     <div key={recipient.id} className="flex items-center justify-between gap-3 py-3">
                                         <div className="flex min-w-0 items-center gap-3">
                                             {recipient.avatarUrl ? (
-                                                <img src={recipient.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" />
+                                                <img src={recipient.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-none border border-[#dadce0] object-cover" />
                                             ) : (
-                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-none bg-[#e8f0fe] text-sm font-medium text-[#1967d2]">
                                                     {(recipient.displayName || recipient.email)[0].toUpperCase()}
                                                 </div>
                                             )}
                                             <div className="min-w-0">
-                                                <p className="truncate text-sm font-semibold text-[#202124]">{recipient.displayName || recipient.email}</p>
+                                                <p className="truncate text-sm font-medium text-[#202124]">{recipient.displayName || recipient.email}</p>
                                                 {recipient.displayName && recipient.displayName !== recipient.email && (
                                                     <p className="truncate text-xs font-medium text-[#5f6368]">{recipient.email}</p>
                                                 )}
@@ -2258,7 +2247,7 @@ export const Leaks: React.FC = () => {
                                             type="button"
                                             disabled={leakAlertSaving}
                                             onClick={() => void handleRemoveLeakAlertRecipient(recipient.userId)}
-                                            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#dadce0] bg-white px-2.5 text-xs font-semibold text-[#3c4043] transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#f6aea9] hover:bg-[#fce8e6] hover:text-[#a50e0e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
                                             <Trash2 className="h-3.5 w-3.5" />
                                             Remove
@@ -2272,12 +2261,12 @@ export const Leaks: React.FC = () => {
             </Modal>
 
             {showIdeSetup && (
-                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[1px]">
-                    <div className="w-full max-w-lg rounded-lg border border-[#dadce0] bg-white p-5 shadow-xl">
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#202124]/50 p-3 sm:p-4">
+                    <div className="w-full max-w-lg rounded-none border border-[#dadce0] bg-white p-5 shadow-[0_12px_32px_rgba(60,64,67,0.28)]">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-base font-semibold text-[#202124]">IDE handoff</h2>
-                                <p className="mt-1 text-sm font-medium text-[#5f6368]">Choose the local target for markdown handoffs.</p>
+                                <h2 className="text-lg font-medium text-[#202124]">IDE handoff</h2>
+                                <p className="mt-1 text-sm text-[#5f6368]">Choose the local target for markdown handoffs.</p>
                             </div>
                             <button
                                 type="button"
@@ -2285,18 +2274,19 @@ export const Leaks: React.FC = () => {
                                     setOpenAfterSetup(false);
                                     setShowIdeSetup(false);
                                 }}
-                                className="rounded-md p-1 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124]"
+                                aria-label="Close"
+                                className="rounded-none p-1.5 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                             >
-                                <XCircle className="h-5 w-5" />
+                                <X className="h-5 w-5" />
                             </button>
                         </div>
                         <div className="mt-5 space-y-4">
                             <label className="block">
-                                <span className="mb-1 block text-xs font-semibold uppercase text-[#6f7785]">IDE</span>
+                                <span className={`mb-1 block ${dashboardLabelClass}`}>IDE</span>
                                 <select
                                     value={ideConfig.ide}
                                     onChange={(event) => setIdeConfig((current) => ({ ...current, ide: event.target.value as LeakIde }))}
-                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] outline-none transition focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100"
+                                    className={dashboardFieldClass}
                                 >
                                     {(['cursor', 'claude', 'codex', 'vscode'] as const).map((ide) => (
                                         <option key={ide} value={ide}>{LEAK_IDE_OPTIONS[ide].label}</option>
@@ -2304,11 +2294,11 @@ export const Leaks: React.FC = () => {
                                 </select>
                             </label>
                             <label className="block">
-                                <span className="mb-1 block text-xs font-semibold uppercase text-[#6f7785]">Button action</span>
+                                <span className={`mb-1 block ${dashboardLabelClass}`}>Button action</span>
                                 <select
                                     value={ideConfig.handoffMode || 'open'}
                                     onChange={(event) => setIdeConfig((current) => ({ ...current, handoffMode: event.target.value === 'copy' ? 'copy' : 'open' }))}
-                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] outline-none transition focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100"
+                                    className={dashboardFieldClass}
                                 >
                                     <option value="open">Copy + open app</option>
                                     <option value="copy">Copy only</option>
@@ -2316,12 +2306,12 @@ export const Leaks: React.FC = () => {
                             </label>
 	                            <div className="block">
 	                                <div className="mb-1 flex items-center justify-between gap-2">
-	                                    <label htmlFor="leak-ide-local-repo-path" className="text-xs font-semibold uppercase text-[#6f7785]">Local repo folder</label>
+	                                    <label htmlFor="leak-ide-local-repo-path" className={dashboardLabelClass}>Local repo folder</label>
 	                                    <button
 	                                        type="button"
 	                                        onClick={pasteRepoPathFromClipboard}
 	                                        title="Paste a copied folder path"
-	                                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[#dadce0] bg-white px-2 text-[11px] font-semibold text-[#3c4043] transition-colors hover:border-[#1a73e8] hover:bg-[#eef4ff]"
+	                                        className="inline-flex h-7 items-center gap-1 rounded-none border border-[#dadce0] bg-white px-2 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                                     >
 	                                        <ClipboardPaste className="h-3.5 w-3.5" />
 	                                        Paste path
@@ -2332,15 +2322,15 @@ export const Leaks: React.FC = () => {
 	                                    value={ideConfig.localRepoPath}
 	                                    onChange={(event) => setIdeConfig((current) => ({ ...current, localRepoPath: event.target.value }))}
 	                                    placeholder="/Users/you/dev/shopflow or C:\\Users\\you\\dev\\shopflow"
-	                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 font-mono text-sm font-semibold text-[#202124] outline-none transition placeholder:text-slate-400 focus:border-[#1a73e8] focus:ring-2 focus:ring-blue-100"
+	                                    className={`${dashboardFieldClass} font-mono`}
                                 />
                                 {pathPasteStatus && (
-                                    <span className="mt-1 block text-xs font-semibold text-[#5f6368]">
+                                    <span className="mt-1 block text-xs font-medium text-[#5f6368]">
 	                                        {pathPasteStatus}
 	                                    </span>
 	                                )}
 	                            </div>
-                            <div className="rounded-md border border-[#dadce0] bg-[#f8fafd] px-3 py-2 text-xs font-medium leading-5 text-[#5f6368]">
+                            <div className="rounded-none border border-[#e8eaed] bg-[#f8fafd] px-3 py-2 text-xs font-medium leading-5 text-[#5f6368]">
                                 {ideConfig.handoffMode === 'copy'
                                     ? `${LEAK_IDE_OPTIONS[ideConfig.ide].label} stays open; the button only copies the markdown.`
                                     : LEAK_IDE_OPTIONS[ideConfig.ide].supportsPromptPrefill
@@ -2356,7 +2346,7 @@ export const Leaks: React.FC = () => {
                                 >
                                     Cancel
                                 </PaneButton>
-                                <PaneButton className="!border-[#1a73e8] !bg-[#1a73e8] !text-white hover:!border-[#1e40af] hover:!bg-[#2563eb]" onClick={persistIdeConfig}>
+                                <PaneButton variant="primary" onClick={persistIdeConfig}>
                                     {openAfterSetup ? 'Save and open' : 'Save'}
                                 </PaneButton>
                             </div>

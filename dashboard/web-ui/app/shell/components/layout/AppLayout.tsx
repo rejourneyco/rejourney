@@ -44,16 +44,16 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 }
 
 const DemoLiveNotice: React.FC = () => (
-  <div className="relative z-[9] border-b border-slate-200/60 bg-white/80 backdrop-blur-xl px-4 py-2.5 sm:px-6 shadow-[0_1px_8px_rgba(15,23,42,0.06)]">
+  <div className="relative z-[9] border-b border-[#dadce0] bg-white px-4 py-2.5 sm:px-6">
     <div className="flex min-w-0 items-center justify-between gap-x-3">
       <div className="flex min-w-0 items-center gap-2.5">
         {/* Mobile Menu Toggle button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/80 shadow-sm transition-colors hover:bg-slate-50 md:hidden"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-none text-[#5f6368] transition-colors hover:bg-[#f1f3f4] md:hidden"
           aria-label="Toggle sidebar"
         >
-          <Menu className="h-3.5 w-3.5 stroke-[2.5]" />
+          <Menu className="h-4 w-4" />
         </button>
         <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity min-w-0">
           <img
@@ -62,10 +62,10 @@ const DemoLiveNotice: React.FC = () => (
             className="h-5 w-5 shrink-0 object-contain"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
-          <span className="min-w-0 truncate text-sm font-bold text-slate-900 tracking-tight">
+          <span className="min-w-0 truncate text-sm font-medium text-[#202124]">
             Rejourney
           </span>
-          <span className="hidden sm:inline-flex items-center rounded-full bg-slate-100 border border-slate-200/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+          <span className="hidden sm:inline-flex items-center rounded-none bg-[#f1f3f4] px-2 py-0.5 text-[11px] font-medium text-[#3c4043]">
             Demo
           </span>
         </Link>
@@ -73,16 +73,16 @@ const DemoLiveNotice: React.FC = () => (
       <nav aria-label="Demo quick links" className="flex shrink-0 items-center gap-2">
         <Link
           to="/"
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-slate-200/80 bg-white/60 backdrop-blur-md px-3.5 text-xs font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/90 hover:border-slate-300 active:translate-y-0"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-none border border-[#dadce0] bg-white px-3.5 text-xs font-medium text-[#3c4043] transition-colors hover:bg-[#f8fafd]"
         >
-          <ArrowLeft className="h-3 w-3" strokeWidth={2.5} aria-hidden="true" />
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Back</span>
         </Link>
         <Link
           to="/login"
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-slate-950 bg-slate-950 px-3.5 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:border-slate-800 active:translate-y-0"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-none border border-[#0f172a] bg-[#0f172a] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[#1e293b]"
         >
-          <Rocket className="h-3 w-3" strokeWidth={2.5} aria-hidden="true" />
+          <Rocket className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Get started</span>
         </Link>
       </nav>
@@ -203,7 +203,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   };
 
   return (
-    <div className="dashboard-modern dashboard-shell flex h-dvh min-h-screen min-w-0 font-sans text-black antialiased selection:bg-[#67e8f9] selection:text-black">
+    <div className="dashboard-modern dashboard-shell flex h-dvh min-h-screen min-w-0 font-sans text-[#202124] antialiased selection:bg-[#d2e3fc] selection:text-[#202124]">
       <div className="relative z-[900] w-0 shrink-0 overflow-visible bg-white md:z-20 md:w-auto md:shrink-0">
         <Sidebar
           currentProject={selectedProject}
@@ -222,7 +222,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         {!isDemoLayout && <TopBar currentProject={selectedProject} hideDemoHomeLink={isDemoLayout} />}
         {isDemoLayout && <DemoLiveNotice />}
         {projectsError && (
-          <div className="mx-4 mt-4 border-2 border-black bg-[#f9a8d4] px-4 py-3 text-sm font-extrabold text-black shadow-neo-sm sm:mx-6">
+          <div className="mx-4 mt-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e] sm:mx-6">
             {projectsError}
           </div>
         )}
@@ -231,7 +231,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         >
           <DashboardManualRefreshProvider value={manualRefreshCycle}>
             {shouldRouteToSetup ? (
-              <div className="p-6 text-sm font-semibold text-slate-500">Opening setup...</div>
+              <div className="p-6 text-sm text-[#5f6368]">Opening setup...</div>
             ) : children}
           </DashboardManualRefreshProvider>
         </div>

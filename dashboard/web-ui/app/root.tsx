@@ -268,8 +268,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     return (
         <main className="min-h-screen flex items-center justify-center bg-background p-4">
             <div className="text-center">
-                <h1 className="text-6xl font-black uppercase mb-4">{message}</h1>
-                <p className="text-xl text-muted-foreground mb-8">{details}</p>
+                <h1 className="mb-3 text-6xl font-normal text-[#202124]">{message}</h1>
+                <p className="mb-8 text-lg text-[#5f6368]">{details}</p>
                 {stack && (
                     <pre className="w-full p-4 overflow-x-auto bg-gray-100 text-left text-sm font-mono">
                         <code>{stack}</code>
@@ -277,9 +277,9 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
                 )}
                 <a
                     href="/"
-                    className="inline-block px-6 py-3 bg-black text-white font-bold uppercase hover:bg-gray-800 transition-colors"
+                    className="inline-block rounded-none bg-[#1a73e8] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#1765cc]"
                 >
-                    Go Home
+                    Go home
                 </a>
             </div>
         </main>

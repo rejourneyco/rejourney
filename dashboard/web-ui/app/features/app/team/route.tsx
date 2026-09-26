@@ -40,6 +40,30 @@ import {
   ApiTeamInvitation,
 } from '~/shared/api/client';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import {
+  dashboardCardClass,
+  dashboardLabelClass,
+  dashboardSectionTitleClass,
+} from '~/shared/ui/core/dashboardStyles';
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  member: 'Member',
+  billing_admin: 'Billing admin',
+};
+
+// Roles arrive as enum values such as "billing_admin"; show them in sentence case.
+const formatRoleLabel = (role: string): string => {
+  const known = ROLE_LABELS[role.toLowerCase()];
+  if (known) return known;
+  const words = role.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+const dangerTextButtonClass = 'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-none border border-transparent bg-transparent px-3 text-xs font-medium text-[#c5221f] transition-colors hover:bg-[#fce8e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50';
+
+const roleOptionClass = (selected: boolean) => `w-full rounded-none border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 ${selected ? 'border-[#1a73e8] bg-[#e8f0fe]' : 'border-[#dadce0] bg-white hover:bg-[#f8fafd]'}`;
 
 export const TeamSettings: React.FC = () => {
   const { user } = useAuth();
@@ -162,11 +186,11 @@ export const TeamSettings: React.FC = () => {
       setMemberSuccess(null);
       const result = await addTeamMember(currentTeam.id, newMemberEmail, newMemberRole);
       if (result.invitation) {
-        setMemberSuccess(result.message || 'Invitation sent! The user will receive an email.');
+        setMemberSuccess(result.message || 'Invitation sent. The user will receive an email.');
         await Promise.all([loadInvitations(), refreshMembers()]);
       } else if (result.member) {
         await refreshMembers();
-        setMemberSuccess('Member added successfully!');
+        setMemberSuccess('Member added.');
       }
       setShowAddMember(false);
       setNewMemberEmail('');
@@ -216,7 +240,7 @@ export const TeamSettings: React.FC = () => {
     try {
       await resendInvitation(currentTeam.id, invitationId);
       await loadInvitations();
-      setMemberSuccess('Invitation resent!');
+      setMemberSuccess('Invitation resent.');
       setTimeout(() => setMemberSuccess(null), 3000);
     } catch (err) {
       setMemberError(err instanceof Error ? err.message : 'Failed to resend invitation');
@@ -308,10 +332,10 @@ export const TeamSettings: React.FC = () => {
   if (!currentTeam) {
     return (
       <SettingsLayout className="rejourney-settings-page rejourney-team-settings-page" title="Team" description="Select a team to manage" {...dashboardPageHeaderProps('team')}>
-        <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
-          <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
-          <p className="text-sm text-slate-500">Please select or create a team from the sidebar.</p>
+        <div className={`${dashboardCardClass} p-12 text-center`}>
+          <Building className="mx-auto mb-3 h-10 w-10 text-[#bdc1c6]" />
+          <h2 className={`mb-1 ${dashboardSectionTitleClass}`}>No team selected</h2>
+          <p className="text-sm text-[#5f6368]">Please select or create a team from the sidebar.</p>
         </div>
       </SettingsLayout>
     );
@@ -325,64 +349,64 @@ export const TeamSettings: React.FC = () => {
       {...dashboardPageHeaderProps('team')}
     >
       {/* Team Information */}
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
-          <Building2 className="w-5 h-5" /> Team Profile
+      <section className="space-y-3">
+        <h2 className={`flex items-center gap-2 ${dashboardSectionTitleClass}`}>
+          <Building2 className="h-4 w-4 text-[#5f6368]" /> Team profile
         </h2>
         <NeoCard className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="text-[10px] font-semibold uppercase text-slate-400 mb-2 block tracking-widest">Team Name</label>
+              <label className={`mb-2 block ${dashboardLabelClass}`}>Team name</label>
               {isEditingName ? (
                 <div className="flex gap-2">
                   <Input
                     value={editNameValue}
                     onChange={(e) => setEditNameValue(e.target.value)}
-                    className="font-bold font-mono"
+                    aria-label="Team name"
                   />
                   <NeoButton
                     onClick={handleUpdateName}
                     disabled={isSavingName}
-                    size="sm"
                     variant="primary"
-                    leftIcon={<Save className="w-3 h-3" />}
+                    leftIcon={<Save className="h-3.5 w-3.5" />}
                   >
                     Save
                   </NeoButton>
                   <NeoButton
                     variant="secondary"
                     onClick={() => { setIsEditingName(false); setEditNameValue(currentTeam.name || ''); }}
-                    size="sm"
                   >
                     Cancel
                   </NeoButton>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 group">
-                  <div className="text-2xl font-semibold text-slate-900 uppercase tracking-tight">{currentTeam.name}</div>
+                <div className="group flex items-center gap-2">
+                  <div className="min-w-0 break-words text-xl font-normal text-[#202124]">{currentTeam.name}</div>
                   {isAdmin && (
                     <button
+                      type="button"
                       onClick={() => setIsEditingName(true)}
-                      className="opacity-0 group-hover:opacity-100 transition-all p-1.5 hover:bg-slate-100 rounded active:scale-95"
+                      className="rounded-none p-1.5 text-[#5f6368] opacity-0 transition-opacity hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 group-hover:opacity-100"
+                      aria-label="Edit team name"
                     >
-                      <Edit2 className="w-4 h-4 text-slate-400 hover:text-slate-900" />
+                      <Edit2 className="h-4 w-4" />
                     </button>
                   )}
                 </div>
               )}
             </div>
             <div className="space-y-3">
-              <div className="flex justify-between border-b border-slate-100 pb-2">
-                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Team ID</span>
-                <span className="text-sm font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">{currentTeam.id}</span>
+              <div className="flex items-center justify-between gap-3 border-b border-[#e8eaed] pb-2">
+                <span className={dashboardLabelClass}>Team ID</span>
+                <span className="min-w-0 break-all bg-[#f1f3f4] px-2 py-0.5 text-right font-mono text-xs text-[#3c4043]">{currentTeam.id}</span>
               </div>
-              <div className="flex justify-between border-b border-slate-100 pb-2">
-                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Created On</span>
-                <span className="text-sm font-bold text-slate-900">{new Date(currentTeam.createdAt).toLocaleDateString()}</span>
+              <div className="flex items-center justify-between gap-3 border-b border-[#e8eaed] pb-2">
+                <span className={dashboardLabelClass}>Created on</span>
+                <span className="text-sm tabular-nums text-[#202124]">{new Date(currentTeam.createdAt).toLocaleDateString()}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Members</span>
-                <span className="text-sm font-bold text-slate-900">{teamMembers.length}</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className={dashboardLabelClass}>Members</span>
+                <span className="text-sm tabular-nums text-[#202124]">{teamMembers.length}</span>
               </div>
             </div>
           </div>
@@ -391,49 +415,48 @@ export const TeamSettings: React.FC = () => {
 
       {/* Billing Quick Link */}
       <section>
-        <Link to={`${pathPrefix}/billing`}>
-          <NeoCard className="p-4 border-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer group">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-blue-600 flex items-center justify-center border-2 border-slate-900 shadow-[2px_2px_0_0_#000]">
-                  <CreditCard className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-tight">Billing & Plans</h3>
-                  <p className="text-xs font-bold text-blue-700">Manage your subscription, usage, and payment methods</p>
-                </div>
-              </div>
-              <ArrowRight className="w-5 h-5 text-blue-600 group-hover:translate-x-1 transition-transform" />
+        <Link
+          to={`${pathPrefix}/billing`}
+          className={`flex items-center justify-between gap-4 ${dashboardCardClass} p-4 transition-colors hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40`}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#f1f3f4] text-[#5f6368]">
+              <CreditCard className="h-4 w-4" />
             </div>
-          </NeoCard>
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium text-[#202124]">Billing & plans</h3>
+              <p className="text-xs text-[#5f6368]">Manage your subscription, usage, and payment methods</p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-[#5f6368]" />
         </Link>
       </section>
 
       {/* Pending Invitations */}
       {isAdmin && invitations.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
-            <Mail className="w-5 h-5" /> Pending Invitations
+        <section className="space-y-3">
+          <h2 className={`flex items-center gap-2 ${dashboardSectionTitleClass}`}>
+            <Mail className="h-4 w-4 text-[#5f6368]" /> Pending invitations
           </h2>
-          <NeoCard className="p-0 overflow-hidden">
-            <div className="divide-y divide-slate-100">
+          <NeoCard disablePadding className="overflow-hidden">
+            <div className="divide-y divide-[#e8eaed]">
               {invitations.map((invite) => (
-                <div key={invite.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white border border-slate-200 flex items-center justify-center shadow-sm">
-                      <Mail className="w-5 h-5 text-slate-400" />
+                <div key={invite.id} className="flex items-center justify-between gap-4 p-4 transition-colors hover:bg-[#f8fafd]">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#f1f3f4] text-[#5f6368]">
+                      <Mail className="h-4 w-4" />
                     </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900">{invite.email}</div>
-                      <div className="text-[10px] font-bold text-slate-500 flex gap-2 uppercase tracking-wide">
-                        <span>Role: {invite.role}</span>
-                        <span>•</span>
-                        <span>Expires: {new Date(invite.expiresAt).toLocaleDateString()}</span>
-                        {invite.expired && <span className="text-red-500">EXPIRED</span>}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#202124]">{invite.email}</div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#5f6368]">
+                        <span>Role: {formatRoleLabel(invite.role)}</span>
+                        <span aria-hidden="true">•</span>
+                        <span className="tabular-nums">Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                        {invite.expired && <NeoBadge variant="warning" size="sm">Expired</NeoBadge>}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <NeoButton
                       variant="secondary"
                       size="sm"
@@ -441,14 +464,13 @@ export const TeamSettings: React.FC = () => {
                     >
                       Resend
                     </NeoButton>
-                    <NeoButton
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    <button
+                      type="button"
+                      className={dangerTextButtonClass}
                       onClick={() => handleCancelInvitation(invite.id)}
                     >
                       Cancel
-                    </NeoButton>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -458,10 +480,10 @@ export const TeamSettings: React.FC = () => {
       )}
 
       {/* Team Members */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
-            <Users className="w-5 h-5" /> Team Members
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className={`flex items-center gap-2 ${dashboardSectionTitleClass}`}>
+            <Users className="h-4 w-4 text-[#5f6368]" /> Team members
           </h2>
           {isAdmin && (
             <NeoButton
@@ -470,56 +492,59 @@ export const TeamSettings: React.FC = () => {
               onClick={() => setShowAddMember(true)}
               leftIcon={<Plus className="w-4 h-4" />}
             >
-              Add Member
+              Add member
             </NeoButton>
           )}
         </div>
-        <NeoCard className="p-0 overflow-hidden">
+        <NeoCard disablePadding className="overflow-hidden">
           {memberError && (
-            <div className="p-3 bg-red-50 border-b border-red-100 text-red-700 text-sm font-bold tracking-tight">
+            <div className="border-b border-[#f6aea9] bg-[#fce8e6] p-3 text-sm text-[#a50e0e]">
               {memberError}
             </div>
           )}
           {memberSuccess && (
-            <div className="p-3 bg-emerald-50 border-b border-emerald-100 text-emerald-700 text-sm flex items-center gap-2 font-bold tracking-tight">
-              <Check className="w-4 h-4" /> {memberSuccess}
+            <div className="flex items-center gap-2 border-b border-[#ceead6] bg-[#e6f4ea] p-3 text-sm text-[#137333]">
+              <Check className="h-4 w-4 shrink-0" /> {memberSuccess}
             </div>
           )}
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-[#e8eaed]">
             {teamMembers.map((member) => (
-              <div key={member.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-semibold border border-slate-900 shadow-sm">
+              <div key={member.id} className="flex items-center justify-between gap-4 p-4 transition-colors hover:bg-[#f8fafd]">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#e8f0fe] text-sm font-medium text-[#1967d2]">
                     {member.email.charAt(0).toUpperCase()}
                   </div>
-                  <div>
-                    <div className="text-sm font-bold text-slate-900">{member.email}</div>
-                    {member.displayName && <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{member.displayName}</div>}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-[#202124]">{member.email}</div>
+                    {member.displayName && <div className="truncate text-xs text-[#5f6368]">{member.displayName}</div>}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   {isAdmin && member.userId !== currentTeam.ownerUserId ? (
                     <select
-                      className="border-2 border-slate-900 px-2 py-1 text-xs font-semibold uppercase tracking-wide bg-white cursor-pointer hover:bg-slate-50"
+                      className="h-8 cursor-pointer rounded-none border border-[#dadce0] bg-white px-2 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] focus:border-[#1a73e8] focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/20"
                       value={member.role}
                       onChange={(e) => handleChangeRole(member.userId, e.target.value)}
+                      aria-label={`Role for ${member.email}`}
                     >
                       <option value="member">Member</option>
                       <option value="admin">Admin</option>
-                      <option value="billing_admin">Billing Admin</option>
+                      <option value="billing_admin">Billing admin</option>
                     </select>
                   ) : (
-                    <NeoBadge variant={member.role === 'owner' ? 'success' : 'neutral'}>
-                      {member.role === 'owner' ? 'OWNER' : member.role.toUpperCase()}
+                    <NeoBadge variant="neutral" size="sm">
+                      {formatRoleLabel(member.role)}
                     </NeoBadge>
                   )}
 
                   {isAdmin && member.userId !== currentTeam.ownerUserId && (
                     <button
-                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all rounded"
+                      type="button"
+                      className="rounded-none p-2 text-[#5f6368] transition-colors hover:bg-[#fce8e6] hover:text-[#c5221f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                       onClick={() => handleRemoveMember(member.userId)}
+                      aria-label={`Remove ${member.email}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -533,28 +558,28 @@ export const TeamSettings: React.FC = () => {
 
       {/* Role Explainer */}
       <section>
-        <NeoCard className="p-6 bg-slate-50">
-          <h3 className="text-sm font-semibold uppercase tracking-tight mb-4">Role Permissions</h3>
+        <NeoCard className="p-6">
+          <h3 className={`mb-4 ${dashboardSectionTitleClass}`}>Role permissions</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div className="space-y-2">
-              <div className="font-semibold uppercase text-slate-900">Member</div>
-              <ul className="text-xs font-bold text-slate-600 space-y-1">
+              <div className="text-sm font-medium text-[#202124]">Member</div>
+              <ul className="space-y-1 text-xs text-[#5f6368]">
                 <li>• View sessions & analytics</li>
                 <li>• Access crash reports</li>
                 <li>• View project settings</li>
               </ul>
             </div>
             <div className="space-y-2">
-              <div className="font-semibold uppercase text-slate-900">Admin</div>
-              <ul className="text-xs font-bold text-slate-600 space-y-1">
+              <div className="text-sm font-medium text-[#202124]">Admin</div>
+              <ul className="space-y-1 text-xs text-[#5f6368]">
                 <li>• All member permissions</li>
                 <li>• Manage team members</li>
                 <li>• Edit project settings</li>
               </ul>
             </div>
             <div className="space-y-2">
-              <div className="font-semibold uppercase text-slate-900">Billing Admin</div>
-              <ul className="text-xs font-bold text-slate-600 space-y-1">
+              <div className="text-sm font-medium text-[#202124]">Billing admin</div>
+              <ul className="space-y-1 text-xs text-[#5f6368]">
                 <li>• All member permissions</li>
                 <li>• Manage billing & plans</li>
                 <li>• Add payment methods</li>
@@ -566,22 +591,22 @@ export const TeamSettings: React.FC = () => {
 
       {/* Danger Zone */}
       {isOwner && (
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold uppercase tracking-tight text-red-600 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5" /> Danger Zone
+        <section className="space-y-3">
+          <h2 className={`flex items-center gap-2 ${dashboardSectionTitleClass}`}>
+            <AlertTriangle className="h-4 w-4 text-[#d93025]" /> Danger zone
           </h2>
-          <NeoCard className="p-6 border-rose-600 bg-rose-50">
+          <NeoCard className="p-6">
             <div className="space-y-3">
-              <h3 className="text-lg font-semibold text-rose-900 uppercase tracking-tight">Delete Team</h3>
-              <p className="text-sm font-bold text-rose-700">
+              <h3 className="text-sm font-medium text-[#202124]">Delete team</h3>
+              <p className="text-sm text-[#3c4043]">
                 Owner-only action. Deleting this team permanently removes all nested projects, S3 artifacts, and Postgres data.
               </p>
               {isLoadingTeamPlan ? (
-                <p className="text-xs font-bold uppercase tracking-wide text-rose-600">
+                <p className="text-xs text-[#5f6368]">
                   Checking billing status...
                 </p>
               ) : hasActiveSubscription ? (
-                <div className="p-3 border border-rose-300 bg-rose-50 text-rose-900 text-xs font-bold">
+                <div className="border border-[#feefc3] bg-[#fef7e0] p-3 text-xs text-[#b06000]">
                   Active subscription detected. Deletion will immediately downgrade this team to free tier and cancel the subscription to prevent next-cycle auto charges.
                 </div>
               ) : null}
@@ -600,7 +625,7 @@ export const TeamSettings: React.FC = () => {
               }}
               leftIcon={<Trash2 className="w-4 h-4" />}
             >
-              Delete Team Permanently
+              Delete team permanently
             </NeoButton>
           </NeoCard>
         </section>
@@ -610,7 +635,7 @@ export const TeamSettings: React.FC = () => {
       <Modal
         isOpen={showAddMember}
         onClose={() => { setShowAddMember(false); setNewMemberEmail(''); setMemberError(null); }}
-        title="Invite Team Member"
+        title="Invite team member"
         footer={
           <div className="flex gap-2 justify-end w-full">
             <NeoButton variant="secondary" onClick={() => setShowAddMember(false)}>Cancel</NeoButton>
@@ -619,43 +644,48 @@ export const TeamSettings: React.FC = () => {
               onClick={handleAddMember}
               disabled={isAddingMember || !newMemberEmail}
             >
-              {isAddingMember ? 'Sending...' : 'Send Invite'}
+              {isAddingMember ? 'Sending...' : 'Send invite'}
             </NeoButton>
           </div>
         }
       >
-        <div className="space-y-6">
+        <div className="space-y-5">
           <Input
-            label="Email Address"
+            label="Email address"
             type="email"
             value={newMemberEmail}
             onChange={(e) => setNewMemberEmail(e.target.value)}
             placeholder="colleague@company.com"
-            className="font-mono font-bold"
           />
-          <div className="bg-slate-50 p-4 border border-slate-200 space-y-3">
-            <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-widest">Select Role</label>
+          <div className="space-y-2">
+            <label className={`block ${dashboardLabelClass}`}>Select role</label>
             <div className="grid grid-cols-1 gap-2">
               <button
+                type="button"
                 onClick={() => setNewMemberRole('member')}
-                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'member' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+                aria-pressed={newMemberRole === 'member'}
+                className={roleOptionClass(newMemberRole === 'member')}
               >
-                <div className="text-sm font-semibold uppercase">Member</div>
-                <div className="text-[10px] font-bold text-slate-500">Standard access to projects and sessions.</div>
+                <div className={`text-sm font-medium ${newMemberRole === 'member' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Member</div>
+                <div className="text-xs text-[#5f6368]">Standard access to projects and sessions.</div>
               </button>
               <button
+                type="button"
                 onClick={() => setNewMemberRole('admin')}
-                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+                aria-pressed={newMemberRole === 'admin'}
+                className={roleOptionClass(newMemberRole === 'admin')}
               >
-                <div className="text-sm font-semibold uppercase">Admin</div>
-                <div className="text-[10px] font-bold text-slate-500">Full control over settings and members.</div>
+                <div className={`text-sm font-medium ${newMemberRole === 'admin' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Admin</div>
+                <div className="text-xs text-[#5f6368]">Full control over settings and members.</div>
               </button>
               <button
+                type="button"
                 onClick={() => setNewMemberRole('billing_admin')}
-                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'billing_admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+                aria-pressed={newMemberRole === 'billing_admin'}
+                className={roleOptionClass(newMemberRole === 'billing_admin')}
               >
-                <div className="text-sm font-semibold uppercase">Billing Admin</div>
-                <div className="text-[10px] font-bold text-slate-500">Manage payment methods and subscriptions.</div>
+                <div className={`text-sm font-medium ${newMemberRole === 'billing_admin' ? 'text-[#1967d2]' : 'text-[#202124]'}`}>Billing admin</div>
+                <div className="text-xs text-[#5f6368]">Manage payment methods and subscriptions.</div>
               </button>
             </div>
           </div>
@@ -673,7 +703,7 @@ export const TeamSettings: React.FC = () => {
           setAcknowledgeBillingDowngrade(false);
           setDeleteTeamError(null);
         }}
-        title="Delete Team"
+        title="Delete team"
         footer={
           <div className="flex gap-2 justify-end w-full">
             <NeoButton
@@ -701,23 +731,23 @@ export const TeamSettings: React.FC = () => {
                 (hasActiveSubscription && !acknowledgeBillingDowngrade)
               }
             >
-              {isDeletingTeam ? 'Deleting...' : 'Permanently Delete Team'}
+              {isDeletingTeam ? 'Deleting...' : 'Permanently delete team'}
             </NeoButton>
           </div>
         }
       >
         <div className="space-y-5">
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <div className="flex gap-2 text-red-800 font-semibold mb-2 items-center">
-              <AlertTriangle className="w-5 h-5" /> Final Confirmation
+          <div className="border border-[#f6aea9] bg-[#fce8e6] p-4 text-[#a50e0e]">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="h-4 w-4 text-[#d93025]" /> Final confirmation
             </div>
-            <p className="text-red-700 text-sm">
-              This action permanently deletes <strong>{currentTeam.name || currentTeam.id}</strong>, all sub-projects, and associated S3/Postgres data. This cannot be undone.
+            <p className="text-sm">
+              This action permanently deletes <strong className="font-medium">{currentTeam.name || currentTeam.id}</strong>, all sub-projects, and associated S3/Postgres data. This cannot be undone.
             </p>
           </div>
 
           {hasActiveSubscription && (
-            <label className="flex items-start gap-3 p-3 border border-rose-300 bg-rose-50 rounded-md cursor-pointer">
+            <label className="flex cursor-pointer items-start gap-3 border border-[#feefc3] bg-[#fef7e0] p-3">
               <input
                 type="checkbox"
                 checked={acknowledgeBillingDowngrade}
@@ -725,17 +755,17 @@ export const TeamSettings: React.FC = () => {
                   setAcknowledgeBillingDowngrade(e.target.checked);
                   setDeleteTeamError(null);
                 }}
-                className="mt-1"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#1a73e8]"
               />
-              <span className="text-sm font-bold text-rose-900">
+              <span className="text-sm text-[#b06000]">
                 I understand this team has an active subscription and deleting it will trigger an immediate downgrade to free tier to prevent next billing-cycle charges.
               </span>
             </label>
           )}
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">
-              Type <strong className="font-mono">{teamDeleteConfirmTarget}</strong> to confirm:
+            <label className="text-sm text-[#3c4043]">
+              Type <strong className="font-medium text-[#202124]">{teamDeleteConfirmTarget}</strong> to confirm:
             </label>
             <Input
               value={deleteConfirmText}
@@ -760,7 +790,7 @@ export const TeamSettings: React.FC = () => {
               {isSendingDeleteOtp ? 'Sending OTP...' : 'Send OTP'}
             </NeoButton>
             {deleteOtpMessage && (
-              <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 p-2 rounded">
+              <div className="border border-[#ceead6] bg-[#e6f4ea] p-2 text-sm text-[#137333]">
                 {deleteOtpMessage}
               </div>
             )}
@@ -768,7 +798,7 @@ export const TeamSettings: React.FC = () => {
 
           {deleteOtpSent && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm text-[#3c4043]">
                 Enter OTP code
               </label>
               <Input
@@ -784,7 +814,7 @@ export const TeamSettings: React.FC = () => {
           )}
 
           {deleteTeamError && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-100 p-2 rounded">
+            <div className="border border-[#f6aea9] bg-[#fce8e6] p-2 text-sm text-[#a50e0e]">
               {deleteTeamError}
             </div>
           )}

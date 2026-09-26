@@ -99,7 +99,7 @@ export default function Pricing() {
     const canonicalUrl = getLocalizedPublicUrl(locale, "/pricing");
 
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-black" lang={locale.languageTag} dir={locale.dir}>
+        <div className="public-readable-scope min-h-screen w-full bg-[var(--dashboard-canvas,#f8fafd)] text-[#202124]" lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{

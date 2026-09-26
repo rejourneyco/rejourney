@@ -69,7 +69,6 @@ type SummaryCardProps = {
     label: string;
     value: string;
     detail: string;
-    accentClassName: string;
 };
 
 type RankingCardProps = {
@@ -80,11 +79,8 @@ type RankingCardProps = {
     metricLabel: string;
     getMetric: (row: DeviceMetricRow) => string;
     getDetail: (row: DeviceMetricRow) => string;
-    accentClassName: string;
     tone?: 'good' | 'bad' | 'neutral';
 };
-
-const RETRO_CARD_ACCENTS = ['bg-[#67e8f9]', 'bg-[#86efac]', 'bg-[#f9a8d4]', 'bg-[#fef08a]'];
 
 const formatCompact = (value: number): string => {
     if (!Number.isFinite(value)) return '0';
@@ -117,10 +113,10 @@ const ratePer100 = (value: number, total: number): number => {
 
 const getPlatformColor = (platform: string): string => {
     const normalized = platform.trim().toLowerCase();
-    if (normalized === 'ios') return '#0284c7';
-    if (normalized === 'android') return '#16a34a';
-    if (normalized === 'web') return '#7c3aed';
-    return '#94a3b8';
+    if (normalized === 'ios') return '#1a73e8';
+    if (normalized === 'android') return '#188038';
+    if (normalized === 'web') return '#9334e6';
+    return '#80868b';
 };
 
 const getPlatformLabel = (platform: string): string => {
@@ -141,24 +137,24 @@ const safeScore = (value: number | undefined): number => {
 };
 
 const getIssueToneClass = (value: number): string => {
-    if (value >= 10) return 'text-rose-700';
-    if (value >= 4) return 'text-amber-700';
-    return 'text-slate-700';
+    if (value >= 10) return 'text-[#c5221f]';
+    if (value >= 4) return 'text-[#b06000]';
+    return 'text-[#3c4043]';
 };
 
 const getMetricToneClass = (tone: RankingCardProps['tone']): string => {
-    if (tone === 'good') return 'text-emerald-700';
-    if (tone === 'bad') return 'text-rose-700';
-    return 'text-black';
+    if (tone === 'good') return 'text-[#137333]';
+    if (tone === 'bad') return 'text-[#c5221f]';
+    return 'text-[#202124]';
 };
 
-const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail, accentClassName }) => (
+// Values here are device names, so they use the smaller text-valued KPI size and clamp to two lines.
+const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail }) => (
     <div className="devices-summary-card dashboard-analytics-card dashboard-kpi-card min-w-0">
-        <div className={`devices-card-accent dashboard-kpi-accent ${accentClassName}`} />
         <div className="dashboard-kpi-header">
             <div className="dashboard-label break-words">{label}</div>
         </div>
-        <div className="dashboard-kpi-value break-words">{value}</div>
+        <div className="dashboard-kpi-value dashboard-kpi-value-text" title={value}>{value}</div>
         <div className="dashboard-kpi-detail">
             {detail}
         </div>
@@ -172,9 +168,9 @@ const Panel: React.FC<{
     className?: string;
 }> = ({ title, subtitle, children, className = '' }) => (
     <section className={`devices-panel dashboard-surface overflow-hidden p-0 ${className}`}>
-        <div className="devices-panel-header border-b border-slate-200 bg-white px-5 py-4">
-            <h2 className="text-sm font-black uppercase tracking-wide text-black">{title}</h2>
-            {subtitle && <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{subtitle}</p>}
+        <div className="devices-panel-header border-b border-[#e8eaed] bg-white px-5 py-4">
+            <h2 className="text-[15px] font-medium text-[#202124]">{title}</h2>
+            {subtitle && <p className="mt-1 text-xs leading-5 text-[#5f6368]">{subtitle}</p>}
         </div>
         <div className="devices-panel-body p-5">{children}</div>
     </section>
@@ -188,28 +184,26 @@ const RankingCard: React.FC<RankingCardProps> = ({
     metricLabel,
     getMetric,
     getDetail,
-    accentClassName,
     tone = 'neutral',
 }) => (
     <Panel title={title} subtitle={subtitle}>
-        <div className={`devices-card-accent mb-4 h-1.5 rounded-full ${accentClassName}`} />
         <div className="space-y-2">
             {rows.length > 0 ? rows.slice(0, 6).map((row, index) => (
-                <div key={`${title}-${row.model}`} className="devices-ranking-row flex items-center gap-3 border border-slate-200 bg-white px-3 py-3 shadow-sm">
-                    <div className="devices-rank-badge flex h-7 w-7 shrink-0 items-center justify-center bg-slate-100 text-xs font-black text-slate-600">
+                <div key={`${title}-${row.model}`} className="devices-ranking-row flex items-center gap-3 rounded-none border border-[#e8eaed] bg-white px-3 py-3">
+                    <div className="devices-rank-badge flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-[#f1f3f4] text-xs font-medium tabular-nums text-[#5f6368]">
                         {index + 1}
                     </div>
                     <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-black text-slate-900" title={row.model}>{row.displayName}</div>
-                        <div className="mt-1 text-[11px] font-semibold uppercase text-slate-500">{getDetail(row)}</div>
+                        <div className="truncate text-sm font-medium text-[#202124]" title={row.model}>{row.displayName}</div>
+                        <div className="mt-1 text-xs tabular-nums text-[#5f6368]">{getDetail(row)}</div>
                     </div>
                     <div className="shrink-0 text-right">
-                        <div className={`text-lg font-black ${getMetricToneClass(tone)}`}>{getMetric(row)}</div>
-                        <div className="text-[10px] font-black uppercase text-slate-400">{metricLabel}</div>
+                        <div className={`text-lg font-medium tabular-nums ${getMetricToneClass(tone)}`}>{getMetric(row)}</div>
+                        <div className="text-[11px] text-[#5f6368]">{metricLabel}</div>
                     </div>
                 </div>
             )) : (
-                <div className="border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-slate-500">{emptyText}</div>
+                <div className="border border-dashed border-[#dadce0] bg-[#f8fafd] p-4 text-sm text-[#5f6368]">{emptyText}</div>
             )}
         </div>
     </Panel>
@@ -219,10 +213,8 @@ const TechnicalMetricCard: React.FC<{
     label: string;
     row: DeviceMetricRow | null;
     value: string;
-    accentClassName: string;
-}> = ({ label, row, value, accentClassName }) => (
+}> = ({ label, row, value }) => (
     <div className="devices-tech-card dashboard-analytics-card dashboard-kpi-card">
-        <div className={`devices-card-accent dashboard-kpi-accent ${accentClassName}`} />
         <div className="dashboard-kpi-header">
             <div className="dashboard-label">{label}</div>
         </div>
@@ -269,7 +261,7 @@ const PlatformMixBar: React.FC<{
 
     if (segments.length === 0) {
         return (
-            <div className="border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+            <div className="border border-dashed border-[#dadce0] bg-[#f8fafd] p-4 text-sm text-[#5f6368]">
                 No platform mix available.
             </div>
         );
@@ -278,7 +270,7 @@ const PlatformMixBar: React.FC<{
     return (
         <div className="space-y-4">
             <div
-                className="devices-platform-track flex h-5 w-full overflow-hidden bg-slate-100"
+                className="devices-platform-track flex h-5 w-full overflow-hidden bg-[#f1f3f4]"
                 aria-label={`Platform mix: ${segments.map((segment) => `${segment.label} ${formatPercent(segment.percent)}`).join(', ')}`}
             >
                 {segments.map((segment) => {
@@ -286,7 +278,7 @@ const PlatformMixBar: React.FC<{
                     return (
                         <div
                             key={segment.platform}
-                            className="h-full shrink-0 outline-none ring-offset-2 transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-slate-400"
+                            className="h-full shrink-0 outline-none ring-offset-2 transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
                             style={{
                                 width: `${Math.min(100, Math.max(0, segment.percent))}%`,
                                 backgroundColor: segment.color,
@@ -304,8 +296,8 @@ const PlatformMixBar: React.FC<{
                     <div key={`legend-${segment.platform}`} className="flex min-w-[8rem] items-center gap-2">
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: segment.color }} />
                         <div className="min-w-0">
-                            <div className="text-sm font-black text-slate-900">{segment.label}</div>
-                            <div className="text-xs font-semibold text-slate-500">
+                            <div className="text-sm font-medium text-[#202124]">{segment.label}</div>
+                            <div className="text-xs tabular-nums text-[#5f6368]">
                                 {formatPercent(segment.percent)} · {formatCompact(segment.count)} sessions
                             </div>
                         </div>
@@ -319,33 +311,33 @@ const PlatformMixBar: React.FC<{
 const DeviceTable: React.FC<{ rows: DeviceMetricRow[] }> = ({ rows }) => (
     <div className="overflow-x-auto">
         <table className="devices-data-table w-full min-w-[980px] text-left text-sm">
-            <thead className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+            <thead className="text-xs font-medium text-[#5f6368]">
                 <tr>
                     <th className="pb-3 pr-4">Device</th>
                     <th className="pb-3 pr-4 text-right">Sessions</th>
                     <th className="pb-3 pr-4 text-right">Engaged</th>
-                    <th className="pb-3 pr-4 text-right">Avg Duration</th>
-                    <th className="pb-3 pr-4 text-right">Events / Session</th>
+                    <th className="pb-3 pr-4 text-right">Avg duration</th>
+                    <th className="pb-3 pr-4 text-right">Events / session</th>
                     <th className="pb-3 pr-4 text-right">Crashes</th>
                     <th className="pb-3 pr-4 text-right">ANRs</th>
                     <th className="pb-3 pr-4 text-right">Errors</th>
-                    <th className="pb-3 pr-4 text-right">Rage Taps</th>
+                    <th className="pb-3 pr-4 text-right">Rage taps</th>
                     <th className="pb-3 pr-4 text-right">Friction /100</th>
                 </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#e8eaed]">
                 {rows.slice(0, 14).map((row) => (
-                    <tr key={row.model} className="hover:bg-[#f8fafc]">
-                        <td className="py-3 pr-4 font-black text-slate-900" title={row.model}>{row.displayName}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.count)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatPercent(row.engagementRate)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatDuration(row.avgDurationSeconds)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{row.eventsPerSession.toFixed(1)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.crashes)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.anrs)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.errors)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.rageTaps)}</td>
-                        <td className={`py-3 pr-4 text-right font-black ${getIssueToneClass(row.frictionScore)}`}>{row.frictionScore.toFixed(1)}</td>
+                    <tr key={row.model} className="hover:bg-[#f8fafd]">
+                        <td className="py-3 pr-4 font-medium text-[#202124]" title={row.model}>{row.displayName}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.count)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatPercent(row.engagementRate)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatDuration(row.avgDurationSeconds)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{row.eventsPerSession.toFixed(1)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.crashes)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.anrs)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.errors)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.rageTaps)}</td>
+                        <td className={`py-3 pr-4 text-right font-medium tabular-nums ${getIssueToneClass(row.frictionScore)}`}>{row.frictionScore.toFixed(1)}</td>
                     </tr>
                 ))}
             </tbody>
@@ -360,25 +352,25 @@ const CohortTable: React.FC<{
 }> = ({ rows, label, valuePrefix = '' }) => (
     <div className="overflow-x-auto">
         <table className="devices-data-table w-full min-w-[640px] text-left text-sm">
-            <thead className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+            <thead className="text-xs font-medium text-[#5f6368]">
                 <tr>
                     <th className="pb-3 pr-4">{label}</th>
                     <th className="pb-3 pr-4 text-right">Sessions</th>
                     <th className="pb-3 pr-4 text-right">Crash + ANR /100</th>
                     <th className="pb-3 pr-4 text-right">Errors</th>
-                    <th className="pb-3 pr-4 text-right">Rage Taps</th>
+                    <th className="pb-3 pr-4 text-right">Rage taps</th>
                     <th className="pb-3 pr-4 text-right">Friction /100</th>
                 </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-[#e8eaed]">
                 {rows.slice(0, 8).map((row) => (
-                    <tr key={row.version} className="hover:bg-[#f8fafc]">
-                        <td className="py-3 pr-4 font-black text-slate-900">{valuePrefix}{row.version}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.count)}</td>
-                        <td className={`py-3 pr-4 text-right font-black ${getIssueToneClass(row.criticalRatePer100)}`}>{row.criticalRatePer100.toFixed(1)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.errors)}</td>
-                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(row.rageTaps)}</td>
-                        <td className={`py-3 pr-4 text-right font-black ${getIssueToneClass(row.frictionScore)}`}>{row.frictionScore.toFixed(1)}</td>
+                    <tr key={row.version} className="hover:bg-[#f8fafd]">
+                        <td className="py-3 pr-4 font-medium tabular-nums text-[#202124]">{valuePrefix}{row.version}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.count)}</td>
+                        <td className={`py-3 pr-4 text-right font-medium tabular-nums ${getIssueToneClass(row.criticalRatePer100)}`}>{row.criticalRatePer100.toFixed(1)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.errors)}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(row.rageTaps)}</td>
+                        <td className={`py-3 pr-4 text-right font-medium tabular-nums ${getIssueToneClass(row.frictionScore)}`}>{row.frictionScore.toFixed(1)}</td>
                     </tr>
                 ))}
             </tbody>
@@ -580,7 +572,7 @@ export const Devices: React.FC = () => {
     }
 
     return (
-        <div className="rejourney-devices-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
+        <div className="rejourney-devices-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-[#202124]">
             <DashboardPageHeader
                 title="Devices"
                 {...dashboardPageHeaderProps('devices')}
@@ -592,19 +584,19 @@ export const Devices: React.FC = () => {
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
                 {!selectedProject?.id && (
-                    <div className="devices-empty-state border-2 border-black bg-[#f9a8d4] p-5 text-sm font-black uppercase text-black shadow-neo">
+                    <div className="devices-empty-state rounded-none border border-[#d2e3fc] bg-[#e8f0fe] px-4 py-3 text-sm text-[#1967d2]">
                         Select a project to load device analytics.
                     </div>
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="dashboard-surface p-6 text-sm font-semibold text-slate-600">
+                    <div className="dashboard-surface p-6 text-sm text-[#5f6368]">
                         No device telemetry available for this range.
                     </div>
                 )}
 
                 {!isLoading && partialError && (
-                    <div className="border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">
+                    <div className="rounded-none border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e]">
                         {partialError}
                     </div>
                 )}
@@ -614,178 +606,166 @@ export const Devices: React.FC = () => {
                         <section className="devices-summary-grid">
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 <SummaryCard
-                                    label="Most Used Device"
+                                    label="Most used device"
                                     value={topUsed?.displayName || 'N/A'}
                                     detail={topUsed ? `${formatCompact(topUsed.count)} sessions · ${formatPercent(topUsed.sessionShare)} share` : 'No device sample'}
-                                    accentClassName={RETRO_CARD_ACCENTS[0]}
                                 />
                                 <SummaryCard
-                                    label="Most Engaged Device"
+                                    label="Most engaged device"
                                     value={topEngaged?.displayName || 'N/A'}
                                     detail={topEngaged ? `${topEngaged.engagementScore.toFixed(1)} score · ${formatPercent(topEngaged.engagementRate)} engaged` : 'No engagement sample'}
-                                    accentClassName={RETRO_CARD_ACCENTS[1]}
                                 />
                                 <SummaryCard
-                                    label="Longest Sessions"
+                                    label="Longest sessions"
                                     value={topDuration?.displayName || 'N/A'}
                                     detail={topDuration ? `${formatDuration(topDuration.avgDurationSeconds)} average · ${formatCompact(topDuration.count)} sessions` : 'No duration sample'}
-                                    accentClassName={RETRO_CARD_ACCENTS[2]}
                                 />
                                 <SummaryCard
-                                    label="Worst Engaged Device"
+                                    label="Worst engaged device"
                                     value={worstEngaged?.displayName || 'N/A'}
                                     detail={worstEngaged ? `${worstEngaged.engagementScore.toFixed(1)} score · ${formatDuration(worstEngaged.avgDurationSeconds)} average` : 'No weak cohort'}
-                                    accentClassName={RETRO_CARD_ACCENTS[3]}
                                 />
                             </div>
                         </section>
 
                         <div className="devices-workspace soft-border-scope space-y-6">
                             <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
-                                <Panel title="Device Portfolio" subtitle={`${formatCompact(data.totalSessions)} sessions across ${deviceRows.length.toLocaleString()} models`}>
+                                <Panel title="Device portfolio" subtitle={`${formatCompact(data.totalSessions)} sessions across ${deviceRows.length.toLocaleString()} models`}>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <div className="text-[10px] font-black uppercase text-slate-500">Avg engagement</div>
-                                            <div className="mt-1 text-3xl font-black text-black">{totals.avgEngagementScore.toFixed(1)}</div>
+                                            <div className="text-xs font-medium text-[#5f6368]">Avg engagement</div>
+                                            <div className="mt-1 text-3xl font-normal tabular-nums text-[#202124]">{totals.avgEngagementScore.toFixed(1)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-[10px] font-black uppercase text-slate-500">Engaged sessions</div>
-                                            <div className="mt-1 text-3xl font-black text-black">{formatPercent(totals.engagedRate)}</div>
+                                            <div className="text-xs font-medium text-[#5f6368]">Engaged sessions</div>
+                                            <div className="mt-1 text-3xl font-normal tabular-nums text-[#202124]">{formatPercent(totals.engagedRate)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-[10px] font-black uppercase text-slate-500">Avg duration</div>
-                                            <div className="mt-1 text-2xl font-black text-slate-700">{formatDuration(totals.avgDurationSeconds)}</div>
+                                            <div className="text-xs font-medium text-[#5f6368]">Avg duration</div>
+                                            <div className="mt-1 text-2xl font-normal tabular-nums text-[#202124]">{formatDuration(totals.avgDurationSeconds)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-[10px] font-black uppercase text-slate-500">Issue events</div>
-                                            <div className="mt-1 text-2xl font-black text-slate-700">{formatCompact(totals.totalIssues)}</div>
+                                            <div className="text-xs font-medium text-[#5f6368]">Issue events</div>
+                                            <div className="mt-1 text-2xl font-normal tabular-nums text-[#202124]">{formatCompact(totals.totalIssues)}</div>
                                         </div>
                                     </div>
-                                    <div className="mt-4 border-t border-slate-100 pt-3 text-[11px] font-semibold uppercase text-slate-500">
+                                    <div className="mt-4 border-t border-[#e8eaed] pt-3 text-xs text-[#5f6368]">
                                         Rankings use devices with at least {sampleFloor.toLocaleString()} sessions where possible.
                                     </div>
                                 </Panel>
 
-                                <Panel title="Platform Mix" subtitle="Where the device traffic comes from." className="xl:col-span-3">
+                                <Panel title="Platform mix" subtitle="Where the device traffic comes from." className="xl:col-span-3">
                                     <PlatformMixBar platforms={data.platforms} totalSessions={data.totalSessions} />
                                 </Panel>
                             </section>
 
                             <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                                 <RankingCard
-                                    title="Most Used Devices"
+                                    title="Most used devices"
                                     subtitle="Highest session volume by model."
                                     rows={rankings.mostUsed}
                                     emptyText="No device volume available."
                                     metricLabel="sessions"
                                     getMetric={(row) => formatCompact(row.count)}
                                     getDetail={(row) => `${formatPercent(row.sessionShare)} of sessions · ${formatDuration(row.avgDurationSeconds)} avg`}
-                                    accentClassName="bg-[#67e8f9]"
                                 />
                                 <RankingCard
-                                    title="Most Engaged Devices"
+                                    title="Most engaged devices"
                                     subtitle="Best combined interaction, exploration, and UX score."
                                     rows={rankings.mostEngaged}
                                     emptyText="No engagement data available."
                                     metricLabel="score"
                                     getMetric={(row) => row.engagementScore.toFixed(1)}
                                     getDetail={(row) => `${formatPercent(row.engagementRate)} engaged · ${row.eventsPerSession.toFixed(1)} events/session`}
-                                    accentClassName="bg-[#86efac]"
                                     tone="good"
                                 />
                                 <RankingCard
-                                    title="Longest Duration Devices"
+                                    title="Longest duration devices"
                                     subtitle="Devices with the longest average session length."
                                     rows={rankings.longestDuration}
                                     emptyText="No duration data available."
                                     metricLabel="avg"
                                     getMetric={(row) => formatDuration(row.avgDurationSeconds)}
                                     getDetail={(row) => `${formatCompact(row.count)} sessions · ${row.engagementScore.toFixed(1)} engagement score`}
-                                    accentClassName="bg-[#f9a8d4]"
                                 />
                                 <RankingCard
-                                    title="Worst Engaged Devices"
+                                    title="Worst engaged devices"
                                     subtitle="Lower engagement cohorts worth inspecting."
                                     rows={rankings.worstEngaged}
                                     emptyText="No low-engagement device cohort found."
                                     metricLabel="score"
                                     getMetric={(row) => row.engagementScore.toFixed(1)}
                                     getDetail={(row) => `${formatDuration(row.avgDurationSeconds)} avg · ${formatPercent(row.engagementRate)} engaged`}
-                                    accentClassName="bg-[#fef08a]"
                                     tone="bad"
                                 />
                             </section>
 
-                            <Panel title="Technical Device Pressure" subtitle="Crash, ANR, error, and rage tap leaders by device model.">
+                            <Panel title="Technical device pressure" subtitle="Crash, ANR, error, and rage tap leaders by device model.">
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     <TechnicalMetricCard
-                                        label="Most Crashes"
+                                        label="Most crashes"
                                         row={rankings.mostCrashes[0] || null}
                                         value={rankings.mostCrashes[0] ? formatCompact(rankings.mostCrashes[0].crashes) : '0'}
-                                        accentClassName="bg-[#fecaca]"
                                     />
                                     <TechnicalMetricCard
                                         label="Most ANRs"
                                         row={rankings.mostAnrs[0] || null}
                                         value={rankings.mostAnrs[0] ? formatCompact(rankings.mostAnrs[0].anrs) : '0'}
-                                        accentClassName="bg-[#fed7aa]"
                                     />
                                     <TechnicalMetricCard
-                                        label="Most Errors"
+                                        label="Most errors"
                                         row={rankings.mostErrors[0] || null}
                                         value={rankings.mostErrors[0] ? formatCompact(rankings.mostErrors[0].errors) : '0'}
-                                        accentClassName="bg-[#dbeafe]"
                                     />
                                     <TechnicalMetricCard
-                                        label="Most Rage Taps"
+                                        label="Most rage taps"
                                         row={rankings.mostRageTaps[0] || null}
                                         value={rankings.mostRageTaps[0] ? formatCompact(rankings.mostRageTaps[0].rageTaps) : '0'}
-                                        accentClassName="bg-[#f9a8d4]"
                                     />
                                 </div>
                             </Panel>
 
                             <Panel
-                                title="Device Detail"
+                                title="Device detail"
                                 subtitle={worstFriction ? `Highest friction right now: ${worstFriction.displayName} at ${worstFriction.frictionScore.toFixed(1)} weighted events per 100 sessions.` : 'Detailed device rows for the selected range.'}
                             >
                                 <DeviceTable rows={rankings.worstFriction.length ? rankings.worstFriction : deviceRows} />
                             </Panel>
 
                             <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                                <Panel title="OS Version Pressure" subtitle="Technical friction grouped by OS version.">
-                                    <CohortTable rows={cohortRows.os} label="OS Version" />
+                                <Panel title="OS version pressure" subtitle="Technical friction grouped by OS version.">
+                                    <CohortTable rows={cohortRows.os} label="OS version" />
                                 </Panel>
-                                <Panel title="App Version Pressure" subtitle="Technical friction grouped by app version.">
-                                    <CohortTable rows={cohortRows.versions} label="App Version" valuePrefix="v" />
+                                <Panel title="App version pressure" subtitle="Technical friction grouped by app version.">
+                                    <CohortTable rows={cohortRows.versions} label="App version" valuePrefix="v" />
                                 </Panel>
                             </section>
 
                             {matrixHotspots.length > 0 && (
-                                <Panel title="Device + Version Hotspots" subtitle="Device/version combinations with the most concentrated friction.">
+                                <Panel title="Device and version hotspots" subtitle="Device/version combinations with the most concentrated friction.">
                                     <div className="overflow-x-auto">
                                         <table className="devices-data-table w-full min-w-[820px] text-left text-sm">
-                                            <thead className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                            <thead className="text-xs font-medium text-[#5f6368]">
                                                 <tr>
                                                     <th className="pb-3 pr-4">Device</th>
-                                                    <th className="pb-3 pr-4">App Version</th>
+                                                    <th className="pb-3 pr-4">App version</th>
                                                     <th className="pb-3 pr-4 text-right">Sessions</th>
                                                     <th className="pb-3 pr-4 text-right">Crash + ANR</th>
                                                     <th className="pb-3 pr-4 text-right">Errors</th>
-                                                    <th className="pb-3 pr-4 text-right">Rage Taps</th>
+                                                    <th className="pb-3 pr-4 text-right">Rage taps</th>
                                                     <th className="pb-3 pr-4 text-right">Friction /100</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-100">
+                                            <tbody className="divide-y divide-[#e8eaed]">
                                                 {matrixHotspots.map((cell) => (
-                                                    <tr key={`${cell.device}-${cell.version}`} className="hover:bg-[#f8fafc]">
-                                                        <td className="py-3 pr-4 font-black text-slate-900" title={cell.device}>{cell.displayName}</td>
-                                                        <td className="py-3 pr-4 font-semibold text-slate-700">v{cell.version}</td>
-                                                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(cell.sessions)}</td>
-                                                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(cell.criticalTotal)}</td>
-                                                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(cell.issues.errors)}</td>
-                                                        <td className="py-3 pr-4 text-right font-semibold text-slate-700">{formatCompact(cell.issues.rageTaps)}</td>
-                                                        <td className={`py-3 pr-4 text-right font-black ${getIssueToneClass(cell.frictionScore)}`}>{cell.frictionScore.toFixed(1)}</td>
+                                                    <tr key={`${cell.device}-${cell.version}`} className="hover:bg-[#f8fafd]">
+                                                        <td className="py-3 pr-4 font-medium text-[#202124]" title={cell.device}>{cell.displayName}</td>
+                                                        <td className="py-3 pr-4 tabular-nums text-[#3c4043]">v{cell.version}</td>
+                                                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(cell.sessions)}</td>
+                                                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(cell.criticalTotal)}</td>
+                                                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(cell.issues.errors)}</td>
+                                                        <td className="py-3 pr-4 text-right tabular-nums text-[#3c4043]">{formatCompact(cell.issues.rageTaps)}</td>
+                                                        <td className={`py-3 pr-4 text-right font-medium tabular-nums ${getIssueToneClass(cell.frictionScore)}`}>{cell.frictionScore.toFixed(1)}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>

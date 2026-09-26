@@ -8,6 +8,8 @@ import {
   isSetupWizardRoute,
   normalizeSetupIntegrations,
   shouldRedirectFromSetup,
+  shouldRedirectToSetup,
+  shouldSurfaceSetup,
   SETUP_PLATFORM_OPTIONS,
 } from './setupUtils';
 
@@ -52,6 +54,17 @@ describe('completed setup routing', () => {
   it('keeps projects without received data in setup', () => {
     expect(shouldRedirectFromSetup({ sessionsTotal: 0, sessionsLast7Days: 0 } as Project)).toBe(false);
     expect(shouldRedirectFromSetup(null)).toBe(false);
+  });
+
+  it('only forces setup when there is no project to show', () => {
+    expect(shouldRedirectToSetup([])).toBe(true);
+    expect(shouldRedirectToSetup([{ sessionsTotal: 0, sessionsLast7Days: 0 } as Project])).toBe(false);
+  });
+
+  it('still surfaces setup for projects waiting on their first session', () => {
+    const waitingProject = { sessionsTotal: 0, sessionsLast7Days: 0 } as Project;
+    expect(shouldSurfaceSetup([waitingProject], waitingProject)).toBe(true);
+    expect(shouldRedirectToSetup([waitingProject])).toBe(false);
   });
 
   it('distinguishes the onboarding wizard from other setup-support routes', () => {

@@ -13,6 +13,7 @@ const EXPECTED_ENGINEERING_IDS = [
     "mobile-session-replay-cost",
     "rejourney-1-3-million-session-replays",
     "swift-package-open-beta",
+    "unity-sdk-open-beta",
 ].sort();
 
 describe("public article collections", () => {

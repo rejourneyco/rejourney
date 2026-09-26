@@ -92,24 +92,24 @@ export const PerformanceMetrics: React.FC<{
     const labels = performanceLabels[locale];
 
     return (
-        <section dir={dir} className="relative z-10 w-full overflow-hidden bg-[#fdfbf7] px-5 py-20 text-slate-950 sm:px-8 sm:py-24 lg:px-10 border-t border-slate-200/70">
+        <section dir={dir} className="relative z-10 w-full overflow-hidden bg-[var(--dashboard-canvas,#f8fafd)] px-5 py-20 text-[#202124] sm:px-8 sm:py-24 lg:px-10 border-t border-[#dadce0]">
             <div className="mx-auto max-w-5xl">
 
                 {/* Header */}
                 <div className="mx-auto max-w-2xl text-center mb-12">
-                    <h2 className="font-display text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
+                    <h2 className="font-display text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl lg:text-5xl">
                         {labels.heading}
                     </h2>
 
                     {/* Platform Selector Buttons (Sharp, Clean, Lightweight) */}
-                    <div className="mt-8 inline-flex border border-slate-200 bg-white p-1">
+                    <div className="mt-8 inline-flex rounded-none border border-[#dadce0] bg-white p-0.5">
                         <button
                             type="button"
                             onClick={() => setPlatform('web')}
-                            className={`px-5 py-2 text-xs font-bold uppercase transition-all ${
+                            className={`rounded-none px-5 py-2 text-xs font-semibold uppercase transition-all ${
                                 platform === 'web'
-                                    ? 'bg-slate-950 text-white'
-                                    : 'text-slate-600 hover:text-slate-950'
+                                    ? 'bg-[#1a73e8] text-white shadow-xs'
+                                    : 'text-[#5f6368] hover:text-[#202124]'
                             }`}
                         >
                             {labels.webComparison}
@@ -117,10 +117,10 @@ export const PerformanceMetrics: React.FC<{
                         <button
                             type="button"
                             onClick={() => setPlatform('mobile')}
-                            className={`px-5 py-2 text-xs font-bold uppercase transition-all ${
+                            className={`rounded-none px-5 py-2 text-xs font-semibold uppercase transition-all ${
                                 platform === 'mobile'
-                                    ? 'bg-slate-950 text-white'
-                                    : 'text-slate-600 hover:text-slate-950'
+                                    ? 'bg-[#1a73e8] text-white shadow-xs'
+                                    : 'text-[#5f6368] hover:text-[#202124]'
                             }`}
                         >
                             {labels.mobileComparison}

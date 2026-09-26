@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Globe, Play } from 'lucide-react';
+import { Globe, Minus, Play, Square, X } from 'lucide-react';
 import { MobileDeviceFrame } from './MobileDeviceFrame';
 import { formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
@@ -173,19 +173,19 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             onLoad={() => setImageLoaded(true)}
         />
     ) : isWebSession ? (
-        <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center gap-1 px-2">
-            <Globe className="h-4 w-4 text-slate-300 shrink-0" />
-            <span className="text-[9px] font-semibold text-slate-400 text-center truncate w-full text-center">{displayUrl}</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[#f8fafd] px-2">
+            <Globe className="h-4 w-4 shrink-0 text-[#bdc1c6]" />
+            <span className="w-full truncate text-center text-[10px] font-medium text-[#80868b]">{displayUrl}</span>
         </div>
     ) : (
-        <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
-            <span className="text-[10px] font-bold text-slate-300 transform -rotate-45">NO PREVIEW</span>
+        <div className="absolute inset-0 flex items-center justify-center bg-[#f8fafd]">
+            <span className="text-[11px] font-medium text-[#80868b]">No preview</span>
         </div>
     );
 
     const playOverlay = (
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-            <div className="w-8 h-8 bg-white/90 text-slate-900 rounded-full shadow-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/10">
+            <div className="flex h-8 w-8 items-center justify-center rounded-none border border-[#dadce0] bg-white text-[#202124] opacity-0 transition-opacity group-hover:opacity-100">
                 <Play size={14} fill="currentColor" className="ml-0.5" />
             </div>
         </div>
@@ -201,33 +201,33 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
     return (
         <div
             onClick={onClick}
-            className={`cursor-pointer group flex-shrink-0 transition-transform active:translate-x-[2px] active:translate-y-[2px] p-1 ${className}`}
+            className={`group flex-shrink-0 cursor-pointer p-1 ${className}`}
         >
             {isWebSession ? (
-                <div className={`relative ${webSizeConfig} overflow-hidden border-2 border-black bg-white shadow-lg ring-1 ring-black/10 transition-shadow duration-300 group-hover:shadow-xl`}>
+                <div className={`relative ${webSizeConfig} overflow-hidden rounded-none border border-[#dadce0] bg-white transition-colors group-hover:border-[#bdc1c6]`}>
                     {webChrome === 'windows' ? (
-                        <div className="flex h-6 items-center border-b border-black/10 bg-[#f3f3f3]">
-                            <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-[9px] font-semibold text-slate-500">
-                                <Globe className="h-2.5 w-2.5 shrink-0 text-slate-400" />
+                        <div className="flex h-6 items-center border-b border-[#e8eaed] bg-[#f1f3f4]">
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-[10px] text-[#5f6368]">
+                                <Globe className="h-2.5 w-2.5 shrink-0 text-[#80868b]" />
                                 <span className="truncate">{displayUrl}</span>
                             </div>
-                            <div className="flex shrink-0 items-stretch text-[9px] text-slate-500">
-                                <span className="flex h-6 w-5 items-center justify-center">-</span>
-                                <span className="flex h-6 w-5 items-center justify-center">□</span>
-                                <span className="flex h-6 w-5 items-center justify-center">x</span>
+                            <div className="flex shrink-0 items-stretch text-[#80868b]" aria-hidden="true">
+                                <span className="flex h-6 w-5 items-center justify-center"><Minus className="h-2.5 w-2.5" /></span>
+                                <span className="flex h-6 w-5 items-center justify-center"><Square className="h-2 w-2" /></span>
+                                <span className="flex h-6 w-5 items-center justify-center"><X className="h-2.5 w-2.5" /></span>
                             </div>
                         </div>
                     ) : (
-                        <div className={`flex h-6 items-center gap-2 border-b border-black/10 px-2 ${webChrome === 'macos' ? 'bg-[#e8e8e8]' : 'bg-[#f0f0f0]'}`}>
+                        <div className="flex h-6 items-center gap-2 border-b border-[#e8eaed] bg-[#f1f3f4] px-2">
                             {webChrome === 'macos' ? (
-                                <div className="flex shrink-0 items-center gap-1">
-                                    <span className="h-2 w-2 rounded-full bg-[#FF5F57]" />
-                                    <span className="h-2 w-2 rounded-full bg-[#FFBD2E]" />
-                                    <span className="h-2 w-2 rounded-full bg-[#28C840]" />
+                                <div className="flex shrink-0 items-center gap-1" aria-hidden="true">
+                                    <span className="h-2 w-2 rounded-full bg-[#dadce0]" />
+                                    <span className="h-2 w-2 rounded-full bg-[#dadce0]" />
+                                    <span className="h-2 w-2 rounded-full bg-[#dadce0]" />
                                 </div>
                             ) : null}
-                            <div className="flex min-w-0 flex-1 items-center gap-1 rounded bg-white/80 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
-                                <Globe className="h-2.5 w-2.5 shrink-0 text-slate-400" />
+                            <div className="flex min-w-0 flex-1 items-center gap-1 rounded-none border border-[#dadce0] bg-white px-1.5 py-0.5 text-[10px] text-[#5f6368]">
+                                <Globe className="h-2.5 w-2.5 shrink-0 text-[#80868b]" />
                                 <span className="truncate">{displayUrl}</span>
                             </div>
                         </div>
@@ -238,7 +238,7 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
                     </div>
                 </div>
             ) : (
-                <MobileDeviceFrame size={size} className="transition-shadow duration-300">
+                <MobileDeviceFrame size={size}>
                     {previewContent}
                     {playOverlay}
                 </MobileDeviceFrame>
@@ -246,12 +246,12 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             {showMeta && (
                 <div className="mt-2">
                     <div
-                        className="text-[10px] font-bold text-black truncate max-w-[140px] uppercase"
+                        className="max-w-[140px] truncate text-xs font-medium text-[#202124]"
                         title={session.deviceModel}
                     >
                         {isWebSession ? webEnvironment?.browserLabel : formatDeviceModel(session.deviceModel)}
                     </div>
-                    <div className="text-[9px] font-mono text-slate-500">
+                    <div className="text-[11px] text-[#5f6368]">
                         {isWebSession && webEnvironment?.osLabel ? webEnvironment.osLabel : formatLastSeen(session.createdAt)}
                     </div>
                 </div>

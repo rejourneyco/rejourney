@@ -15,7 +15,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-slate-700"
+            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-[#3c4043]"
           >
             {label}
           </label>
@@ -23,7 +23,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           id={inputId}
           type={type}
-          className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm text-slate-900 shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${error ? 'border-destructive focus-visible:ring-destructive' : ''
+          className={`flex h-9 w-full rounded-none border border-[#dadce0] bg-white px-3 py-1 text-sm text-[#202124] transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#80868b] focus-visible:border-[#1a73e8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/20 disabled:cursor-not-allowed disabled:opacity-50 ${error ? 'border-destructive focus-visible:ring-destructive' : ''
             } ${className}`}
           ref={ref}
           {...props}

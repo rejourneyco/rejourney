@@ -90,37 +90,29 @@ export const Footer: React.FC = () => {
   const headingClass = "text-[0.7rem] font-extrabold uppercase tracking-[0.16em] text-slate-950";
   const sectionClass = "min-w-0 space-y-4";
 
-  const cleanPath = location.pathname.replace(/\/$/, "");
-  const isBrutalistPage = cleanPath === "" || 
-                          cleanPath.endsWith("/pricing") || 
-                          cleanPath.endsWith("/login") || 
-                          cleanPath === "/en" || 
-                          cleanPath === "/es" || 
-                          cleanPath === "/fr";
-
   return (
-    <div className={isBrutalistPage ? "" : "soft-border-scope"}>
-      <footer className="relative overflow-hidden border-t border-slate-200 bg-[#fdfbf7] text-slate-700">
+    <div className="soft-border-scope">
+      <footer className="relative overflow-hidden border-t border-[#dadce0] bg-[var(--dashboard-canvas,#f8fafd)] text-slate-700">
         <div className="relative mx-auto w-full max-w-[1600px] px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
           <div className="grid gap-10 lg:grid-cols-[0.8fr_2fr] lg:gap-16">
             <div className="max-w-md">
               <Link to="/" className="inline-flex items-center gap-3 transition hover:opacity-80">
                 <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="h-10 w-10 object-contain" />
-                <span className="font-mono text-xl font-black uppercase tracking-tight text-slate-950">Rejourney</span>
+                <span className="font-mono text-xl font-black uppercase tracking-tight text-[#202124]">Rejourney</span>
               </Link>
-              <p className="mt-5 text-sm font-semibold leading-relaxed text-slate-600">
+              <p className="mt-5 text-sm font-medium leading-relaxed text-[#5f6368]">
                 {localizedFooterCopy?.summary ?? "Lightweight product analytics for web and mobile, with replay, funnels, heatmaps, crash context, and API evidence in one workspace."}
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Link
                   to="/demo"
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-950 bg-slate-950 px-5 text-xs font-extrabold uppercase text-white shadow-sm transition-colors duration-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fdfbf7]"
+                  className="inline-flex min-h-10 items-center justify-center rounded-none border border-[#1a73e8] bg-[#1a73e8] px-5 text-xs font-semibold uppercase text-white shadow-sm transition-colors duration-200 hover:bg-[#1765cc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
                 >
                   {localizedFooterCopy?.demo ?? "Demo"}
                 </Link>
                 <Link
                   to={pricingPath}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-xs font-extrabold uppercase text-slate-900 shadow-sm transition-colors duration-200 hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fdfbf7]"
+                  className="inline-flex min-h-10 items-center justify-center rounded-none border border-[#dadce0] bg-white px-5 text-xs font-semibold uppercase text-[#3c4043] shadow-sm transition-colors duration-200 hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2"
                 >
                   {localizedFooterCopy?.pricing ?? copy.pricing}
                 </Link>

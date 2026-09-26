@@ -71,6 +71,13 @@ import {
 } from '~/features/app/billing/revenueTracking';
 import { trackRejourneyRevenueEvent } from '~/shared/compliance/rejourneyWebsiteTelemetry';
 import { getDemoBillingFixtures } from '~/features/app/billing/demoBillingData';
+import {
+  dashboardButtonClass,
+  dashboardCardClass,
+  dashboardLabelClass,
+  dashboardSectionTitleClass,
+} from '~/shared/ui/core/dashboardStyles';
+import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: 'Validate the funnel before traffic ramps',
@@ -82,12 +89,12 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
 };
 
 const PLAN_STEPS = [
-  { name: 'free', label: '5k', sessions: 5_000 },
-  { name: 'starter', label: '25k', sessions: 25_000 },
-  { name: 'growth', label: '100k', sessions: 100_000 },
-  { name: 'pro', label: '350k', sessions: 350_000 },
-  { name: 'scale', label: '1m', sessions: 1_000_000 },
-  { name: 'enterprise', label: '1m+', sessions: 10_000_000 },
+  { name: 'free', label: '5K', sessions: 5_000 },
+  { name: 'starter', label: '25K', sessions: 25_000 },
+  { name: 'growth', label: '100K', sessions: 100_000 },
+  { name: 'pro', label: '350K', sessions: 350_000 },
+  { name: 'scale', label: '1M', sessions: 1_000_000 },
+  { name: 'enterprise', label: '1M+', sessions: 10_000_000 },
 ] as const;
 
 const getRevenueLeakPredictionLabel = (planName: string) => {
@@ -108,8 +115,8 @@ const getRevenueLeakPredictionLabel = (planName: string) => {
 };
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
-  <div className="flex gap-2.5 text-xs font-medium leading-5 text-slate-605">
-    <span className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full ${tone === 'minus' || tone === 'warning' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+  <div className={`flex gap-2.5 text-xs leading-5 [&_strong]:font-medium [&_strong]:text-[#202124] ${tone === 'minus' ? 'text-[#5f6368]' : 'text-[#3c4043]'}`}>
+    <span className={`mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-none ${tone === 'minus' ? 'bg-[#f1f3f4] text-[#80868b]' : tone === 'warning' ? 'bg-[#fef7e0] text-[#b06000]' : 'bg-[#e6f4ea] text-[#137333]'}`}>
       {tone === 'minus' || tone === 'warning'
         ? <Minus className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />
         : <Check className="h-2.5 w-2.5 stroke-[3px]" aria-hidden />}
@@ -587,7 +594,7 @@ export const BillingSettings: React.FC = () => {
   const handleOpenBillingPortal = async () => {
     if (!currentTeam) return;
     if (isDemoMode) {
-      showToast('Stripe Billing is disabled in the demo. This payment method is sample data.');
+      showToast('Stripe billing is disabled in the demo. This payment method is sample data.');
       return;
     }
     try {
@@ -678,11 +685,11 @@ export const BillingSettings: React.FC = () => {
 
   if (!currentTeam) {
     return (
-      <SettingsLayout className="rejourney-settings-page rejourney-billing-settings-page" title="Billing" description="Select a team to manage billing" icon={<CreditCard className="w-6 h-6" />} iconColor="bg-[#f4f4f5]">
-        <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
-          <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
-          <p className="text-sm text-slate-500">Please select or create a team from the sidebar.</p>
+      <SettingsLayout className="rejourney-settings-page rejourney-billing-settings-page" title="Billing" description="Select a team to manage billing" {...dashboardPageHeaderProps('billing')}>
+        <div className={`${dashboardCardClass} p-12 text-center`}>
+          <Building className="mx-auto mb-3 h-10 w-10 text-[#bdc1c6]" />
+          <h2 className={`mb-1 ${dashboardSectionTitleClass}`}>No team selected</h2>
+          <p className="text-sm text-[#5f6368]">Please select or create a team from the sidebar.</p>
         </div>
       </SettingsLayout>
     );
@@ -695,23 +702,22 @@ export const BillingSettings: React.FC = () => {
         className="rejourney-settings-page rejourney-billing-settings-page"
         title="Billing"
         description={`Enterprise billing for ${currentTeam.name}`}
-        icon={<CreditCard className="w-6 h-6" />}
-        iconColor="bg-[#f4f4f5]"
+        {...dashboardPageHeaderProps('billing')}
       >
-        <NeoCard className="p-8 border-emerald-600 bg-emerald-50">
-          <div className="flex items-start gap-6">
-            <div className="w-16 h-16 bg-emerald-600 flex items-center justify-center border-2 border-slate-900 shadow-[4px_4px_0_0_#000]">
-              <Shield className="w-8 h-8 text-white" />
+        <NeoCard className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-[#f1f3f4] text-[#5f6368]">
+              <Shield className="h-5 w-5" />
             </div>
-            <div className="flex-1">
-              <h2 className="text-2xl font-semibold uppercase tracking-tight mb-2">Self-Hosted Enterprise</h2>
-              <p className="text-sm font-bold text-emerald-800 mb-4">
+            <div className="min-w-0 flex-1">
+              <h2 className={`mb-1 ${dashboardSectionTitleClass}`}>Self-hosted enterprise</h2>
+              <p className="mb-4 text-sm text-[#3c4043]">
                 Your instance is running in self-hosted mode with unlimited sessions.
               </p>
-              <div className="flex flex-wrap gap-3">
-                <NeoBadge variant="success">Unlimited Sessions</NeoBadge>
-                <NeoBadge variant="success">No Billing Required</NeoBadge>
-                <NeoBadge variant="neutral">Full Data Control</NeoBadge>
+              <div className="flex flex-wrap gap-2">
+                <NeoBadge variant="success" size="sm">Unlimited sessions</NeoBadge>
+                <NeoBadge variant="neutral" size="sm">No billing required</NeoBadge>
+                <NeoBadge variant="neutral" size="sm">Full data control</NeoBadge>
               </div>
             </div>
           </div>
@@ -754,8 +760,8 @@ export const BillingSettings: React.FC = () => {
   const periodEndsLabel = alertSettings
     ? new Date(alertSettings.billingCycleEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : '---';
-  const usageBarClass = isAtLimit || isNearLimit ? 'bg-rose-500' : 'bg-emerald-500';
-  const usageToneClass = isAtLimit || isNearLimit ? 'text-rose-600' : 'text-emerald-600';
+  const usageBarClass = isAtLimit ? 'bg-[#d93025]' : isNearLimit ? 'bg-[#f9ab00]' : 'bg-[#1a73e8]';
+  const usageToneClass = isAtLimit ? 'text-[#c5221f]' : isNearLimit ? 'text-[#b06000]' : 'text-[#202124]';
   const showPaymentSummary = stripeStatus?.enabled && (currentPlanName !== 'free' || paymentMethods.length > 0 || isBillingAdmin);
   const hasScheduledPlanChange = Boolean(teamPlan?.scheduledPriceId || teamPlan?.cancelAtPeriodEnd);
 
@@ -764,34 +770,33 @@ export const BillingSettings: React.FC = () => {
       className="rejourney-settings-page rejourney-billing-settings-page relative overflow-hidden"
       title="Billing"
       description={`Plan & usage for ${currentTeam.name}`}
-      icon={<CreditCard className="w-6 h-6" />}
-      iconColor="bg-[#f4f4f5]"
+      {...dashboardPageHeaderProps('billing')}
       headerAction={
         <div className="flex items-center gap-3">
-          <NeoBadge variant={teamPlan?.planName === 'free' ? 'warning' : 'success'} className="font-mono uppercase">
-            {teamPlan?.planName || 'Free'} Plan
+          <NeoBadge variant={currentPlanName === 'free' ? 'neutral' : 'info'}>
+            {`${currentPlanDisplay} plan`}
           </NeoBadge>
         </div>
       }
     >
-      <div className="relative z-10 space-y-6">
+      <div className="relative space-y-6">
       {isDemoMode && (
-        <div className="flex items-start gap-3 rounded-xl border border-sky-200/70 bg-sky-50/80 p-4 backdrop-blur-md">
-          <Info className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+        <div className="flex items-start gap-3 border border-[#d2e3fc] bg-[#e8f0fe] p-4 text-[#1967d2]">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <div className="text-sm font-semibold text-sky-950">Demo billing preview</div>
-            <div className="mt-0.5 text-xs font-medium text-sky-800">
+            <div className="text-sm font-medium">Demo billing preview</div>
+            <div className="mt-0.5 text-sm">
               Usage, plan, and payment details are sample data. Billing actions are safely disabled.
             </div>
           </div>
         </div>
       )}
       {hasScheduledPlanChange && (
-        <div className="rounded-xl border border-rose-200/60 bg-rose-50/75 backdrop-blur-md flex items-start gap-3 p-4">
-          <Info className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+        <div className={`flex items-start gap-3 border p-4 ${teamPlan?.cancelAtPeriodEnd ? 'border-[#feefc3] bg-[#fef7e0] text-[#b06000]' : 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'}`}>
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-rose-900">Scheduled plan change</div>
-            <div className="mt-1 text-sm font-medium text-rose-800">
+            <div className="text-sm font-medium">Scheduled plan change</div>
+            <div className="mt-0.5 text-sm">
               {teamPlan?.cancelAtPeriodEnd
                 ? 'Your subscription will be canceled at the end of your current billing period. You keep access until then.'
                 : 'Your plan change is scheduled for the end of your current billing period.'}
@@ -801,44 +806,44 @@ export const BillingSettings: React.FC = () => {
       )}
 
       {billingError && (
-        <div className="rounded-xl border border-rose-200/60 bg-rose-50/75 backdrop-blur-md flex items-start gap-3 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+        <div className="flex items-start gap-3 border border-[#f6aea9] bg-[#fce8e6] p-4 text-[#a50e0e]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#d93025]" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-rose-900">Billing error</div>
-            <div className="mt-1 text-sm font-medium text-rose-700">{billingError}</div>
+            <div className="text-sm font-medium">Billing error</div>
+            <div className="mt-0.5 text-sm">{billingError}</div>
           </div>
-          <button onClick={() => setBillingError(null)} className="rounded-md p-1 text-rose-600 hover:bg-rose-100 hover:text-rose-800" aria-label="Dismiss billing error">
+          <button onClick={() => setBillingError(null)} className="rounded-none p-1 text-[#a50e0e] transition-colors hover:bg-[#fad2cf] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40" aria-label="Dismiss billing error">
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="billing-glass-card p-5">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/50 pb-4">
+        <section className={`${dashboardCardClass} min-w-0 p-5`}>
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-[#e8eaed] pb-4">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Usage This Period</h2>
-              <p className="mt-1 text-xs font-medium text-slate-500">Replay quota, unlimited analytics sessions, and renewal timing.</p>
+              <h2 className={dashboardSectionTitleClass}>Usage this period</h2>
+              <p className="mt-1 text-xs text-[#5f6368]">Replay quota, unlimited analytics sessions, and renewal timing.</p>
             </div>
             <div className="text-left sm:text-right">
-              <div className="text-xs font-medium text-slate-500">Period ends</div>
-              <div className="font-mono text-sm font-semibold text-slate-950">{periodEndsLabel}</div>
+              <div className={dashboardLabelClass}>Period ends</div>
+              <div className="mt-0.5 text-sm font-medium tabular-nums text-[#202124]">{periodEndsLabel}</div>
             </div>
           </div>
 
           <div>
             <div className="min-w-0">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Revenue evidence recorded</div>
+              <div className={`mb-2 ${dashboardLabelClass}`}>Revenue evidence recorded</div>
               <div className="flex items-baseline gap-2">
-                <span className="font-mono text-4xl font-semibold text-slate-950">
+                <span className="text-3xl font-normal leading-none tabular-nums text-[#202124]">
                   {sessionReplaysUsed.toLocaleString()}
                 </span>
-                <span className="text-base font-semibold text-slate-500">
+                <span className="text-base tabular-nums text-[#5f6368]">
                   / {effectiveSessionLimit.toLocaleString()}
                 </span>
               </div>
               {bonusSessionsActive > 0 ? (
-                <p className="mt-2 max-w-xl text-xs font-medium text-slate-600">
+                <p className="mt-2 max-w-xl text-xs tabular-nums text-[#5f6368]">
                   Plan includes {planSessionCap.toLocaleString()} captured sessions; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
                 </p>
               ) : null}
@@ -848,10 +853,10 @@ export const BillingSettings: React.FC = () => {
           <div className="mt-5 space-y-5">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`text-sm font-semibold ${usageToneClass}`}>
+                <span className={`text-sm font-medium tabular-nums ${usageToneClass}`}>
                   {usagePercent}% of captured-session quota used
                 </span>
-                <span className="font-mono text-xs font-semibold text-slate-500">
+                <span className="text-xs tabular-nums text-[#5f6368]">
                   {sessionReplaysUsed.toLocaleString()} / {effectiveSessionLimit.toLocaleString()}
                 </span>
               </div>
@@ -861,38 +866,27 @@ export const BillingSettings: React.FC = () => {
                   style={{ width: `${usagePercent}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+              <div className="flex items-center justify-between gap-3 text-xs tabular-nums text-[#5f6368]">
                 <span>{sessionsRemainingDisplay.toLocaleString()} captured sessions remaining</span>
                 <span>{planSessionCap.toLocaleString()} base plan cap</span>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-emerald-700">
-                  Analytics sessions captured
-                </span>
-                <span className="font-mono text-xs font-semibold text-slate-500">
-                  {sessionsCapturedDisplay.toLocaleString()} / ∞
-                </span>
+            <div className="flex flex-wrap items-end justify-between gap-3 border-t border-[#e8eaed] pt-4">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-[#3c4043]">Analytics sessions captured</div>
+                <div className="mt-0.5 text-xs text-[#5f6368]">Unlimited. There is no analytics cap this period.</div>
               </div>
-              <div className="billing-progress-track">
-                <div
-                  className="billing-progress-fill bg-emerald-500"
-                  style={{ width: sessionsCapturedDisplay > 0 ? '100%' : '0%' }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                <span>No analytics cap this period</span>
-                <span>∞ analytics sessions</span>
+              <div className="text-xl font-normal leading-none tabular-nums text-[#202124]">
+                {sessionsCapturedDisplay.toLocaleString()}
               </div>
             </div>
           </div>
 
           {(isAtLimit || isNearLimit) && (
-            <div className="dashboard-inner-surface mt-4 flex items-start gap-3 border-rose-200 bg-rose-50/60 p-3">
-              {isAtLimit ? <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-600" />}
-              <span className="text-sm font-medium text-rose-800">
+            <div className={`mt-4 flex items-start gap-3 border p-3 ${isAtLimit ? 'border-[#f6aea9] bg-[#fce8e6] text-[#a50e0e]' : 'border-[#feefc3] bg-[#fef7e0] text-[#b06000]'}`}>
+              {isAtLimit ? <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0 text-[#d93025]" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+              <span className="text-sm">
                 {isAtLimit
                   ? 'Captured-session limit reached. Fresh AI leak packets, heatmaps, journey drill-downs, crash context, and replay evidence pause until the next billing cycle or upgrade. General analytics still counts every session.'
                   : 'Approaching captured-session limit. Consider upgrading to keep revenue-leak evidence flowing.'}
@@ -903,22 +897,22 @@ export const BillingSettings: React.FC = () => {
         </section>
 
         <div className="space-y-4">
-          <section className="billing-glass-card p-5">
+          <section className={`${dashboardCardClass} min-w-0 p-5`}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Current Plan</h2>
-                <p className="mt-1 text-sm text-slate-500">{PLAN_DESCRIPTIONS[currentPlanName] || 'Subscription Plan'}</p>
+                <h2 className={dashboardSectionTitleClass}>Current plan</h2>
+                <p className="mt-1 text-sm text-[#5f6368]">{PLAN_DESCRIPTIONS[currentPlanName] || 'Subscription plan'}</p>
               </div>
-              <NeoBadge variant={currentPlanName === 'free' ? 'warning' : 'success'} size="sm">
+              <NeoBadge variant={currentPlanName === 'free' ? 'neutral' : 'info'} size="sm">
                 {currentPlanName}
               </NeoBadge>
             </div>
             <div className="mt-5">
-              <div className="text-3xl font-semibold text-slate-950">{currentPlanDisplay}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-500">{currentPlanPriceLabel}</div>
+              <div className="text-2xl font-normal text-[#202124]">{currentPlanDisplay}</div>
+              <div className="mt-1 text-sm tabular-nums text-[#5f6368]">{currentPlanPriceLabel}</div>
             </div>
             {hasScheduledPlanChange && (
-              <div className="dashboard-inner-surface mt-4 border-rose-200 bg-rose-50/60 p-3 text-sm font-medium text-rose-800">
+              <div className={`mt-4 border p-3 text-sm ${teamPlan?.cancelAtPeriodEnd ? 'border-[#feefc3] bg-[#fef7e0] text-[#b06000]' : 'border-[#d2e3fc] bg-[#e8f0fe] text-[#1967d2]'}`}>
                 {teamPlan?.cancelAtPeriodEnd ? 'Canceling at period end' : 'Plan change scheduled'}
               </div>
             )}
@@ -930,23 +924,23 @@ export const BillingSettings: React.FC = () => {
                 disabled={isLoadingPortal}
                 leftIcon={<ExternalLink className="h-4 w-4" />}
               >
-                {isLoadingPortal ? 'Opening...' : 'Manage Stripe Billing'}
+                {isLoadingPortal ? 'Opening...' : 'Manage Stripe billing'}
               </NeoButton>
             )}
           </section>
 
           {showPaymentSummary && (
-            <section className="billing-glass-card p-5">
+            <section className={`${dashboardCardClass} min-w-0 p-5`}>
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Payment</h2>
-                <NeoBadge variant={stripeStatus?.paymentFailed ? 'warning' : hasPaymentMethod ? 'success' : 'neutral'} size="sm">
+                <h2 className={dashboardSectionTitleClass}>Payment</h2>
+                <NeoBadge variant={stripeStatus?.paymentFailed ? 'danger' : hasPaymentMethod ? 'success' : 'neutral'} size="sm">
                   {stripeStatus?.paymentFailed ? 'Failed' : hasPaymentMethod ? 'On file' : 'None'}
                 </NeoBadge>
               </div>
               {stripeStatus?.paymentFailed && (
-                <div className="dashboard-inner-surface mb-3 flex items-start gap-3 border-rose-200 bg-rose-50/60 p-3">
-                  <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" />
-                  <div className="text-sm font-medium text-rose-800">Update your payment method in Stripe Billing to continue recording.</div>
+                <div className="mb-3 flex items-start gap-3 border border-[#f6aea9] bg-[#fce8e6] p-3 text-[#a50e0e]">
+                  <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0 text-[#d93025]" />
+                  <div className="text-sm">Update your payment method in Stripe billing to continue recording.</div>
                 </div>
               )}
               {paymentMethods.length > 0 ? (
@@ -954,29 +948,30 @@ export const BillingSettings: React.FC = () => {
                   {paymentMethods.map(pm => (
                     <div key={pm.id} className="dashboard-inner-surface p-3">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-md border border-slate-200/60 bg-white/60 backdrop-blur-sm p-2">
-                          <CreditCard className="h-4 w-4 text-slate-700" />
+                        <div className="border border-[#dadce0] bg-white p-2 text-[#5f6368]">
+                          <CreditCard className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-mono text-sm font-semibold text-slate-950">
-                            {pm.brand ? pm.brand.toUpperCase() : 'CARD'} **** {pm.last4 || '****'}
+                          <div className="truncate text-sm font-medium text-[#202124]">
+                            {pm.brand ? `${pm.brand.charAt(0).toUpperCase()}${pm.brand.slice(1)}` : 'Card'}{' '}
+                            <span className="font-mono">**** {pm.last4 || '****'}</span>
                           </div>
-                          <div className="text-xs font-medium text-slate-500">
+                          <div className="text-xs tabular-nums text-[#5f6368]">
                             {pm.expiryMonth && pm.expiryYear
                               ? `Expires ${String(pm.expiryMonth).padStart(2, '0')}/${pm.expiryYear}`
                               : 'No expiry info'}
                           </div>
                         </div>
-                        {pm.isDefault && <NeoBadge variant="success" size="sm">Default</NeoBadge>}
+                        {pm.isDefault && <NeoBadge variant="neutral" size="sm">Default</NeoBadge>}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="dashboard-inner-surface p-4 text-sm font-medium text-slate-600">
+                <div className="dashboard-inner-surface p-4 text-sm text-[#5f6368]">
                   {currentPlanName === 'free'
                     ? 'No payment method is needed while this team is on Free.'
-                    : 'Add a payment method in Stripe Billing before reaching the captured-session limit.'}
+                    : 'Add a payment method in Stripe billing before reaching the captured-session limit.'}
                 </div>
               )}
             </section>
@@ -984,36 +979,36 @@ export const BillingSettings: React.FC = () => {
         </div>
       </div>
 
-      <section className="billing-glass-card relative z-10 mt-6 p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/60 pb-5">
+      <section className={`${dashboardCardClass} mt-6 p-5 sm:p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e8eaed] pb-5">
           <div className="max-w-2xl">
-            <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Choose your evidence volume</h2>
-            <p className="mt-1.5 text-sm font-medium leading-6 text-slate-500">
+            <h2 className={dashboardSectionTitleClass}>Choose your evidence volume</h2>
+            <p className="mt-1 text-sm leading-6 text-[#5f6368]">
               Every plan includes the analytics toolkit. Choose based on monthly session replays, retention, and capture control.
             </p>
           </div>
           <a
             href="mailto:contact@rejourney.co"
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-xs font-bold text-indigo-650 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1a73e8] transition-colors hover:text-[#1765cc] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
           >
             Need a custom plan?
             <ArrowRight className="h-3.5 w-3.5" />
           </a>
         </div>
 
-        <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm">
+        <div className="mx-auto mt-6 max-w-2xl border border-[#e8eaed] bg-[#f8fafd] p-5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Monthly session replays</div>
-              <div className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+              <div className={dashboardLabelClass}>Monthly session replays</div>
+              <div className="mt-1 text-2xl font-normal leading-tight tabular-nums text-[#202124]">
                 {selectedPlanStep.name === 'enterprise'
                   ? 'Custom volume'
                   : selectedPlanStep.sessions.toLocaleString()}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Previewing</div>
-              <div className="mt-1 text-sm font-black uppercase text-indigo-650">{selectedPlanStep.name}</div>
+              <div className={dashboardLabelClass}>Previewing</div>
+              <div className="mt-1 text-sm font-medium capitalize text-[#1a73e8]">{selectedPlanStep.name}</div>
             </div>
           </div>
 
@@ -1035,8 +1030,8 @@ export const BillingSettings: React.FC = () => {
                 key={step.name}
                 type="button"
                 onClick={() => setVolumeIndex(index)}
-                className={`text-[10px] font-bold uppercase transition-colors ${
-                  volumeIndex === index ? 'text-indigo-650' : 'text-slate-400 hover:text-slate-650'
+                className={`px-0.5 text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 ${
+                  volumeIndex === index ? 'text-[#1a73e8]' : 'text-[#5f6368] hover:text-[#202124]'
                 }`}
                 aria-label={`Preview ${step.name} plan`}
                 aria-pressed={volumeIndex === index}
@@ -1045,12 +1040,12 @@ export const BillingSettings: React.FC = () => {
               </button>
             ))}
           </div>
-          <p className="mt-4 text-center text-xs font-medium text-slate-500">
+          <p className="mt-4 text-center text-xs text-[#5f6368]">
             Your subscribed plan is selected automatically whenever you return.
           </p>
         </div>
 
-        <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-3">
+        <div className="mt-6 grid items-stretch gap-4 lg:grid-cols-3">
           {plansForSliderDisplay.map((plan) => {
             const isCurrentPlan = currentPlanName === plan.name;
             const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
@@ -1072,13 +1067,10 @@ export const BillingSettings: React.FC = () => {
                   : 'Upgrade';
 
             const isHighlighted = isSelectedPlan;
-            const badgeText = isFree ? 'Getting Started' : isEnterprise ? 'Contact Us' : 'Best Value';
             const cardClassName = isHighlighted
-              ? 'border-2 border-slate-950 bg-white shadow-[8px_8px_0_#0f172a] -translate-y-1'
-              : 'border border-slate-200 bg-white/80 shadow-sm hover:-translate-y-0.5 hover:border-slate-350 hover:shadow-md';
-            const actionClassName = isHighlighted
-              ? 'border-slate-950 bg-[#86efac] text-black shadow-[2px_2px_0_#0f172a] hover:-translate-y-0.5 hover:bg-[#6ee7a0] active:translate-y-0 active:shadow-none'
-              : 'border-slate-250 bg-white text-slate-800 hover:border-slate-350 hover:bg-slate-50';
+              ? 'border-[#1a73e8] ring-1 ring-[#1a73e8]'
+              : 'border-[#dadce0] hover:border-[#bdc1c6]';
+            const actionClassName = `${dashboardButtonClass(isHighlighted ? 'primary' : 'secondary', 'lg')} w-full`;
             const features: Array<{ key: string; content: React.ReactNode; active: boolean }> = isFree
               ? [
                   { key: 'sessions', content: <><strong>{plan.sessionLimit.toLocaleString()}</strong> session replays / mo</>, active: true },
@@ -1088,7 +1080,7 @@ export const BillingSettings: React.FC = () => {
                   { key: 'funnels', content: 'Standard funnel and cohort trends', active: true },
                   { key: 'controls', content: 'Standard session recording controls', active: true },
                   { key: 'smart', content: 'Smart Capture customizable rules', active: false },
-                  { key: 'support', content: 'Priority support & Dedicated hardware', active: false },
+                  { key: 'support', content: 'Priority support & dedicated hardware', active: false },
                 ]
               : isEnterprise
                 ? [
@@ -1108,40 +1100,38 @@ export const BillingSettings: React.FC = () => {
                     { key: 'funnels', content: 'Checkout, onboarding, & paywall drill-downs', active: true },
                     { key: 'diagnostics', content: 'Crash, API, and ANR diagnostic tools', active: true },
                     { key: 'smart', content: 'Smart Capture customizable rules', active: hasSmartCapture },
-                    { key: 'support', content: 'Priority support & Dedicated hardware', active: false },
+                    { key: 'support', content: 'Priority support & dedicated hardware', active: false },
                   ];
 
             return (
               <article
                 key={plan.name}
-                className={`relative flex min-h-[650px] flex-col justify-between rounded-2xl p-8 transition-all duration-300 ${cardClassName}`}
+                className={`relative flex flex-col justify-between rounded-none border bg-white p-6 transition-colors ${cardClassName}`}
               >
-                {isHighlighted && (
-                  <span className="absolute -top-3 left-6 inline-flex items-center rounded-full border border-emerald-500 bg-emerald-100 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-emerald-800">
-                    {isCurrentPlan ? 'Current Plan' : badgeText}
-                  </span>
-                )}
-
                 <div>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">{plan.displayName}</h3>
-                      <p className="mt-3 min-h-12 text-sm font-semibold leading-relaxed text-slate-500">
+                      <h3 className="text-base font-medium text-[#202124]">{plan.displayName}</h3>
+                      <p className="mt-2 min-h-10 text-sm leading-5 text-[#5f6368]">
                       {PLAN_DESCRIPTIONS[plan.name] || 'Subscription plan'}
                       </p>
                     </div>
-                    {!isHighlighted && isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
-                    {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
+                    {(isCurrentPlan || isScheduledPlan) && (
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                        {isCurrentPlan && <NeoBadge variant="info" size="sm">Current</NeoBadge>}
+                        {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-6 flex items-end gap-x-2">
-                    <span className="text-4xl font-black tracking-tight text-slate-900">
+                  <div className="mt-5 flex items-baseline gap-x-1.5">
+                    <span className="text-3xl font-normal leading-none tabular-nums text-[#202124]">
                     {isEnterprise ? 'Custom' : price === 0 ? '$0' : `$${price}`}
                     </span>
-                    {!isFree && !isEnterprise && <span className="pb-1 text-sm font-bold text-slate-400">/ month</span>}
+                    {!isFree && !isEnterprise && <span className="text-sm text-[#5f6368]">/ month</span>}
                   </div>
 
-                  <div className="mt-8 space-y-4">
+                  <div className="mt-6 space-y-3">
                     {features.map(feature => (
                       <PlanCheck key={feature.key} tone={feature.active ? 'check' : 'minus'}>
                         {feature.content}
@@ -1150,27 +1140,27 @@ export const BillingSettings: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-8 pt-2">
+                <div className="mt-8">
                   {isCurrentPlan ? (
-                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 text-sm font-extrabold uppercase text-indigo-700">
+                    <div className="flex h-10 w-full items-center justify-center border border-[#d2e3fc] bg-[#e8f0fe] px-4 text-sm font-medium text-[#1967d2]">
                       Your current plan
                     </div>
                   ) : isScheduledPlan ? (
-                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-extrabold uppercase text-rose-700">
+                    <div className="flex h-10 w-full items-center justify-center border border-[#feefc3] bg-[#fef7e0] px-4 text-sm font-medium text-[#b06000]">
                       Already scheduled
                     </div>
                   ) : isEnterprise ? (
                     <a
                       href="mailto:contact@rejourney.co?subject=Enterprise%20Plan%20Inquiry"
-                      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-extrabold uppercase transition-all duration-150 ${actionClassName}`}
+                      className={actionClassName}
                     >
-                      Contact Sales
+                      Contact sales
                       <ArrowRight className="h-4 w-4" />
                     </a>
                   ) : isBillingAdmin ? (
                     <button
                       type="button"
-                      className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-extrabold uppercase transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${actionClassName}`}
+                      className={actionClassName}
                       onClick={() => handlePlanClick(plan.name)}
                       disabled={isSavingPlan || isFreePlanDisabled}
                     >
@@ -1178,7 +1168,7 @@ export const BillingSettings: React.FC = () => {
                       <ArrowRight className="h-4 w-4" />
                     </button>
                   ) : (
-                    <div className="flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-xs font-semibold text-slate-500">
+                    <div className="flex h-10 w-full items-center justify-center border border-[#e8eaed] bg-[#f8fafd] px-3 text-center text-xs text-[#5f6368]">
                       Billing admin required
                     </div>
                   )}
@@ -1188,15 +1178,15 @@ export const BillingSettings: React.FC = () => {
           })}
         </div>
 
-        <div className="mt-5 grid gap-3 rounded-xl border border-slate-200/70 bg-white/55 p-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-5 grid gap-3 border border-[#e8eaed] bg-[#f8fafd] p-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             'Web and mobile replay',
             'AI Leak Detection',
             'Heatmaps and journeys',
             'Crash and API context',
           ].map(feature => (
-            <div key={feature} className="flex items-center gap-2 text-xs font-semibold text-slate-650">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <div key={feature} className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
+              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center bg-[#e6f4ea] text-[#137333]">
                 <Check className="h-3 w-3 stroke-[3px]" />
               </span>
               {feature}
@@ -1207,58 +1197,59 @@ export const BillingSettings: React.FC = () => {
 
       {/* Plan Change Confirmation Modal */}
       {planChangeModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]" onClick={handleCloseModal}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#202124]/50 p-3 sm:p-4" onClick={handleCloseModal}>
           <div
-            className="billing-modal-panel bg-white max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            className="billing-modal-panel w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-none border border-[#dadce0] bg-white text-[#202124]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
-              <h2 className="text-lg font-semibold tracking-tight">
+            <div className="flex items-center justify-between gap-4 border-b border-[#e8eaed] bg-white px-5 py-4">
+              <h2 className="text-lg font-medium text-[#202124]">
                 {planChangeModal.isLoading ? 'Loading...' :
-                  planChangeModal.preview?.changeType === 'new' ? 'Subscribe to Plan' :
-                    planChangeModal.preview?.changeType === 'upgrade' ? 'Confirm Upgrade' :
-                      planChangeModal.preview?.changeType === 'downgrade' ? 'Confirm Downgrade' :
-                        'Confirm Plan Change'}
+                  planChangeModal.preview?.changeType === 'new' ? 'Subscribe to plan' :
+                    planChangeModal.preview?.changeType === 'upgrade' ? 'Confirm upgrade' :
+                      planChangeModal.preview?.changeType === 'downgrade' ? 'Confirm downgrade' :
+                        'Confirm plan change'}
               </h2>
               <button
                 onClick={handleCloseModal}
-                className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                className="rounded-none p-1.5 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={planChangeModal.isConfirming}
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Content */}
-            <div className="p-6">
+            <div className="p-5 sm:p-6">
               {planChangeModal.isLoading ? (
                 <div className="h-32 flex items-center justify-center">
-                  <div className="animate-spin w-8 h-8 border-4 border-slate-300 border-t-slate-900 rounded-full" />
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#e8eaed] border-t-[#1a73e8]" />
                 </div>
               ) : planChangeModal.preview ? (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {/* Plan Change Summary */}
-                  <div className="flex items-center justify-center gap-4">
-                    <div className="dashboard-inner-surface flex-1 p-4 text-center">
-                      <div className="text-xs font-bold text-slate-500 uppercase mb-1">Current</div>
-                      <div className="text-lg font-semibold">
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="flex-1 border border-[#e8eaed] bg-[#f8fafd] p-4 text-center">
+                      <div className={`mb-1 ${dashboardLabelClass}`}>Current</div>
+                      <div className="text-base font-medium text-[#202124]">
                         {planChangeModal.preview.currentPlan.displayName}
                       </div>
-                      <div className="text-sm font-bold text-slate-600">
+                      <div className="text-sm tabular-nums text-[#5f6368]">
                         {planChangeModal.preview.currentPlan.priceCents === 0
                           ? 'Free'
                           : `$${(planChangeModal.preview.currentPlan.priceCents / 100).toFixed(0)}/mo`}
                       </div>
                     </div>
-                    <div className="text-slate-400 font-semibold text-xl">→</div>
-                    <div className={`dashboard-inner-surface flex-1 p-4 text-center ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
-                      ? 'bg-emerald-50 border-emerald-600'
-                      : 'bg-rose-50 border-rose-600'
+                    <ArrowRight className="h-4 w-4 shrink-0 text-[#80868b]" aria-hidden />
+                    <div className={`flex-1 border p-4 text-center ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                      ? 'border-[#1a73e8] bg-[#e8f0fe]'
+                      : 'border-[#feefc3] bg-[#fef7e0]'
                       }`}>
-                      <div className="text-xs font-bold text-slate-500 uppercase mb-1">New Plan</div>
-                      <div className="text-lg font-semibold">{planChangeModal.preview.newPlan.displayName}</div>
-                      <div className="text-sm font-bold text-slate-600">
+                      <div className={`mb-1 ${dashboardLabelClass}`}>New plan</div>
+                      <div className="text-base font-medium text-[#202124]">{planChangeModal.preview.newPlan.displayName}</div>
+                      <div className="text-sm tabular-nums text-[#5f6368]">
                         {planChangeModal.preview.newPlan.priceCents === 0
                           ? 'Free'
                           : `$${(planChangeModal.preview.newPlan.priceCents / 100).toFixed(0)}/mo`}
@@ -1267,16 +1258,16 @@ export const BillingSettings: React.FC = () => {
                   </div>
 
                   {/* Session Replay Limit Change */}
-                  <div className="dashboard-inner-surface p-4">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-slate-600">Monthly Session Replay Limit</span>
-                      <div className="text-right">
-                        <span className="line-through text-slate-400 mr-2">
+                  <div className="border border-[#e8eaed] bg-[#f8fafd] p-4">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-[#3c4043]">Monthly session replay limit</span>
+                      <div className="text-right tabular-nums">
+                        <span className="mr-2 text-[#80868b] line-through">
                           {planChangeModal.preview.currentPlan.sessionLimit.toLocaleString()}
                         </span>
-                        <span className={`font-semibold ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
-                          ? 'text-emerald-600'
-                          : 'text-rose-600'
+                        <span className={`font-medium ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                          ? 'text-[#137333]'
+                          : 'text-[#b06000]'
                           }`}>
                           {planChangeModal.preview.newPlan.sessionLimit.toLocaleString()}
                         </span>
@@ -1284,31 +1275,31 @@ export const BillingSettings: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="dashboard-inner-surface p-4">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-slate-600">Video Retention</span>
+                  <div className="border border-[#e8eaed] bg-[#f8fafd] p-4">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-[#3c4043]">Video retention</span>
                       <div className="text-right">
-                        <span className="line-through text-slate-400 mr-2">
+                        <span className="mr-2 text-[#80868b] line-through">
                           {planChangeModal.preview.currentPlan.videoRetentionLabel}
                         </span>
-                        <span className={`font-semibold ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
-                          ? 'text-emerald-600'
-                          : 'text-rose-600'
+                        <span className={`font-medium ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                          ? 'text-[#137333]'
+                          : 'text-[#b06000]'
                           }`}>
                           {planChangeModal.preview.newPlan.videoRetentionLabel}
                         </span>
                       </div>
                     </div>
-                    <p className="text-[11px] font-bold text-slate-400 mt-2">Replay media only. Everything else retained unlimited.</p>
+                    <p className="mt-2 text-xs text-[#5f6368]">Replay media only. Everything else retained unlimited.</p>
                   </div>
 
 
                   {/* Payment Method Warning */}
                   {planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod && (
-                    <div className="dashboard-inner-surface p-4">
-                      <div className="font-semibold text-slate-900 mb-2">Payment Method Required</div>
-                      <p className="text-sm text-slate-600 mb-3">
-                        Add or update your payment method in Stripe Billing, then return here to finish this change.
+                    <div className="border border-[#feefc3] bg-[#fef7e0] p-4 text-[#b06000]">
+                      <div className="mb-1 text-sm font-medium">Payment method required</div>
+                      <p className="mb-3 text-sm">
+                        Add or update your payment method in Stripe billing, then return here to finish this change.
                       </p>
                       <NeoButton
                         variant="primary"
@@ -1316,7 +1307,7 @@ export const BillingSettings: React.FC = () => {
                         onClick={handleOpenBillingPortal}
                         disabled={isLoadingPortal}
                       >
-                        {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
+                        {isLoadingPortal ? 'Opening...' : 'Open Stripe billing'}
                       </NeoButton>
                     </div>
                   )}
@@ -1324,9 +1315,9 @@ export const BillingSettings: React.FC = () => {
                   {/* Warnings */}
                   {planChangeModal.preview.warnings.length > 0 &&
                     !(planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod) && (
-                      <div className="dashboard-inner-surface p-4">
-                        <div className="font-semibold text-slate-900 mb-2">Important</div>
-                        <ul className="text-sm text-slate-600 space-y-1">
+                      <div className="border border-[#feefc3] bg-[#fef7e0] p-4 text-[#b06000]">
+                        <div className="mb-1 text-sm font-medium">Important</div>
+                        <ul className="space-y-1 text-sm">
                           {planChangeModal.preview.warnings.map((warning, i) => (
                             <li key={i}>{warning}</li>
                           ))}
@@ -1336,21 +1327,21 @@ export const BillingSettings: React.FC = () => {
 
                   {/* When change takes effect */}
                   {planChangeModal.preview.changeType === 'downgrade' ? (
-                    <div className="dashboard-inner-surface p-3 text-sm">
-                      <div className="font-semibold text-slate-900">Confirm in Stripe</div>
-                      <p className="mt-1 text-slate-600">
+                    <div className="border border-[#e8eaed] bg-[#f8fafd] p-3 text-sm">
+                      <div className="font-medium text-[#202124]">Confirm in Stripe</div>
+                      <p className="mt-1 text-[#5f6368]">
                         Stripe will show the downgrade timing and any billing adjustment before you confirm.
                       </p>
                     </div>
                   ) : planChangeModal.preview.isImmediate ? (
-                    <div className="dashboard-inner-surface p-3 text-sm">
-                      <div className="font-semibold text-slate-900">Takes effect immediately</div>
-                      <p className="text-slate-600 mt-1">Your new captured-session limit will be active right away.</p>
+                    <div className="border border-[#e8eaed] bg-[#f8fafd] p-3 text-sm">
+                      <div className="font-medium text-[#202124]">Takes effect immediately</div>
+                      <p className="mt-1 text-[#5f6368]">Your new captured-session limit will be active right away.</p>
                     </div>
                   ) : (
-                    <div className="dashboard-inner-surface p-3 text-sm">
-                      <div className="font-semibold text-slate-900">Scheduled for end of billing period</div>
-                      <p className="text-slate-600 mt-1">
+                    <div className="border border-[#e8eaed] bg-[#f8fafd] p-3 text-sm">
+                      <div className="font-medium text-[#202124]">Scheduled for end of billing period</div>
+                      <p className="mt-1 text-[#5f6368]">
                         Your downgrade will take effect on {new Date(planChangeModal.preview.effectiveDate).toLocaleDateString()}.
                       </p>
                     </div>
@@ -1358,8 +1349,8 @@ export const BillingSettings: React.FC = () => {
 
                   {/* Session Carryover Notice */}
                   {(planChangeModal.preview.changeType === 'new' || planChangeModal.preview.changeType === 'upgrade') && (
-                    <div className="text-sm text-slate-600">
-                      <span className="font-bold">Note:</span> Unused sessions do not carry over to your new plan.
+                    <div className="text-sm text-[#5f6368]">
+                      <span className="font-medium text-[#3c4043]">Note:</span> Unused sessions do not carry over to your new plan.
                     </div>
                   )}
                 </div>
@@ -1368,10 +1359,9 @@ export const BillingSettings: React.FC = () => {
 
             {/* Modal Footer */}
             {!planChangeModal.isLoading && planChangeModal.preview && (
-              <div className="flex gap-3 border-t border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap justify-end gap-2 border-t border-[#e8eaed] bg-white px-5 py-3">
                 <NeoButton
                   variant="secondary"
-                  className="flex-1"
                   onClick={handleCloseModal}
                   disabled={planChangeModal.isConfirming}
                 >
@@ -1380,16 +1370,14 @@ export const BillingSettings: React.FC = () => {
                 {planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod ? (
                   <NeoButton
                     variant="primary"
-                    className="flex-1"
                     onClick={handleOpenBillingPortal}
                     disabled={isLoadingPortal}
                   >
-                    {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
+                    {isLoadingPortal ? 'Opening...' : 'Open Stripe billing'}
                   </NeoButton>
                 ) : (
                   <NeoButton
                     variant={planChangeModal.preview.changeType === 'downgrade' ? 'secondary' : 'primary'}
-                    className="flex-1"
                     onClick={handleConfirmPlanChange}
                     disabled={planChangeModal.isConfirming}
                   >

@@ -69,12 +69,12 @@ const getViewColor = (node: ViewNode): { fill: string; stroke: string; textColor
 
   // ScrollViews
   if (type.includes('scroll') || type.includes('flatlist') || type.includes('sectionlist')) {
-    return { fill: 'rgba(249, 168, 212, 0.16)', stroke: '#f9a8d4', textColor: '#be185d' };
+    return { fill: 'rgba(249, 171, 0, 0.12)', stroke: '#f9ab00', textColor: '#b06000' };
   }
 
   // TextInputs
   if (type.includes('input') || type.includes('textfield') || type.includes('uitextfield')) {
-    return { fill: 'rgba(236, 72, 153, 0.1)', stroke: '#ec4899', textColor: '#be185d' };
+    return { fill: 'rgba(227, 116, 0, 0.1)', stroke: '#e37400', textColor: '#b06000' };
   }
 
   // Masked/privacy views
@@ -238,7 +238,7 @@ export const WireframeView: React.FC<WireframeViewProps> = ({
     >
       {/* Device frame */}
       <div
-        className="relative bg-white shadow-lg rounded-lg border border-slate-200 overflow-hidden flex-shrink-0"
+        className="relative bg-white rounded-none border border-[#dadce0] overflow-hidden flex-shrink-0"
         style={{
           width: Math.max(scaledWidth, 100),
           height: Math.max(scaledHeight, 100),
@@ -303,7 +303,7 @@ export const WireframeView: React.FC<WireframeViewProps> = ({
                   style={{ pointerEvents: 'none' }}
                 >
                   <span
-                    className="text-[9px] font-medium truncate px-1 rounded"
+                    className="text-[9px] font-medium truncate px-1 rounded-none"
                     style={{
                       color: colors.textColor,
                       backgroundColor: isSelected || isHovered ? 'rgba(255,255,255,0.9)' : 'transparent',
@@ -324,8 +324,8 @@ export const WireframeView: React.FC<WireframeViewProps> = ({
         <LegendItem color="#3b82f6" label="Interactive" />
         <LegendItem color="#10b981" label="Text" />
         <LegendItem color="#a855f7" label="Image" />
-        <LegendItem color="#f9a8d4" label="ScrollView" />
-        <LegendItem color="#ec4899" label="Input" />
+        <LegendItem color="#f9ab00" label="ScrollView" />
+        <LegendItem color="#e37400" label="Input" />
         <LegendItem color="#ef4444" label="Masked" />
       </div>
     </div>
@@ -333,9 +333,9 @@ export const WireframeView: React.FC<WireframeViewProps> = ({
 };
 
 const LegendItem: React.FC<{ color: string; label: string }> = ({ color, label }) => (
-  <div className="flex items-center gap-1 bg-white/80 px-1.5 py-0.5 rounded">
+  <div className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-none">
     <div
-      className="w-2 h-2 rounded-sm border"
+      className="w-2 h-2 rounded-none border"
       style={{ backgroundColor: `${color}20`, borderColor: color }}
     />
     <span className="text-slate-600">{label}</span>
