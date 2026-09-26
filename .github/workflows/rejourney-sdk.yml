@@ -169,6 +169,9 @@ jobs:
       - name: Setup Android SDK
         if: matrix.platform == 'android'
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" package has been removed from the SDK repository.
+          packages: platform-tools
 
       - name: Install monorepo dependencies
         run: npm ci --ignore-scripts
