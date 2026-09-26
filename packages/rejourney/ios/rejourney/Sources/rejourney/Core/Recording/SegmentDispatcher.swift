@@ -1044,6 +1044,16 @@ final class SegmentDispatcher {
         metricsLock.unlock()
     }
 
+    /// Conservative external-adapter result: queued means every remaining retry
+    /// has a durable spool entry; an unfinished drain never claims delivery.
+    func externalDeliveryStatus() -> [String: Any] {
+        let idle = _uploadGroup.wait(timeout: .now()) == .success
+        retryLock.lock(); let keys = Set(retryQueue.map(\.persistenceKey)); retryLock.unlock()
+        persistenceLock.lock(); let persisted = persistedUploadKeys; persistenceLock.unlock()
+        metricsLock.lock(); let lost = totalBytesEvicted > 0; metricsLock.unlock()
+        return ["success": idle && !lost && keys.isSubset(of: persisted), "delivered": idle && !lost && keys.isEmpty && persisted.isEmpty]
+    }
+
     func sdkTelemetrySnapshot(currentQueueDepth: Int = 0) -> [String: Any] {
         retryLock.lock()
         let retryDepth = retryQueue.count

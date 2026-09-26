@@ -241,6 +241,14 @@ class SegmentDispatcher private constructor() {
      * or until [timeoutMs] milliseconds elapse. Called by TelemetryPipeline during
      * shutdown to ensure frames are delivered before the process is killed.
      */
+    fun externalDeliveryStatus(): Map<String, Any> {
+        val idle = pendingUploadsCount.get() == 0
+        val keys = retryLock.withLock { retryQueue.map { it.persistenceKey }.toSet() }
+        val persisted = persistenceLock.withLock { persistedUploadKeys.toSet() }
+        val lost = metricsLock.withLock { _totalBytesEvicted > 0 }
+        return mapOf("success" to (idle && !lost && persisted.containsAll(keys)), "delivered" to (idle && !lost && keys.isEmpty() && persisted.isEmpty()))
+    }
+
     fun awaitPendingUploads(timeoutMs: Long = 10_000): Boolean {
         // Pull queued retries into tracked coroutines before checking the
         // counter; otherwise a fire-and-forget shipPending() can race this

@@ -264,6 +264,8 @@ class TelemetryPipeline private constructor(private val context: Context) {
         }
     }
 
+    fun flushExternal(completion: () -> Unit) { drainPendingDataForShutdown(completion) }
+
     fun dispatchNow() {
         serialWorker.execute {
             shipPendingEvents()
@@ -495,6 +497,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
             }
         }
 
+        externalRuntimeMetadata.forEach { (key, value) -> meta.put(key, value) }
         val wrapper = JSONObject().apply {
             put("events", jsonEvents)
             put("deviceInfo", meta)
@@ -824,6 +827,20 @@ class TelemetryPipeline private constructor(private val context: Context) {
 
     private fun isKeyboardVisible(): Boolean {
         return InteractionRecorder.shared?.isKeyboardVisible() ?: false
+    }
+
+    @Volatile private var externalRuntimeMetadata: Map<String, Any> = emptyMap()
+
+    /** Preserve capture time and the original session across delayed engine callbacks. */
+    fun recordExternalEvent(event: Map<String, Any>, sessionId: String) {
+        val timestamp = (event["timestamp"] as? Number)?.toDouble() ?: return
+        if (sessionId != currentReplayId || !timestamp.isFinite() || timestamp <= 0 || event["type"] !is String) return
+        if (event["type"] == "network_request" && RejourneyNetworkEventFilter.shouldIgnore(event)) return
+        enqueue(event)
+    }
+
+    fun setExternalRuntimeMetadata(metadata: Map<String, Any>) {
+        externalRuntimeMetadata = metadata.toMap()
     }
 
     private fun enqueue(dict: Map<String, Any>) {

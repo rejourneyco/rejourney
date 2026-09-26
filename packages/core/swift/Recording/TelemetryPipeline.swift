@@ -283,6 +283,10 @@ final class TelemetryPipeline: NSObject {
         }
     }
 
+    func flushExternal(completion: @escaping () -> Void) {
+        _drainPendingDataForShutdown(completion: completion)
+    }
+
     @objc func dispatchNow() {
         _serialWorker.async {
             self._shipPendingEvents()
@@ -949,7 +953,26 @@ final class TelemetryPipeline: NSObject {
     private func _staticMetadataSnapshot() -> [String: Any] {
         _metadataLock.lock()
         defer { _metadataLock.unlock() }
-        return _staticMetadata
+        return _staticMetadata.merging(_externalRuntimeMetadata) { _, value in value }
+    }
+
+    private var _externalRuntimeMetadata: [String: Any] = [:]
+
+    /// Engine adapters submit already-redacted events with capture-time epoch milliseconds.
+    /// Reject a delayed callback rather than assigning it to the replacement session.
+    func recordExternalEvent(_ event: [String: Any], sessionId: String) {
+        guard sessionId == currentReplayId,
+              let timestamp = event["timestamp"] as? NSNumber,
+              timestamp.doubleValue.isFinite, timestamp.doubleValue > 0,
+              event["type"] is String else { return }
+        if event["type"] as? String == "network_request", RejourneyNetworkEventFilter.shouldIgnore(details: event) { return }
+        _enqueue(event)
+    }
+
+    func setExternalRuntimeMetadata(_ metadata: [String: Any]) {
+        _metadataLock.lock()
+        _externalRuntimeMetadata = metadata
+        _metadataLock.unlock()
     }
 
     private func _enqueue(_ dict: [String: Any]) {
