@@ -4,14 +4,14 @@
  * Sends OTP and notification emails
  */
 
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { config, isDevelopment, isTest } from '../config.js';
 import { logger } from '../logger.js';
 import type { StabilityTrend } from './stabilityTrends.js';
 
-let transporter: nodemailer.Transporter | null = null;
+let transporter: Transporter | null = null;
 
-export function getTransporter(): nodemailer.Transporter | null {
+export function getTransporter(): Transporter | null {
   if (!transporter) {
     if (!config.SMTP_HOST) {
       // Use stream transport for development/local testing

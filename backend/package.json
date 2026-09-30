@@ -73,7 +73,7 @@
         "helmet": "^8.0.0",
         "ioredis": "^5.4.1",
         "jpeg-js": "^0.4.4",
-        "nodemailer": "^9.0.3",
+        "nodemailer": "^10.0.13",
         "pg": "^8.13.1",
         "pino": "^9.5.0",
         "pino-http": "^10.3.0",

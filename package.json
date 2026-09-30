@@ -78,7 +78,7 @@
     "qs": "^6.15.0",
     "esbuild": "^0.25.0",
     "fast-xml-parser": "^5.3.4",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.13",
     "minimatch": "^10.2.6",
     "postcss": "^8.5.25",
     "nanoid": "3.3.18",
