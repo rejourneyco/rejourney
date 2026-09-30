@@ -442,6 +442,8 @@ information collection is disabled.
 
 So that a returning user is not counted as a brand-new user once their earlier sessions have aged out of your retention period, Rejourney keeps a pseudonymous visitor key per project: an HMAC of the device or user identifier under a server-side secret, stored with only the first-seen date, last-seen date, and session count. No raw identifier is kept. The key is deleted automatically after a sliding inactivity window (90 days by default, configurable per team from 0 to 365 days, never shorter than your session retention) and immediately through the project's visitor erasure endpoint when you handle a data subject request. Calling `Rejourney.clearIdentity()` stops new sessions from being linked to the user id; it does not by itself delete the visitor key, so route opt-out deletion requests through the erasure endpoint.
 
+Daily and monthly activity totals are saved separately as aggregate counts. To calculate distinct monthly users on shorter session-retention plans, the visitor ledger also owns temporary daily participation records: day, platform, and a keyed hash of the analytics identity. These contain no raw identifier or session pointer, are pruned after 31 days, and are removed earlier if their parent visitor expires or is erased. Explicit identity erasure also removes matching participation across device records. Aggregate historical counts remain; projects deleted permanently have their aggregates deleted too.
+
 #### Observe-Only Mode (No Visual Recording)
 
 To capture errors, crashes, ANRs, and network activity **without** recording visual replays, set `observeOnly: true`:

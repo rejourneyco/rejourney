@@ -344,6 +344,15 @@ export async function expireVisitorLedgerBatch(limit = 100): Promise<VisitorLedg
             LIMIT $1
             FOR UPDATE SKIP LOCKED
         )
+        , invalidated AS (
+            UPDATE activity_snapshots a SET membership_complete = false
+            WHERE EXISTS (
+                SELECT 1 FROM visitor_activity_days v JOIN due ON due.id = v.visitor_id
+                WHERE v.project_id = a.project_id AND v.date = a.date
+                  AND (a.platform = 'all' OR a.platform = v.platform OR
+                    (a.platform = 'mobile' AND v.platform IN ('ios', 'android')))
+            )
+        )
         DELETE FROM project_visitors pv
         USING due
         WHERE pv.id = due.id

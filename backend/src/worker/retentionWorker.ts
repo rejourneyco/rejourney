@@ -10,6 +10,7 @@
  * Production mode: `--once` for cron-style single-cycle execution.
  */
 
+import { pruneExpiredActivityDays } from '../services/activitySnapshots.js';
 import { and, eq, gt, isNotNull, isNull, lt, notExists, or, sql } from 'drizzle-orm';
 import { db, pool, projects, retentionDeletionLog, retentionPolicies, sessions } from '../db/client.js';
 import { config } from '../config.js';
@@ -402,6 +403,7 @@ async function runRetentionCycle(options: {
     const startedAtMs = Date.now();
 
     try {
+        await pruneExpiredActivityDays();
         const deadlineAtMs = startedAtMs + MAX_RUNTIME_MS;
         while (true) {
             const runtimeMs = Date.now() - startedAtMs;

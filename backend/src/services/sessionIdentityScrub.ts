@@ -1,3 +1,4 @@
+import { snapshotBeforeIdentityExpiry } from './activitySnapshots.js';
 import { pool } from '../db/client.js';
 import { logger } from '../logger.js';
 import { beginRetentionDeletionLog, finalizeRetentionDeletionLog } from './retentionAudit.js';
@@ -137,29 +138,33 @@ export async function scrubExpiredSessionIdentitiesBatch(
 ): Promise<SessionIdentityScrubResult> {
     const batchLimit = coerceLimit(limit);
 
-    const result = await pool.query<ScrubbedSessionRow>(
-        `
-        WITH due AS (
-            SELECT s.id
-            FROM sessions s
-            INNER JOIN projects p ON p.id = s.project_id
+    const client = await pool.connect();
+    let sessionIds: string[];
+    try {
+        await client.query('BEGIN');
+        await client.query("SET LOCAL TIME ZONE 'UTC'");
+        await client.query("SET LOCAL statement_timeout = '120s'");
+        const due = await client.query<ScrubbedSessionRow>(`
+            SELECT s.id FROM sessions s INNER JOIN projects p ON p.id = s.project_id
             WHERE s.identity_scrubbed_at IS NULL
               AND s.started_at < NOW() - (s.retention_days * INTERVAL '1 day')
               AND p.deleted_at IS NULL
-            ORDER BY s.started_at, s.id
-            LIMIT $1
-            FOR UPDATE OF s SKIP LOCKED
-        )
-        UPDATE sessions s
-        SET ${SESSION_IDENTITY_SCRUB_SET_SQL}
-        FROM due
-        WHERE s.id = due.id
-        RETURNING s.id
-        `,
-        [batchLimit, SESSION_IDENTITY_SCRUB_VERSION],
-    );
+            ORDER BY s.started_at, s.id LIMIT $1 FOR UPDATE OF s SKIP LOCKED
+        `, [batchLimit]);
+        sessionIds = due.rows.map(row => row.id);
+        if (sessionIds.length > 0) {
+            await snapshotBeforeIdentityExpiry(sessionIds, client);
+            await client.query(`UPDATE sessions SET ${SESSION_IDENTITY_SCRUB_SET_SQL}
+                WHERE id = ANY($1::varchar[])`, [sessionIds, SESSION_IDENTITY_SCRUB_VERSION]);
+        }
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
 
-    const sessionIds = result.rows.map((row) => row.id);
     if (sessionIds.length === 0) {
         return {
             attempted: 0,

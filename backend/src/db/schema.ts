@@ -6,6 +6,7 @@
 
 import {
     pgTable,
+    primaryKey,
     uuid,
     varchar,
     text,
@@ -1744,3 +1745,31 @@ export const issueEventsRelations = relations(issueEvents, ({ one }) => ({
     issue: one(issues, { fields: [issueEvents.issueId], references: [issues.id] }),
     session: one(sessions, { fields: [issueEvents.sessionId], references: [sessions.id] }),
 }));
+
+// Aggregate counts only; no identity values or re-identifiable user sketches.
+export const activitySnapshots = pgTable('activity_snapshots', {
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    platform: varchar('platform', { length: 20 }).notNull(),
+    dau: integer('dau').notNull(),
+    mau: integer('mau').notNull(),
+    dauComplete: boolean('dau_complete').notNull(),
+    mauComplete: boolean('mau_complete').notNull(),
+    membershipComplete: boolean('membership_complete').notNull().default(false),
+    identityFrozen: boolean('identity_frozen').notNull().default(false),
+    versionDau: jsonb('version_dau').$type<Record<string, number>>().notNull().default({}),
+    countryDau: jsonb('country_dau').$type<Record<string, number>>().notNull().default({}),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.projectId, table.date, table.platform] })]);
+
+export const visitorActivityDays = pgTable('visitor_activity_days', {
+    visitorId: uuid('visitor_id').notNull().references(() => projectVisitors.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    platform: varchar('platform', { length: 20 }).notNull(),
+    identityKey: varchar('identity_key', { length: 40 }).notNull(),
+}, (table) => [
+    primaryKey({ columns: [table.projectId, table.date, table.platform, table.identityKey, table.visitorId] }),
+    index('visitor_activity_days_visitor_idx').on(table.visitorId),
+    index('visitor_activity_days_date_idx').on(table.date),
+]);

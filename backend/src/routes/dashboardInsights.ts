@@ -5,6 +5,8 @@
  * Transforms raw session telemetry into ranked, comparable metrics.
  */
 
+import { calendarDateKeys } from '../utils/rollupCalendar.js';
+import { readActivitySnapshots } from '../services/activitySnapshots.js';
 import { Router } from 'express';
 import { createSingleFlight } from '../utils/asyncWork.js';
 import { mapWithConcurrency } from '../utils/mapWithConcurrency.js';
@@ -1288,7 +1290,7 @@ router.get(
             : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v7-gdpr-identity`;
+        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v8-activity-snapshots`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1313,6 +1315,9 @@ router.get(
         }
 
         const lastRolledUpDate = await getLastRolledUpDate();
+        const activitySnapshots = await readActivitySnapshots(
+            projectIds, normalizedPlatform || 'all', queryStartStr, lastRolledUpDate,
+        );
 
         if (normalizedPlatform) {
             type TrendDay = {
@@ -1454,6 +1459,9 @@ router.get(
                 ensureDay(dailyMap, row.date).uniqueUserIds.add(row.userKey);
             }
 
+            const firstDate = Object.keys(dailyMap).sort()[0];
+            if (firstDate) for (const date of calendarDateKeys(firstDate, lastRolledUpDate)) ensureDay(dailyMap, date);
+
             const allDates = Object.keys(dailyMap).sort();
             const dateIndex = new Map(allDates.map((date, index) => [date, index]));
             const daily = allDates
@@ -1465,7 +1473,7 @@ router.get(
                     for (let i = currentIndex; i >= 0; i--) {
                         const lookbackDate = allDates[i];
                         const daysDiff = (new Date(date).getTime() - new Date(lookbackDate).getTime()) / (1000 * 60 * 60 * 24);
-                        if (daysDiff <= 30) {
+                        if (daysDiff < 30) {
                             dailyMap[lookbackDate]?.uniqueUserIds.forEach(uid => mauSet.add(uid));
                         } else {
                             break;
@@ -1479,15 +1487,18 @@ router.get(
                         rageTaps: data.rageTaps,
                         deadTaps: data.deadTaps,
                         avgUxScore: Math.round(data.avgUxScore),
-                        dau: data.uniqueUserIds.size,
-                        mau: mauSet.size,
+                        dau: activitySnapshots.get(date)?.dau ?? data.uniqueUserIds.size,
+                        mau: activitySnapshots.get(date)?.mau ?? mauSet.size,
+                        identityCountsComplete: activitySnapshots.get(date)
+                            ? activitySnapshots.get(date)!.dauComplete && activitySnapshots.get(date)!.mauComplete
+                            : false,
                         avgApiResponseMs: data.avgApiResponseMs,
                         apiErrorRate: data.apiErrorRate,
                         avgDurationSeconds: Math.round(data.avgDurationSeconds),
                         errorCount: data.errorCount,
                         appVersionBreakdown: data.appVersionBreakdown,
-                        appVersionDauBreakdown: data.appVersionDauBreakdown,
-                        countryDauBreakdown: data.countryDauBreakdown,
+                        appVersionDauBreakdown: activitySnapshots.get(date)?.appVersionDauBreakdown ?? data.appVersionDauBreakdown,
+                        countryDauBreakdown: activitySnapshots.get(date)?.countryDauBreakdown ?? data.countryDauBreakdown,
                         totalApiCalls: data.totalApiCalls,
                     };
                 });
@@ -1613,36 +1624,26 @@ router.get(
             dailyMap[date].totalApiCalls += Number(s.totalCalls);
         }
 
+        const firstDate = Object.keys(dailyMap).sort()[0];
+        if (firstDate) {
+            for (const date of calendarDateKeys(firstDate, lastRolledUpDate)) {
+                dailyMap[date] ??= {
+                    sessions: 0, crashes: 0, rageTaps: 0, deadTaps: 0, avgUxScore: 0, count: 0,
+                    uniqueUserIds: new Set<string>(), dau: 0, avgApiResponseMs: 0, apiErrorRate: 0,
+                    avgDurationSeconds: 0, errorCount: 0, appVersionBreakdown: {},
+                    appVersionDauBreakdown: {}, countryDauBreakdown: {}, totalApiCalls: 0,
+                };
+            }
+        }
+
         // Convert to sorted array of all dates (including the buffer period)
         const allDates = Object.keys(dailyMap).sort();
-        const dateIndex = new Map(allDates.map((date, index) => [date, index]));
 
         // Build final daily stats with MAU
         const daily = allDates
             .filter(date => !queryStartStr || date >= queryStartStr) // Only return requested range
             .map(date => {
                 const data = dailyMap[date];
-
-                // Calculate MAU: Sliding window of last 30 days ending on `date`
-                let aggregateMau = 0;
-
-                // Find index of current date
-                const currentIndex = dateIndex.get(date) ?? 0;
-
-                // Look back up to 30 days (or as far as we have data)
-                // Since we fetched extra 30 days, we should have coverage
-                for (let i = currentIndex; i >= 0; i--) {
-                    const lookbackDate = allDates[i];
-                    const daysDiff = (new Date(date).getTime() - new Date(lookbackDate).getTime()) / (1000 * 60 * 60 * 24);
-
-                    if (daysDiff <= 30) {
-                        // Add IDs from this past day
-                        const lookbackDay = dailyMap[lookbackDate];
-                        aggregateMau += lookbackDay?.dau || 0;
-                    } else {
-                        break;
-                    }
-                }
 
                 // Weighted averages
                 const totalSessions = Math.max(1, data.sessions);
@@ -1660,15 +1661,20 @@ router.get(
                     rageTaps: data.rageTaps,
                     deadTaps: data.deadTaps,
                     avgUxScore: avgUxScore,
-                    dau: data.dau,
-                    mau: aggregateMau,
+                    dau: activitySnapshots.get(date)?.dauComplete ? activitySnapshots.get(date)!.dau : data.dau,
+                    // No sum of DAU can reconstruct distinct MAU. Missing legacy
+                    // identities produce a documented lower bound, never fake precision.
+                    mau: activitySnapshots.get(date)?.mau ?? null,
+                    identityCountsComplete: activitySnapshots.get(date)
+                        ? activitySnapshots.get(date)!.dauComplete && activitySnapshots.get(date)!.mauComplete
+                        : false,
                     avgApiResponseMs,
                     apiErrorRate,
                     avgDurationSeconds,
                     errorCount: data.errorCount,
                     appVersionBreakdown: data.appVersionBreakdown,
-                    appVersionDauBreakdown: data.appVersionDauBreakdown,
-                    countryDauBreakdown: data.countryDauBreakdown,
+                    appVersionDauBreakdown: activitySnapshots.get(date)?.appVersionDauBreakdown ?? data.appVersionDauBreakdown,
+                    countryDauBreakdown: activitySnapshots.get(date)?.countryDauBreakdown ?? data.countryDauBreakdown,
                     totalApiCalls: data.totalApiCalls,
                 };
             });

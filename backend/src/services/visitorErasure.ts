@@ -98,6 +98,11 @@ export async function eraseVisitor(params: EraseVisitorParams): Promise<EraseVis
     const maxSessions = Math.max(1, Math.min(Math.trunc(params.maxSessions ?? VISITOR_ERASURE_MAX_SESSIONS_PER_CALL), 5000));
     const visitorKey = computeVisitorKey(params.projectId, identity);
 
+    // A user identity may span multiple device-ledger rows. Remove its temporary
+    // participation explicitly as well as the visitor FK cascade below.
+    await pool.query('DELETE FROM visitor_activity_days WHERE project_id = $1 AND identity_key = $2',
+        [params.projectId, visitorKey]);
+
     // 1. Forget the pseudonymous ledger row first so a concurrent ingest cannot extend it.
     const ledgerResult = await pool.query(
         `DELETE FROM project_visitors WHERE project_id = $1 AND visitor_key = $2`,

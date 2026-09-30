@@ -4,6 +4,8 @@
  * Handles daily product analytics rollups at midnight UTC.
  */
 
+import { pendingRollupDates } from '../utils/rollupCalendar.js';
+import { snapshotActivityDay } from '../services/activitySnapshots.js';
 import { eq, gte, and, lte } from 'drizzle-orm';
 import { db, sessions, sessionMetrics } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
@@ -167,6 +169,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
     const dateStr = startOfDay.toISOString().split('T')[0]; // YYYY-MM-DD
 
     try {
+        await snapshotActivityDay(projectId, dateStr);
         // Get all sessions for the day with their metrics and device info
         const daySessions = await db
             .select({
@@ -430,7 +433,7 @@ async function runDailyRollupWhileLeaseHeld(
     try {
         if (leaseSignal.aborted) return false;
 
-        // Get all projects with sessions on that date
+        // Include recently active projects so idle days still get activity snapshots.
         const startOfDay = new Date(targetDate);
         startOfDay.setUTCHours(0, 0, 0, 0);
         const endOfDay = new Date(targetDate);
@@ -441,7 +444,7 @@ async function runDailyRollupWhileLeaseHeld(
             .from(sessions)
             .where(
                 and(
-                    gte(sessions.startedAt, startOfDay),
+                    gte(sessions.startedAt, new Date(startOfDay.getTime() - 29 * 86_400_000)),
                     lte(sessions.startedAt, endOfDay)
                 )
             )
@@ -581,6 +584,8 @@ async function shouldRunDailyRollup(): Promise<boolean> {
     const todayDate = now.toISOString().split('T')[0];
 
     try {
+        const lastComplete = await redis.get('stats:daily_rollup:last_rolled_up_date');
+        if (lastComplete) return pendingRollupDates(lastComplete, now).length > 0;
         const lastRunStr = await redis.get('stats:daily_rollup:last_run');
         if (lastRunStr) {
             const lastRunDate = new Date(lastRunStr).toISOString().split('T')[0];
@@ -628,13 +633,13 @@ export async function runStatsAggregation(): Promise<void> {
         if (await shouldRunDailyRollup()) {
             if (leaseGuard.renewal.signal.aborted) return;
             logger.info('Triggering daily rollup');
-            const completed = await runDailyRollupWhileLeaseHeld(
-                undefined,
-                leaseGuard.renewal.signal,
-                true,
-                leaseGuard.lease,
-            );
-            if (!completed) return;
+            const pending = pendingRollupDates(await redis.get('stats:daily_rollup:last_rolled_up_date'));
+            for (const date of pending) {
+                const completed = await runDailyRollupWhileLeaseHeld(
+                    date, leaseGuard.renewal.signal, true, leaseGuard.lease,
+                );
+                if (!completed) return;
+            }
         }
 
         if (leaseGuard.renewal.signal.aborted) {

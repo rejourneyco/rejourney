@@ -661,7 +661,7 @@ type TrendChartRow = {
     apiErrorRate: number;
     totalApiCalls: number;
     dau: number;
-    mau: number;
+    mau: number | null;
     avgDurationSeconds: number;
 };
 
@@ -3257,7 +3257,7 @@ export const GeneralOverview: React.FC = () => {
                     apiErrorRate: Number(entry.apiErrorRate || 0),
                     totalApiCalls: Number(entry.totalApiCalls || 0),
                     dau: Number(entry.dau || 0),
-                    mau: Number(entry.mau || 0),
+                    mau: typeof entry.mau === 'number' ? entry.mau : null,
                     avgDurationSeconds: Number(entry.avgDurationSeconds || 0),
                 };
             })
@@ -3272,7 +3272,7 @@ export const GeneralOverview: React.FC = () => {
 
         const latest = trendChartData[trendChartData.length - 1];
         const totalDau = trendChartData.reduce((sum, row) => sum + row.dau, 0);
-        const peakMau = trendChartData.reduce((max, row) => Math.max(max, row.mau), 0);
+        const peakMau = trendChartData.reduce((max, row) => Math.max(max, row.mau ?? 0), 0);
 
         return {
             latestDau: latest?.dau ?? 0,
@@ -3534,7 +3534,7 @@ export const GeneralOverview: React.FC = () => {
     const retentionChartData = useMemo(() => {
         return trendChartData.map((row) => ({
             dateKey: row.dateKey,
-            retention: row.mau > 0 ? Math.round((row.dau / row.mau) * 100) : 0,
+            retention: row.mau && row.mau > 0 ? Math.round((row.dau / row.mau) * 100) : 0,
         }));
     }, [trendChartData]);
 
@@ -4110,6 +4110,11 @@ export const GeneralOverview: React.FC = () => {
                                         <div className="dashboard-value-md">{formatCompact(activitySummary.latestSessions)}</div>
                                     </div>
                                 </div>
+                                {trends?.daily?.some(day => day.identityCountsComplete === false) && (
+                                    <p className="mb-3 text-xs text-[#5f6368]">
+                                        Some user counts are incomplete because identities expired before the full counting window could be saved.
+                                    </p>
+                                )}
                                 <div className="h-[130px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <LineChart data={trendChartData} margin={{ top: 28, right: 8, left: -20, bottom: 0 }}>

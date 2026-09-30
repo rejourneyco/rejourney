@@ -2818,13 +2818,14 @@ export interface InsightsTrends {
         crashes: number;
         rageTaps: number;
         dau: number;
-        mau: number;
+        mau: number | null;
         // Overview aggregates
         avgApiResponseMs: number;
         apiErrorRate: number;
         avgDurationSeconds: number;
         errorCount: number;
         appVersionBreakdown: Record<string, number>;
+        identityCountsComplete?: boolean;
         appVersionDauBreakdown?: Record<string, number>;
         countryDauBreakdown?: Record<string, number>;
         totalApiCalls: number;

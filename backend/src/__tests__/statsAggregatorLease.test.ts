@@ -1,3 +1,4 @@
+vi.mock('../services/activitySnapshots.js', () => ({ snapshotActivityDay: vi.fn(async () => undefined) }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -71,7 +72,8 @@ describe('stats aggregation distributed lease', () => {
         vi.clearAllMocks();
         dbSelectMock.mockReset();
         redisSetMock.mockResolvedValue('OK');
-        redisGetMock.mockResolvedValue(new Date().toISOString());
+        redisGetMock.mockImplementation(async (key?: string) => key === 'stats:daily_rollup:last_rolled_up_date'
+            ? new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) : new Date().toISOString());
         redisEvalMock.mockResolvedValue(1);
     });
 
@@ -106,7 +108,7 @@ describe('stats aggregation distributed lease', () => {
     it('checks the daily watermark and token-safely releases an acquired lease', async () => {
         await runStatsAggregation();
 
-        expect(redisGetMock).toHaveBeenCalledWith('stats:daily_rollup:last_run');
+        expect(redisGetMock).toHaveBeenCalledWith('stats:daily_rollup:last_rolled_up_date');
         expect(pingWorkerMock).toHaveBeenCalledWith(
             'statsAggregator',
             'up',
