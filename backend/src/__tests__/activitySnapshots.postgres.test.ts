@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import pg from 'pg';
-vi.mock('../db/client.js', () => ({ pool: { query: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn() }));
+vi.mock('../db/client.js', () => ({ pool: { query: mocks.query } }));
+vi.mock('../services/retentionAudit.js', () => ({ beginRetentionDeletionLog: vi.fn(), finalizeRetentionDeletionLog: vi.fn() }));
+vi.mock('../logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn() } }));
 vi.mock('../services/visitorLedger.js', () => ({ computeVisitorKey: (_project: string, identity: string) => identity.padEnd(40, '_') }));
+import { scrubSessionIdentityRows } from '../services/sessionIdentityScrub.js';
 import { snapshotActivityDay } from '../services/activitySnapshots.js';
 
 const url = process.env.ACTIVITY_TEST_DATABASE_URL;
@@ -13,7 +17,7 @@ describe.skipIf(!url)('activity snapshots PostgreSQL regression', () => {
         const client = new pg.Client({ connectionString: url });
         await client.connect();
         try {
-            await client.query('BEGIN');
+            await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
             await client.query('CREATE SCHEMA activity_snapshot_test');
             await client.query('SET LOCAL search_path TO activity_snapshot_test');
             await client.query(`
@@ -22,7 +26,10 @@ describe.skipIf(!url)('activity snapshots PostgreSQL regression', () => {
                 CREATE TABLE sessions (visitor_key varchar, id varchar PRIMARY KEY, project_id uuid, started_at timestamp,
                     platform varchar, user_display_id varchar, anonymous_hash varchar,
                     anonymous_display_id varchar, device_id varchar, identity_scrubbed_at timestamp,
-                    app_version varchar, geo_country varchar);
+                    app_version varchar, geo_country varchar, geo_city varchar, geo_region varchar,
+                    geo_latitude double precision, geo_longitude double precision, geo_timezone varchar,
+                    events jsonb, metadata jsonb, raw_events_deleted_at timestamp, identity_scrub_version integer,
+                    updated_at timestamp);
                 INSERT INTO projects VALUES ('00000000-0000-0000-0000-000000000001');
                 INSERT INTO sessions (id,project_id,started_at,platform,user_display_id,app_version,geo_country) VALUES
                     ('a1','00000000-0000-0000-0000-000000000001','2026-09-01','ios','alice','v1','US'),
@@ -66,6 +73,16 @@ describe.skipIf(!url)('activity snapshots PostgreSQL regression', () => {
                 .toEqual({ dau: 1, mau: 2, mau_complete: true });
             await client.query("DELETE FROM project_visitors WHERE visitor_key='bob-key'");
             expect((await client.query("SELECT count(*)::int AS n FROM visitor_activity_days WHERE identity_key LIKE 'bob%' ")).rows[0].n).toBe(0);
+            // Erasing by a session's anonymous alias must remove participation
+            // even though the stored analytics hash came from its identified ID.
+            await client.query("UPDATE sessions SET anonymous_display_id='alternate-id' WHERE id='new-alice'");
+            mocks.query.mockImplementation(async (query: string, params: unknown[]) =>
+                query.includes('removed_participation') ? client.query(query, params) : { rows: [], rowCount: 0 });
+            const erased = await scrubSessionIdentityRows(['new-alice']);
+            expect(erased.scrubbed).toBe(1);
+            expect((await client.query('SELECT count(*)::int AS n FROM visitor_activity_days')).rows[0].n).toBe(0);
+            expect((await client.query("SELECT user_display_id,anonymous_display_id FROM sessions WHERE id='new-alice'")).rows[0])
+                .toEqual({ user_display_id: null, anonymous_display_id: null });
             // Project deletion still removes the durable aggregates.
             await client.query('DELETE FROM projects');
             expect((await client.query('SELECT * FROM activity_snapshots')).rowCount).toBe(0);

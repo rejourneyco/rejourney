@@ -110,7 +110,25 @@ export async function pruneExpiredActivityDays(): Promise<void> {
     await pool.query("DELETE FROM visitor_activity_days WHERE date < (now() AT TIME ZONE 'UTC')::date - 31");
 }
 
-export async function snapshotActivityDay(projectId: string, date: string, client: QueryClient = pool): Promise<void> {
+export async function snapshotActivityDay(projectId: string, date: string, client?: QueryClient): Promise<void> {
+    if (!client) {
+        const connection = await pool.connect();
+        try {
+            // Participation and counts must see the same sessions, including
+            // when a late upload commits while this snapshot is running.
+            await connection.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+            await connection.query("SET LOCAL TIME ZONE 'UTC'");
+            await connection.query("SET LOCAL statement_timeout = '120s'");
+            await snapshotActivityDay(projectId, date, connection);
+            await connection.query('COMMIT');
+        } catch (error) {
+            await connection.query('ROLLBACK');
+            throw error;
+        } finally {
+            connection.release();
+        }
+        return;
+    }
     await captureActivityDay(projectId, date, client);
     await client.query(ACTIVITY_SNAPSHOT_SQL, [projectId, date]);
 }

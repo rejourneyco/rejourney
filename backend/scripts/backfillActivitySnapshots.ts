@@ -17,7 +17,7 @@ try {
     for (const project of rows) {
         for (const date of calendarDateKeys(project.first_date, project.end_date)) {
             // Transaction-local settings are required behind PgBouncer.
-            await client.query('BEGIN');
+            await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
             try {
                 await client.query("SET LOCAL statement_timeout = '120s'");
                 await client.query("SET LOCAL TIME ZONE 'UTC'");

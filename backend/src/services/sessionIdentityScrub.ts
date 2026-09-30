@@ -103,6 +103,15 @@ export async function scrubSessionIdentityRows(
 
     const result = await pool.query<ScrubbedSessionRow>(
         `
+        WITH removed_participation AS (
+            -- Erasure can arrive through any session identity alias. Remove the
+            -- linked visitor's participation before that link is scrubbed, even
+            -- when its analytics hash differs from the supplied identity.
+            DELETE FROM visitor_activity_days a USING project_visitors pv, sessions source
+            WHERE source.id = ANY($1::varchar[])
+              AND pv.project_id = source.project_id AND pv.visitor_key = source.visitor_key
+              AND a.visitor_id = pv.id
+        )
         UPDATE sessions s
         SET ${SESSION_IDENTITY_SCRUB_SET_SQL}
         WHERE s.id = ANY($1::varchar[])
@@ -141,7 +150,7 @@ export async function scrubExpiredSessionIdentitiesBatch(
     const client = await pool.connect();
     let sessionIds: string[];
     try {
-        await client.query('BEGIN');
+        await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
         await client.query("SET LOCAL TIME ZONE 'UTC'");
         await client.query("SET LOCAL statement_timeout = '120s'");
         const due = await client.query<ScrubbedSessionRow>(`
