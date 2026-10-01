@@ -736,7 +736,8 @@ function LeakRow({
                     </p>
                     <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium tabular-nums text-[#5f6368]">
                         <span>{formatCountLabel(leak.affectedSessionsCount, 'session')}</span>
-                        <span className="truncate">{formatIssueType(leak.issueType)}</span>
+                        <span className="truncate">{leak.finding ? leak.finding.category === 'defect' ? 'Defect' : 'Usability opportunity' : formatIssueType(leak.issueType)}</span>
+                        {leak.finding ? <span>{leak.finding.verifiedOccurrences} verified sessions</span> : null}
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
@@ -2003,9 +2004,29 @@ export const Leaks: React.FC = () => {
 
                                         <section className="border-b border-[#dadce0] px-4 py-5 sm:px-5">
                                             <p className="max-w-[760px] text-sm font-medium leading-8 text-[#5f6368]">
-                                                {activeLeak.whyItMatters} {topEvidenceSummary || ''}
+                                                {activeLeak.finding?.observedDeviation || activeLeak.whyItMatters} {activeLeak.finding ? '' : topEvidenceSummary || ''}
                                             </p>
                                         </section>
+
+                                        {activeLeak.finding ? (
+                                            <section className="border-b border-[#dadce0] px-4 py-4 sm:px-5">
+                                                <SectionTitle>{activeLeak.finding.category === 'defect' ? 'Verified defect' : 'Usability opportunity'}</SectionTitle>
+                                                <dl className="mt-3 grid gap-3 text-sm leading-6 text-[#5f6368]">
+                                                    {[
+                                                        ['Attempted action', activeLeak.finding.attemptedAction],
+                                                        ['Expected outcome', activeLeak.finding.expectedBehavior],
+                                                        ['Before', activeLeak.finding.beforeEvidence],
+                                                        ['Observed outcome', activeLeak.finding.afterEvidence],
+                                                        ['Counterevidence', activeLeak.finding.counterEvidence || 'None observed in this episode'],
+                                                        ['Recovery', activeLeak.finding.recovery === 'recovered' ? 'The same action subsequently succeeded' : activeLeak.finding.recovery === 'not_recovered' ? 'No recovery observed in the covered episode' : 'Unknown'],
+                                                    ].map(([label, text]) => <div key={label}><dt className="font-medium text-[#202124]">{label}</dt><dd>{text}</dd></div>)}
+                                                </dl>
+                                                <p className="mt-3 text-xs text-[#5f6368]">Verified in {activeLeak.finding.verifiedOccurrences} independent sessions. Coverage: {activeLeak.finding.coverage}.{activeLeak.finding.extraSteps > 0 ? ` ${activeLeak.finding.extraSteps} extra steps observed.` : ''}</p>
+                                                <Link className={`${dashboardButtonClass('secondary', 'md')} mt-3`} to={`${pathPrefix}/sessions/${encodeURIComponent(activeLeak.finding.replay.sessionId)}?seekToTimestamp=${activeLeak.finding.replay.startMs}`}>
+                                                    <Play className="h-4 w-4" /> View the evidence ({Math.ceil((activeLeak.finding.replay.endMs-activeLeak.finding.replay.startMs)/1000)}s window)
+                                                </Link>
+                                            </section>
+                                        ) : null}
 
                                         {selectedLeak?.sessions?.length ? (
                                             <section className="border-b border-[#dadce0] px-4 py-4 sm:px-5">
