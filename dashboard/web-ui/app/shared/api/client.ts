@@ -4032,7 +4032,19 @@ export interface LeakCodePointer {
     label?: string;
 }
 
+export interface LeakFinding {
+    version: 'outcomes-v1';
+    category: 'defect' | 'usability_opportunity';
+    attemptedAction: string; expectedBehavior: string; observedDeviation: string;
+    beforeEvidence: string; afterEvidence: string; counterEvidence: string;
+    recovery: 'recovered' | 'not_recovered' | 'unknown';
+    impact: string; coverage: string; evidenceStrength: 'verified';
+    verifiedOccurrences: number; extraSteps: number;
+    replay: { sessionId: string; startMs: number; endMs: number };
+}
+
 export interface LeakSummary {
+    finding?: LeakFinding | null;
     id: string;
     shortId?: string;
     projectId: string;
