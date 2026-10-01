@@ -1253,6 +1253,7 @@ export const Leaks: React.FC = () => {
     const [installBusy, setInstallBusy] = useState(false);
     const [installError, setInstallError] = useState<string | null>(null);
     const copiedResetTimerRef = useRef<number | null>(null);
+    const runHistoryRequestRef = useRef(0);
     const setupPrompt = useMemo(() => (
         selectedProject ? buildProjectAIIntegrationPrompt(selectedProject) : ''
     ), [selectedProject]);
@@ -1298,15 +1299,18 @@ export const Leaks: React.FC = () => {
 
     const loadRunHistory = useCallback(async () => {
         if (!projectId) return;
+        const requestId = ++runHistoryRequestRef.current;
         setRunHistoryLoading(true);
         setRunHistoryError(null);
         try {
             const next = await getLeakRunHistory(projectId, 12);
-            setRunHistory(next);
+            if (requestId === runHistoryRequestRef.current) setRunHistory(next);
         } catch (err) {
-            setRunHistoryError(err instanceof Error ? err.message : 'Failed to load run history');
+            if (requestId === runHistoryRequestRef.current) {
+                setRunHistoryError(err instanceof Error ? err.message : 'Failed to load run history');
+            }
         } finally {
-            setRunHistoryLoading(false);
+            if (requestId === runHistoryRequestRef.current) setRunHistoryLoading(false);
         }
     }, [projectId]);
 
@@ -1316,18 +1320,17 @@ export const Leaks: React.FC = () => {
     }, [loadLeakAlertSettings, showLeakAlertSettings]);
 
     useEffect(() => {
+        ++runHistoryRequestRef.current;
+        setRunHistory(null);
+        setRunHistoryError(null);
+        setRunHistoryLoading(false);
+        return () => { ++runHistoryRequestRef.current; };
+    }, [projectId]);
+
+    useEffect(() => {
         if (!showRunHistory) return;
         void loadRunHistory();
     }, [loadRunHistory, showRunHistory]);
-
-    useEffect(() => {
-        if (!projectId) {
-            setRunHistory(null);
-            setRunHistoryError(null);
-            return;
-        }
-        void loadRunHistory();
-    }, [loadRunHistory, projectId]);
 
     const toggleLeakScanAlerts = async (enabled: boolean) => {
         if (!projectId || isDemoMode) return;
@@ -1462,6 +1465,9 @@ export const Leaks: React.FC = () => {
             .then((response) => {
                 if (cancelled) return;
                 setLeaks(response.leaks || []);
+                // Empty inboxes need history to distinguish setup from a clean scan.
+                // Start it only after the list returns, without delaying the inbox.
+                if (!response.leaks?.length) void loadRunHistory();
                 setSelectedLeakId((current) =>
                     response.leaks?.some((leak) => leak.id === current) ? current : response.leaks?.[0]?.id || null
                 );
@@ -1478,7 +1484,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [projectId]);
+    }, [loadRunHistory, projectId]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1487,6 +1493,7 @@ export const Leaks: React.FC = () => {
         }
 
         let cancelled = false;
+        setSelectedLeak(null);
         setIsDetailLoading(true);
         getLeak(selectedLeakId)
             .then((detail) => {
@@ -1511,7 +1518,7 @@ export const Leaks: React.FC = () => {
         () => filterLeaks(leaks, search).filter((leak) => affectedFilterMatches(leak, affectedFilter)),
         [affectedFilter, leaks, search],
     );
-    const activeLeak = selectedLeakId ? selectedLeak || leaks.find((leak) => leak.id === selectedLeakId) || null : null;
+    const activeLeak = selectedLeakId ? (selectedLeak?.id === selectedLeakId ? selectedLeak : null) || leaks.find((leak) => leak.id === selectedLeakId) || null : null;
     const topEvidenceSummary = selectedLeak?.evidenceGroups
         ?.flatMap((group) => getEvidenceSummaries(group))
         .slice(0, 2)
