@@ -40,9 +40,9 @@ function getLeakProjectId(leak: LeakLike): string | null {
     return leak.projectId ?? leak.project_id ?? null;
 }
 
-async function fetchLeakForAccessCheck(leakId: string): Promise<LeakLike> {
+async function fetchLeakForAccessCheck(leakId: string, view?: 'stored'): Promise<LeakLike> {
     const leak = await callIssueDetection<LeakLike>({
-        pathWithQuery: `/v1/leaks/${encodeURIComponent(leakId)}`,
+        pathWithQuery: `/v1/leaks/${encodeURIComponent(leakId)}${view ? `?view=${view}` : ''}`,
     });
     const projectId = getLeakProjectId(leak);
     if (!projectId) throw ApiError.serviceUnavailable('Issue detection returned an invalid leak');
@@ -58,7 +58,7 @@ router.get('/leaks', asyncHandler(async (req, res) => {
     await requireProjectAccess(req.user!.id, projectId);
 
     const params = new URLSearchParams();
-    for (const key of ['status', 'q', 'cursor', 'limit', 'severity', 'type']) {
+    for (const key of ['status', 'q', 'cursor', 'limit', 'severity', 'type', 'view']) {
         const value = req.query[key];
         if (typeof value === 'string' && value.trim()) params.set(key, value);
     }
@@ -149,7 +149,7 @@ router.get('/leaks/runs', asyncHandler(async (req, res) => {
 
 router.get('/leaks/:leakId', asyncHandler(async (req, res) => {
     ensureIssueDetectionEnabled();
-    const leak = await fetchLeakForAccessCheck(req.params.leakId);
+    const leak = await fetchLeakForAccessCheck(req.params.leakId, req.query.view === 'stored' ? 'stored' : undefined);
     await requireProjectAccess(req.user!.id, getLeakProjectId(leak)!);
     res.json(leak);
 }));

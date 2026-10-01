@@ -5,7 +5,6 @@ import {
 	BookOpen,
 	CalendarClock,
 	CheckCircle2,
-	ClipboardPaste,
 	FileText,
 	Github,
 	History,
@@ -62,9 +61,7 @@ import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { projectHasRecentData } from '~/features/app/setup/setupUtils';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { buildLeakIdeHandoffUrl, LEAK_IDE_OPTIONS, type LeakIde, type LeakIdeConfig } from './ideLinks';
 
-const IDE_STORAGE_PREFIX = 'rejourney.issueDetection.ide';
 const GITHUB_LINK_STATUS_STORAGE_PREFIX = 'rejourney.issueDetection.githubLinkStatus';
 const ISSUE_SCAN_WINDOW_HOURS = 24;
 const ISSUE_SCAN_DAILY_SESSION_CAP = 150;
@@ -380,36 +377,6 @@ function formatReadableScope(sourceGlobs: string[] | null | undefined): { label:
     };
 }
 
-function isLeakIde(value: unknown): value is LeakIde {
-    return value === 'cursor' || value === 'claude' || value === 'codex' || value === 'vscode';
-}
-
-function getIdeActionLabel(config: LeakIdeConfig): string {
-    const ideMeta = LEAK_IDE_OPTIONS[config.ide];
-    return config.handoffMode === 'copy' ? `Copy for ${ideMeta.label}` : ideMeta.actionLabel;
-}
-
-function readIdeConfig(projectId: string): LeakIdeConfig {
-    if (typeof window === 'undefined') return { handoffMode: 'open', ide: 'cursor', localRepoPath: '' };
-    try {
-        const raw = window.localStorage.getItem(`${IDE_STORAGE_PREFIX}:${projectId}`);
-        if (!raw) return { handoffMode: 'open', ide: 'cursor', localRepoPath: '' };
-        const parsed = JSON.parse(raw) as Partial<LeakIdeConfig>;
-        return {
-            handoffMode: parsed.handoffMode === 'copy' ? 'copy' : 'open',
-            ide: isLeakIde(parsed.ide) ? parsed.ide : 'cursor',
-            localRepoPath: typeof parsed.localRepoPath === 'string' ? parsed.localRepoPath : '',
-        };
-    } catch {
-        return { handoffMode: 'open', ide: 'cursor', localRepoPath: '' };
-    }
-}
-
-function saveIdeConfig(projectId: string, config: LeakIdeConfig) {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(`${IDE_STORAGE_PREFIX}:${projectId}`, JSON.stringify(config));
-}
-
 function githubStatusStorageKey(projectId: string): string {
     return `${GITHUB_LINK_STATUS_STORAGE_PREFIX}:${projectId}`;
 }
@@ -551,41 +518,6 @@ async function writeClipboardText(text: string): Promise<boolean> {
     } catch {
         return false;
     }
-}
-
-function openExternalAppUrl(url: string) {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.rel = 'noopener noreferrer';
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-}
-
-function cleanRepoPathValue(value: string): string {
-    let next = value.trim();
-
-    while (
-        (next.startsWith('"') && next.endsWith('"')) ||
-        (next.startsWith("'") && next.endsWith("'"))
-    ) {
-        next = next.slice(1, -1).trim();
-    }
-
-    if (next.startsWith('file://')) {
-        try {
-            const fileUrl = new URL(next);
-            next = decodeURIComponent(fileUrl.pathname);
-            if (/^\/[A-Za-z]:\//.test(next)) {
-                next = next.slice(1);
-            }
-        } catch {
-            return next;
-        }
-    }
-
-    return next;
 }
 
 function filterLeaks(leaks: LeakSummary[], search: string): LeakSummary[] {
@@ -1232,10 +1164,6 @@ export const Leaks: React.FC = () => {
     const [copied, setCopied] = useState(false);
     const [handoffStatus, setHandoffStatus] = useState<string | null>(null);
     const [isGeneratingContext, setIsGeneratingContext] = useState(false);
-    const [isOpeningIde, setIsOpeningIde] = useState(false);
-    const [openAfterSetup, setOpenAfterSetup] = useState(false);
-    const [pathPasteStatus, setPathPasteStatus] = useState<string | null>(null);
-    const [showIdeSetup, setShowIdeSetup] = useState(false);
     const [showLeakAlertSettings, setShowLeakAlertSettings] = useState(false);
     const [showRunHistory, setShowRunHistory] = useState(false);
     const [runHistory, setRunHistory] = useState<LeakRunHistoryResponse | null>(null);
@@ -1248,7 +1176,6 @@ export const Leaks: React.FC = () => {
     const [leakAlertSaving, setLeakAlertSaving] = useState(false);
     const [leakAlertError, setLeakAlertError] = useState<string | null>(null);
     const [copiedSetupPrompt, setCopiedSetupPrompt] = useState(false);
-    const [ideConfig, setIdeConfig] = useState<LeakIdeConfig>({ handoffMode: 'open', ide: 'cursor', localRepoPath: '' });
     const [linkStatus, setLinkStatus] = useState<GithubLinkStatus | null>(() => readGithubLinkStatusCache(projectId));
     const [linkLoading, setLinkLoading] = useState(false);
     const [installBusy, setInstallBusy] = useState(false);
@@ -1389,11 +1316,6 @@ export const Leaks: React.FC = () => {
         }, 3200);
     }, []);
 
-    useEffect(() => {
-        if (!projectId) return;
-        setIdeConfig(readIdeConfig(projectId));
-    }, [projectId]);
-
     useEffect(() => () => {
         if (copiedResetTimerRef.current !== null) {
             window.clearTimeout(copiedResetTimerRef.current);
@@ -1447,7 +1369,6 @@ export const Leaks: React.FC = () => {
     useEffect(() => {
         clearCopiedFeedback();
         setHandoffStatus(null);
-        setIsOpeningIde(false);
     }, [clearCopiedFeedback, selectedLeakId]);
 
     useEffect(() => {
@@ -1462,7 +1383,7 @@ export const Leaks: React.FC = () => {
         let cancelled = false;
         setIsLoading(true);
         setError(null);
-        getLeaks({ projectId })
+        getLeaks({ projectId, view: 'inbox' })
             .then((response) => {
                 if (cancelled) return;
                 setLeaks(response.leaks || []);
@@ -1496,9 +1417,16 @@ export const Leaks: React.FC = () => {
         let cancelled = false;
         setSelectedLeak(null);
         setIsDetailLoading(true);
-        getLeak(selectedLeakId)
-            .then((detail) => {
-                if (!cancelled) setSelectedLeak(detail);
+        getLeak(selectedLeakId, { view: 'stored' })
+            .then(async (detail) => {
+                if (cancelled) return;
+                setSelectedLeak(detail);
+                setIsDetailLoading(false);
+                // Original evidence and diagnostics enrich the already visible panel.
+                try {
+                    const enriched = await getLeak(selectedLeakId);
+                    if (!cancelled) setSelectedLeak(enriched);
+                } catch { /* Stored details and copyable context remain usable. */ }
             })
             .catch((err) => {
                 if (!cancelled) {
@@ -1524,32 +1452,6 @@ export const Leaks: React.FC = () => {
         ?.flatMap((group) => getEvidenceSummaries(group))
         .slice(0, 2)
         .join(' ');
-
-    const persistIdeConfig = () => {
-        if (!projectId) return;
-        saveIdeConfig(projectId, ideConfig);
-        setShowIdeSetup(false);
-        if (openAfterSetup) {
-            setOpenAfterSetup(false);
-            void sendContextToIde(ideConfig);
-        }
-    };
-
-    const pasteRepoPathFromClipboard = async () => {
-        try {
-            const rawPath = await navigator.clipboard?.readText?.();
-            const nextPath = cleanRepoPathValue(rawPath || '');
-            if (!nextPath) {
-                setPathPasteStatus('Clipboard is empty.');
-                return;
-            }
-
-            setIdeConfig((current) => ({ ...current, localRepoPath: nextPath }));
-            setPathPasteStatus('Path pasted.');
-        } catch {
-            setPathPasteStatus('Browser blocked clipboard access.');
-        }
-    };
 
     const getActiveMarkdown = async (): Promise<string | null> => {
         if (!activeLeak) return null;
@@ -1597,61 +1499,6 @@ export const Leaks: React.FC = () => {
         }
     };
 
-    const sendContextToIde = async (config = ideConfig) => {
-        if (!activeLeak) return;
-        const ideMeta = LEAK_IDE_OPTIONS[config.ide];
-        const handoffMode = config.handoffMode || 'open';
-        if (handoffMode === 'open' && !config.localRepoPath.trim()) {
-            setOpenAfterSetup(true);
-            setHandoffStatus('Add your local repo path first.');
-            setShowIdeSetup(true);
-            return;
-        }
-
-        setIsOpeningIde(true);
-        const markdown = await getActiveMarkdown();
-        if (!markdown) {
-            setHandoffStatus('Markdown context is not ready yet.');
-            setIsOpeningIde(false);
-            return;
-        }
-
-        const copiedToClipboard = await writeClipboardText(markdown);
-        if (copiedToClipboard) {
-            showCopiedFeedback(handoffMode === 'copy'
-                ? `Markdown copied for ${ideMeta.label}.`
-                : ideMeta.clipboardFallback
-            );
-        } else {
-            clearCopiedFeedback();
-        }
-
-        if (handoffMode === 'copy') {
-            setHandoffStatus(copiedToClipboard
-                ? `Markdown copied for ${ideMeta.label}.`
-                : 'Could not copy automatically. Select the markdown below and copy it manually.'
-            );
-            setIsOpeningIde(false);
-            return;
-        }
-
-        const url = buildLeakIdeHandoffUrl(config, {
-            markdown,
-            pointer: selectedLeak?.codePointers?.[0] || activeLeak.topCodePointer,
-            title: activeLeak.title,
-        });
-        if (url && typeof window !== 'undefined') {
-            setHandoffStatus(copiedToClipboard
-                ? ideMeta.clipboardFallback
-                : `${ideMeta.actionLabel} requested. Clipboard copy failed, so use the markdown panel below if the app opens without context.`
-            );
-            openExternalAppUrl(url);
-        } else {
-            setHandoffStatus(`Could not build a ${ideMeta.label} link. Check the local repo path.`);
-        }
-        window.setTimeout(() => setIsOpeningIde(false), 1000);
-    };
-
     const markStatus = async (status: LeakStatus) => {
         if (!activeLeak) return;
         const updated = await updateLeak(activeLeak.id, { status });
@@ -1677,7 +1524,6 @@ export const Leaks: React.FC = () => {
     };
 
     const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
-    const activeIdeMeta = LEAK_IDE_OPTIONS[ideConfig.ide];
     const canGenerateContext = Boolean(
         activeLeak &&
             activeLeak.status !== 'budget_exhausted' &&
@@ -1690,16 +1536,12 @@ export const Leaks: React.FC = () => {
         : activeLeak.status === 'budget_exhausted'
             ? 'Budget guard paused analysis. The signal stays in this inbox until the next analysis window.'
             : activeLeak.contextStatus === 'ready'
-                ? ideConfig.handoffMode === 'copy'
-                    ? `Context is ready. Copy it for the existing ${activeIdeMeta.label} window.`
-                    : activeIdeMeta.supportsPromptPrefill
-                    ? `Context is ready. ${activeIdeMeta.label} opens with the handoff prefilled.`
-                    : `Context is ready. ${activeIdeMeta.label} opens the repo after copying the handoff.`
+                ? 'Context is ready. Copy it into your coding assistant.'
                 : activeLeak.contextStatus === 'researching' || activeLeak.contextStatus === 'running'
                     ? 'Research is running. You can review the evidence now, then use the markdown handoff when it is ready.'
                     : activeLeak.contextStatus === 'failed'
-                        ? 'Context generation failed. Retry it when you want the IDE handoff.'
-                        : 'Context has not been generated yet. Generate it to use the IDE handoff.';
+                        ? 'Context generation failed. Retry it to copy the context.'
+                        : 'Context has not been generated yet. Generate it to copy the context.';
     const runHistoryCount = runHistory?.stats.total ?? runHistory?.runs.length ?? 0;
     const hasRunHistory = runHistoryCount > 0;
     const runHistoryKnown = Boolean(runHistory || runHistoryError);
@@ -1928,14 +1770,6 @@ export const Leaks: React.FC = () => {
                                                     : 'Generate context'}
                                         </PaneButton>
                                     )}
-                                    <PaneButton
-                                        icon={<SquareArrowOutUpRight className="h-4 w-4" />}
-                                        onClick={() => void sendContextToIde()}
-                                        disabled={!handoffReady || isOpeningIde}
-                                        className="w-full sm:w-auto"
-                                    >
-                                        {isOpeningIde ? 'Opening...' : getIdeActionLabel(ideConfig)}
-                                    </PaneButton>
                                 </div>
 
                                 <p className="mt-4 max-w-3xl text-sm font-medium leading-6 text-[#5f6368]">
@@ -2071,13 +1905,6 @@ export const Leaks: React.FC = () => {
                                                                     : 'Generate context'}
                                                         </PaneButton>
                                                     )}
-                                                    <PaneButton
-                                                        icon={<SquareArrowOutUpRight className="h-4 w-4" />}
-                                                        onClick={() => void sendContextToIde()}
-                                                        disabled={!handoffReady || isOpeningIde}
-                                                    >
-                                                        {isOpeningIde ? 'Opening...' : getIdeActionLabel(ideConfig)}
-                                                    </PaneButton>
                                                 </div>
                                             </div>
                                             <pre className="mt-3 max-h-[380px] overflow-auto whitespace-pre-wrap break-words rounded-none border border-[#dadce0] bg-[#f8fafd] p-4 font-mono text-xs leading-6 text-[#3c4043]">
@@ -2288,100 +2115,7 @@ export const Leaks: React.FC = () => {
                 </div>
             </Modal>
 
-            {showIdeSetup && (
-                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#202124]/50 p-3 sm:p-4">
-                    <div className="w-full max-w-lg rounded-none border border-[#dadce0] bg-white p-5 shadow-[0_12px_32px_rgba(60,64,67,0.28)]">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <h2 className="text-lg font-medium text-[#202124]">IDE handoff</h2>
-                                <p className="mt-1 text-sm text-[#5f6368]">Choose the local target for markdown handoffs.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setOpenAfterSetup(false);
-                                    setShowIdeSetup(false);
-                                }}
-                                aria-label="Close"
-                                className="rounded-none p-1.5 text-[#5f6368] transition-colors hover:bg-[#f1f3f4] hover:text-[#202124] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
-                            >
-                                <X className="h-5 w-5" />
-                            </button>
-                        </div>
-                        <div className="mt-5 space-y-4">
-                            <label className="block">
-                                <span className={`mb-1 block ${dashboardLabelClass}`}>IDE</span>
-                                <select
-                                    value={ideConfig.ide}
-                                    onChange={(event) => setIdeConfig((current) => ({ ...current, ide: event.target.value as LeakIde }))}
-                                    className={dashboardFieldClass}
-                                >
-                                    {(['cursor', 'claude', 'codex', 'vscode'] as const).map((ide) => (
-                                        <option key={ide} value={ide}>{LEAK_IDE_OPTIONS[ide].label}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="block">
-                                <span className={`mb-1 block ${dashboardLabelClass}`}>Button action</span>
-                                <select
-                                    value={ideConfig.handoffMode || 'open'}
-                                    onChange={(event) => setIdeConfig((current) => ({ ...current, handoffMode: event.target.value === 'copy' ? 'copy' : 'open' }))}
-                                    className={dashboardFieldClass}
-                                >
-                                    <option value="open">Copy + open app</option>
-                                    <option value="copy">Copy only</option>
-                                </select>
-                            </label>
-	                            <div className="block">
-	                                <div className="mb-1 flex items-center justify-between gap-2">
-	                                    <label htmlFor="leak-ide-local-repo-path" className={dashboardLabelClass}>Local repo folder</label>
-	                                    <button
-	                                        type="button"
-	                                        onClick={pasteRepoPathFromClipboard}
-	                                        title="Paste a copied folder path"
-	                                        className="inline-flex h-7 items-center gap-1 rounded-none border border-[#dadce0] bg-white px-2 text-xs font-medium text-[#3c4043] transition-colors hover:border-[#bdc1c6] hover:bg-[#f8fafd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
-                                    >
-	                                        <ClipboardPaste className="h-3.5 w-3.5" />
-	                                        Paste path
-	                                    </button>
-	                                </div>
-	                                <input
-	                                    id="leak-ide-local-repo-path"
-	                                    value={ideConfig.localRepoPath}
-	                                    onChange={(event) => setIdeConfig((current) => ({ ...current, localRepoPath: event.target.value }))}
-	                                    placeholder="/Users/you/dev/shopflow or C:\\Users\\you\\dev\\shopflow"
-	                                    className={`${dashboardFieldClass} font-mono`}
-                                />
-                                {pathPasteStatus && (
-                                    <span className="mt-1 block text-xs font-medium text-[#5f6368]">
-	                                        {pathPasteStatus}
-	                                    </span>
-	                                )}
-	                            </div>
-                            <div className="rounded-none border border-[#e8eaed] bg-[#f8fafd] px-3 py-2 text-xs font-medium leading-5 text-[#5f6368]">
-                                {ideConfig.handoffMode === 'copy'
-                                    ? `${LEAK_IDE_OPTIONS[ideConfig.ide].label} stays open; the button only copies the markdown.`
-                                    : LEAK_IDE_OPTIONS[ideConfig.ide].supportsPromptPrefill
-                                    ? `${LEAK_IDE_OPTIONS[ideConfig.ide].label} opens with the markdown in the composer.`
-                                    : `${LEAK_IDE_OPTIONS[ideConfig.ide].label} opens the repo after the markdown is copied.`}
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <PaneButton
-                                    onClick={() => {
-                                        setOpenAfterSetup(false);
-                                        setShowIdeSetup(false);
-                                    }}
-                                >
-                                    Cancel
-                                </PaneButton>
-                                <PaneButton variant="primary" onClick={persistIdeConfig}>
-                                    {openAfterSetup ? 'Save and open' : 'Save'}
-                                </PaneButton>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+
         </div>
     );
 }

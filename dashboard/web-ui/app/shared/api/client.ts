@@ -4239,6 +4239,7 @@ function demoLeakRunHistory(projectId: string): LeakRunHistoryResponse {
 }
 
 export async function getLeaks(params: {
+    view?: 'inbox';
     cursor?: string;
     projectId: string;
     q?: string;
@@ -4252,6 +4253,7 @@ export async function getLeaks(params: {
 
     const query = new URLSearchParams();
     query.set('projectId', params.projectId);
+    if (params.view) query.set('view', params.view);
     if (params.status) query.set('status', params.status);
     if (params.q) query.set('q', params.q);
     if (params.cursor) query.set('cursor', params.cursor);
@@ -4271,13 +4273,13 @@ export async function getLeakRunHistory(projectId: string, limit = 12): Promise<
     return fetchJson<LeakRunHistoryResponse>(`/api/automations/leaks/runs?${query.toString()}`);
 }
 
-export async function getLeak(leakId: string): Promise<LeakDetail> {
+export async function getLeak(leakId: string, options: { view?: 'stored' } = {}): Promise<LeakDetail> {
     if (isDemoMode()) {
         const detail = demoApiData.demoLeakDetails.find((leak: any) => leak.id === leakId) || demoApiData.demoLeakDetails[0];
         return detail as LeakDetail;
     }
 
-    return fetchJson<LeakDetail>(`/api/automations/leaks/${encodeURIComponent(leakId)}`);
+    return fetchJson<LeakDetail>(`/api/automations/leaks/${encodeURIComponent(leakId)}${options.view ? `?view=${options.view}` : ''}`);
 }
 
 export async function requestLeakContext(leakId: string): Promise<LeakDetail> {
