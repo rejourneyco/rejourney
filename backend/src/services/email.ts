@@ -48,29 +48,9 @@ export function getTransporter(): Transporter | null {
 // =============================================================================
 // Email Templates
 //
-// These emails follow the yafa-ui dashboard visual system so the inbox and the
-// product read as one thing. The rules that shape the markup below:
-//
-//   - White and #f8fafd stay visually dominant. Colour lives in thin rules,
-//     small marks, and semantic state — never in broad tinted fields.
-//   - Route identity says *which* email this is and is registered once, per
-//     type, forever. It is never derived from how the current data is doing.
-//   - Semantic state says *how it is going* and overrides nothing else.
-//   - A status is a 6px dot plus plain text. A delta may be a pill; a status
-//     may not, and neither may an action.
-//   - Actions are rectangular. An action verb is a warning against pills.
-//
-// Deliberate departures from yafa, all forced by the medium rather than chosen:
-//   1. Inter is not loaded — mail clients strip @font-face, so the hierarchy is
-//      reproduced with the platform stack through scale and weight instead.
-//   2. No Lucide icons or icon tiles — Gmail strips inline SVG and most clients
-//      block remote images, so identity rides on the accent rail alone.
-//   3. Headlines are sentence case, not uppercase. In an inbox an uppercase
-//      headline shouts and competes with the subject line directly above it.
-//      The uppercase treatment moves to the kicker and section labels.
-//
-// Styles are inline because most clients strip stylesheets, and layout uses
-// presentation tables because Outlook still renders them most reliably.
+// Match the dashboard's neutral surfaces, square edges and blue primary action.
+// Keep essential information in one reading column without decorative cards.
+// Inline styles and presentation tables work without remote images or web fonts.
 // =============================================================================
 
 type SemanticTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
@@ -88,17 +68,16 @@ interface EmailAction {
   label: string;
   url: string;
   /**
-   * Primary actions default to the dark neutral selection. 'accent' promotes to
-   * action blue and is reserved for an email that genuinely needs the click.
+   * Retained for caller compatibility; primary actions share dashboard blue.
    */
   emphasis?: 'neutral' | 'accent';
 }
 
 interface EmailSection {
-  /** A 10–11px uppercase label above the block. */
+  /** A sentence-case heading above the block. */
   label?: string;
   content: string; // HTML content
-  /** 'quiet' is a canvas-filled nested region; 'callout' takes a semantic tint. */
+  /** Secondary notes and separated notices use neutral typography. */
   variant?: 'body' | 'quiet' | 'callout';
   tone?: SemanticTone;
 }
@@ -142,42 +121,31 @@ const BRAND = {
   surface: '#ffffff',
   border: '#dadce0',
   divider: '#e8eaed',
-  /** Field and control edges that must reach 3:1 against white. */
-  controlEdge: '#8792a2',
   text: '#202124',
   body: '#3c4043',
   muted: '#5f6368',
 };
 
 /**
- * Semantic state. Used only where an element reports actual state. The pale
- * tints are for whole callout regions — never behind an inline status label.
+ * Semantic colors are limited to small indicators of actual state.
  */
 const SEMANTIC: Record<SemanticTone, { strong: string; soft: string }> = {
-  info: { strong: '#2563eb', soft: '#eff6ff' },
+  info: { strong: '#1a73e8', soft: '#eff6ff' },
   success: { strong: '#059669', soft: '#ecfdf5' },
-  warning: { strong: '#be185d', soft: '#fdf2f8' },
+  warning: { strong: '#9a6700', soft: '#fdf2f8' },
   danger: { strong: '#dc2626', soft: '#fef2f2' },
   neutral: { strong: '#5f6368', soft: '#f8fafd' },
 };
 
-/**
- * Route identity registry.
- *
- * One durable pair per email type, chosen from what the email *is* rather than
- * what its current data reports. A payment-failure email keeps billing cyan and
- * reports the failure in semantic red; it does not become a red email.
- */
-const EMAIL_ROUTES: Record<EmailRouteKey, { label: string; strong: string; soft: string }> = {
-  // Authentication deliberately stays off the analytical palette.
-  security: { label: 'Security', strong: '#475569', soft: '#f8fafd' },
-  invite: { label: 'Invitation', strong: '#2563eb', soft: '#eff6ff' },
-  developer: { label: 'Developer', strong: '#7c3aed', soft: '#f5f3ff' },
-  billing: { label: 'Billing', strong: '#0891b2', soft: '#ecfeff' },
-  leak_scan: { label: 'Leak scan', strong: '#db2777', soft: '#fdf2f8' },
-  // #d97706 rather than #f97316: the contrast-safe orange variant.
-  stability_digest: { label: 'Stability', strong: '#d97706', soft: '#fffbeb' },
-  general: { label: 'Notification', strong: '#475569', soft: '#f8fafd' },
+/** Quiet context labels; email types share one visual identity. */
+const EMAIL_ROUTES: Record<EmailRouteKey, { label: string }> = {
+  security: { label: 'Security' },
+  invite: { label: 'Invitation' },
+  developer: { label: 'Developer setup' },
+  billing: { label: 'Billing' },
+  leak_scan: { label: 'Issue scan' },
+  stability_digest: { label: 'Stability' },
+  general: { label: 'Notification' },
 };
 
 /** Production dashboard SPA base — not read from PUBLIC_DASHBOARD_URL (that env is for API/CORS only). */
@@ -321,17 +289,8 @@ function formatIssueType(value: string | null | undefined): string {
 // =============================================================================
 // Shared components
 //
-// Every primitive below maps to an object in the yafa-ui dashboard system so a
-// reader moving from the inbox to the dashboard sees the same vocabulary. Two
-// rules from that system drive most of the markup here:
-//
-//   - A status is a 6px semantic dot plus plain text. Never a tinted capsule.
-//   - Route colour says *which* email this is; semantic colour says *how it is
-//     going*. They are allocated separately and never collapse into one hue.
+// Shared typography and spacing keep transactional and alert emails consistent.
 // =============================================================================
-
-/** A KPI accent sequence, in the fixed order yafa assigns to distinct measures. */
-const KPI_ACCENTS = ['#67e8f9', '#5dadec', '#86efac', '#c4b5fd', '#f9a8d4'];
 
 /** Inline status: 6px semantic dot, then plain neutral text. No container. */
 function renderStatusLine(tone: SemanticTone, html: string): string {
@@ -348,13 +307,9 @@ function renderStatusLine(tone: SemanticTone, html: string): string {
   `;
 }
 
-/**
- * A numeric delta. This is the one object yafa allows a pill radius, because
- * the whole token is a single compact comparison. The surface stays white with
- * a neutral border; only the arrow and the number take semantic colour.
- */
+/** Compact comparison text, without a badge or container. */
 function renderDelta(text: string, tone: SemanticTone): string {
-  return `<span style="display: inline-block; border: 1px solid ${BRAND.border}; border-radius: 999px; background: ${BRAND.surface}; padding: 2px 9px; font-size: 11px; font-weight: 700; color: ${SEMANTIC[tone].strong};">${escapeHtml(text)}</span>`;
+  return `<span style="font-size: 12px; font-weight: 600; color: ${SEMANTIC[tone].strong};">${escapeHtml(text)}</span>`;
 }
 
 export interface EmailKpi {
@@ -366,44 +321,16 @@ export interface EmailKpi {
   tone?: SemanticTone;
 }
 
-/**
- * The KPI strip. White surface, a 3px accent rule from the fixed sequence, a
- * quiet divider, the value, then a comparison. Laid out as a presentation
- * table because flexbox is unreliable in Outlook.
- */
+/** Unboxed summary values; mobile readers see one measure per line. */
 function renderKpiStrip(kpis: EmailKpi[]): string {
-  const visible = kpis.filter(
-    (kpi) => kpi.value !== null && kpi.value !== undefined && String(kpi.value).trim().length > 0
-  );
-  if (visible.length === 0) return '';
-
-  const width = Math.floor(100 / visible.length);
-  const cells = visible.map((kpi, index) => {
-    const accent = KPI_ACCENTS[index % KPI_ACCENTS.length];
-    const valueColor = kpi.tone ? SEMANTIC[kpi.tone].strong : BRAND.text;
-    const isLast = index === visible.length - 1;
-    return `
-      <td class="rj-kpi-cell" width="${width}%" style="vertical-align: top; padding: 0 ${isLast ? '0' : '10px'} 0 0;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; border: 1px solid ${BRAND.border}; border-radius: 8px; background: ${BRAND.surface};">
-          <tr><td style="height: 3px; line-height: 3px; font-size: 0; background: ${accent}; border-radius: 7px 7px 0 0;">&nbsp;</td></tr>
-          <tr>
-            <td style="padding: 12px 14px 13px;">
-              <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${BRAND.muted};">${escapeHtml(kpi.label)}</div>
-              <div style="height: 1px; line-height: 1px; font-size: 0; background: ${BRAND.divider}; margin: 8px 0 9px;">&nbsp;</div>
-              <div style="font-size: 27px; line-height: 1.05; font-weight: 700; color: ${valueColor};">${escapeHtml(kpi.value)}</div>
-              ${kpi.comparison ? `<div style="font-size: 12px; line-height: 1.45; color: ${BRAND.muted}; margin-top: 5px;">${escapeHtml(kpi.comparison)}</div>` : ''}
-            </td>
-          </tr>
-        </table>
-      </td>
-    `;
-  }).join('');
-
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-      <tr class="rj-kpi-row">${cells}</tr>
-    </table>
-  `;
+  const visible = kpis.filter(kpi => kpi.value !== null && kpi.value !== undefined && String(kpi.value).trim());
+  if (!visible.length) return '';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-bottom: 1px solid ${BRAND.divider};"><tr>${visible.map(kpi => `
+    <td class="rj-kpi-cell" width="${Math.floor(100 / visible.length)}%" style="vertical-align: top; padding: 0 16px 20px 0;">
+      <div style="font-size: 26px; line-height: 1.2; font-weight: 600; color: ${BRAND.text};">${escapeHtml(kpi.value)}</div>
+      <div style="font-size: 13px; color: ${BRAND.body}; margin-top: 4px;">${escapeHtml(kpi.label)}</div>
+      ${kpi.comparison ? `<div style="font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; margin-top: 4px;">${escapeHtml(kpi.comparison)}</div>` : ''}
+    </td>`).join('')}</tr></table>`;
 }
 
 export interface EmailDefRow {
@@ -421,61 +348,41 @@ function renderDefList(rows: EmailDefRow[]): string {
   const body = visible.map((row, index) => {
     const isLast = index === visible.length - 1;
     const border = isLast ? '' : `border-bottom: 1px solid ${BRAND.divider};`;
-    const background = index % 2 === 1 ? `background: ${BRAND.canvas};` : '';
+    const background = '';
     const valueStyle = row.mono
       ? `font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px;`
       : `font-size: 13px;`;
     if (!row.key) {
       return `
         <tr>
-          <td colspan="2" style="${border} ${background} padding: 9px 13px; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500;">${escapeHtml(row.value)}</td>
+          <td colspan="2" style="${border} ${background} padding: 10px 0; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500;">${escapeHtml(row.value)}</td>
         </tr>
       `;
     }
     return `
       <tr>
-        <td width="38%" style="${border} ${background} padding: 9px 13px; font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; font-weight: 600; vertical-align: top;">${escapeHtml(row.key)}</td>
-        <td style="${border} ${background} padding: 9px 13px; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500; vertical-align: top; word-break: break-word;">${escapeHtml(row.value)}</td>
+        <td width="38%" style="${border} ${background} padding: 10px 0; font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; font-weight: 600; vertical-align: top;">${escapeHtml(row.key)}</td>
+        <td style="${border} ${background} padding: 10px 0; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500; vertical-align: top; word-break: break-word;">${escapeHtml(row.value)}</td>
       </tr>
     `;
   }).join('');
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; border: 1px solid ${BRAND.border}; border-radius: 6px; overflow: hidden;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
       ${body}
     </table>
   `;
 }
 
-/** A quiet nested region for background information. Canvas fill, no shadow. */
+/** Secondary information uses typography rather than another card. */
 function renderQuiet(label: string | null, html: string): string {
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background: ${BRAND.canvas}; border: 1px solid ${BRAND.divider}; border-radius: 6px;">
-      <tr>
-        <td style="padding: 15px 17px;">
-          ${label ? `<div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${BRAND.muted}; margin-bottom: 8px;">${escapeHtml(label)}</div>` : ''}
-          <div style="font-size: 13px; line-height: 1.55; color: ${BRAND.body};">${html}</div>
-        </td>
-      </tr>
-    </table>
-  `;
+  return `${label ? `<div style="font-size: 14px; font-weight: 600; color: ${BRAND.text}; margin-bottom: 8px;">${escapeHtml(label)}</div>` : ''}
+    <div style="font-size: 13px; line-height: 1.65; color: ${BRAND.muted}; overflow-wrap: anywhere;">${html}</div>`;
 }
 
-/**
- * A semantic callout. Pale tints are allowed for whole regions like this one —
- * what they are not allowed on is an inline status label.
- */
-function renderCallout(tone: SemanticTone, html: string): string {
-  const { strong, soft } = SEMANTIC[tone];
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background: ${soft}; border: 1px solid ${BRAND.divider}; border-left: 3px solid ${strong}; border-radius: 6px;">
-      <tr>
-        <td style="padding: 14px 16px;">
-          <div style="font-size: 13px; line-height: 1.55; color: ${BRAND.body};">${html}</div>
-        </td>
-      </tr>
-    </table>
-  `;
+/** Keep safety and billing notices readable without broad color fills. */
+function renderCallout(_tone: SemanticTone, html: string): string {
+  return `<div style="border-top: 1px solid ${BRAND.divider}; padding-top: 16px; font-size: 13px; line-height: 1.65; color: ${BRAND.body};">${html}</div>`;
 }
 
 export interface EmailTableColumn {
@@ -489,14 +396,13 @@ export interface EmailTableCell {
 }
 
 /**
- * A dense evidence table: tinted header, 10px uppercase column labels, fine row
- * dividers, right-aligned numerics. Replaces repeated per-item metric grids.
+ * Neutral evidence rows with sentence-case headers and aligned counts.
  */
 function renderEvidenceTable(columns: EmailTableColumn[], rows: EmailTableCell[][]): string {
   if (rows.length === 0) return '';
 
   const head = columns.map((column) => `
-    <th style="background: ${BRAND.canvas}; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${BRAND.muted}; padding: 9px 12px; border-bottom: 1px solid ${BRAND.border}; text-align: ${column.align || 'left'};">${escapeHtml(column.label)}</th>
+    <th style="font-size: 12px; font-weight: 500; color: ${BRAND.muted}; padding: 9px 6px; border-bottom: 1px solid ${BRAND.border}; text-align: ${column.align || 'left'};">${escapeHtml(column.label)}</th>
   `).join('');
 
   const body = rows.map((row, rowIndex) => {
@@ -507,13 +413,13 @@ function renderEvidenceTable(columns: EmailTableColumn[], rows: EmailTableCell[]
       const numeric = align === 'right'
         ? `color: ${BRAND.text}; font-weight: 600; white-space: nowrap;`
         : `color: ${BRAND.body};`;
-      return `<td style="${border} padding: 11px 12px; font-size: 13px; line-height: 1.5; vertical-align: top; text-align: ${align}; ${numeric}">${cell.html}</td>`;
+      return `<td style="${border} padding: 16px 6px; font-size: 13px; line-height: 1.5; vertical-align: top; text-align: ${align}; ${numeric}">${cell.html}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('');
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; border: 1px solid ${BRAND.border}; border-radius: 6px; overflow: hidden;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
       <tr>${head}</tr>
       ${body}
     </table>
@@ -548,12 +454,7 @@ function evidenceStatus(tone: SemanticTone, text: string): string {
 // Shell
 // =============================================================================
 
-/**
- * The shared email shell. Route identity is carried by a 3px top rail and a 4px
- * identity rail beside the headline — nothing else. Icons are deliberately
- * absent: Gmail strips inline SVG and most clients block remote images by
- * default, so an icon-dependent identity would vanish for many readers.
- */
+/** One restrained shell for every email, with no external image dependencies. */
 function generateEmailHtml({
   title,
   subtitle,
@@ -579,13 +480,13 @@ function generateEmailHtml({
   const kicker = [identity.label, projectName].filter(Boolean).join(' · ');
   const metaLine = subtitle || (timestamp ? formatEmailDate(timestamp, timeZone) : null);
 
-  const bodyFont = `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  const bodyFont = `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
 
   const renderSection = (section: EmailSection): string => {
     const inner =
       section.variant === 'quiet' ? renderQuiet(section.label || null, section.content) :
         section.variant === 'callout' ? renderCallout(section.tone || 'info', section.content) :
-          `${section.label ? `<div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${BRAND.muted}; margin-bottom: 9px;">${escapeHtml(section.label)}</div>` : ''}
+          `${section.label ? `<div style="font-size: 14px; font-weight: 600; color: ${BRAND.text}; margin-bottom: 12px;">${escapeHtml(section.label)}</div>` : ''}
            <div style="font-size: 14px; line-height: 1.55; color: ${BRAND.body};">${section.content}</div>`;
 
     return `
@@ -598,7 +499,7 @@ function generateEmailHtml({
 
   const renderActions = (): string => {
     if (!action && !secondaryAction) return '';
-    const primaryBg = action?.emphasis === 'accent' ? SEMANTIC.info.strong : BRAND.text;
+    const primaryBg = SEMANTIC.info.strong;
     const primaryBorder = primaryBg;
     return `
       <tr><td style="height: 22px; line-height: 22px; font-size: 0;">&nbsp;</td></tr>
@@ -606,8 +507,8 @@ function generateEmailHtml({
         <td>
           <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
             <tr>
-              ${action ? `<td style="padding: 0 10px 0 0;"><a href="${escapeHtml(action.url)}" style="display: inline-block; background: ${primaryBg}; border: 1px solid ${primaryBorder}; color: ${BRAND.surface}; padding: 11px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(action.label)}</a></td>` : ''}
-              ${secondaryAction ? `<td style="padding: 0;"><a href="${escapeHtml(secondaryAction.url)}" style="display: inline-block; background: ${BRAND.surface}; border: 1px solid ${BRAND.controlEdge}; color: ${BRAND.text}; padding: 11px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(secondaryAction.label)}</a></td>` : ''}
+              ${action ? `<td style="padding: 0 10px 0 0;"><a href="${escapeHtml(action.url)}" style="display: inline-block; background: ${primaryBg}; border: 1px solid ${primaryBorder}; color: ${BRAND.surface}; padding: 11px 20px; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(action.label)}</a></td>` : ''}
+              ${secondaryAction ? `<td style="padding: 0;"><a href="${escapeHtml(secondaryAction.url)}" style="display: inline-block; color: ${SEMANTIC.info.strong}; padding: 11px 0; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(secondaryAction.label)}</a></td>` : ''}
             </tr>
           </table>
         </td>
@@ -628,7 +529,7 @@ function generateEmailHtml({
       .rj-outer { padding-left: 10px !important; padding-right: 10px !important; }
       .rj-container { width: 100% !important; max-width: 100% !important; }
       .rj-pad { padding-left: 18px !important; padding-right: 18px !important; }
-      .rj-kpi-cell { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+      .rj-kpi-cell { padding: 0 8px 16px 0 !important; }
     }
   </style>
 </head>
@@ -640,22 +541,22 @@ function generateEmailHtml({
 
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; background: ${BRAND.canvas};">
     <tr>
-      <td align="center" class="rj-outer" style="padding: 22px 16px 34px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="600" class="rj-container" style="border-collapse: separate; border-spacing: 0; width: 600px; max-width: 600px; background: ${BRAND.surface}; border: 1px solid ${BRAND.border}; border-radius: 8px; overflow: hidden;">
+      <td align="center" class="rj-outer" style="padding: 32px 16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="600" class="rj-container" style="border-collapse: separate; border-spacing: 0; width: 600px; max-width: 600px; background: ${BRAND.surface}; border: 1px solid ${BRAND.border}; overflow: hidden;">
 
-          <tr><td style="height: 3px; line-height: 3px; font-size: 0; background: ${identity.strong};">&nbsp;</td></tr>
+
 
           <tr>
-            <td class="rj-pad" style="padding: 14px 24px; border-bottom: 1px solid ${BRAND.divider};">
+            <td class="rj-pad" style="padding: 24px 32px; border-bottom: 1px solid ${BRAND.divider};">
               <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
                 <tr>
                   <td style="vertical-align: middle;">
-                    <a href="${safeBaseUrl}" style="font-size: 14px; font-weight: 800; color: ${BRAND.text}; text-decoration: none;">Rejourney</a>
+                    <a href="${safeBaseUrl}" style="font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: ${BRAND.text}; text-decoration: none;">Rejourney</a>
                   </td>
-                  <td align="right" style="vertical-align: middle; text-align: right;">
+                  <td align="right" style="vertical-align: middle; text-align: right; padding-left: 16px;">
                     ${projectUrl
-                      ? `<a href="${escapeHtml(projectUrl)}" style="font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: ${BRAND.muted}; text-decoration: none;">${escapeHtml(kicker)}</a>`
-                      : `<span style="font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: ${BRAND.muted};">${escapeHtml(kicker)}</span>`}
+                      ? `<a href="${escapeHtml(projectUrl)}" style="font-size: 12px; font-weight: 400; color: ${BRAND.muted}; text-decoration: none;">${escapeHtml(kicker)}</a>`
+                      : `<span style="font-size: 12px; font-weight: 400; color: ${BRAND.muted};">${escapeHtml(kicker)}</span>`}
                   </td>
                 </tr>
               </table>
@@ -663,22 +564,13 @@ function generateEmailHtml({
           </tr>
 
           <tr>
-            <td class="rj-pad" style="padding: 22px 24px 24px;">
+            <td class="rj-pad" style="padding: 28px 32px 32px;">
               <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
 
                 <tr>
                   <td>
-                    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-                      <tr>
-                        <td width="16" style="vertical-align: top; padding-right: 12px; line-height: 0;">
-                          <div style="width: 4px; height: 38px; background: ${identity.strong}; border-radius: 2px; font-size: 0; line-height: 0;">&nbsp;</div>
-                        </td>
-                        <td style="vertical-align: top;">
-                          <h1 style="font-size: 19px; line-height: 1.28; font-weight: 700; color: ${BRAND.text}; margin: 0;">${safeTitle}</h1>
-                          ${metaLine ? `<div style="font-size: 13px; line-height: 1.5; color: ${BRAND.muted}; margin-top: 5px;">${escapeHtml(metaLine)}</div>` : ''}
-                        </td>
-                      </tr>
-                    </table>
+                    <h1 style="font-size: 24px; line-height: 1.3; font-weight: 600; letter-spacing: -0.4px; color: ${BRAND.text}; margin: 0;">${safeTitle}</h1>
+                    ${metaLine ? `<div style="font-size: 14px; line-height: 1.6; color: ${BRAND.muted}; margin-top: 10px;">${escapeHtml(metaLine)}</div>` : ''}
                   </td>
                 </tr>
 
@@ -688,7 +580,6 @@ function generateEmailHtml({
                   <tr><td>${renderStatusLine(status.tone, status.html)}</td></tr>
                 ` : ''}
 
-                ${divider}
                 ${sections.map(renderSection).join('')}
                 ${renderActions()}
                 ${trailingSections && trailingSections.length > 0
@@ -700,7 +591,7 @@ function generateEmailHtml({
           </tr>
 
           <tr>
-            <td class="rj-pad" style="padding: 16px 24px 20px; border-top: 1px solid ${BRAND.divider};">
+            <td class="rj-pad" style="padding: 20px 32px; border-top: 1px solid ${BRAND.divider};">
               <p style="margin: 0; font-size: 12px; line-height: 1.5; color: ${BRAND.muted};">
                 ${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}
               </p>
@@ -726,13 +617,7 @@ function generateEmailHtml({
 // Email Functions
 // =============================================================================
 
-/**
- * Send OTP verification email.
- *
- * Authentication deliberately stays off the dashboard's decorative palette —
- * the route accent is slate, and the only colour is the informational tint on
- * the security notice.
- */
+/** Send an accessible, copyable sign-in code and its safety notice. */
 export async function sendOtpEmail(email: string, code: string): Promise<void> {
   const transport = getTransporter();
   if (!transport) throw new Error('SMTP is not configured; OTP email was not sent');
@@ -741,15 +626,14 @@ export async function sendOtpEmail(email: string, code: string): Promise<void> {
     title: 'Verify your email',
     previewText: `Your verification code is ${code}`,
     route: 'security',
-    timestamp: new Date(),
+    subtitle: 'Enter this code to sign in to Rejourney.',
     sections: [
       {
-        label: 'Verification code',
         content: `
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background: ${BRAND.canvas}; border: 1px solid ${BRAND.border}; border-radius: 8px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background: ${BRAND.canvas}; border: 1px solid ${BRAND.border}; ">
             <tr>
               <td align="center" style="padding: 20px 16px; text-align: center;">
-                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 36px; line-height: 1.2; font-weight: 700; letter-spacing: 0.22em; color: ${BRAND.text}; text-indent: 0.22em;">${escapeHtml(code)}</div>
+                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: 0.22em; color: ${BRAND.text}; text-indent: 0.22em;">${escapeHtml(code)}</div>
               </td>
             </tr>
           </table>
@@ -779,9 +663,7 @@ export async function sendOtpEmail(email: string, code: string): Promise<void> {
 /**
  * Send billing usage warning email.
  *
- * The route stays billing cyan at every severity. Escalation is carried by the
- * semantic dot, the value colour, and whether the "what happens next" block is
- * a quiet region or a danger callout.
+ * Usage and consequences are stated explicitly in the content.
  */
 export async function sendBillingWarningEmail(
   email: string | string[],
@@ -877,7 +759,7 @@ export async function sendPlanChangeEmail(
       ? `You keep access to your current plan features until ${effectiveLabel}. Nothing needs to be done between now and then.`
       : 'Your plan change has been scheduled.';
 
-  // The delta is the one legitimate pill in the system. An upgrade reads as
+  // The comparison describes the plan change. An upgrade reads as
   // success; a downgrade is a neutral fact and gets no semantic colour.
   const deltaTone: SemanticTone = changeType === 'upgrade' ? 'success' : 'neutral';
   const deltaArrow = changeType === 'upgrade' ? '↑' : changeType === 'downgrade' ? '↓' : '→';
@@ -1117,7 +999,7 @@ function buildDeveloperSetupEmailBody(params: DeveloperSetupEmailParams): string
  *
  * The recipient may have no dashboard access, so every identifier they need is
  * in the email itself — keyed and monospaced, because those are the values they
- * copy. Route accent is violet, the Developer section colour.
+ * copy.
  */
 export async function sendDeveloperSetupEmail(params: DeveloperSetupEmailParams): Promise<void> {
   const transport = getTransporter();
@@ -1158,7 +1040,7 @@ export async function sendDeveloperSetupEmail(params: DeveloperSetupEmailParams)
         label: 'Setup instructions',
         content: `
           <p style="margin: 0 0 10px; font-size: 14px; line-height: 1.55; color: ${BRAND.body};">Written for an AI coding assistant, but they work as a checklist if you're reviewing the code yourself.</p>
-          <pre style="background: ${BRAND.canvas}; border: 1px solid ${BRAND.divider}; border-radius: 6px; padding: 13px 15px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px; line-height: 1.6; color: ${BRAND.text}; white-space: pre-wrap; word-break: break-word; margin: 0; overflow-x: auto;">${escapeHtml(params.aiPrompt)}</pre>
+          <pre style="background: ${BRAND.canvas}; border: 1px solid ${BRAND.divider}; padding: 13px 15px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px; line-height: 1.6; color: ${BRAND.text}; white-space: pre-wrap; word-break: break-word; margin: 0; overflow-x: auto;">${escapeHtml(params.aiPrompt)}</pre>
         `,
       },
       {
@@ -1392,16 +1274,11 @@ export async function sendLeakScanEmail(
       ]),
     },
     {
-      content: 'Repeated replay signals were grouped into product leaks that are ready for triage. Start at the top &mdash; it has the largest estimated user impact in this scan.',
+      content: 'Review the issues below and their replay evidence in the dashboard.',
     },
     {
-      label: 'Highest-risk leaks',
+      label: 'Issues to review',
       content: buildIssueTable(),
-    },
-    {
-      variant: 'quiet',
-      label: 'Recommended next step',
-      content: 'Review the replay evidence for the top leak, then generate the IDE handoff once its context status is ready.',
     },
   ];
 
@@ -1427,7 +1304,7 @@ export async function sendLeakScanEmail(
         subtitle: `Scan completed ${completedAtText}`,
         previewText: `Top issue: ${sortedIssues[0]?.title || data.projectName}`,
         sections,
-        action: { label: 'Open Leaks dashboard', url: data.dashboardUrl },
+        action: { label: 'Review issues', url: data.dashboardUrl },
         projectName: data.projectName,
         projectUrl: projectSettingsLink,
         route: 'leak_scan',
