@@ -117,6 +117,7 @@ type AlertEmailRecipientInput = string | AlertEmailRecipient;
 
 /** Neutral foundation. These four carry almost every pixel in every email. */
 const BRAND = {
+  accent: '#1a73e8',
   canvas: '#f8fafd',
   surface: '#ffffff',
   border: '#dadce0',
@@ -336,17 +337,17 @@ function generateEmailHtml({
 <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${escapeHtml(previewText)}${'&nbsp;'.repeat(100)}</div>
 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; background: #ffffff;"><tr><td align="center" class="rj-outer" style="padding: 48px 28px;">
 <table role="presentation" cellpadding="0" cellspacing="0" width="520" class="rj-container" style="width: 520px; max-width: 520px; border-collapse: collapse; text-align: left; font-family: Arial, Helvetica, sans-serif;">
-<tr><td><a href="${homeUrl}" style="font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.7px; text-decoration: none; color: ${BRAND.text};">Rejourney</a></td></tr>
+<tr><td><a href="${homeUrl}" style="font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.7px; text-decoration: none; color: ${BRAND.accent};">Rejourney</a></td></tr>
 <tr><td style="padding-top: 48px;">
 ${projectName ? `<div style="font-size: 13px; line-height: 1.5; color: ${BRAND.muted}; margin-bottom: 12px;">${projectUrl ? `<a href="${escapeHtml(projectUrl)}" style="color: ${BRAND.muted}; text-decoration: none;">${escapeHtml(projectName)}</a>` : escapeHtml(projectName)}</div>` : ''}
 <h1 class="rj-heading" style="margin: 0; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: -0.8px; color: ${BRAND.text};">${escapeHtml(title)}</h1>
 ${metaLine ? `<p style="margin: 16px 0 0; font-size: 15px; line-height: 1.7; color: ${BRAND.body};">${escapeHtml(metaLine)}</p>` : ''}</td></tr>
 ${status ? `<tr><td style="padding-top: 24px; font-size: 15px; line-height: 1.7;">${status.html}</td></tr>` : ''}
 ${sections.map(renderSection).join('')}
-${action ? `<tr><td style="padding-top: 32px;"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;"><tr><td bgcolor="${BRAND.text}" style="background: ${BRAND.text};"><a href="${escapeHtml(action.url)}" style="display: inline-block; border: 1px solid ${BRAND.text}; padding: 13px 22px; font-size: 14px; line-height: 20px; font-weight: 700; color: #ffffff; text-decoration: none;">${escapeHtml(action.label)}</a></td></tr></table></td></tr>` : ''}
-${secondaryAction ? `<tr><td style="padding-top: ${action ? '16' : '28'}px;"><a href="${escapeHtml(secondaryAction.url)}" style="font-size: 14px; line-height: 1.6; color: ${BRAND.body}; text-decoration: underline;">${escapeHtml(secondaryAction.label)}</a></td></tr>` : ''}
+${action ? `<tr><td style="padding-top: 32px;"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;"><tr><td bgcolor="${BRAND.accent}" style="background: ${BRAND.accent};"><a href="${escapeHtml(action.url)}" style="display: inline-block; border: 1px solid ${BRAND.accent}; padding: 13px 22px; font-size: 14px; line-height: 20px; font-weight: 700; color: #ffffff; text-decoration: none;">${escapeHtml(action.label)}</a></td></tr></table></td></tr>` : ''}
+${secondaryAction ? `<tr><td style="padding-top: ${action ? '16' : '28'}px;"><a href="${escapeHtml(secondaryAction.url)}" style="font-size: 14px; line-height: 1.6; color: ${BRAND.accent}; text-decoration: underline;">${escapeHtml(secondaryAction.label)}</a></td></tr>` : ''}
 ${(trailingSections || []).map(renderSection).join('')}
-<tr><td style="padding-top: 48px;"><div style="border-top: 1px solid ${BRAND.divider}; padding-top: 20px; font-size: 12px; line-height: 1.7; color: ${BRAND.muted};">${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}<br><a href="mailto:contact@rejourney.co" style="color: ${BRAND.muted}; text-decoration: underline;">Contact support</a></div></td></tr>
+<tr><td style="padding-top: 48px;"><div style="border-top: 1px solid ${BRAND.divider}; padding-top: 20px; font-size: 12px; line-height: 1.7; color: ${BRAND.muted};">${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}<br><a href="mailto:contact@rejourney.co" style="color: ${BRAND.accent}; text-decoration: underline;">Contact support</a></div></td></tr>
 </table></td></tr></table></body></html>`;
 }
 
@@ -367,7 +368,7 @@ export async function sendOtpEmail(email: string, code: string): Promise<void> {
     sections: [
       {
         content: `
-          <div style="font-family: monospace; font-size: 44px; line-height: 1.2; font-weight: 700; letter-spacing: 0.12em; color: ${BRAND.text}; padding: 8px 0;">${escapeHtml(code)}</div>
+          <div style="font-family: monospace; font-size: 44px; line-height: 1.2; font-weight: 700; letter-spacing: 0.12em; color: ${BRAND.accent}; padding: 8px 0;">${escapeHtml(code)}</div>
           <div style="font-size: 14px; line-height: 1.55; color: ${BRAND.body}; margin-top: 14px;">This code expires in 10 minutes.</div>
         `,
       },
@@ -954,7 +955,7 @@ export async function sendStabilityDigestEmail(
       `${primary.value} ${primary.label}`, growth,
       trend.affectedUsers ? `${trend.affectedUsers.toLocaleString()} affected users` : null].filter(Boolean).join(' · ');
     return `<div style="padding: 20px 0; border-top: 1px solid ${BRAND.divider};">
-      <a href="${escapeHtml(emailDashboardAppPath(trend.dashboardPath))}" style="font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.text}; text-decoration: none;">${escapeHtml(trend.title)}</a>
+      <a href="${escapeHtml(emailDashboardAppPath(trend.dashboardPath))}" style="font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.accent}; text-decoration: none;">${escapeHtml(trend.title)}</a>
       ${trend.subtitle ? `<div style="font-size: 14px; line-height: 1.7; margin-top: 8px;">${escapeHtml(trend.subtitle)}</div>` : ''}
       <div style="font-size: 12px; line-height: 1.7; color: ${BRAND.muted}; margin-top: 8px;">${escapeHtml(detail)}</div>
     </div>`;
