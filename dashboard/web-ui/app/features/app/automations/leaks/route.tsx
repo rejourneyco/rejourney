@@ -41,6 +41,7 @@ import {
     type LeakStatus,
     type LeakSummary,
 } from '~/shared/api/client';
+import { contextCanBeCopied, measuredAffectedPercent } from './presentation';
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
@@ -106,16 +107,7 @@ function formatIssueType(issueType: string): string {
 }
 
 function estimateAffectedPercent(leak: LeakSummary): number | null {
-    if (
-        typeof leak.estimatedAffectedUsersPercent === 'number' &&
-        Number.isFinite(leak.estimatedAffectedUsersPercent) &&
-        leak.estimatedAffectedUsersPercent > 0
-    ) {
-        return Math.min(100, Math.max(0.1, leak.estimatedAffectedUsersPercent));
-    }
-    if (leak.affectedUsersCount <= 0) return null;
-    const denominator = Math.max(leak.affectedSessionsCount, leak.affectedUsersCount, 1);
-    return Math.min(100, Math.max(0.1, Number(((leak.affectedUsersCount / denominator) * 100).toFixed(1))));
+    return measuredAffectedPercent(leak);
 }
 
 function formatCountLabel(value: number, singular: string, plural = `${singular}s`): string {
@@ -172,10 +164,10 @@ function affectedEstimateSampleLabel(leak: LeakSummary): string | null {
 function affectedBadgeLabel(leak: LeakSummary, percent: number | null): string {
     if (percent !== null) return `Est. affected ${formatPercentLabel(percent)}`;
     const users = estimatedAffectedUsers(leak);
-    return users === null ? 'Users unknown' : `Est. ${formatCountLabel(users, 'user')}`;
+    return users === null ? 'Users unknown' : `${hasSampleAffectedEstimate(leak) ? 'Est. ' : 'Observed '}${formatCountLabel(users, 'user')}`;
 }
 
-// Tone follows the High / Medium / Low affected filter, so the chip color carries severity.
+// Only a measured population percentage supports a prevalence color.
 function affectedPercentTone(percent: number | null): DashboardChipTone {
     if (percent === null) return 'neutral';
     if (percent >= 75) return 'danger';
@@ -185,17 +177,17 @@ function affectedPercentTone(percent: number | null): DashboardChipTone {
 
 function affectedFilterMatches(leak: LeakSummary, filter: AffectedFilter): boolean {
     if (filter === 'all') return true;
-    const percent = estimateAffectedPercent(leak);
-    if (percent === null) return false;
-    if (filter === 'high') return percent >= 75;
-    if (filter === 'medium') return percent >= 50 && percent < 75;
-    return percent < 50;
+    const users = leak.affectedUsersCount;
+    if (!users || users <= 0) return false;
+    if (filter === 'high') return users >= 10;
+    if (filter === 'medium') return users >= 3 && users < 10;
+    return users < 3;
 }
 
 function affectedFilterLabel(filter: AffectedFilter): string {
-    if (filter === 'high') return 'High affected';
-    if (filter === 'medium') return 'Medium affected';
-    if (filter === 'low') return 'Low affected';
+    if (filter === 'high') return '10+ observed users';
+    if (filter === 'medium') return '3–9 observed users';
+    if (filter === 'low') return '1–2 observed users';
     return 'All signals';
 }
 
@@ -1523,11 +1515,11 @@ export const Leaks: React.FC = () => {
         window.setTimeout(() => setCopiedSetupPrompt(false), 1800);
     };
 
-    const handoffReady = Boolean(activeLeak && activeLeak.contextStatus === 'ready' && (activeLeak.status === 'ready' || activeLeak.status === 'resolved'));
+    const handoffReady = contextCanBeCopied(activeLeak);
     const canGenerateContext = Boolean(
         activeLeak &&
             activeLeak.status !== 'budget_exhausted' &&
-            activeLeak.contextStatus !== 'ready' &&
+            !handoffReady &&
             activeLeak.contextStatus !== 'researching' &&
             activeLeak.contextStatus !== 'running',
     );
@@ -1535,7 +1527,7 @@ export const Leaks: React.FC = () => {
         ? ''
         : activeLeak.status === 'budget_exhausted'
             ? 'Budget guard paused analysis. The signal stays in this inbox until the next analysis window.'
-            : activeLeak.contextStatus === 'ready'
+            : handoffReady
                 ? 'Context is ready. Copy it into your coding assistant.'
                 : activeLeak.contextStatus === 'researching' || activeLeak.contextStatus === 'running'
                     ? 'Research is running. You can review the evidence now, then use the markdown handoff when it is ready.'
@@ -1608,7 +1600,7 @@ export const Leaks: React.FC = () => {
                                         Signals <span className="tabular-nums">({leaks.length})</span>
                                     </h2>
                                     <p className="mt-0.5 text-xs leading-5 text-[#5f6368]">
-                                        Ranked by estimated affected users
+                                        Observed affected users
                                     </p>
                                 </div>
                                 <div className="relative">

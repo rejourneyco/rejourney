@@ -182,6 +182,10 @@ jobs:
         working-directory: ./dashboard/web-ui
         run: npm run typecheck
 
+      - name: Leak presentation regressions
+        working-directory: ./dashboard/web-ui
+        run: node --test scripts/leak-presentation.test.mjs
+
       - name: Build Web (SSR)
         working-directory: ./dashboard/web-ui
         run: npm run build
