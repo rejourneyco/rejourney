@@ -17,7 +17,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Go up two levels from src/__tests__ to backend root, then to email-previews
-const OUT_DIR = path.join(__dirname, '../../email-previews');
+const OUT_DIR = process.env.EMAIL_PREVIEW_DIR || path.join(__dirname, '../../email-previews');
 
 if (!fs.existsSync(OUT_DIR)) {
     fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -187,11 +187,11 @@ describe('Email Previews', () => {
                 {
                     id: '00000000-0000-0000-0000-000000000001',
                     shortId: 'LEAK-101',
-                    title: 'Users are giving up zooming into the product image',
+                    title: 'Product image zoom does not respond',
                     issueType: 'ux_friction',
                     severity: 'high',
                     status: 'ready',
-                    whyItMatters: 'Leak Detected: Opportunity +$179. Affecting 15 users across all platforms.',
+                    whyItMatters: 'Pinch gestures leave the product image unchanged, preventing a closer view of product details.',
                     estimatedAffectedUsers: 15,
                     affectedSessions: 22,
                     firstSeen: new Date('2026-06-18T06:00:00.000Z'),
