@@ -48,7 +48,7 @@ export function getTransporter(): Transporter | null {
 // =============================================================================
 // Email Templates
 //
-// Match the dashboard's neutral surfaces, square edges and blue primary action.
+// Use the product's neutral typography in a simple letter-like reading column.
 // Keep essential information in one reading column without decorative cards.
 // Inline styles and presentation tables work without remote images or web fonts.
 // =============================================================================
@@ -68,7 +68,7 @@ interface EmailAction {
   label: string;
   url: string;
   /**
-   * Retained for caller compatibility; primary actions share dashboard blue.
+   * Retained for caller compatibility; primary actions use one consistent style.
    */
   emphasis?: 'neutral' | 'accent';
 }
@@ -84,7 +84,7 @@ interface EmailSection {
 
 interface EmailStatus {
   tone: SemanticTone;
-  /** Inline HTML. Rendered beside a 6px semantic dot, with no container. */
+  /** Inline HTML with no badge or status decoration. */
   html: string;
 }
 
@@ -124,28 +124,6 @@ const BRAND = {
   text: '#202124',
   body: '#3c4043',
   muted: '#5f6368',
-};
-
-/**
- * Semantic colors are limited to small indicators of actual state.
- */
-const SEMANTIC: Record<SemanticTone, { strong: string; soft: string }> = {
-  info: { strong: '#1a73e8', soft: '#eff6ff' },
-  success: { strong: '#059669', soft: '#ecfdf5' },
-  warning: { strong: '#9a6700', soft: '#fdf2f8' },
-  danger: { strong: '#dc2626', soft: '#fef2f2' },
-  neutral: { strong: '#5f6368', soft: '#f8fafd' },
-};
-
-/** Quiet context labels; email types share one visual identity. */
-const EMAIL_ROUTES: Record<EmailRouteKey, { label: string }> = {
-  security: { label: 'Security' },
-  invite: { label: 'Invitation' },
-  developer: { label: 'Developer setup' },
-  billing: { label: 'Billing' },
-  leak_scan: { label: 'Issue scan' },
-  stability_digest: { label: 'Stability' },
-  general: { label: 'Notification' },
 };
 
 /** Production dashboard SPA base — not read from PUBLIC_DASHBOARD_URL (that env is for API/CORS only). */
@@ -292,26 +270,6 @@ function formatIssueType(value: string | null | undefined): string {
 // Shared typography and spacing keep transactional and alert emails consistent.
 // =============================================================================
 
-/** Inline status: 6px semantic dot, then plain neutral text. No container. */
-function renderStatusLine(tone: SemanticTone, html: string): string {
-  const color = SEMANTIC[tone].strong;
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
-      <tr>
-        <td width="14" style="vertical-align: middle; padding-right: 8px; line-height: 0;">
-          <div style="width: 6px; height: 6px; background: ${color}; border-radius: 50%; font-size: 0; line-height: 0;">&nbsp;</div>
-        </td>
-        <td style="vertical-align: middle; font-size: 13px; line-height: 1.5; color: ${BRAND.body};">${html}</td>
-      </tr>
-    </table>
-  `;
-}
-
-/** Compact comparison text, without a badge or container. */
-function renderDelta(text: string, tone: SemanticTone): string {
-  return `<span style="font-size: 12px; font-weight: 600; color: ${SEMANTIC[tone].strong};">${escapeHtml(text)}</span>`;
-}
-
 export interface EmailKpi {
   label: string;
   value: string | number | null | undefined;
@@ -321,16 +279,12 @@ export interface EmailKpi {
   tone?: SemanticTone;
 }
 
-/** Unboxed summary values; mobile readers see one measure per line. */
+/** A short factual summary rather than a miniature dashboard. */
 function renderKpiStrip(kpis: EmailKpi[]): string {
   const visible = kpis.filter(kpi => kpi.value !== null && kpi.value !== undefined && String(kpi.value).trim());
-  if (!visible.length) return '';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; border-bottom: 1px solid ${BRAND.divider};"><tr>${visible.map(kpi => `
-    <td class="rj-kpi-cell" width="${Math.floor(100 / visible.length)}%" style="vertical-align: top; padding: 0 16px 20px 0;">
-      <div style="font-size: 26px; line-height: 1.2; font-weight: 600; color: ${BRAND.text};">${escapeHtml(kpi.value)}</div>
-      <div style="font-size: 13px; color: ${BRAND.body}; margin-top: 4px;">${escapeHtml(kpi.label)}</div>
-      ${kpi.comparison ? `<div style="font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; margin-top: 4px;">${escapeHtml(kpi.comparison)}</div>` : ''}
-    </td>`).join('')}</tr></table>`;
+  return `<div style="font-size: 15px; line-height: 1.8; color: ${BRAND.body};">${visible.map(kpi =>
+    `<div><strong style="color: ${BRAND.text};">${escapeHtml(kpi.value)}</strong> ${escapeHtml(kpi.label.toLowerCase())}${kpi.comparison ? ` <span style="color: ${BRAND.muted};">— ${escapeHtml(kpi.comparison)}</span>` : ''}</div>`
+  ).join('')}</div>`;
 }
 
 export interface EmailDefRow {
@@ -345,44 +299,9 @@ function renderDefList(rows: EmailDefRow[]): string {
   const visible = rows.filter((row) => row.value && String(row.value).trim().length > 0);
   if (visible.length === 0) return '';
 
-  const body = visible.map((row, index) => {
-    const isLast = index === visible.length - 1;
-    const border = isLast ? '' : `border-bottom: 1px solid ${BRAND.divider};`;
-    const background = '';
-    const valueStyle = row.mono
-      ? `font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px;`
-      : `font-size: 13px;`;
-    if (!row.key) {
-      return `
-        <tr>
-          <td colspan="2" style="${border} ${background} padding: 10px 0; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500;">${escapeHtml(row.value)}</td>
-        </tr>
-      `;
-    }
-    return `
-      <tr>
-        <td width="38%" style="${border} ${background} padding: 10px 0; font-size: 12px; line-height: 1.5; color: ${BRAND.muted}; font-weight: 600; vertical-align: top;">${escapeHtml(row.key)}</td>
-        <td style="${border} ${background} padding: 10px 0; ${valueStyle} line-height: 1.5; color: ${BRAND.text}; font-weight: 500; vertical-align: top; word-break: break-word;">${escapeHtml(row.value)}</td>
-      </tr>
-    `;
-  }).join('');
-
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-      ${body}
-    </table>
-  `;
-}
-
-/** Secondary information uses typography rather than another card. */
-function renderQuiet(label: string | null, html: string): string {
-  return `${label ? `<div style="font-size: 14px; font-weight: 600; color: ${BRAND.text}; margin-bottom: 8px;">${escapeHtml(label)}</div>` : ''}
-    <div style="font-size: 13px; line-height: 1.65; color: ${BRAND.muted}; overflow-wrap: anywhere;">${html}</div>`;
-}
-
-/** Keep safety and billing notices readable without broad color fills. */
-function renderCallout(_tone: SemanticTone, html: string): string {
-  return `<div style="border-top: 1px solid ${BRAND.divider}; padding-top: 16px; font-size: 13px; line-height: 1.65; color: ${BRAND.body};">${html}</div>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">${visible.map(row => `
+    <tr>${row.key ? `<td width="32%" style="padding: 5px 16px 5px 0; font-size: 14px; line-height: 1.6; color: ${BRAND.muted}; vertical-align: top;">${escapeHtml(row.key)}</td>` : ''}
+    <td style="padding: 5px 0; font-size: 14px; line-height: 1.6; color: ${BRAND.text}; vertical-align: top; word-break: break-word; ${row.mono ? 'font-family: monospace;' : ''}">${escapeHtml(row.value)}</td></tr>`).join('')}</table>`;
 }
 
 export interface EmailTableColumn {
@@ -395,222 +314,40 @@ export interface EmailTableCell {
   align?: 'left' | 'right';
 }
 
-/**
- * Neutral evidence rows with sentence-case headers and aligned counts.
- */
-function renderEvidenceTable(columns: EmailTableColumn[], rows: EmailTableCell[][]): string {
-  if (rows.length === 0) return '';
-
-  const head = columns.map((column) => `
-    <th style="font-size: 12px; font-weight: 500; color: ${BRAND.muted}; padding: 9px 6px; border-bottom: 1px solid ${BRAND.border}; text-align: ${column.align || 'left'};">${escapeHtml(column.label)}</th>
-  `).join('');
-
-  const body = rows.map((row, rowIndex) => {
-    const isLast = rowIndex === rows.length - 1;
-    const border = isLast ? '' : `border-bottom: 1px solid ${BRAND.divider};`;
-    const cells = row.map((cell) => {
-      const align = cell.align || 'left';
-      const numeric = align === 'right'
-        ? `color: ${BRAND.text}; font-weight: 600; white-space: nowrap;`
-        : `color: ${BRAND.body};`;
-      return `<td style="${border} padding: 16px 6px; font-size: 13px; line-height: 1.5; vertical-align: top; text-align: ${align}; ${numeric}">${cell.html}</td>`;
-    }).join('');
-    return `<tr>${cells}</tr>`;
-  }).join('');
-
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-      <tr>${head}</tr>
-      ${body}
-    </table>
-  `;
-}
-
-/** Title line inside a table cell. */
-function evidenceTitle(text: string): string {
-  return `<div style="font-size: 13.5px; line-height: 1.4; font-weight: 600; color: ${BRAND.text}; word-break: normal;">${escapeHtml(text)}</div>`;
-}
-
-/** Supporting line inside a table cell. */
-function evidenceSub(text: string, marginTop = 3): string {
-  return `<div style="font-size: 12px; line-height: 1.45; color: ${BRAND.muted}; margin-top: ${marginTop}px; word-break: normal;">${escapeHtml(text)}</div>`;
-}
-
-/** Severity inside a table cell: dot plus plain text, never a capsule. */
-function evidenceStatus(tone: SemanticTone, text: string): string {
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin-top: 6px;">
-      <tr>
-        <td width="13" style="vertical-align: middle; padding-right: 7px; line-height: 0;">
-          <div style="width: 6px; height: 6px; background: ${SEMANTIC[tone].strong}; border-radius: 50%; font-size: 0; line-height: 0;">&nbsp;</div>
-        </td>
-        <td style="vertical-align: middle; font-size: 12px; line-height: 1.45; color: ${BRAND.muted};">${escapeHtml(text)}</td>
-      </tr>
-    </table>
-  `;
-}
-
 // =============================================================================
 // Shell
 // =============================================================================
 
-/** One restrained shell for every email, with no external image dependencies. */
+/** A single reading column, without dashboard chrome or external assets. */
 function generateEmailHtml({
-  title,
-  subtitle,
-  previewText,
-  sections,
-  trailingSections,
-  action,
-  secondaryAction,
-  footerText,
-  projectName,
-  projectUrl,
-  route = 'general',
-  status,
-  timestamp,
-  timeZone,
+  title, subtitle, previewText, sections, trailingSections, action,
+  secondaryAction, footerText, projectName, projectUrl, status, timestamp, timeZone,
 }: EmailTemplateProps): string {
-  const baseUrl = emailDashboardHomeUrl();
-  const safeTitle = escapeHtml(title);
-  const safePreviewText = escapeHtml(previewText);
-  const safeBaseUrl = escapeHtml(baseUrl);
-  const identity = EMAIL_ROUTES[route] || EMAIL_ROUTES.general;
-
-  const kicker = [identity.label, projectName].filter(Boolean).join(' · ');
+  const homeUrl = escapeHtml(emailDashboardHomeUrl());
+  const renderSection = (section: EmailSection): string => `<tr><td style="padding-top: 24px;">
+    ${section.label ? `<h2 style="margin: 0 0 10px; font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.text};">${escapeHtml(section.label)}</h2>` : ''}
+    <div style="font-size: ${section.variant === 'quiet' ? '13' : '15'}px; line-height: 1.7; color: ${section.variant === 'quiet' ? BRAND.muted : BRAND.body}; overflow-wrap: anywhere;">${section.content}</div>
+  </td></tr>`;
   const metaLine = subtitle || (timestamp ? formatEmailDate(timestamp, timeZone) : null);
-
-  const bodyFont = `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
-
-  const renderSection = (section: EmailSection): string => {
-    const inner =
-      section.variant === 'quiet' ? renderQuiet(section.label || null, section.content) :
-        section.variant === 'callout' ? renderCallout(section.tone || 'info', section.content) :
-          `${section.label ? `<div style="font-size: 14px; font-weight: 600; color: ${BRAND.text}; margin-bottom: 12px;">${escapeHtml(section.label)}</div>` : ''}
-           <div style="font-size: 14px; line-height: 1.55; color: ${BRAND.body};">${section.content}</div>`;
-
-    return `
-      <tr><td style="height: 20px; line-height: 20px; font-size: 0;">&nbsp;</td></tr>
-      <tr><td>${inner}</td></tr>
-    `;
-  };
-
-  const divider = `<tr><td style="padding: 20px 0 0;"><div style="height: 1px; line-height: 1px; font-size: 0; background: ${BRAND.divider};">&nbsp;</div></td></tr>`;
-
-  const renderActions = (): string => {
-    if (!action && !secondaryAction) return '';
-    const primaryBg = SEMANTIC.info.strong;
-    const primaryBorder = primaryBg;
-    return `
-      <tr><td style="height: 22px; line-height: 22px; font-size: 0;">&nbsp;</td></tr>
-      <tr>
-        <td>
-          <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
-            <tr>
-              ${action ? `<td style="padding: 0 10px 0 0;"><a href="${escapeHtml(action.url)}" style="display: inline-block; background: ${primaryBg}; border: 1px solid ${primaryBorder}; color: ${BRAND.surface}; padding: 11px 20px; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(action.label)}</a></td>` : ''}
-              ${secondaryAction ? `<td style="padding: 0;"><a href="${escapeHtml(secondaryAction.url)}" style="display: inline-block; color: ${SEMANTIC.info.strong}; padding: 11px 0; font-size: 14px; font-weight: 600; line-height: 1.3; text-decoration: none;">${escapeHtml(secondaryAction.label)}</a></td>` : ''}
-            </tr>
-          </table>
-        </td>
-      </tr>
-    `;
-  };
-
   return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <title>${safeTitle}</title>
-  <style>
-    @media only screen and (max-width: 620px) {
-      .rj-outer { padding-left: 10px !important; padding-right: 10px !important; }
-      .rj-container { width: 100% !important; max-width: 100% !important; }
-      .rj-pad { padding-left: 18px !important; padding-right: 18px !important; }
-      .rj-kpi-cell { padding: 0 8px 16px 0 !important; }
-    }
-  </style>
-</head>
-<body style="font-family: ${bodyFont}; background-color: ${BRAND.canvas}; margin: 0; padding: 0; color: ${BRAND.body}; line-height: 1.45; -webkit-font-smoothing: antialiased;">
-  <div style="display:none;font-size:1px;color:${BRAND.canvas};line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
-    ${safePreviewText}
-    ${'&nbsp;'.repeat(100)}
-  </div>
-
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; background: ${BRAND.canvas};">
-    <tr>
-      <td align="center" class="rj-outer" style="padding: 32px 16px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="600" class="rj-container" style="border-collapse: separate; border-spacing: 0; width: 600px; max-width: 600px; background: ${BRAND.surface}; border: 1px solid ${BRAND.border}; overflow: hidden;">
-
-
-
-          <tr>
-            <td class="rj-pad" style="padding: 24px 32px; border-bottom: 1px solid ${BRAND.divider};">
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-                <tr>
-                  <td style="vertical-align: middle;">
-                    <a href="${safeBaseUrl}" style="font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: ${BRAND.text}; text-decoration: none;">Rejourney</a>
-                  </td>
-                  <td align="right" style="vertical-align: middle; text-align: right; padding-left: 16px;">
-                    ${projectUrl
-                      ? `<a href="${escapeHtml(projectUrl)}" style="font-size: 12px; font-weight: 400; color: ${BRAND.muted}; text-decoration: none;">${escapeHtml(kicker)}</a>`
-                      : `<span style="font-size: 12px; font-weight: 400; color: ${BRAND.muted};">${escapeHtml(kicker)}</span>`}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <tr>
-            <td class="rj-pad" style="padding: 28px 32px 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-
-                <tr>
-                  <td>
-                    <h1 style="font-size: 24px; line-height: 1.3; font-weight: 600; letter-spacing: -0.4px; color: ${BRAND.text}; margin: 0;">${safeTitle}</h1>
-                    ${metaLine ? `<div style="font-size: 14px; line-height: 1.6; color: ${BRAND.muted}; margin-top: 10px;">${escapeHtml(metaLine)}</div>` : ''}
-                  </td>
-                </tr>
-
-                ${status ? `
-                  ${divider}
-                  <tr><td style="height: 18px; line-height: 18px; font-size: 0;">&nbsp;</td></tr>
-                  <tr><td>${renderStatusLine(status.tone, status.html)}</td></tr>
-                ` : ''}
-
-                ${sections.map(renderSection).join('')}
-                ${renderActions()}
-                ${trailingSections && trailingSections.length > 0
-                  ? `${divider}${trailingSections.map(renderSection).join('')}`
-                  : ''}
-
-              </table>
-            </td>
-          </tr>
-
-          <tr>
-            <td class="rj-pad" style="padding: 20px 32px; border-top: 1px solid ${BRAND.divider};">
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: ${BRAND.muted};">
-                ${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}
-              </p>
-              <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.5;">
-                <a href="${safeBaseUrl}" style="color: ${SEMANTIC.info.strong}; text-decoration: none; font-weight: 500;">Dashboard</a>
-                <span style="color: ${BRAND.border}; padding: 0 6px;">&middot;</span>
-                <a href="https://rejourney.co/docs" style="color: ${SEMANTIC.info.strong}; text-decoration: none; font-weight: 500;">Docs</a>
-                <span style="color: ${BRAND.border}; padding: 0 6px;">&middot;</span>
-                <a href="mailto:contact@rejourney.co" style="color: ${SEMANTIC.info.strong}; text-decoration: none; font-weight: 500;">Support</a>
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${escapeHtml(title)}</title>
+<style>@media only screen and (max-width: 580px) { .rj-container { width: 100% !important; } .rj-outer { padding: 32px 24px !important; } .rj-heading { font-size: 28px !important; } }</style></head>
+<body style="margin: 0; padding: 0; background: #ffffff; font-family: Arial, Helvetica, sans-serif; color: ${BRAND.body}; -webkit-font-smoothing: antialiased;">
+<div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${escapeHtml(previewText)}${'&nbsp;'.repeat(100)}</div>
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; background: #ffffff;"><tr><td align="center" class="rj-outer" style="padding: 48px 28px;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="520" class="rj-container" style="width: 520px; max-width: 520px; border-collapse: collapse; text-align: left; font-family: Arial, Helvetica, sans-serif;">
+<tr><td><a href="${homeUrl}" style="font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.7px; text-decoration: none; color: ${BRAND.text};">Rejourney</a></td></tr>
+<tr><td style="padding-top: 48px;">
+${projectName ? `<div style="font-size: 13px; line-height: 1.5; color: ${BRAND.muted}; margin-bottom: 12px;">${projectUrl ? `<a href="${escapeHtml(projectUrl)}" style="color: ${BRAND.muted}; text-decoration: none;">${escapeHtml(projectName)}</a>` : escapeHtml(projectName)}</div>` : ''}
+<h1 class="rj-heading" style="margin: 0; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: -0.8px; color: ${BRAND.text};">${escapeHtml(title)}</h1>
+${metaLine ? `<p style="margin: 16px 0 0; font-size: 15px; line-height: 1.7; color: ${BRAND.body};">${escapeHtml(metaLine)}</p>` : ''}</td></tr>
+${status ? `<tr><td style="padding-top: 24px; font-size: 15px; line-height: 1.7;">${status.html}</td></tr>` : ''}
+${sections.map(renderSection).join('')}
+${action ? `<tr><td style="padding-top: 32px;"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse;"><tr><td bgcolor="${BRAND.text}" style="background: ${BRAND.text};"><a href="${escapeHtml(action.url)}" style="display: inline-block; border: 1px solid ${BRAND.text}; padding: 13px 22px; font-size: 14px; line-height: 20px; font-weight: 700; color: #ffffff; text-decoration: none;">${escapeHtml(action.label)}</a></td></tr></table></td></tr>` : ''}
+${secondaryAction ? `<tr><td style="padding-top: ${action ? '16' : '28'}px;"><a href="${escapeHtml(secondaryAction.url)}" style="font-size: 14px; line-height: 1.6; color: ${BRAND.body}; text-decoration: underline;">${escapeHtml(secondaryAction.label)}</a></td></tr>` : ''}
+${(trailingSections || []).map(renderSection).join('')}
+<tr><td style="padding-top: 48px;"><div style="border-top: 1px solid ${BRAND.divider}; padding-top: 20px; font-size: 12px; line-height: 1.7; color: ${BRAND.muted};">${escapeHtml(footerText || 'You received this email because you are registered on Rejourney.')}<br><a href="mailto:contact@rejourney.co" style="color: ${BRAND.muted}; text-decoration: underline;">Contact support</a></div></td></tr>
+</table></td></tr></table></body></html>`;
 }
 
 // =============================================================================
@@ -623,26 +360,19 @@ export async function sendOtpEmail(email: string, code: string): Promise<void> {
   if (!transport) throw new Error('SMTP is not configured; OTP email was not sent');
 
   const html = generateEmailHtml({
-    title: 'Verify your email',
+    title: 'Your sign-in code',
     previewText: `Your verification code is ${code}`,
     route: 'security',
     subtitle: 'Enter this code to sign in to Rejourney.',
     sections: [
       {
         content: `
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background: ${BRAND.canvas}; border: 1px solid ${BRAND.border}; ">
-            <tr>
-              <td align="center" style="padding: 20px 16px; text-align: center;">
-                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: 0.22em; color: ${BRAND.text}; text-indent: 0.22em;">${escapeHtml(code)}</div>
-              </td>
-            </tr>
-          </table>
+          <div style="font-family: monospace; font-size: 44px; line-height: 1.2; font-weight: 700; letter-spacing: 0.12em; color: ${BRAND.text}; padding: 8px 0;">${escapeHtml(code)}</div>
           <div style="font-size: 14px; line-height: 1.55; color: ${BRAND.body}; margin-top: 14px;">This code expires in 10 minutes.</div>
         `,
       },
       {
-        variant: 'callout',
-        tone: 'info',
+        variant: 'quiet',
         content: `<strong style="color: ${BRAND.text}; font-weight: 600;">Never share this code.</strong> Rejourney support will never ask you for it. If you didn't request it, you can safely ignore this message.`,
       },
     ],
@@ -692,24 +422,12 @@ export async function sendBillingWarningEmail(
     };
 
   const html = generateEmailHtml({
-    title: `${teamName} has used ${usagePercent}% of its replay limit`,
+    title: isCritical ? 'Your replay limit is almost reached' : 'You’re approaching your replay limit',
     previewText: `${remaining.toLocaleString()} ${remaining === 1 ? 'replay' : 'replays'} remaining this month`,
     route: 'billing',
     projectName: teamName,
-    status: {
-      tone: isCritical ? 'danger' : 'warning',
-      html: isCritical
-        ? `Capture pauses at 100% &mdash; <strong style="color: ${BRAND.text}; font-weight: 600;">${remaining.toLocaleString()} ${remaining === 1 ? 'replay' : 'replays'} remaining</strong>`
-        : `Approaching limit &mdash; <strong style="color: ${BRAND.text}; font-weight: 600;">${remaining.toLocaleString()} ${remaining === 1 ? 'replay' : 'replays'} remaining</strong>`,
-    },
     sections: [
-      {
-        content: renderKpiStrip([
-          { label: 'Used', value: currentUsage.toLocaleString(), comparison: `of ${cap.toLocaleString()} replays` },
-          { label: 'Remaining', value: remaining.toLocaleString(), tone: isCritical ? 'danger' : undefined, comparison: `${usagePercent}% of the monthly cap used` },
-          { label: 'Monthly cap', value: cap.toLocaleString(), comparison: 'this billing period' },
-        ]),
-      },
+      { content: `<strong style="color: ${BRAND.text};">${remaining.toLocaleString()} ${remaining === 1 ? 'replay' : 'replays'} remaining</strong> this month. You’ve recorded ${currentUsage.toLocaleString()} of ${cap.toLocaleString()} replays.` },
       nextBlock,
     ],
     action: { label: 'Upgrade plan', url: billingUrl },
@@ -734,7 +452,7 @@ export async function sendBillingWarningEmail(
  * Send plan change notification email.
  *
  * Nothing is required of the reader, so the action stays secondary and the
- * change itself is presented as structured data rather than prose.
+ * change itself is explained in one short paragraph.
  */
 export async function sendPlanChangeEmail(
   email: string | string[],
@@ -759,35 +477,13 @@ export async function sendPlanChangeEmail(
       ? `You keep access to your current plan features until ${effectiveLabel}. Nothing needs to be done between now and then.`
       : 'Your plan change has been scheduled.';
 
-  // The comparison describes the plan change. An upgrade reads as
-  // success; a downgrade is a neutral fact and gets no semantic colour.
-  const deltaTone: SemanticTone = changeType === 'upgrade' ? 'success' : 'neutral';
-  const deltaArrow = changeType === 'upgrade' ? '↑' : changeType === 'downgrade' ? '↓' : '→';
-  const changeLabel = changeType === 'upgrade' ? 'Upgrade confirmed'
-    : changeType === 'downgrade' ? 'Downgrade scheduled'
-      : 'Subscription confirmed';
-
   const html = generateEmailHtml({
-    title: `${teamName} is now on ${newPlanName}`,
+    title: isImmediate ? `You’re now on ${newPlanName}` : `Your move to ${newPlanName} is scheduled`,
     previewText: `Plan changed from ${oldPlanName} to ${newPlanName}`,
     route: 'billing',
     projectName: teamName,
     timestamp: new Date(),
-    status: {
-      tone: deltaTone,
-      html: `${escapeHtml(changeLabel)} <span style="padding-left: 6px;">${renderDelta(`${deltaArrow} ${oldPlanName} → ${newPlanName}`, deltaTone)}</span>`,
-    },
-    sections: [
-      {
-        content: renderDefList([
-          { key: 'Previous plan', value: oldPlanName },
-          { key: 'New plan', value: newPlanName },
-          { key: 'Takes effect', value: isImmediate ? 'Immediately' : (effectiveLabel || 'Scheduled') },
-          { key: 'Team', value: teamName },
-        ]),
-      },
-      { content: escapeHtml(statusMessage) },
-    ],
+    sections: [{ content: `Your plan is changing from <strong>${escapeHtml(oldPlanName)}</strong> to <strong>${escapeHtml(newPlanName)}</strong>. ${escapeHtml(statusMessage)}` }],
     secondaryAction: { label: 'View billing settings', url: billingUrl },
     footerText: `Sent to billing admins of ${teamName}.`,
   });
@@ -873,9 +569,7 @@ export interface PaymentActionRequiredEmailParams {
 /**
  * Send payment authentication required email.
  *
- * This is the one billing email that genuinely needs a click, so its primary
- * action uses action blue rather than the dark neutral. Copy speaks about the
- * reader's bank rather than naming our payment processor.
+ * Explain the amount and the bank verification needed to complete payment.
  */
 export async function sendPaymentActionRequiredEmail(
   email: string | string[],
@@ -890,24 +584,10 @@ export async function sendPaymentActionRequiredEmail(
 
   const html = generateEmailHtml({
     title: `Finish your ${planLabel} payment`,
-    subtitle: 'Your bank needs one more verification step',
     previewText: `Your bank needs one more verification step for ${amount}`,
     route: 'billing',
     projectName: params.teamName,
-    status: {
-      tone: 'warning',
-      html: `Awaiting verification &mdash; <strong style="color: ${BRAND.text}; font-weight: 600;">${escapeHtml(amount)} outstanding</strong>`,
-    },
-    sections: [
-      {
-        content: renderKpiStrip([
-          { label: 'Amount due', value: amount, comparison: `${planLabel} · ${params.teamName}` },
-        ]),
-      },
-      {
-        content: 'Your billing change is almost complete. Your bank has asked for one more authentication step before the payment can clear.',
-      },
-    ],
+    sections: [{ content: `Your bank needs you to verify the <strong>${escapeHtml(amount)}</strong> payment for ${escapeHtml(planLabel)} before your billing change can complete.` }],
     action: { label: 'Complete payment', url: params.invoiceUrl, emphasis: 'accent' },
     secondaryAction: { label: 'Billing settings', url: emailBillingUrl() },
     trailingSections: [
@@ -1088,23 +768,12 @@ export async function sendTeamInviteEmail(
   const roleLabel = formatIssueType(role);
 
   const html = generateEmailHtml({
-    title: `${inviterName} invited you to join ${teamName}`,
-    subtitle: 'You’ll be able to view session replays and analytics for this team.',
+    title: `Join ${teamName}`,
+    subtitle: `${inviterName} invited you to join ${teamName} as ${roleLabel}. You’ll have access to the team’s session replays and analytics.`,
     previewText: `${inviterName} invited you to join ${teamName}`,
     route: 'invite',
-    sections: [
-      {
-        content: renderDefList([
-          { key: 'Team', value: teamName },
-          { key: 'Invited by', value: inviterName },
-          { key: 'Your role', value: roleLabel },
-          { key: 'Link expires', value: 'In 7 days' },
-        ]),
-      },
-      {
-        content: `<span style="font-size: 13px; color: ${BRAND.muted};">If you weren’t expecting this invitation, no action is needed &mdash; the link expires on its own.</span>`,
-      },
-    ],
+    sections: [{ content: 'This invitation expires in 7 days.' }],
+    trailingSections: [{ variant: 'quiet', content: 'If you weren’t expecting this invitation, you can ignore this email.' }],
     action: { label: 'Accept invitation', url: inviteUrl },
     footerText: `Sent to you because ${inviterName} added this address to ${teamName}.`,
   });
@@ -1188,14 +857,6 @@ function stabilityTrendPrimaryMetric(trend: StabilityTrend): { value: string; la
   };
 }
 
-/** Map a severity string onto the semantic scale. */
-function severityTone(severity: string | null | undefined): SemanticTone {
-  const value = String(severity || '').toLowerCase();
-  if (value === 'critical' || value === 'high') return 'danger';
-  if (value === 'medium') return 'warning';
-  return 'neutral';
-}
-
 export async function sendLeakScanEmail(
   recipients: AlertEmailRecipientInput[],
   data: LeakScanEmailData
@@ -1214,72 +875,23 @@ export async function sendLeakScanEmail(
       (b.affectedSessions || 0) - (a.affectedSessions || 0)
     );
   const totalUsers = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.estimatedAffectedUsers || 0)), 0);
-  const totalSessions = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.affectedSessions || 0)), 0);
-  const highSeverityCount = sortedIssues.filter((issue) => ['high', 'critical'].includes(String(issue.severity || '').toLowerCase())).length;
   const leakLabel = formatCountWithLabel(sortedIssues.length, 'leak', 'leaks');
   const subject = truncateForSubject(`${data.projectName}: ${leakLabel} affecting ~${totalUsers.toLocaleString()} ${totalUsers === 1 ? 'user' : 'users'}`);
   const projectSettingsLink = emailDashboardAppPath(`/settings/${data.projectId}`);
 
-  // Ranked by estimated impact — which the ordering and the user column already
-  // say, so the rows carry no numbered markers.
-  const buildIssueTable = (): string => {
-    const rows = sortedIssues.map((issue, index) => {
-      const affectedUsers = Math.max(0, Number(issue.estimatedAffectedUsers || 0));
-      const affectedSessions = Math.max(0, Number(issue.affectedSessions || 0));
-      const meta = [
-        issue.shortId || `#${index + 1}`,
-        formatIssueType(issue.issueType),
-      ].filter((item): item is string => Boolean(item)).join(' · ');
-      const severityLine = [
-        issue.severity ? `${formatIssueType(issue.severity)} severity` : null,
-        issue.contextStatus ? `context ${formatIssueType(issue.contextStatus).toLowerCase()}` : null,
-      ].filter(Boolean).join(' · ');
-
-      return [
-        {
-          html: `
-            ${evidenceTitle(issue.title)}
-            ${evidenceSub(meta)}
-            ${issue.whyItMatters ? `<div style="font-size: 12px; line-height: 1.45; color: ${BRAND.muted}; margin-top: 5px;"><span style="font-weight: 600;">Why it matters:</span> ${escapeHtml(issue.whyItMatters)}</div>` : ''}
-            ${severityLine ? evidenceStatus(severityTone(issue.severity), severityLine) : ''}
-          `,
-        },
-        { html: affectedUsers.toLocaleString(), align: 'right' as const },
-        { html: affectedSessions > 0 ? affectedSessions.toLocaleString() : '—', align: 'right' as const },
-      ];
-    });
-
-    return renderEvidenceTable(
-      [{ label: 'Leak' }, { label: 'Users', align: 'right' }, { label: 'Sessions', align: 'right' }],
-      rows
-    );
-  };
-
   const sections: EmailSection[] = [
-    {
-      content: renderKpiStrip([
-        {
-          label: 'Leaks',
-          value: sortedIssues.length.toLocaleString(),
-          comparison: highSeverityCount > 0 ? `${highSeverityCount.toLocaleString()} high severity` : 'none high severity',
-        },
-        { label: 'Est. users', value: totalUsers.toLocaleString(), comparison: 'across all platforms' },
-        {
-          label: 'Sessions',
-          value: totalSessions > 0 ? totalSessions.toLocaleString() : null,
-          comparison: data.admittedSessions !== null && data.admittedSessions !== undefined
-            ? `${data.admittedSessions.toLocaleString()} admitted to analysis`
-            : null,
-        },
-      ]),
-    },
-    {
-      content: 'Review the issues below and their replay evidence in the dashboard.',
-    },
-    {
-      label: 'Issues to review',
-      content: buildIssueTable(),
-    },
+    { content: 'Your scan found issues to review. Open the dashboard to check the replay evidence before acting.' },
+    { content: sortedIssues.map(issue => {
+      const users = Math.max(0, Number(issue.estimatedAffectedUsers || 0));
+      const details = [issue.shortId, issue.severity ? `${formatIssueType(issue.severity)} severity` : null,
+        `~${users.toLocaleString()} estimated affected ${users === 1 ? 'user' : 'users'}`,
+        issue.affectedSessions ? `${issue.affectedSessions.toLocaleString()} sessions` : null].filter(Boolean).join(' · ');
+      return `<div style="padding: 20px 0; border-top: 1px solid ${BRAND.divider};">
+        <div style="font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.text};">${escapeHtml(issue.title)}</div>
+        ${issue.whyItMatters ? `<div style="font-size: 14px; line-height: 1.7; margin-top: 8px;">${escapeHtml(issue.whyItMatters)}</div>` : ''}
+        <div style="font-size: 12px; line-height: 1.7; color: ${BRAND.muted}; margin-top: 8px;">${escapeHtml(details)}</div>
+      </div>`;
+    }).join('') },
   ];
 
   for (const group of recipientGroups) {
@@ -1300,7 +912,7 @@ export async function sendLeakScanEmail(
       subject,
       text: textLines.join('\n'),
       html: generateEmailHtml({
-        title: `${leakLabel.charAt(0).toUpperCase()}${leakLabel.slice(1)} found in ${data.projectName}`,
+        title: `${formatCountWithLabel(sortedIssues.length, 'issue', 'issues')} to review`,
         subtitle: `Scan completed ${completedAtText}`,
         previewText: `Top issue: ${sortedIssues[0]?.title || data.projectName}`,
         sections,
@@ -1335,32 +947,18 @@ export async function sendStabilityDigestEmail(
   );
   const versions = Array.from(new Set(data.trends.map((trend) => trend.appVersion).filter(Boolean)));
 
-  // Growth becomes a delta column so three issues can be ranked at a glance,
-  // instead of hiding the percentage in a caption above each title.
-  const trendRows = data.trends.map((trend, index) => {
+  const trendEntries = data.trends.map((trend, index) => {
     const primary = stabilityTrendPrimaryMetric(trend);
-    const growth = trend.baselineValue > 0
-      ? `↑ ${Math.round(trend.growthPercent).toLocaleString()}%`
-      : 'New';
-    const detail = [
-      trend.appVersion ? `v${trend.appVersion}` : trend.shortId || `#${index + 1}`,
-      `${primary.value} ${primary.label}`,
-    ].filter(Boolean).join(' · ');
-    const users = Math.max(0, trend.affectedUsers || 0);
-    const trendUrl = emailDashboardAppPath(trend.dashboardPath);
-
-    return [
-      {
-        html: `
-          <a href="${escapeHtml(trendUrl)}" style="font-size: 13.5px; line-height: 1.4; font-weight: 600; color: ${BRAND.text}; text-decoration: none; word-break: break-word;">${escapeHtml(trend.title)}</a>
-          ${evidenceSub(`${stabilityTrendKindLabel(trend)}${trend.subtitle ? ` · ${trend.subtitle}` : ''}`)}
-          ${evidenceSub(detail, 5)}
-        `,
-      },
-      { html: renderDelta(growth, 'danger'), align: 'right' as const },
-      { html: users > 0 ? users.toLocaleString() : '—', align: 'right' as const },
-    ];
-  });
+    const growth = trend.baselineValue > 0 ? `${Math.round(trend.growthPercent).toLocaleString()}% above baseline` : 'New in this window';
+    const detail = [trend.appVersion ? `v${trend.appVersion}` : trend.shortId || `#${index + 1}`,
+      `${primary.value} ${primary.label}`, growth,
+      trend.affectedUsers ? `${trend.affectedUsers.toLocaleString()} affected users` : null].filter(Boolean).join(' · ');
+    return `<div style="padding: 20px 0; border-top: 1px solid ${BRAND.divider};">
+      <a href="${escapeHtml(emailDashboardAppPath(trend.dashboardPath))}" style="font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.text}; text-decoration: none;">${escapeHtml(trend.title)}</a>
+      ${trend.subtitle ? `<div style="font-size: 14px; line-height: 1.7; margin-top: 8px;">${escapeHtml(trend.subtitle)}</div>` : ''}
+      <div style="font-size: 12px; line-height: 1.7; color: ${BRAND.muted}; margin-top: 8px;">${escapeHtml(detail)}</div>
+    </div>`;
+  }).join('');
 
   for (const group of recipientGroups) {
     const textLines = [
@@ -1383,7 +981,7 @@ export async function sendStabilityDigestEmail(
       subject,
       text: textLines.join('\n'),
       html: generateEmailHtml({
-        title: `${formatCountWithLabel(data.trends.length, 'issue is', 'issues are')} rising fast in ${data.projectName}`,
+        title: `${formatCountWithLabel(data.trends.length, 'issue is', 'issues are')} rising above baseline`,
         subtitle: formatEmailDate(data.detectedAt, group.timeZone),
         previewText: `Crashes, ANRs and API errors above baseline${affectedUsers > 0 ? ` — ${affectedUsers.toLocaleString()} ${affectedUsers === 1 ? 'user' : 'users'} affected` : ''}`,
         sections: [
@@ -1401,19 +999,12 @@ export async function sendStabilityDigestEmail(
               },
             ]),
           },
-          {
-            label: 'Rising above baseline',
-            content: renderEvidenceTable(
-              [{ label: 'Issue' }, { label: 'Trend', align: 'right' }, { label: 'Users', align: 'right' }],
-              trendRows
-            ),
-          },
+          { content: trendEntries },
         ],
         action: { label: 'Open Stability dashboard', url: dashboardUrl },
         trailingSections: [
           {
             variant: 'quiet',
-            label: 'Why you got this',
             content: 'This digest sends only when grouped stability signals rise materially above their recent baseline. Individual occurrences never send email, and a project receives at most three stability digests in any rolling seven-day window.',
           },
         ],

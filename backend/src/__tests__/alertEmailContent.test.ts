@@ -84,11 +84,11 @@ describe('alert email content', () => {
         expect(sentMails[0].to).toBe('hebron@example.com');
         expect(sentMails[1].to).toBe('ny@example.com');
         expect(sentMails[0].subject).toContain('Mobile App: 2 issues rising fast');
-        expect(sentMails[0].html).toContain('Emerging issues');
+        expect(sentMails[0].html).toContain('emerging issues');
         expect(sentMails[0].html).toContain('GraphicsDevice initialization failure');
         expect(sentMails[0].html).toContain('v6.0.4');
         expect(sentMails[0].html).toContain('7 crashes');
-        expect(sentMails[0].html).toContain('2</div>');
+        expect(sentMails[0].html).toContain('2</strong>');
         expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/general/issue_789');
         expect(sentMails[0].html).toContain('at most three stability digests');
         expect(sentMails[0].html).toContain('Times shown in Asia/Hebron');
@@ -140,7 +140,7 @@ describe('alert email content', () => {
         expect(sentMails[0].subject).toContain('Checkout: 2 leaks affecting');
         expect(sentMails[0].text).toContain('Checkout leak scan summary');
         expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/leaks');
-        expect(sentMails[0].html).toContain('Why it matters');
+        expect(sentMails[0].html).toContain('Users complete the form but cannot continue to payment.');
         expect(sentMails[0].html).not.toContain('Revenue risk');
         expect(sentMails[0].html.indexOf('Checkout button never enables')).toBeLessThan(
             sentMails[0].html.indexOf('Coupon modal traps users'),
