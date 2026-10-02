@@ -208,16 +208,17 @@ async function fetchProjects(request: Request): Promise<ApiProject[]> {
 }
 
 export async function loadDashboardShellBootstrap(request: Request): Promise<DashboardShellBootstrapData | null> {
-  const user = await fetchCurrentUser(request);
+  // Independent authenticated reads can start together; auth still gates the result.
+  const [user, teams, allProjects] = await Promise.all([
+    fetchCurrentUser(request),
+    fetchTeams(request),
+    fetchProjects(request),
+  ]);
   if (!user) {
     return null;
   }
 
   const cookieHeader = request.headers.get("cookie");
-  const [teams, allProjects] = await Promise.all([
-    fetchTeams(request),
-    fetchProjects(request),
-  ]);
   const preferredTeamId = readCookieValue(cookieHeader, SELECTED_TEAM_COOKIE);
   const currentTeamId = teams.find((team) => team.id === preferredTeamId)?.id ?? teams[0]?.id ?? null;
   const projects = currentTeamId

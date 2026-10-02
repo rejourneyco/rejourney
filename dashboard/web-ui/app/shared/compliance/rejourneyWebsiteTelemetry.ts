@@ -1,4 +1,6 @@
-import { Rejourney } from "@rejourneyco/browser";
+// Dashboard shells do not need to download the website recording SDK.
+let Rejourney: typeof import("@rejourneyco/browser")["Rejourney"] | undefined;
+let consentGeneration = 0;
 import type { NetworkRequestParams, PrimitiveMetadataValue, RejourneyWebConfig } from "@rejourneyco/browser";
 import type { ApiTeam } from "~/shared/api/client";
 import type { Project } from "~/shared/types";
@@ -282,7 +284,7 @@ function interactionBaseProperties(): PrimitiveRecord {
 
 function trackCustomEvent(name: string, properties: Record<string, unknown> = {}): void {
   if (!canTrackRejourneyWebsiteTelemetry()) return;
-  Rejourney.logEvent(name, properties);
+  Rejourney?.logEvent(name, properties);
 }
 
 function revenueEventStorageKey(dedupeKey: string): string {
@@ -468,7 +470,7 @@ function installEngagementTracking(): void {
     trackCustomEvent("website_visibility_hidden", {
       ...interactionBaseProperties(),
       route_elapsed_ms: Date.now() - routeStartedAt,
-      session_id: Rejourney.getSessionId() || "",
+      session_id: Rejourney?.getSessionId() || "",
     });
   });
 }
@@ -499,6 +501,7 @@ const REJOURNEY_OPTIONS: RejourneyWebConfig = {
   networkCaptureSizes: true,
   captureReplay: true,
   captureAttribution: true,
+  attribution: { preserveClickIds: false },
   collectGeoLocation: true,
   maskAllInputs: true,
   trackConsoleLogs: false,
@@ -549,17 +552,22 @@ export function getOrCreateWebsiteVisitorUuid(): string {
 }
 
 export function disableRejourneyWebsiteTelemetry(): void {
-  Rejourney.setConsent({ analytics: false, replay: false });
-  Rejourney.clearUserIdentity();
-  void Rejourney.stop();
+  consentGeneration += 1;
+  Rejourney?.setConsent({ analytics: false, replay: false });
+  Rejourney?.clearUserIdentity();
+  void Rejourney?.stop();
 }
 
 function ensureRejourneyInitialized(): Promise<boolean> {
   if (!rejourneyInitPromise) {
-    rejourneyInitPromise = Rejourney.init(REJOURNEY_PUBLIC_KEY, REJOURNEY_OPTIONS).catch((error) => {
-      rejourneyInitPromise = null;
-      throw error;
-    });
+    rejourneyInitPromise = import("@rejourneyco/browser")
+      .then((sdk) => {
+        Rejourney = sdk.Rejourney;
+        return Rejourney.init(REJOURNEY_PUBLIC_KEY, REJOURNEY_OPTIONS);
+      }).catch((error) => {
+        rejourneyInitPromise = null;
+        throw error;
+      });
   }
 
   return rejourneyInitPromise;
@@ -576,7 +584,7 @@ export function syncRejourneyWebsiteContext(params: {
   const sessionVisitId = safeSessionStorageGet("rejourney.websiteVisitId.v1") || randomUuid();
   safeSessionStorageSet("rejourney.websiteVisitId.v1", sessionVisitId);
 
-  Rejourney.setMetadata({
+  Rejourney?.setMetadata({
     app: "rejourney-website",
     sdk_client: "official_npm_package",
     consent_version: CONSENT_VERSION,
@@ -589,7 +597,7 @@ export function syncRejourneyWebsiteContext(params: {
     ...teamMetadata(params.currentTeam, params.teams),
   });
 
-  Rejourney.setUserIdentity(params.userId || `anon_${visitorUuid}`);
+  Rejourney?.setUserIdentity(params.userId || `anon_${visitorUuid}`);
 }
 
 export async function startRejourneyWebsiteTelemetry(params: {
@@ -601,22 +609,25 @@ export async function startRejourneyWebsiteTelemetry(params: {
   source: "stored_consent" | "banner_accept";
 }): Promise<boolean> {
   writeStoredRejourneyConsent("accepted");
-  Rejourney.setConsent({ analytics: true, replay: true });
+  const generation = consentGeneration;
   await ensureRejourneyInitialized();
+  // Consent or route may change while the SDK chunk is downloading.
+  if (generation !== consentGeneration || readStoredRejourneyConsent() !== "accepted") return false;
+  Rejourney?.setConsent({ analytics: true, replay: true });
   syncRejourneyWebsiteContext(params);
-  const started = await Rejourney.start();
-  if (!started) return false;
+  const started = await Rejourney?.start();
+  if (!started || generation !== consentGeneration) return false;
   installAdvancedTracking();
 
-  const sessionId = Rejourney.getSessionId();
+  const sessionId = Rejourney?.getSessionId();
   if (sessionId) {
-    Rejourney.setMetadata("rejourney_session_id", sessionId);
+    Rejourney?.setMetadata("rejourney_session_id", sessionId);
   }
 
   if (websiteSessionStartLogged) return true;
   websiteSessionStartLogged = true;
 
-  Rejourney.logEvent("website_session_started", {
+  Rejourney?.logEvent("website_session_started", {
     source: params.source,
     session_id: sessionId || "",
     route_template: normalizePath(params.pathname),
@@ -646,11 +657,11 @@ export function trackRejourneyRouteView(params: {
   scrollMilestones = new Set<number>();
 
   syncRejourneyWebsiteContext(params);
-  Rejourney.trackScreen(readableRouteName(params.pathname), {
+  Rejourney?.trackScreen(readableRouteName(params.pathname), {
     route_template: normalizePath(params.pathname),
     surface: routeSurface(params.pathname),
   });
-  Rejourney.logEvent("website_route_viewed", {
+  Rejourney?.logEvent("website_route_viewed", {
     sequence: routeViewSequence,
     route_template: normalizePath(params.pathname),
     route_screen: readableRouteName(params.pathname),
@@ -658,7 +669,7 @@ export function trackRejourneyRouteView(params: {
     route_depth: routeDepth(params.pathname),
     has_query: new URLSearchParams(params.search).size > 0,
     previous_route_template: previousRouteKey ? normalizePath(previousRouteKey.split("?")[0] || previousRouteKey) : "",
-    session_id: Rejourney.getSessionId() || "",
+    session_id: Rejourney?.getSessionId() || "",
   });
 }
 
@@ -667,7 +678,7 @@ export function trackRejourneyConsentAccepted(): void {
   if (consentAcceptedLogged) return;
   consentAcceptedLogged = true;
 
-  Rejourney.logEvent("website_consent_accepted", {
+  Rejourney?.logEvent("website_consent_accepted", {
     consent_version: CONSENT_VERSION,
     visitor_uuid: getOrCreateWebsiteVisitorUuid(),
     surface: routeSurface(window.location.pathname),
@@ -696,11 +707,11 @@ export function trackRejourneyDashboardContext(params: {
     params.projectCount,
   ].join(":");
 
-  Rejourney.setMetadata(metadata);
+  Rejourney?.setMetadata(metadata);
   if (contextKey === lastDashboardContextKey) return;
   lastDashboardContextKey = contextKey;
 
-  Rejourney.logEvent("dashboard_context_synced", {
+  Rejourney?.logEvent("dashboard_context_synced", {
     route_template: normalizePath(params.pathname),
     surface: routeSurface(params.pathname),
     team_id: params.currentTeam?.id || "",

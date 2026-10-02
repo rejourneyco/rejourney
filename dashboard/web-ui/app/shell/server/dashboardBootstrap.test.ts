@@ -26,8 +26,10 @@ describe('dashboard bootstrap', () => {
     });
   });
 
-  it('loads teams and projects concurrently after authentication', async () => {
+  it('starts all shell reads without waiting for authentication', async () => {
     vi.stubEnv('API_URL', 'https://api.example.test');
+    let resolveAuth!: (response: Response) => void;
+    const authResponse = new Promise<Response>((resolve) => { resolveAuth = resolve; });
     let resolveTeams!: (response: Response) => void;
     let resolveProjects!: (response: Response) => void;
     const teamsResponse = new Promise<Response>((resolve) => { resolveTeams = resolve; });
@@ -38,14 +40,7 @@ describe('dashboard bootstrap', () => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
       requestedPaths.push(url.pathname);
       if (url.pathname === '/api/auth/me') {
-        return Promise.resolve(jsonResponse({
-          user: {
-            id: 'user-1',
-            email: 'person@example.com',
-            displayName: 'Person',
-            createdAt: '2026-01-01T00:00:00.000Z',
-          },
-        }));
+        return authResponse;
       }
       if (url.pathname === '/api/teams') return teamsResponse;
       if (url.pathname === '/api/projects') return projectsResponse;
@@ -57,6 +52,7 @@ describe('dashboard bootstrap', () => {
       expect(requestedPaths).toEqual(['/api/auth/me', '/api/teams', '/api/projects']);
     });
 
+    resolveAuth(jsonResponse({ user: { id: 'user-1', email: 'person@example.com' } }));
     resolveTeams(jsonResponse({ teams: [{ id: 'team-1', name: 'Team' }] }));
     resolveProjects(jsonResponse({ projects: [] }));
 

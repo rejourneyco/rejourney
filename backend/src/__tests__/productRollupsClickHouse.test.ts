@@ -26,6 +26,7 @@ import {
 import {
     queryDeviceUsageDailyRollupsFromClickHouse,
     queryProductDailyStatsFromClickHouse,
+    aggregateProductDailyStats,
     queryScreenTouchHeatmapsFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 
@@ -233,6 +234,17 @@ describe('ClickHouse product analytics rollups', () => {
         expect(mocks.query.mock.calls[1]?.[0].query).toContain('date AS rollupDate');
         expect(mocks.query.mock.calls[1]?.[0].query).toContain('toString(rollupDate) AS date');
         expect(mocks.query.mock.calls[1]?.[0].query).not.toContain('toString(date) AS date');
+    });
+
+    it('builds project summaries with one query and no dimension scan', async () => {
+        mocks.query.mockResolvedValueOnce({ json: async () => [
+            { projectId: 'project-1', date: '2026-05-21', totalSessions: '10', totalErrors: '2', avgUxScore: 80 },
+            { projectId: 'project-1', date: '2026-05-22', totalSessions: '30', totalErrors: '3', avgUxScore: 100 },
+        ] });
+        const daily = await queryProductDailyStatsFromClickHouse({ projectIds: ['project-1'], includeDimensions: false });
+        const [summary] = aggregateProductDailyStats(daily);
+        expect(summary).toMatchObject({ totalSessions: 40, totalErrors: 5, avgUxScore: 95, platformBreakdown: {} });
+        expect(mocks.query).toHaveBeenCalledTimes(1);
     });
 
     it('reads device usage with a Date-safe period alias', async () => {

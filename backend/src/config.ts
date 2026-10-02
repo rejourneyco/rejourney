@@ -1,10 +1,10 @@
 /**
  * Rejourney Backend Configuration
- * 
+ *
  * Type-safe environment variable loader
- * 
+ *
  * Copyright (c) 2026 Rejourney
- * 
+ *
  * Licensed under the Server Side Public License 1.0 (the "License");
  * you may not use this file except in compliance with the License.
  * See LICENSE-SSPL for full terms.
@@ -206,30 +206,6 @@ const envSchema = z.object({
     SUPERWALL_API_BASE_URL: z.string().default('https://api.superwall.com'),
     REVENUECAT_API_BASE_URL: z.string().default('https://api.revenuecat.com/v2'),
 
-    // Google Ads Data Manager conversion outbox. Disabled until the Google Ads
-    // conversion action IDs and Application Default Credentials are configured.
-    GOOGLE_ADS_DATA_MANAGER_ENABLED: z.string().transform(v => v === 'true').default('false'),
-    // Temporary launch-testing override. This only bypasses the Google Ads
-    // measurement consent gate; it does not enable Rejourney session recording.
-    GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: z.string().transform(v => v !== 'false').default('true'),
-    GOOGLE_ADS_DATA_MANAGER_VALIDATE_ONLY: z.string().transform(v => v !== 'false').default('true'),
-    GOOGLE_ADS_DATA_MANAGER_GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
-    GOOGLE_ADS_DATA_MANAGER_SERVICE_ACCOUNT_JSON: z.string().optional(),
-    GOOGLE_ADS_OPERATING_ACCOUNT_ID: z.string().optional(),
-    GOOGLE_ADS_LOGIN_ACCOUNT_ID: z.string().optional(),
-    GOOGLE_ADS_SIGNUP_STARTED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_SIGNUP_COMPLETED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_PROJECT_CREATED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_SDK_SETUP_OPENED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_FIRST_SESSION_RECEIVED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_SETUP_COMPLETED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_FIRST_REPLAY_VIEWED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_ACTIVATED_ACCOUNT_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_SUBSCRIPTION_STARTED_ACTION_ID: z.string().optional(),
-    GOOGLE_ADS_DATA_MANAGER_BATCH_SIZE: z.coerce.number().int().min(1).max(2000).default(100),
-    GOOGLE_ADS_DATA_MANAGER_POLL_INTERVAL_MS: z.coerce.number().int().min(1000).default(30000),
-    GOOGLE_ADS_DATA_MANAGER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(25).default(10),
-
     // AI query builder (optional)
     QUERY_BUILDER_KEY: z.string().optional(),
     QUERY_BUILDER_MODEL: z.string().default('gemini-3.1-flash-lite-preview'),
@@ -262,7 +238,6 @@ const envSchema = z.object({
 
     // Logging
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
-
 });
 
 type Env = z.infer<typeof envSchema>;

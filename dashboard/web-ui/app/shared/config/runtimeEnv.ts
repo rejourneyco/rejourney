@@ -2,12 +2,7 @@ export interface RuntimeEnvSnapshot {
   VITE_STRIPE_PUBLISHABLE_KEY?: string;
   VITE_MAPBOX_TOKEN?: string;
   VITE_TURNSTILE_SITE_KEY?: string;
-  VITE_GOOGLE_ADS_CONVERSION_ID?: string;
-  VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL?: string;
-  VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL?: string;
-  VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL?: string;
-  VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL?: string;
-  VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING?: string;
+
   SHOW_ISSUE_DETECTION_UI?: string;
 }
 
@@ -24,12 +19,7 @@ export function getRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_STRIPE_PUBLISHABLE_KEY: readRuntimeEnvValue("VITE_STRIPE_PUBLISHABLE_KEY"),
     VITE_MAPBOX_TOKEN: readRuntimeEnvValue("VITE_MAPBOX_TOKEN"),
     VITE_TURNSTILE_SITE_KEY: readRuntimeEnvValue("VITE_TURNSTILE_SITE_KEY"),
-    VITE_GOOGLE_ADS_CONVERSION_ID: readRuntimeEnvValue("VITE_GOOGLE_ADS_CONVERSION_ID"),
-    VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL"),
-    VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL"),
-    VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL"),
-    VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: readRuntimeEnvValue("VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL"),
-    VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: readRuntimeEnvValue("VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING"),
+
     SHOW_ISSUE_DETECTION_UI: readRuntimeEnvValue("SHOW_ISSUE_DETECTION_UI"),
   };
 }
@@ -40,41 +30,6 @@ export function getStripePublishableKey(): string {
 
 export function getMapboxToken(): string {
   return getRuntimeEnvSnapshot().VITE_MAPBOX_TOKEN || "";
-}
-
-export function getGoogleAdsConversionId(): string {
-  const rawValue = getRuntimeEnvSnapshot().VITE_GOOGLE_ADS_CONVERSION_ID?.trim();
-  if (!rawValue) return "";
-
-  if (/^aw-/i.test(rawValue)) {
-    return `AW-${rawValue.slice(3)}`;
-  }
-
-  return /^\d+$/.test(rawValue) ? `AW-${rawValue}` : rawValue;
-}
-
-export function getGoogleAdsSignupConversionLabel(): string {
-  return getRuntimeEnvSnapshot().VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL?.trim() || "";
-}
-
-export function getGoogleAdsConsentBypassForInitialTesting(): boolean {
-  const value = getRuntimeEnvSnapshot()
-    .VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING
-    ?.trim()
-    .toLowerCase();
-  return value !== "false";
-}
-
-export function getGoogleAdsWebsiteConversionLabel(
-  eventName: "demo_opened" | "pricing_viewed" | "docs_opened",
-): string {
-  const snapshot = getRuntimeEnvSnapshot();
-  const labels = {
-    demo_opened: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
-    pricing_viewed: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
-    docs_opened: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
-  };
-  return labels[eventName]?.trim() || "";
 }
 
 export function isIssueDetectionUiEnabled(pathname?: string): boolean {
@@ -91,12 +46,7 @@ export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_STRIPE_PUBLISHABLE_KEY: snapshot.VITE_STRIPE_PUBLISHABLE_KEY,
     VITE_MAPBOX_TOKEN: snapshot.VITE_MAPBOX_TOKEN,
     VITE_TURNSTILE_SITE_KEY: snapshot.VITE_TURNSTILE_SITE_KEY,
-    VITE_GOOGLE_ADS_CONVERSION_ID: snapshot.VITE_GOOGLE_ADS_CONVERSION_ID,
-    VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_SIGNUP_CONVERSION_LABEL,
-    VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DEMO_OPENED_CONVERSION_LABEL,
-    VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_PRICING_VIEWED_CONVERSION_LABEL,
-    VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL: snapshot.VITE_GOOGLE_ADS_DOCS_OPENED_CONVERSION_LABEL,
-    VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING: snapshot.VITE_GOOGLE_ADS_CONSENT_BYPASS_FOR_INITIAL_TESTING,
+
     SHOW_ISSUE_DETECTION_UI: snapshot.SHOW_ISSUE_DETECTION_UI === "true" ? "true" : "false",
   };
 }

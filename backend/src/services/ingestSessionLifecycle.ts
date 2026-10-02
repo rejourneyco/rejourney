@@ -18,7 +18,7 @@ import {
     normalizeClientEpochMsForSession,
     resolveSessionClock,
 } from './sessionClock.js';
-import { recordProjectOwnerMilestone } from './googleAdsConversions.js';
+
 import { assignSessionVisitorForRow, isVisitorLedgerWriteEnabled } from './visitorLedger.js';
 
 export type IngestSessionMetadata = {
@@ -250,7 +250,7 @@ export function invalidateProjectRetentionCache(projectId: string): void {
     _retentionByProject.delete(projectId);
 }
 
-function buildMetadataUpdates(
+export function buildMetadataUpdates(
     existing: any,
     metadata: IngestSessionMetadata | undefined,
     req?: any,
@@ -304,7 +304,11 @@ function buildMetadataUpdates(
         updates.observeOnly = false;
     }
 
-    const jsonMetadata = buildSessionJsonMetadata(metadata);
+    const jsonMetadata = Object.fromEntries(
+        Object.entries(buildSessionJsonMetadata(metadata)).filter(
+            ([key, value]) => existing.metadata?.[key] !== value,
+        ),
+    );
     if (Object.keys(jsonMetadata).length > 0) {
         updates.metadata = sql`${sessions.metadata} || ${JSON.stringify(jsonMetadata)}::jsonb`;
     }
@@ -621,16 +625,6 @@ export async function ensureIngestSession(
     if (session && (created || loadedSessionFromDb || updatedSessionMetadata || !prefetchedWasCacheHit)) {
         setIngestSessionCache(projectId, session as unknown as Record<string, unknown>).catch(() => {});
         setSessionExistsCache(projectId, sessionId).catch(() => {});
-    }
-
-    if (created) {
-        void recordProjectOwnerMilestone(projectId, 'first_session_received', {
-            occurredAt: session.startedAt ?? serverNow,
-            eventSource: 'OTHER',
-            metadata: { firstSessionId: sessionId },
-        }).catch((err) => {
-            logger.warn({ err, projectId, sessionId }, 'Failed to record first-session conversion milestone');
-        });
     }
 
     return { session, created };

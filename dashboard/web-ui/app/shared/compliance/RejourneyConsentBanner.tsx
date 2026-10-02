@@ -1,21 +1,8 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
-import { Cookie, ShieldCheck, ShieldX } from "lucide-react";
+import { Cookie, ShieldCheck } from "lucide-react";
 import { useAuth } from "~/shared/providers/AuthContext";
-import {
-    captureGoogleAdsAttribution,
-    clearGoogleAdsAttribution,
-    grantGoogleAdsAttributionConsent,
-} from "~/shared/lib/googleAdsAttribution";
-import {
-    hasGoogleAdsConsent,
-    isGoogleAdsConsentPromptRequired,
-    updateGoogleAdsConsent,
-} from "~/shared/lib/googleAdsConsent";
-import {
-    getGoogleAdsPageConversionRule,
-    trackGoogleAdsWebsiteConversion,
-} from "~/shared/lib/googleAdsWebsiteConversions";
+
 import {
     disableRejourneyWebsiteTelemetry,
     isEmbeddedFrame,
@@ -40,7 +27,6 @@ export function RejourneyConsentBanner() {
 
     useEffect(() => {
         if (typeof window === "undefined") return;
-        captureGoogleAdsAttribution();
 
         if (isWebsiteTelemetryDisabledPath) {
             disableRejourneyWebsiteTelemetry();
@@ -129,55 +115,16 @@ export function RejourneyConsentBanner() {
         });
     }, [consentState, isWebsiteTelemetryDisabledPath, location.pathname, location.search, user?.id]);
 
-    useEffect(() => {
-        if (typeof window === "undefined" || !hasGoogleAdsConsent()) return;
-        const rule = getGoogleAdsPageConversionRule(location.pathname);
-        if (!rule) return;
-
-        let elapsed = false;
-        let interacted = !rule.requiresInteraction;
-        let fired = false;
-        const maybeTrack = () => {
-            if (fired || !elapsed || !interacted || document.visibilityState !== "visible") return;
-            fired = trackGoogleAdsWebsiteConversion(rule.eventName);
-        };
-        const onInteraction = () => {
-            interacted = true;
-            maybeTrack();
-        };
-        const timer = window.setTimeout(() => {
-            elapsed = true;
-            maybeTrack();
-        }, rule.delayMs);
-        const interactionEvents = ["pointerdown", "keydown", "scroll"] as const;
-        for (const eventName of interactionEvents) {
-            window.addEventListener(eventName, onInteraction, { passive: true });
-        }
-        document.addEventListener("visibilitychange", maybeTrack);
-
-        return () => {
-            window.clearTimeout(timer);
-            for (const eventName of interactionEvents) {
-                window.removeEventListener(eventName, onInteraction);
-            }
-            document.removeEventListener("visibilitychange", maybeTrack);
-        };
-    }, [consentState, location.pathname]);
-
     const acceptAnalytics = () => {
         writeStoredRejourneyConsent("accepted");
-        updateGoogleAdsConsent(true);
-        grantGoogleAdsAttributionConsent();
+
         setStartSource("banner_accept");
         setConsentState("accepted");
     };
 
     const rejectAnalytics = () => {
         writeStoredRejourneyConsent("rejected");
-        if (isGoogleAdsConsentPromptRequired()) {
-            updateGoogleAdsConsent(false);
-            clearGoogleAdsAttribution();
-        }
+
         setConsentState("rejected");
         disableRejourneyWebsiteTelemetry();
     };

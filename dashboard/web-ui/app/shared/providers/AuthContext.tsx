@@ -1,14 +1,13 @@
 /**
  * Auth Context
- * 
+ *
  * Manages user authentication state across the app.
  * Uses Better Auth for passwordless email OTP authentication.
  */
 
 import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getFingerprint } from '~/shared/lib/fingerprint';
-import { appendGoogleAdsAttributionToUrl, getGoogleAdsAttribution } from '~/shared/lib/googleAdsAttribution';
-import { hasGoogleAdsConsent } from '~/shared/lib/googleAdsConsent';
+
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 
 // Network timeout in milliseconds (10 seconds)
@@ -292,7 +291,7 @@ export function AuthProvider({
   const [authServiceUnavailable, setAuthServiceUnavailable] = useState(
     initialHydrated && initialAuthServiceUnavailable,
   );
-  
+
   // Track if refreshUser is currently running to prevent race conditions
   const refreshUserPromiseRef = useRef<Promise<User | null> | null>(null);
   const userRef = useRef<User | null>(initialHydrated ? initialUser : null);
@@ -443,7 +442,6 @@ export function AuthProvider({
 
       // Collect fingerprint data for duplicate account detection
       const fingerprint = await getFingerprint();
-      const attribution = getGoogleAdsAttribution();
 
       // Use relative URL to go through the proxy with timeout
       await fetchAuthJson('/api/auth/otp/send', {
@@ -453,8 +451,6 @@ export function AuthProvider({
         body: JSON.stringify({
           email,
           fingerprint,
-          ...(attribution ? { attribution } : {}),
-          ...(hasGoogleAdsConsent() ? { googleAdsConsent: 'accepted' } : {}),
         }),
       }, 'Failed to send verification code');
 
@@ -552,7 +548,7 @@ export function AuthProvider({
   const loginWithGitHub = useCallback(() => {
     if (typeof window === 'undefined') return;
     // Redirect to GitHub OAuth endpoint (use relative URL)
-    window.location.href = appendGoogleAdsAttributionToUrl('/api/auth/github');
+    window.location.href = '/api/auth/github';
   }, []);
 
   const value: AuthContextValue = {

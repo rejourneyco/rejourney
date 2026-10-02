@@ -1,8 +1,8 @@
 /**
  * Rejourney Dashboard
- * 
+ *
  * Copyright (c) 2026 Rejourney
- * 
+ *
  * Licensed under the Server Side Public License 1.0 (the "License");
  * you may not use this file except in compliance with the License.
  * See LICENSE-SSPL for full terms.
@@ -22,13 +22,13 @@ import {
 import type { Route } from "./+types/root";
 
 import "./styles/index.css";
-import { getGoogleAdsConversionId, getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
+import { getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
 import {
     getLocalizedPublicUrl,
     getMarketingHomeCopy,
     getMarketingLocaleFromPathname,
 } from "./shared/lib/internationalMarketing";
-import { isGoogleAdsConsentBypassForInitialTestingEnabled } from "./shared/lib/googleAdsConsent";
+
 import { isAuthBootstrapData, isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
 import { readCookieValue } from "./shared/utils/selectionCookies";
 
@@ -53,34 +53,6 @@ export function loader({ request }: Route.LoaderArgs): PublicSessionHintData {
     };
 }
 
-function renderGoogleAdsBootstrap(
-    conversionId: string,
-    bypassConsentForInitialTesting: boolean,
-): string {
-    return [
-        "(function(){",
-        `var conversionId=${JSON.stringify(conversionId)};`,
-        `var bypassConsentForInitialTesting=${JSON.stringify(bypassConsentForInitialTesting)};`,
-        "var path=window.location.pathname;",
-        "if(path.indexOf('/dashboard')===0){return;}",
-        "window.dataLayer=window.dataLayer||[];",
-        "function gtag(){dataLayer.push(arguments);}",
-        "window.gtag=window.gtag||gtag;",
-        "var consent=bypassConsentForInitialTesting?'granted':'denied';",
-        "if(!bypassConsentForInitialTesting){try{if(window.localStorage.getItem('rejourney.webSdkConsent.v1')==='accepted'){consent='granted';}}catch(e){}}",
-        "gtag('consent','default',{ad_storage:consent,analytics_storage:consent,ad_user_data:consent,ad_personalization:consent,wait_for_update:500});",
-        "gtag('set','ads_data_redaction',true);",
-        "gtag('set','url_passthrough',true);",
-        "var tag=document.createElement('script');",
-        "tag.async=true;",
-        "tag.src='https://www.googletagmanager.com/gtag/js?id='+encodeURIComponent(conversionId);",
-        "document.head.appendChild(tag);",
-        "gtag('js',new Date());",
-        "gtag('config',conversionId,{allow_enhanced_conversions:true});",
-        "})();",
-    ].join("");
-}
-
 export const links: Route.LinksFunction = () => [
     // DNS prefetch for external domains
     { rel: "dns-prefetch", href: "https://api.rejourney.co" },
@@ -103,7 +75,7 @@ export const meta: Route.MetaFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
-    const googleAdsConversionId = getGoogleAdsConversionId();
+
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getMarketingHomeCopy(locale);
@@ -124,16 +96,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <meta httpEquiv="Content-Language" content={locale.languageTag} />
                 <Meta />
                 <Links />
-                {googleAdsConversionId ? (
-                    <script
-                        dangerouslySetInnerHTML={{
-                            __html: renderGoogleAdsBootstrap(
-                                googleAdsConversionId,
-                                isGoogleAdsConsentBypassForInitialTestingEnabled(),
-                            ),
-                        }}
-                    />
-                ) : null}
+
                 {/* Structured data for rich results */}
                 <script
                     type="application/ld+json"

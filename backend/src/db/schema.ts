@@ -47,24 +47,7 @@ export const users = pgTable(
         screenResolution: varchar('screen_resolution', { length: 20 }), // Screen dimensions (e.g., "1920x1080")
         languagePreference: varchar('language_preference', { length: 50 }), // Browser accept-language
         registrationPlatform: varchar('registration_platform', { length: 50 }), // Parsed OS/platform
-        googleAdsAttribution: jsonb('google_ads_attribution').$type<{
-            gclid?: string;
-            gbraid?: string;
-            wbraid?: string;
-            utm_source?: string;
-            utm_medium?: string;
-            utm_campaign?: string;
-            utm_content?: string;
-            utm_term?: string;
-            matchtype?: string;
-            device?: string;
-            network?: string;
-            loc?: string;
-            capturedAt: string;
-            landingPage: string;
-        }>(),
-        googleAdsConsentGrantedAt: timestamp('google_ads_consent_granted_at'),
-        googleAdsConsentVersion: varchar('google_ads_consent_version', { length: 32 }),
+
         signupCompletedAt: timestamp('signup_completed_at'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -97,24 +80,7 @@ export const otpTokens = pgTable(
         codeHash: varchar('code_hash', { length: 255 }).notNull(),
         expiresAt: timestamp('expires_at').notNull(),
         attempts: integer('attempts').default(0).notNull(),
-        googleAdsAttribution: jsonb('google_ads_attribution').$type<{
-            gclid?: string;
-            gbraid?: string;
-            wbraid?: string;
-            utm_source?: string;
-            utm_medium?: string;
-            utm_campaign?: string;
-            utm_content?: string;
-            utm_term?: string;
-            matchtype?: string;
-            device?: string;
-            network?: string;
-            loc?: string;
-            capturedAt: string;
-            landingPage: string;
-        }>(),
-        googleAdsConsentGrantedAt: timestamp('google_ads_consent_granted_at'),
-        googleAdsConsentVersion: varchar('google_ads_consent_version', { length: 32 }),
+
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
     (table) => [
@@ -258,49 +224,6 @@ export const projects = pgTable(
     ]
 );
 
-/**
- * First-party conversion milestone ledger and Google Ads outbox.
- *
- * Every transactionId is deterministic, so callers can record the same
- * milestone repeatedly without creating duplicate conversions. Rows without
- * advertising consent remain useful for the product activation definition but
- * are never eligible for upload.
- */
-export const googleAdsConversionEvents = pgTable(
-    'google_ads_conversion_events',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        eventName: varchar('event_name', { length: 64 }).notNull(),
-        userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-        teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
-        projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
-        transactionId: varchar('transaction_id', { length: 255 }).notNull(),
-        eventSource: varchar('event_source', { length: 32 }).default('OTHER').notNull(),
-        occurredAt: timestamp('occurred_at').notNull(),
-        valueCents: integer('value_cents'),
-        currency: varchar('currency', { length: 3 }),
-        consentGranted: boolean('consent_granted').default(false).notNull(),
-        status: varchar('status', { length: 32 }).default('pending').notNull(),
-        attempts: integer('attempts').default(0).notNull(),
-        nextAttemptAt: timestamp('next_attempt_at').defaultNow().notNull(),
-        lastAttemptAt: timestamp('last_attempt_at'),
-        acceptedAt: timestamp('accepted_at'),
-        processedAt: timestamp('processed_at'),
-        googleRequestId: varchar('google_request_id', { length: 255 }),
-        lastError: text('last_error'),
-        diagnostics: jsonb('diagnostics').$type<Record<string, unknown>>(),
-        metadata: jsonb('metadata').$type<Record<string, unknown>>(),
-        createdAt: timestamp('created_at').defaultNow().notNull(),
-        updatedAt: timestamp('updated_at').defaultNow().notNull(),
-    },
-    (table) => [
-        uniqueIndex('google_ads_conversion_events_transaction_id_unique').on(table.transactionId),
-        index('google_ads_conversion_events_delivery_idx').on(table.status, table.nextAttemptAt),
-        index('google_ads_conversion_events_user_event_idx').on(table.userId, table.eventName, table.occurredAt),
-        index('google_ads_conversion_events_request_idx').on(table.googleRequestId),
-    ]
-);
-
 export const apiKeys = pgTable(
     'api_keys',
     {
@@ -440,7 +363,7 @@ export const projectRevenueDaily = pgTable(
 
 /**
  * Audit log for sensitive operations
- * 
+ *
  * Provides a tamper-proof trail for security-sensitive actions like:
  * - Spend cap changes
  * - API key creation/deletion
@@ -472,7 +395,6 @@ export const auditLogs = pgTable(
         index('audit_logs_created_at_idx').on(table.createdAt),
     ]
 );
-
 
 // =============================================================================
 // Session & Event Models
@@ -766,8 +688,6 @@ export const sessionMetrics = pgTable('session_metrics', {
     screenshotTotalBytes: bigint('screenshot_total_bytes', { mode: 'number' }).default(0),
 });
 
-
-
 export const recordingArtifacts = pgTable(
     'recording_artifacts',
     {
@@ -886,8 +806,6 @@ export const replayShareLinks = pgTable(
             .where(sql`${table.revokedAt} IS NULL`),
     ],
 );
-
-
 
 // =============================================================================
 // Storage Models
@@ -1095,7 +1013,6 @@ export const researchReleaseRegistry = pgTable(
     ],
 );
 
-
 // =============================================================================
 // Billing & Usage Models
 // =============================================================================
@@ -1210,12 +1127,9 @@ export const billingNotifications = pgTable(
     ]
 );
 
-
-
 // =============================================================================
 // Webhook Model
 // =============================================================================
-
 
 // =============================================================================
 // UI Workspace Models (Browser-like tabs)
@@ -1667,8 +1581,6 @@ export const sessionMetricsRelations = relations(sessionMetrics, ({ one }) => ({
     session: one(sessions, { fields: [sessionMetrics.sessionId], references: [sessions.id] }),
 }));
 
-
-
 export const recordingArtifactsRelations = relations(recordingArtifacts, ({ one }) => ({
     session: one(sessions, { fields: [recordingArtifacts.sessionId], references: [sessions.id] }),
 }));
@@ -1687,8 +1599,6 @@ export const replayShareLinksRelations = relations(replayShareLinks, ({ one }) =
     createdBy: one(users, { fields: [replayShareLinks.createdByUserId], references: [users.id] }),
 }));
 
-
-
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
     project: one(projects, { fields: [apiKeys.projectId], references: [projects.id] }),
 }));
@@ -1701,7 +1611,6 @@ export const projectFunnelStatsRelations = relations(projectFunnelStats, ({ one 
     project: one(projects, { fields: [projectFunnelStats.projectId], references: [projects.id] }),
 }));
 
-
 export const storageEndpointsRelations = relations(storageEndpoints, ({ one }) => ({
     project: one(projects, { fields: [storageEndpoints.projectId], references: [projects.id] }),
 }));
@@ -1713,8 +1622,6 @@ export const projectUsageRelations = relations(projectUsage, ({ one }) => ({
 export const billingUsageRelations = relations(billingUsage, ({ one }) => ({
     team: one(teams, { fields: [billingUsage.teamId], references: [teams.id] }),
 }));
-
-
 
 export const userSessionsRelations = relations(userSessions, ({ one }) => ({
     user: one(users, { fields: [userSessions.userId], references: [users.id] }),

@@ -429,3 +429,16 @@ Details: [Backup & Recovery](/docs/selfhosted/backup-recovery).
 - [Troubleshooting](/docs/selfhosted/troubleshooting) for bootstrap, TLS, Web SDK, and replay ingestion issues.
 - [Backup & Recovery](/docs/selfhosted/backup-recovery) for restore order and verification.
 - [Distributed vs single-node cloud](/docs/distributed-vs-single-node/distributed-vs-single-node) for the conceptual architecture comparison.
+
+### Retiring advertising storage (4.1.114)
+
+Google Ads conversion tracking and its worker have been removed. After upgrading
+all API and worker containers to 4.1.114 or newer, run
+`backend/scripts/sql/removeRetiredGoogleAds.sql` against the application database
+to remove the conversion outbox and the advertising attribution/consent columns
+from `users` and `otp_tokens`. Keep `signup_completed_at`, which is still used for
+account activation. Remove any `GOOGLE_ADS_*` and `VITE_GOOGLE_ADS_*` environment
+variables. Run this cleanup after old containers have stopped, because older
+versions include the advertising columns in authentication queries. The cleanup
+is idempotent and uses a short lock timeout so it can be retried if the database
+is busy.
