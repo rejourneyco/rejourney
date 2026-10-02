@@ -36,6 +36,12 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_SECRET_KEY
+                  optional: true
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -231,6 +237,12 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_SECRET_KEY
+                  optional: true
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -367,6 +379,12 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_SECRET_KEY
+                  optional: true
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
