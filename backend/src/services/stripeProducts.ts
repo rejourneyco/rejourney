@@ -234,18 +234,18 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                 };
 
             // Skip prices without the legacy replay-limit metadata key.
-            const sessionLimit = price.metadata?.session_limit;
-            if (!sessionLimit) {
+            const sessionLimit = Number(price.metadata?.session_limit);
+            if (!Number.isSafeInteger(sessionLimit) || sessionLimit <= 0) {
                 const skipDetails = {
-                    reason: 'missing_session_limit',
+                    reason: 'missing_or_invalid_session_limit',
                     priceId: price.id,
                     priceName: price.nickname,
                     priceMetadata: price.metadata,
                     ...productDetails,
                 };
                 skippedPrices.push(skipDetails);
-                logger.warn(skipDetails, 'Skipping Stripe price without session_limit metadata');
-                logStripePlanConsole('warn', 'Skipping Stripe price without session_limit metadata', skipDetails);
+                logger.warn(skipDetails, 'Skipping Stripe price without valid session_limit metadata');
+                logStripePlanConsole('warn', 'Skipping Stripe price without valid session_limit metadata', skipDetails);
                 continue;
             }
 
@@ -323,7 +323,7 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                 productId: product.id,
                 name: planName,
                 displayName: displayName,
-                sessionLimit: parseInt(sessionLimit),
+                sessionLimit,
                 videoRetentionTier: videoRetention.tier,
                 videoRetentionDays: videoRetention.days,
                 videoRetentionLabel: videoRetention.label,
@@ -545,7 +545,7 @@ export function derivePlanChangePreviewState(
 // Serialization helpers for TeamSubscriptionInfo ↔ Redis (JSON doesn't
 // preserve Date objects, so we store ISO strings and rehydrate on read).
 // ---------------------------------------------------------------------------
-const STRIPE_SUBSCRIPTION_CACHE_VERSION = 2;
+const STRIPE_SUBSCRIPTION_CACHE_VERSION = 3;
 
 function serializeSubscriptionForCache(info: TeamSubscriptionInfo): Record<string, unknown> {
     return {
@@ -667,7 +667,11 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                 logger.warn({ err, teamId, priceId: team.stripePriceId }, 'Failed to get plan from cache when Stripe disabled');
             }
         }
-        return result;
+        if (result.subscriptionId) return result;
+        // A missing credential/catalog entry is unknown billing state, not a
+        // confirmed free subscription. Quota callers must retry before mutating
+        // retention or discarding artifacts.
+        throw ApiError.serviceUnavailable('Subscription limits temporarily unavailable. Please retry.');
     }
 
     try {
@@ -768,14 +772,17 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                     logger.warn({ err, teamId, priceId: team.stripePriceId }, 'Failed to get plan from cache');
                 }
             }
-            return result;
+            throw ApiError.serviceUnavailable('Subscription limits temporarily unavailable. Please retry.');
         }
 
         const price = item.price;
         const product = price.product as Stripe.Product;
 
         // Get replay limit from legacy price metadata.
-        const sessionLimit = parseInt(price.metadata?.session_limit || '0') || FREE_TIER_SESSIONS;
+        const sessionLimit = Number(price.metadata?.session_limit);
+        if (!Number.isSafeInteger(sessionLimit) || sessionLimit <= 0) {
+            throw ApiError.serviceUnavailable('Subscription limits temporarily unavailable. Please retry.');
+        }
         const retentionTier = normalizeVideoRetentionTier(parseVideoRetentionTier(price.metadata?.retention_tier));
         const videoRetention = await getVideoRetentionDetailsForTier(retentionTier);
 
@@ -950,7 +957,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
             logger.warn({ teamId, hasPriceId: !!team.stripePriceId }, 'No priceId in DB for fallback');
         }
 
-        return result;
+        throw ApiError.serviceUnavailable('Subscription limits temporarily unavailable. Please retry.');
     }
 }
 
