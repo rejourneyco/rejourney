@@ -1,7 +1,7 @@
 import { identitySearchFromPrompt } from '../services/identitySearchPrompt.js';
 /**
  * Projects Routes
- * 
+ *
  * Project CRUD and attestation config
  */
 
@@ -43,7 +43,7 @@ import {
 } from '../services/abuseDetection.js';
 import { isDisposableEmail } from '../utils/disposableEmail.js';
 import {
-    queryProductAllTimeStatsFromClickHouse,
+    aggregateProductDailyStats,
     queryProductDailyStatsFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 import { normalizeWebAllowedDomains } from '../utils/webAllowedDomains.js';
@@ -55,7 +55,6 @@ import {
     normalizeSmartCapturePreset,
     normalizeSmartCaptureRules,
 } from '../services/smartCapture.js';
-import { recordGoogleAdsMilestone } from '../services/googleAdsConversions.js';
 
 function getProjectWebAllowedDomains(project: { webAllowedDomains?: string[] | null; webDomain?: string | null }): string[] {
     return normalizeWebAllowedDomains([
@@ -1434,10 +1433,8 @@ router.get(
         sevenDaysAgo.setUTCHours(0, 0, 0, 0);
         const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
-        const [allTimeRows, dailyRows] = await Promise.all([
-            queryProductAllTimeStatsFromClickHouse({ projectIds }),
-            queryProductDailyStatsFromClickHouse({ projectIds }),
-        ]);
+        const dailyRows = await queryProductDailyStatsFromClickHouse({ projectIds, includeDimensions: false });
+        const allTimeRows = aggregateProductDailyStats(dailyRows);
 
         const allTimeByProject = new Map(allTimeRows.map((row) => [row.projectId, row]));
         const fallbackProjectIds = projectIds.filter((projectId) =>
@@ -1665,14 +1662,6 @@ router.post(
             metadata: {
                 createdWithExplicitTeam: data.teamId !== undefined,
             },
-        });
-
-        await recordGoogleAdsMilestone({
-            eventName: 'project_created',
-            userId: owners[0]?.userId ?? req.user!.id,
-            teamId,
-            projectId: project.id,
-            eventSource: 'WEB',
         });
 
         res.status(201).json({

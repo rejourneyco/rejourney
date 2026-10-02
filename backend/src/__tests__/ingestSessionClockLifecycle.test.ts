@@ -73,6 +73,7 @@ vi.mock('../services/visitorLedger.js', () => ({
 
 import {
     ingestSessionSelection,
+    buildMetadataUpdates,
     isSessionIdFresh,
     maybeBackfillSessionStartedAt,
 } from '../services/ingestSessionLifecycle.js';
@@ -134,5 +135,16 @@ describe('ingest session lifecycle clock guard', () => {
 
         expect(result).toBe(session);
         expect(mocks.db.update).not.toHaveBeenCalled();
+    });
+});
+
+describe('ingest metadata writes', () => {
+    const existing = { isSampledIn: true, metadata: { browser: 'Chrome', connectionSaveData: false, customKey: 'preserved' } };
+    it('does not write identical normalized metadata', () => {
+        expect(buildMetadataUpdates(existing, { browser: ' Chrome ', connectionSaveData: false })).toEqual({});
+    });
+    it('writes changed and newly reported metadata, preserving unrelated keys', () => {
+        const result = buildMetadataUpdates(existing, { browser: 'Firefox', connectionSaveData: true, networkType: 'wifi' });
+        expect(result.metadata).toEqual(expect.objectContaining({ values: ['sessions.metadata', JSON.stringify({ browser: 'Firefox', networkType: 'wifi', connectionSaveData: true })] }));
     });
 });

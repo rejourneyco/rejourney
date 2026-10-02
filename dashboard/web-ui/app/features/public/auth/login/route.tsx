@@ -9,7 +9,7 @@ import { ArrowLeft, Github, Loader2, LockKeyhole, Mail, ChevronLeft, ChevronRigh
 import { Input } from "~/shared/ui/core/Input";
 import { useAuth } from "~/shared/providers/AuthContext";
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
-import { trackAccountActivationConversion, type AccountActivationMethod } from "~/shared/lib/googleAdsSignals";
+type AccountActivationMethod = "otp" | "github";
 import { getFingerprint } from "~/shared/lib/fingerprint";
 import { loadAuthBootstrap } from "~/shell/server/dashboardBootstrap";
 import { SankeyPanel } from "~/features/public/home/components/AiLeakHomepage";
@@ -100,9 +100,6 @@ export default function LoginPage() {
 
         postLoginNavigationStarted.current = true;
         setPendingAction("opening");
-        if (accountActivationMethod) {
-            trackAccountActivationConversion(accountActivationMethod, conversionIdentity ?? undefined);
-        }
         navigate(getPostLoginDestination(), { replace: true });
     }, [getPostLoginDestination, navigate]);
 

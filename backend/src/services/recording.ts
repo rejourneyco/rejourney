@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
+import { setBoundedMapEntry } from '../utils/boundedMap.js';
 import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
 import {
     buildClickHouseDeviceUsageDailyRollupRow,
@@ -39,6 +40,12 @@ export async function updateDeviceUsage(
     }
 }
 
+// Repeated uploads from the same session/IP need no new lookup or write.
+// Bound both memory and staleness; changed IPs are processed immediately.
+const recentGeoLookups = new Map<string, { ip: string; expiresAt: number }>();
+const GEO_LOOKUP_TTL_MS = 5 * 60 * 1000;
+const GEO_LOOKUP_MAX_ENTRIES = 10_000;
+
 /**
  * GeoIP lookup using local MMDB.
  */
@@ -69,7 +76,12 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
         return;
     }
 
-    logger.info({ sessionId, ip: normalizedIp }, 'Starting GeoIP lookup');
+    const previous = recentGeoLookups.get(sessionId);
+    if (previous?.ip === normalizedIp && previous.expiresAt > Date.now()) return;
+    const lookup = { ip: normalizedIp, expiresAt: Date.now() + 30_000 };
+    setBoundedMapEntry(recentGeoLookups, sessionId, lookup, GEO_LOOKUP_MAX_ENTRIES);
+
+    logger.debug({ sessionId }, 'Starting GeoIP lookup');
 
     try {
         const mmdbGeo = await lookupGeoIpFromMmdb(normalizedIp);
@@ -87,7 +99,12 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
                     geoLongitude: mmdbGeo.longitude,
                     geoTimezone: mmdbGeo.timezone || null,
                 })
-                .where(eq(sessions.id, sessionId));
+                .where(and(
+                    eq(sessions.id, sessionId),
+                    sql`ROW(${sessions.geoCity}, ${sessions.geoRegion}, ${sessions.geoCountry}, ${sessions.geoCountryCode}, ${sessions.geoLatitude}, ${sessions.geoLongitude}, ${sessions.geoTimezone})
+                        IS DISTINCT FROM ROW(${mmdbGeo.city || null}::text, ${mmdbGeo.region || null}::text, ${countryCode || null}::text, ${countryCode || null}::text, ${mmdbGeo.latitude}::double precision, ${mmdbGeo.longitude}::double precision, ${mmdbGeo.timezone || null}::text)`,
+                ));
+            lookup.expiresAt = Date.now() + GEO_LOOKUP_TTL_MS;
 
             logger.debug({
                 sessionId,
@@ -99,8 +116,10 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
             return;
         }
 
-        logger.info({ sessionId, ip: normalizedIp }, 'GeoIP MMDB lookup returned null');
+        lookup.expiresAt = Date.now() + 30_000;
+        logger.debug({ sessionId }, 'GeoIP MMDB lookup returned null');
     } catch (error) {
+        if (recentGeoLookups.get(sessionId) === lookup) recentGeoLookups.delete(sessionId);
         logger.warn({ error, sessionId, ip }, 'GeoIP lookup failed');
     }
 }

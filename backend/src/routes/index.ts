@@ -1,6 +1,6 @@
 /**
  * Routes Index
- * 
+ *
  * Register all API routes
  */
 
@@ -30,14 +30,12 @@ import { revenueProjectRouter } from './revenueSources.js';
 import issueDetectionLeaksRoutes from './issueDetectionLeaks.js';
 import issueDetectionGithubRoutes from './issueDetectionGithub.js';
 import internalIssueDetectionRoutes from './internalIssueDetection.js';
-import conversionsRoutes from './conversions.js';
 import stabilityRoutes from './stability.js';
 
 const router = Router();
 
 // Auth routes
 router.use('/auth', authRoutes);
-router.use('/conversions', conversionsRoutes);
 
 // SDK initialization routes (public, no auth required)
 router.use('/sdk', sdkRoutes);

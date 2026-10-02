@@ -231,6 +231,8 @@ export function canReadProductRollupsFromClickHouse(): boolean {
 
 export async function queryProductDailyStatsFromClickHouse(params: {
     projectIds: string[];
+    /** Skip breakdown history when callers only need numerical summaries. */
+    includeDimensions?: boolean;
     startDate?: string;
     endDate?: string;
 }): Promise<ProductAnalyticsDailyStatsRow[]> {
@@ -312,7 +314,7 @@ export async function queryProductDailyStatsFromClickHouse(params: {
     });
 
     const dailyRows = (await dailyResult.json<ClickHouseDailyRow>()).map(dailyRowFromClickHouse);
-    if (dailyRows.length === 0) return [];
+    if (dailyRows.length === 0 || params.includeDimensions === false) return dailyRows;
 
     const byKey = new Map(dailyRows.map((row) => [`${row.projectId}:${row.date}`, row]));
     const dimensionResult = await getClickHouseClient().query({
@@ -388,7 +390,10 @@ export async function queryProductAllTimeStatsFromClickHouse(params: {
     startDate?: string;
     endDate?: string;
 }): Promise<ProductAnalyticsAllTimeStatsRow[]> {
-    const dailyRows = await queryProductDailyStatsFromClickHouse(params);
+    return aggregateProductDailyStats(await queryProductDailyStatsFromClickHouse(params));
+}
+
+export function aggregateProductDailyStats(dailyRows: ProductAnalyticsDailyStatsRow[]): ProductAnalyticsAllTimeStatsRow[] {
     const byProject = new Map<string, ProductAnalyticsAllTimeStatsRow>();
 
     const mergeBreakdown = (target: Record<string, number>, source: Record<string, number>) => {

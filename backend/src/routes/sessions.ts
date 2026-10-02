@@ -1,6 +1,6 @@
 /**
  * Sessions Routes
- * 
+ *
  * Session listing, details, and dashboard stats
  */
 
@@ -99,10 +99,7 @@ import {
 } from '../utils/mobileFrustration.js';
 import { isGameplayTelemetryEvent } from '../utils/gameplayIntervals.js';
 import { shouldTrustClientFrustrationCountsForPlatform } from '../services/ingestSessionEnd.js';
-import {
-    recordDashboardInvestigation,
-    recordProjectOwnerMilestone,
-} from '../services/googleAdsConversions.js';
+
 import { normalizeReplayEventPayload } from '../services/replayEventPayload.js';
 import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
 
@@ -4220,13 +4217,6 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
-        void recordDashboardInvestigation({
-            userId: req.user!.id,
-            projectId: session.projectId,
-            sessionId: session.id,
-        }).catch((err) => {
-            logger.warn({ err, sessionId: session.id }, 'Failed to record dashboard investigation milestone');
-        });
         const includeReplay = shouldIncludeReplayFromQuery(req.query.includeReplay);
         const cacheKind: SessionDetailCacheKind = includeReplay ? 'core' : 'coreLite';
         // Always try cache: unstable sessions get a short TTL on write, which
@@ -4323,12 +4313,7 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
-        void recordProjectOwnerMilestone(session.projectId, 'first_replay_viewed', {
-            eventSource: 'WEB',
-            metadata: { firstSessionId: session.id },
-        }).catch((err) => {
-            logger.warn({ err, sessionId: session.id }, 'Failed to record replay conversion milestone');
-        });
+
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
         const manifestCacheScope = `${session.id}:${frameUrlMode}`;
         const { payloadJson, cacheStatus } = await getOrBuildCachedSessionDetailJson(
@@ -4497,8 +4482,6 @@ router.get(
         });
     })
 );
-
-
 
 /**
  * Get rrweb segment by artifact id (same-origin fallback for browsers that
@@ -4675,7 +4658,7 @@ router.get(
 
             const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
             if (!data) throw ApiError.notFound('Frame data not found in storage');
-            
+
             return sendFrameData(data);
         }
 
@@ -4705,7 +4688,7 @@ router.get(
         for (const artifact of artifacts) {
             const artifactStartMs = artifact.startTime ?? artifact.timestamp ?? sessionStartMs;
             const artifactEndMs = artifact.endTime ?? artifactStartMs + 10_000;
-            
+
             if (targetTimestampMs >= artifactStartMs && targetTimestampMs <= artifactEndMs) {
                 bestArtifact = artifact;
                 break;
@@ -5072,7 +5055,7 @@ router.get(
 
 /**
  * GET /sessions/:id/frame/:frameTimestamp
- * 
+ *
  * Proxy endpoint for screenshot frames - avoids CSP issues by serving
  * images through the API instead of direct S3 URLs.
  */
@@ -5088,6 +5071,5 @@ router.get(
         return res.redirect(307, `/api/session/frame/${sessionId}/${frameTimestamp}`);
     })
 );
-
 
 export default router;

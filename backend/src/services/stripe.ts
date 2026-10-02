@@ -1,6 +1,6 @@
 /**
  * Stripe Service
- * 
+ *
  * Handles all Stripe API interactions:
  * - Customer management
  * - Payment methods
@@ -21,7 +21,6 @@ import {
     parseVideoRetentionTier,
     syncTeamVideoRetention,
 } from './videoRetention.js';
-import { recordGoogleAdsMilestone } from './googleAdsConversions.js';
 
 // =============================================================================
 // Stripe Client Initialization
@@ -587,7 +586,7 @@ async function ensureManagedPlanChangePortalConfiguration(
 /**
  * Create a subscription for a team on a specific plan
  * Used when a team upgrades from free tier to a paid plan
- * 
+ *
  * @param teamId - Team ID
  * @param priceId - Stripe Price ID for the plan
  * @returns Stripe Subscription or null if not enabled
@@ -640,7 +639,7 @@ export async function createSubscription(
 
 /**
  * Update a team's subscription to a different plan
- * 
+ *
  * @param teamId - Team ID
  * @param newPriceId - Stripe Price ID for the new plan
  * @returns Updated Stripe Subscription or null
@@ -688,7 +687,7 @@ export async function updateSubscription(
 
 /**
  * Cancel a team's subscription
- * 
+ *
  * @param teamId - Team ID
  * @param immediate - If true, cancel immediately. If false, cancel at period end.
  * @returns Cancelled Stripe Subscription or null
@@ -1310,32 +1309,6 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     const { invalidateSessionCache } = await import('./quotaCheck.js');
     await invalidateSessionCache(targetTeamId);
 
-    if (subscriptionId && Number(invoiceData.amount_paid ?? 0) > 0) {
-        const [owner] = await db
-            .select({ userId: teams.ownerUserId })
-            .from(teams)
-            .where(eq(teams.id, targetTeamId))
-            .limit(1);
-        if (owner) {
-            await recordGoogleAdsMilestone({
-                eventName: 'subscription_started',
-                userId: owner.userId,
-                teamId: targetTeamId,
-                transactionId: `subscription_started:${subscriptionId}`,
-                occurredAt: invoiceData.status_transitions?.paid_at
-                    ? new Date(invoiceData.status_transitions.paid_at * 1000)
-                    : new Date(),
-                eventSource: 'OTHER',
-                valueCents: Number(invoiceData.amount_paid),
-                currency: String(invoiceData.currency || 'usd'),
-                metadata: {
-                    stripeSubscriptionId: subscriptionId,
-                    firstPaidInvoiceId: invoice.id,
-                },
-            });
-        }
-    }
-
     logger.info({ teamId: targetTeamId, invoiceId: invoice.id, anchorSynced: 'billingCycleAnchor' in updateFields }, 'Invoice paid');
 }
 
@@ -1520,11 +1493,11 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
 /**
  * Handle subscription updated event
  * Syncs subscription state (price changes, status changes, scheduled downgrades completing)
- * 
+ *
  * Also handles the incomplete -> active transition: when payment finally succeeds
  * after 3DS authentication, this event fires with status=active and we provision
  * the team at that point.
- * 
+ *
  * IMPORTANT: For downgrades, we do NOT reset the billing cycle anchor
  * The billing cycle continues from the same date, only the price changes
  */

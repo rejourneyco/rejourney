@@ -1,6 +1,6 @@
 /**
  * Auth Routes
- * 
+ *
  * OTP-based authentication with OAuth support (future)
  */
 
@@ -19,7 +19,7 @@ import {
     oauthRateLimiter,
     writeApiRateLimiter,
 } from '../middleware/rateLimit.js';
-import { googleAdsAttributionSchema, sendOtpSchema, updateMeSchema, verifyOtpSchema } from '../validation/auth.js';
+import { sendOtpSchema, updateMeSchema, verifyOtpSchema } from '../validation/auth.js';
 import { sendOtpEmail } from '../services/email.js';
 import { createAuditLog, type AuditAction, type TargetType } from '../services/auditLog.js';
 import { UAParser } from 'ua-parser-js';
@@ -32,76 +32,12 @@ import {
     recordFailedAuthAttempt,
 } from '../services/abuseDetection.js';
 import { isStripeEnabled } from '../services/stripe.js';
-import {
-    GOOGLE_ADS_CONSENT_VERSION,
-    recordGoogleAdsMilestone,
-} from '../services/googleAdsConversions.js';
 
 const router = Router();
 
 // OTP settings
 const OTP_EXPIRY_MINUTES = 10;
 const SESSION_EXPIRY_DAYS = 30;
-const OAUTH_ATTRIBUTION_COOKIE = 'oauth_google_ads_attribution';
-
-type GoogleAdsAttribution = ReturnType<typeof googleAdsAttributionSchema.parse>;
-type OAuthAdsMeasurement = {
-    attribution?: GoogleAdsAttribution;
-    consentGranted: boolean;
-};
-
-async function recordSignupCompletedConversion(input: {
-    userId: string;
-    teamId?: string | null;
-    occurredAt: Date;
-    provider: 'otp' | 'github';
-}): Promise<void> {
-    try {
-        await recordGoogleAdsMilestone({
-            eventName: 'signup_completed',
-            userId: input.userId,
-            teamId: input.teamId,
-            occurredAt: input.occurredAt,
-            eventSource: 'WEB',
-            metadata: { provider: input.provider },
-        });
-    } catch (error) {
-        logger.error({
-            error,
-            userId: input.userId,
-            provider: input.provider,
-        }, 'Failed to enqueue Google Ads signup completion');
-    }
-}
-
-function encodeOAuthAttribution(value: OAuthAdsMeasurement): string {
-    return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
-}
-
-function decodeOAuthAttribution(value: unknown): OAuthAdsMeasurement {
-    if (typeof value !== 'string' || !value) return { consentGranted: false };
-
-    try {
-        const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-        const result = googleAdsAttributionSchema.safeParse(decoded?.attribution);
-        return {
-            attribution: result.success ? result.data : undefined,
-            consentGranted: decoded?.consentGranted === true,
-        };
-    } catch {
-        return { consentGranted: false };
-    }
-}
-
-function readOAuthAttributionQuery(req: Request): OAuthAdsMeasurement {
-    const query = { ...req.query };
-    delete query.googleAdsConsent;
-    const result = googleAdsAttributionSchema.safeParse(query);
-    return {
-        attribution: result.success ? result.data : undefined,
-        consentGranted: req.query.googleAdsConsent === 'accepted',
-    };
-}
 
 async function auditAuthEvent(
     req: Request,
@@ -145,9 +81,9 @@ router.post(
     otpSendRateLimiter,
     validate(sendOtpSchema),
     asyncHandler(async (req, res) => {
-        const { email, fingerprint, attribution, googleAdsConsent } = req.body;
+        const { email, fingerprint } = req.body;
         const normalizedEmail = email.toLowerCase().trim();
-        const googleAdsConsentGrantedAt = googleAdsConsent === 'accepted' ? new Date() : null;
+
         const clientIp = getRequestIp(req) || null;
         const accountFingerprint =
             fingerprint?.browserFingerprint ||
@@ -196,9 +132,7 @@ router.post(
                 screenResolution: fingerprint?.screenResolution || null,
                 languagePreference: fingerprint?.language || req.headers['accept-language']?.split(',')[0] || null,
                 registrationPlatform: fingerprint?.platform || parsedPlatform || null,
-                googleAdsAttribution: googleAdsConsentGrantedAt ? attribution : undefined,
-                googleAdsConsentGrantedAt,
-                googleAdsConsentVersion: googleAdsConsentGrantedAt ? GOOGLE_ADS_CONSENT_VERSION : null,
+
             }).returning();
             createdUser = true;
 
@@ -244,19 +178,7 @@ router.post(
             email: normalizedEmail,
             codeHash,
             expiresAt,
-            googleAdsAttribution: googleAdsConsentGrantedAt ? attribution : undefined,
-            googleAdsConsentGrantedAt,
-            googleAdsConsentVersion: googleAdsConsentGrantedAt ? GOOGLE_ADS_CONSENT_VERSION : null,
         });
-
-        if (createdUser) {
-            await recordGoogleAdsMilestone({
-                eventName: 'signup_started',
-                userId: user.id,
-                teamId: createdTeamId,
-                eventSource: 'WEB',
-            });
-        }
 
         await auditAuthEvent(req, {
             action: 'login_challenge_requested',
@@ -326,9 +248,7 @@ router.post(
                 id: otpTokens.id,
                 codeHash: otpTokens.codeHash,
                 attempts: otpTokens.attempts,
-                googleAdsAttribution: otpTokens.googleAdsAttribution,
-                googleAdsConsentGrantedAt: otpTokens.googleAdsConsentGrantedAt,
-                googleAdsConsentVersion: otpTokens.googleAdsConsentVersion,
+
                 user: {
                     id: users.id,
                     email: users.email,
@@ -408,15 +328,10 @@ router.post(
         const accountActivated = !(await hasPriorSuccessfulLogin(otpToken.user!.id));
         const signupCompletedAt = accountActivated ? new Date() : null;
 
-        if (accountActivated || otpToken.googleAdsConsentGrantedAt) {
+        if (accountActivated) {
             await db.update(users)
                 .set({
                     ...(signupCompletedAt ? { signupCompletedAt } : {}),
-                    ...(otpToken.googleAdsConsentGrantedAt ? {
-                        googleAdsAttribution: otpToken.googleAdsAttribution,
-                        googleAdsConsentGrantedAt: otpToken.googleAdsConsentGrantedAt,
-                        googleAdsConsentVersion: otpToken.googleAdsConsentVersion ?? GOOGLE_ADS_CONSENT_VERSION,
-                    } : {}),
                     updatedAt: new Date(),
                 })
                 .where(eq(users.id, otpToken.user!.id));
@@ -458,14 +373,6 @@ router.post(
             id: userSessions.id,
             expiresAt: userSessions.expiresAt,
         });
-
-        if (signupCompletedAt) {
-            await recordSignupCompletedConversion({
-                userId: otpToken.user!.id,
-                occurredAt: signupCompletedAt,
-                provider: 'otp',
-            });
-        }
 
         // Set session cookie
         res.cookie('session', sessionToken, getSessionCookieOptions(req, SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000));
@@ -695,16 +602,6 @@ router.get('/github', oauthRateLimiter, (req, res) => {
 
     // Store state in cookie for verification
     res.cookie('oauth_state', state, getOAuthStateCookieOptions(req));
-    const measurement = readOAuthAttributionQuery(req);
-    if (measurement.attribution || measurement.consentGranted) {
-        res.cookie(
-            OAUTH_ATTRIBUTION_COOKIE,
-            encodeOAuthAttribution(measurement),
-            getOAuthStateCookieOptions(req),
-        );
-    } else {
-        res.clearCookie(OAUTH_ATTRIBUTION_COOKIE);
-    }
 
     const callbackUrl = config.OAUTH_REDIRECT_BASE
         ? `${config.OAUTH_REDIRECT_BASE}/api/auth/github/callback`
@@ -732,12 +629,11 @@ router.get(
     asyncHandler(async (req, res) => {
         const { code, state } = req.query;
         const storedState = req.cookies?.oauth_state;
-        const googleAdsMeasurement = decodeOAuthAttribution(req.cookies?.[OAUTH_ATTRIBUTION_COOKIE]);
+
         const clientIp = getRequestIp(req) || null;
 
         // Clear state cookie
         res.clearCookie('oauth_state');
-        res.clearCookie(OAUTH_ATTRIBUTION_COOKIE);
 
         // Validate state
         if (!state || state !== storedState) {
@@ -970,13 +866,7 @@ router.get(
                     registrationUserAgent: userAgent || null,
                     languagePreference: req.headers['accept-language']?.split(',')[0] || null,
                     registrationPlatform: parsedPlatform || null,
-                    googleAdsAttribution: googleAdsMeasurement.consentGranted
-                        ? googleAdsMeasurement.attribution
-                        : undefined,
-                    googleAdsConsentGrantedAt: googleAdsMeasurement.consentGranted ? new Date() : null,
-                    googleAdsConsentVersion: googleAdsMeasurement.consentGranted
-                        ? GOOGLE_ADS_CONSENT_VERSION
-                        : null,
+
                     signupCompletedAt,
                 }).returning();
                 createdUserFromGithub = true;
@@ -1011,12 +901,6 @@ router.get(
                     },
                 });
 
-                await recordGoogleAdsMilestone({
-                    eventName: 'signup_started',
-                    userId: existingUser.id,
-                    teamId: defaultTeamId,
-                    eventSource: 'WEB',
-                });
             }
 
             const accountActivated = !(await hasPriorSuccessfulLogin(existingUser.id));
@@ -1024,17 +908,7 @@ router.get(
                 signupCompletedAt = new Date();
             }
 
-            if (googleAdsMeasurement.consentGranted && !createdUserFromGithub) {
-                await db.update(users)
-                    .set({
-                        googleAdsAttribution: googleAdsMeasurement.attribution,
-                        googleAdsConsentGrantedAt: new Date(),
-                        googleAdsConsentVersion: GOOGLE_ADS_CONSENT_VERSION,
-                        ...(signupCompletedAt ? { signupCompletedAt } : {}),
-                        updatedAt: new Date(),
-                    })
-                    .where(eq(users.id, existingUser.id));
-            } else if (signupCompletedAt && !createdUserFromGithub) {
+            if (signupCompletedAt && !createdUserFromGithub) {
                 await db.update(users)
                     .set({ signupCompletedAt, updatedAt: new Date() })
                     .where(eq(users.id, existingUser.id));
@@ -1054,15 +928,6 @@ router.get(
                 id: userSessions.id,
                 expiresAt: userSessions.expiresAt,
             });
-
-            if (accountActivated && signupCompletedAt) {
-                await recordSignupCompletedConversion({
-                    userId: existingUser.id,
-                    teamId: defaultTeamId,
-                    occurredAt: signupCompletedAt,
-                    provider: 'github',
-                });
-            }
 
             // Set session cookie
             res.cookie('session', sessionToken, getSessionCookieOptions(req, SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000));
@@ -1122,7 +987,7 @@ const DATA_EXPORT_COOLDOWN_DAYS = 30;
 /**
  * Get data export status
  * GET /api/auth/export-data/status
- * 
+ *
  * Returns whether the user can export data and when the next export will be available.
  */
 router.get(
@@ -1170,7 +1035,7 @@ router.get(
 /**
  * Export user data (GDPR Right to Data Portability)
  * POST /api/auth/export-data
- * 
+ *
  * Rate limited to once per 30 days for scalability.
  * Returns minimal data: account info + session summaries (no replay frames or raw events).
  */
