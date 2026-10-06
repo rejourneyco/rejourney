@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
+import { ReplayLink } from './ReplayLink';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import {
   Search,
@@ -1385,20 +1386,14 @@ export const RecordingsList: React.FC = () => {
                         </div>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (canNavigateToSession) {
-                            navigate(`${pathPrefix}/sessions/${session.id}`);
-                          }
-                        }}
+                      <ReplayLink
+                        to={`${pathPrefix}/sessions/${session.id}`}
                         disabled={!canNavigateToSession}
                         className={`${dashboardButtonClass(isReplayBlocked ? 'secondary' : 'primary', 'lg')} mt-3 w-full`}
                       >
                         {isReplayBlocked ? <Loader size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
                         {isReplayBlocked ? 'Replay unavailable' : isLiveIngest ? 'Open live replay' : 'Open replay'}
-                      </button>
+                      </ReplayLink>
                     </div>
                   )}
                 </article>
@@ -1826,14 +1821,10 @@ export const RecordingsList: React.FC = () => {
 
                     <td className="w-[68px] py-2.5 pl-1 pr-3 align-middle">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (canNavigateToSession) {
-                              navigate(`${pathPrefix}/sessions/${session.id}`);
-                            }
-                          }}
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}`}
                           disabled={!canNavigateToSession}
+                          aria-label={isReplayBlocked ? 'Replay unavailable' : isLiveIngest ? 'Open live replay' : 'Open replay'}
                           className={`${ROW_ICON_BUTTON_CLASS} group/play ${isReplayBlocked
                             ? 'cursor-not-allowed text-[#bdc1c6]'
                             : 'text-[#5f6368] hover:bg-[#f1f3f4] hover:text-[#202124]'
@@ -1851,7 +1842,7 @@ export const RecordingsList: React.FC = () => {
                           }
                         >
                           <Play size={16} className={isReplayBlocked ? "" : "group-hover/play:fill-current"} />
-                        </button>
+                        </ReplayLink>
                         <button
                           onClick={(e) => toggleExpand(e, session.id)}
                           className={`${ROW_ICON_BUTTON_CLASS} ${isExpanded
@@ -2137,9 +2128,8 @@ export const RecordingsList: React.FC = () => {
                                 {screensCount} {webSession ? 'page' : 'screen'}{screensCount !== 1 ? 's' : ''}&nbsp;·&nbsp;{Math.floor(session.durationSeconds / 60)}m {session.durationSeconds % 60}s
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
+                              <ReplayLink
+                                to={`${pathPrefix}/sessions/${session.id}`}
                                 disabled={isReplayBlocked}
                                 className={`${dashboardButtonClass('primary', 'md')} mt-auto w-full`}
                               >
@@ -2149,7 +2139,7 @@ export const RecordingsList: React.FC = () => {
                                   <Play className="h-4 w-4 fill-current" />
                                 )}
                                 {isReplayBlocked ? 'Replay unavailable' : isLiveIngest ? 'Open live replay' : 'Open replay'}
-                              </button>
+                              </ReplayLink>
                             </div>
                           </div>
 

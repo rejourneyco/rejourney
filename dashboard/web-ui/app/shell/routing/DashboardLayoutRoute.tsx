@@ -5,7 +5,7 @@
  * It handles auth checking and provides the sidebar, topbar, and session data context.
  */
 
-import { isRouteErrorResponse, Outlet, redirect, useLoaderData, useNavigate, useRouteError, useLocation } from "react-router";
+import { isRouteErrorResponse, useOutlet, redirect, useLoaderData, useNavigate, useRouteError, useLocation } from "react-router";
 import type { Route } from "./+types/DashboardLayoutRoute";
 import { useEffect, useState } from "react";
 import { ProjectLayout } from "~/shell/components/layout/AppLayout";
@@ -122,6 +122,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function DashboardLayoutContent() {
+    const outlet = useOutlet();
     const { projects, isLoading } = useSessionData();
     const navigate = useNavigate();
     const location = useLocation();
@@ -138,7 +139,7 @@ function DashboardLayoutContent() {
         <ProjectLayout pathPrefix="/dashboard">
             <div className="flex flex-col h-full min-h-0 bg-transparent">
                 <TabWorkspace>
-                    <Outlet />
+                    {outlet}
                 </TabWorkspace>
             </div>
         </ProjectLayout>

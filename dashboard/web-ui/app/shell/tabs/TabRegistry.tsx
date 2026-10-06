@@ -224,7 +224,7 @@ const routes: RouteDefinition[] = [
 ];
 
 function findRoute(pathname: string): RouteDefinition | null {
-    const pathWithoutPrefix = stripDashboardPathPrefix(pathname);
+    const pathWithoutPrefix = stripDashboardPathPrefix(pathname).split(/[?#]/)[0];
     for (const route of routes) {
         if (matchPath(route.pattern, pathWithoutPrefix)) {
             return route;
@@ -235,7 +235,7 @@ function findRoute(pathname: string): RouteDefinition | null {
 
 export const TabRegistry = {
     getTabInfo: (pathname: string): TabInfo | null => {
-        const pathWithoutPrefix = stripDashboardPathPrefix(pathname);
+        const pathWithoutPrefix = stripDashboardPathPrefix(pathname).split(/[?#]/)[0];
 
         for (const route of routes) {
             const match = matchPath(route.pattern, pathWithoutPrefix);
@@ -247,7 +247,7 @@ export const TabRegistry = {
     },
 
     resolve: (pathname: string): TabDefinition | null => {
-        const pathWithoutPrefix = stripDashboardPathPrefix(pathname);
+        const pathWithoutPrefix = stripDashboardPathPrefix(pathname).split(/[?#]/)[0];
         for (const route of routes) {
             const match = matchPath(route.pattern, pathWithoutPrefix);
             if (match) {

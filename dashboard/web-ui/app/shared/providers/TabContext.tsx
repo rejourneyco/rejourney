@@ -8,6 +8,7 @@ import { getWorkspace, saveWorkspace, WorkspaceTab } from '~/shared/api/client';
 import { isUuid } from '~/shared/lib/ids';
 import { isPublicRoutePath } from '~/shared/lib/publicRoutePaths';
 import { normalizeLegacyAnalyticsAppPath, stripDashboardPathPrefix } from '~/shell/routing/dashboardRouteAliases';
+import { useDashboardPreferences } from './useDashboardPreferences';
 
 export interface Tab {
     id: string;
@@ -137,6 +138,7 @@ function appendRecentlyClosed(existing: Tab[], additions: Tab[]): Tab[] {
 }
 
 export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { workspaceTabsEnabled } = useDashboardPreferences();
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabIdState] = useState<string>('');
     const [recentlyClosed, setRecentlyClosed] = useState<Tab[]>([]);
@@ -209,6 +211,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Save workspace state to backend (debounced using refs to avoid stale closures)
     const saveToBackend = useCallback(() => {
+        if (!workspaceTabsEnabled) return;
         if (demoMode.isDemoMode || !hasPersistableWorkspaceScope || !workspaceTeamId || !workspaceProjectId) return;
         if (isScopeTransitionRef.current || !hasLoadedRef.current) return;
         const teamId = workspaceTeamId;
@@ -254,14 +257,20 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 isSavingRef.current = false;
             }
         }, 1000);
-    }, [demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId]);
+    }, [workspaceTabsEnabled, demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId]);
 
     // Persist whenever tabs change (but only after initial load completes)
     useEffect(() => {
-        if (hasLoaded && hasPersistableWorkspaceScope && !demoMode.isDemoMode) {
+        if (workspaceTabsEnabled && hasLoaded && hasPersistableWorkspaceScope && !demoMode.isDemoMode) {
             saveToBackend();
         }
-    }, [tabs, activeTabId, recentlyClosed, hasLoaded, hasPersistableWorkspaceScope, demoMode.isDemoMode, location.pathname, saveToBackend]);
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+        };
+    }, [workspaceTabsEnabled, tabs, activeTabId, recentlyClosed, hasLoaded, hasPersistableWorkspaceScope, demoMode.isDemoMode, location.pathname, saveToBackend]);
 
     // Cleanup save timeout on unmount
     useEffect(() => {
@@ -378,6 +387,14 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Load workspace from backend on initial mount - wait for project to be ready
     useEffect(() => {
+        if (!workspaceTabsEnabled) {
+            loadedProjectIdRef.current = null;
+            setHasLoaded(false);
+            setTabs([]);
+            setRecentlyClosed([]);
+            setActiveTabId('');
+            return;
+        }
         // Don't load until project loading is complete
         if (isProjectLoading) return;
 
@@ -487,17 +504,16 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         const hasCurrentTab = trimmed.tabs.some(t => t.id === currentRouteInfo.id);
                         if (!hasCurrentTab) {
                             // Add current route as a new tab
-                            const currentTabs = tabsRef.current;
-                            const merged = [...currentTabs, annotateTabWithScope({
+                            const merged = [...trimmed.tabs, annotateTabWithScope({
                                 id: currentRouteInfo.id,
                                 type: 'page' as const,
                                 title: currentRouteInfo.title,
-                                path: location.pathname,
+                                path: `${location.pathname}${location.search}${location.hash}`,
                                 isClosable: true,
                                 group: 'primary',
                                 icon: currentRouteInfo.icon,
                             })];
-                            const mergedTrimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([currentRouteInfo.id]));
+                            const mergedTrimmed = trimTabsForLimits(merged, trimmed.recentlyClosed, new Set([currentRouteInfo.id]));
                             startTransition(() => {
                                 setTabs(mergedTrimmed.tabs);
                                 setRecentlyClosed(mergedTrimmed.recentlyClosed);
@@ -585,20 +601,21 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return () => {
             isCancelled = true;
         };
-    }, [demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
+    }, [workspaceTabsEnabled, demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
 
     // Auto-open tabs when URL changes based on TabRegistry
     // Skip the initial auto-open if we just loaded tabs from backend (to avoid overriding)
     useEffect(() => {
-        if (!hasLoaded) return;
+        if (!workspaceTabsEnabled || !hasLoaded) return;
 
         const info = TabRegistry.getTabInfo(location.pathname);
         if (!info) return;
         const currentTabs = tabsRef.current;
         const existingTab = currentTabs.find((t) => t.id === info.id);
         if (existingTab) {
-            if (existingTab.path !== location.pathname) {
-                const updatedTabs = currentTabs.map(t => t.id === info.id ? annotateTabWithScope({ ...t, path: location.pathname }) : t);
+            const currentPath = `${location.pathname}${location.search}${location.hash}`;
+            if (existingTab.path !== currentPath) {
+                const updatedTabs = currentTabs.map(t => t.id === info.id ? annotateTabWithScope({ ...t, path: currentPath }) : t);
                 startTransition(() => {
                     setTabs(updatedTabs);
                 });
@@ -612,7 +629,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             id: info.id,
             type: 'page',
             title: info.title,
-            path: location.pathname,
+            path: `${location.pathname}${location.search}${location.hash}`,
             isClosable: true,
             group: 'primary',
             icon: info.icon,
@@ -623,7 +640,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setRecentlyClosed(trimmed.recentlyClosed);
             setActiveTabId(info.id);
         });
-    }, [location.pathname, hasLoaded, setActiveTabId, annotateTabWithScope]);
+    }, [workspaceTabsEnabled, location.pathname, location.search, location.hash, hasLoaded, setActiveTabId, annotateTabWithScope]);
 
 
     const openTab = useCallback((newTab: Omit<Tab, 'isClosable' | 'group'> & { isClosable?: boolean; group?: 'primary' | 'secondary' }) => {

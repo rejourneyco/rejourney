@@ -11,6 +11,7 @@ import { LogOut, Mail, Calendar, CheckCircle, AlertCircle, UserCircle, Download,
 import { getFreeTierStatus, FreeTierStatus, getDataExportStatus, exportUserData, DataExportStatus, updateAccountSettings } from '~/shared/api/client';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
+import { DashboardPreferences } from './DashboardPreferences';
 import {
   dashboardCardClass,
   dashboardChipClass,
@@ -166,6 +167,7 @@ export const AccountSettings: React.FC = () => {
   if (!user) {
     return (
       <SettingsLayout className="rejourney-settings-page rejourney-account-settings-page" title="Account" description="Manage your personal settings" {...dashboardPageHeaderProps('account')}>
+        {isDemoMode && <DashboardPreferences />}
         {isDemoMode ? (
           <div className="flex items-start gap-3 border border-[#d2e3fc] bg-[#e8f0fe] p-4 text-[#1967d2]">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
@@ -306,6 +308,7 @@ export const AccountSettings: React.FC = () => {
 
         {/* Actions Column */}
         <div className="space-y-6">
+          <DashboardPreferences />
           {/* Free Tier Card */}
           <section className="space-y-3">
             <h2 className={`flex items-center gap-2 ${dashboardSectionTitleClass}`}>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { WorkspaceTabBar } from './WorkspaceTabBar';
 import { Project, Platform } from '~/shared/types';
 import { ApiProject } from '~/shared/api/client';
 import { useTeam } from '~/shared/providers/TeamContext';
@@ -221,6 +222,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
       <div key={contentScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--dashboard-canvas)]">
         {!isDemoLayout && <TopBar currentProject={selectedProject} hideDemoHomeLink={isDemoLayout} />}
         {isDemoLayout && <DemoLiveNotice />}
+        <WorkspaceTabBar />
         {projectsError && (
           <div className="mx-4 mt-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] px-4 py-3 text-sm text-[#a50e0e] sm:mx-6">
             {projectsError}

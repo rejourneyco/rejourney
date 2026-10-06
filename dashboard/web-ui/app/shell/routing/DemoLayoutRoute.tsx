@@ -4,7 +4,7 @@
  * Wraps all /demo/* routes with the demo-specific layout.
  */
 
-import { Outlet } from "react-router";
+import { useOutlet } from "react-router";
 import type { Route } from "./+types/DemoLayoutRoute";
 import { DemoModeProvider, DemoTeamProvider } from "~/shared/providers/DemoModeContext";
 import { SessionDataProvider } from "~/shared/providers/SessionContext";
@@ -19,6 +19,7 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export default function DemoLayout() {
+    const outlet = useOutlet();
     return (
         <ErrorBoundary>
             <DemoModeProvider>
@@ -28,7 +29,7 @@ export default function DemoLayout() {
                             <ProjectLayout pathPrefix="/demo">
                                 <div className="flex flex-col h-full min-h-0 bg-transparent">
                                     <TabWorkspace>
-                                        <Outlet />
+                                        {outlet}
                                     </TabWorkspace>
                                 </div>
                             </ProjectLayout>

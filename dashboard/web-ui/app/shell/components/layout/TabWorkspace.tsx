@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router';
 import { ErrorBoundary as ClientErrorBoundary } from '~/shared/ui/core/ErrorBoundary';
 import { stripDashboardPathPrefix } from '~/shell/routing/dashboardRouteAliases';
@@ -33,6 +33,14 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
     const location = useLocation();
     const routeWithoutPrefix = useMemo(() => stripDashboardPathPrefix(location.pathname), [location.pathname]);
     const primaryScrollRef = useRef<HTMLDivElement | null>(null);
+    const replayListScrollRef = useRef<HTMLDivElement | null>(null);
+    const replayListPositionRef = useRef({ top: 0, left: 0 });
+    const replayListContentRef = useRef<React.ReactNode>(null);
+    const isReplayList = routeWithoutPrefix === '/sessions';
+    // The resolved outlet carries its own route context. Retain only the list,
+    // never replay players, so pagination/filter state survives Back without
+    // keeping media playback or expensive detail pages alive in the background.
+    if (isReplayList) replayListContentRef.current = children;
     const primaryPaneBodyClass = getPaneBodyClass(routeWithoutPrefix);
     const primaryPaneKey = `${location.pathname}${location.search}`;
     const primaryPaneContent = (
@@ -41,18 +49,45 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
         </ClientErrorBoundary>
     );
 
-    // Each dashboard page should open from the top when route changes.
-    useEffect(() => {
+    useLayoutEffect(() => {
+        if (isReplayList) {
+            replayListScrollRef.current?.scrollTo({
+                ...replayListPositionRef.current,
+                behavior: 'instant',
+            });
+            return;
+        }
         const container = primaryScrollRef.current;
         if (!container) return;
         container.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    }, [location.pathname]);
+    }, [location.pathname, isReplayList]);
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-transparent">
-            <div className={primaryPaneBodyClass} ref={primaryScrollRef}>
-                {primaryPaneContent}
-            </div>
+            {replayListContentRef.current && (
+                <div
+                    className={isReplayList ? getPaneBodyClass('/sessions') : 'hidden'}
+                    ref={replayListScrollRef}
+                    aria-hidden={!isReplayList || undefined}
+                    data-replay-list-pane
+                    onScroll={(event) => {
+                        if (!isReplayList) return;
+                        replayListPositionRef.current = {
+                            top: event.currentTarget.scrollTop,
+                            left: event.currentTarget.scrollLeft,
+                        };
+                    }}
+                >
+                    <ClientErrorBoundary fallbackClassName={PANE_ERROR_FALLBACK_CLASS}>
+                        {replayListContentRef.current}
+                    </ClientErrorBoundary>
+                </div>
+            )}
+            {!isReplayList && (
+                <div className={primaryPaneBodyClass} ref={primaryScrollRef}>
+                    {primaryPaneContent}
+                </div>
+            )}
         </div>
     );
 };
