@@ -125,7 +125,9 @@ jobs:
         run: npm ci --workspace rejourney-backend --include-workspace-root=false --ignore-scripts
 
       - name: Dependency Audit
-        run: npm audit --audit-level=high
+        run: |
+          node --test scripts/ci/audit-dependencies.test.mjs
+          node scripts/ci/audit-dependencies.mjs
 
       - name: Schema / Migration Guard
         run: |

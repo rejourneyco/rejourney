@@ -82,6 +82,7 @@
     "minimatch": "^10.2.6",
     "postcss": "^8.5.25",
     "nanoid": "3.3.18",
+    "tinypool": "^2.2.0",
     "metro": "0.83.8",
     "metro-config": "0.83.8",
     "metro-transform-worker": "0.83.8"
