@@ -63,6 +63,7 @@ import { MarkerTooltip } from '~/shared/ui/core/MarkerTooltip';
 import { SessionLoadingOverlay } from '~/features/app/sessions/shared/SessionLoadingOverlay';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
+import { createReplaySessionClock } from '~/shared/lib/replaySessionClock';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
 import { mergeScreenshotFrameLists, screenshotFrameKey } from '~/shared/lib/screenshotFrameList';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
@@ -2628,8 +2629,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             : null
     ), [webReplayBackgroundGaps, webReplayRawEndMs]);
     const webReplayDurationSeconds = useMemo(() => {
-        const firstTimestamp = Number(compressedRrwebReplayEvents[0]?.timestamp);
-        const replayStart = Number.isFinite(firstTimestamp) ? firstTimestamp : replayBaseTime;
+        const replayStart = replayBaseTime;
         const candidates: number[] = [];
         const lastTimestamp = Number(compressedRrwebReplayEvents[compressedRrwebReplayEvents.length - 1]?.timestamp);
         if (Number.isFinite(lastTimestamp) && lastTimestamp > replayStart) {
@@ -2723,9 +2723,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
         : playbackMode === 'screenshots'
             ? screenshotReplayDurationSeconds
             : durationSeconds;
-    const replayClockBaseTime = playbackMode === 'rrweb'
-        ? Number(compressedRrwebReplayEvents[0]?.timestamp) || replayBaseTime
-        : replayBaseTime;
+    const replayClockBaseTime = replayBaseTime;
+    const webReplaySessionClock = useMemo(() => createReplaySessionClock({
+        startedAt: replayBaseTime,
+        playbackDurationSeconds: webReplayDurationSeconds,
+        sessionDurationSeconds: durationSeconds,
+        backgroundGaps: webReplayBackgroundGaps,
+    }), [durationSeconds, replayBaseTime, webReplayBackgroundGaps, webReplayDurationSeconds]);
+    const playbackTimeForDisplay = useCallback((time: number) => (
+        playbackMode === 'rrweb' ? webReplaySessionClock.secondsAt(time) : time
+    ), [playbackMode, webReplaySessionClock]);
     const eventTimestampToPlaybackSeconds = useCallback((timestamp: number) => {
         const playbackTimestamp = playbackMode === 'rrweb'
             ? compressReplayTimestamp(timestamp, webReplayBackgroundGaps)
@@ -2756,11 +2763,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
     const currentPlaybackRawTimestamp = useMemo(() => {
         const sessionStart = fullSession?.startTime || replayBaseTime;
         const playbackTimestamp = sessionStart + currentPlaybackTime * 1000;
+        if (playbackMode === 'rrweb') {
+            return expandCompressedReplayTimestamp(playbackTimestamp, webReplayBackgroundGaps);
+        }
         if (playbackMode === 'screenshots') {
             return expandCompressedReplayTimestamp(playbackTimestamp, screenshotReplayBackgroundGaps);
         }
         return playbackTimestamp;
-    }, [currentPlaybackTime, fullSession?.startTime, playbackMode, replayBaseTime, screenshotReplayBackgroundGaps]);
+    }, [currentPlaybackTime, fullSession?.startTime, playbackMode, replayBaseTime, screenshotReplayBackgroundGaps, webReplayBackgroundGaps]);
 
     const currentPlaybackRawTimeSeconds = useMemo(() => {
         const sessionStart = fullSession?.startTime || replayBaseTime;
@@ -2865,12 +2875,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
             progressThumbRef.current.style.left = progressPercent;
         }
 
-        const clockLabel = formatPlaybackClock(clampedTime);
+        const clockLabel = formatPlaybackClock(playbackTimeForDisplay(clampedTime));
         if (progressTimeRef.current && lastPlaybackClockLabelRef.current !== clockLabel) {
             progressTimeRef.current.textContent = clockLabel;
             lastPlaybackClockLabelRef.current = clockLabel;
         }
-    }, [playbackDurationSeconds]);
+    }, [playbackDurationSeconds, playbackTimeForDisplay]);
 
     useEffect(() => {
         syncPlaybackChrome(currentPlaybackTime);
@@ -3782,7 +3792,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
 
     // Progress percentage (progress fill/thumb positions are driven imperatively by
     // syncPlaybackChrome; effectiveDuration is still used for the time readout).
-    const effectiveDuration = playbackDurationSeconds;
+    const effectiveDuration = playbackMode === 'rrweb' ? webReplaySessionClock.durationSeconds : playbackDurationSeconds;
 
     const activityTabs = useMemo(() => {
         const counts = {
@@ -5483,6 +5493,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                         isPlaying={isPlaying}
                                                         playbackRate={playbackRate}
                                                         durationSeconds={webReplayDurationSeconds}
+                                                        startTime={replayBaseTime}
                                                         backgroundGaps={webReplayBackgroundGaps}
                                                     />
                                                 ) : (
@@ -5743,7 +5754,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                         {/* Secondary Controls */}
                                         <div className="replay-controls-secondary flex shrink-0 flex-nowrap items-center justify-center gap-1.5 lg:justify-end">
                                             <span className="inline-flex h-8 min-w-[7.75rem] items-center justify-center rounded-none border border-[#dadce0] bg-[#f8fafd] px-2 text-xs font-medium tabular-nums text-[#3c4043]">
-                                                <span ref={progressTimeRef}>{formatPlaybackTime(currentPlaybackTime)}</span> / {formatPlaybackTime(effectiveDuration)}
+                                                <span ref={progressTimeRef}>{formatPlaybackTime(playbackTimeForDisplay(currentPlaybackTime))}</span> / {formatPlaybackTime(effectiveDuration)}
                                             </span>
 
                                             {playbackMode === 'screenshots' ? (
@@ -6035,7 +6046,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                                                     />
                                                 )}
                                                 <span className="rounded-none bg-[#202124] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
-                                                    {formatPlaybackClock(scrubPreview.time)}
+                                                    {formatPlaybackClock(playbackTimeForDisplay(scrubPreview.time))}
                                                 </span>
                                             </div>
                                         )}

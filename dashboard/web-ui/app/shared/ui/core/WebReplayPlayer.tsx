@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@rrweb/replay/dist/style.css';
+import { rrwebPlaybackOffsetMs } from '~/shared/lib/replaySessionClock';
 import { formatBackgroundGapDuration } from '~/shared/lib/replayTimeCompression';
 import type { CompressedBackgroundGap } from '~/shared/lib/replayTimeCompression';
 import type { Replayer as RrwebReplayer } from '@rrweb/replay';
@@ -11,6 +12,7 @@ type WebReplayPlayerProps = {
     isPlaying: boolean;
     playbackRate: number;
     durationSeconds: number;
+    startTime?: number;
     backgroundGaps?: CompressedBackgroundGap[];
     fitMode?: 'contain' | 'width' | 'document-width';
     documentWidth?: number | null;
@@ -106,6 +108,7 @@ export default function WebReplayPlayer({
     isPlaying,
     playbackRate,
     durationSeconds,
+    startTime,
     backgroundGaps = [],
     fitMode = 'contain',
     documentWidth = null,
@@ -116,7 +119,7 @@ export default function WebReplayPlayer({
     const mountedEventsRef = useRef<any[]>([]);
     const mountedReplayKeyRef = useRef<string | null>(null);
     const mountGenerationRef = useRef(0);
-    const playbackStateRef = useRef({ currentTime, durationSeconds, playbackRate });
+    const playbackStateRef = useRef({ currentTime, durationSeconds, playbackRate, startTime });
     const playerIsPlayingRef = useRef(false);
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -127,10 +130,10 @@ export default function WebReplayPlayer({
     const activeBackgroundGap = useMemo(() => {
         const firstTimestamp = replayEvents[0]?.timestamp;
         if (typeof firstTimestamp !== 'number') return null;
-        const currentTimestamp = firstTimestamp + currentTime * 1000;
+        const currentTimestamp = (startTime ?? firstTimestamp) + currentTime * 1000;
         if (!Number.isFinite(currentTimestamp)) return null;
         return backgroundGaps.find((gap) => currentTimestamp >= gap.compressedStartAt && currentTimestamp <= gap.compressedEndAt) ?? null;
-    }, [backgroundGaps, currentTime, replayEvents]);
+    }, [backgroundGaps, currentTime, replayEvents, startTime]);
     const displayedBackgroundGap = activeBackgroundGap;
     const backgroundFreezeOffsetMs = useMemo(() => {
         const firstTimestamp = replayEvents[0]?.timestamp;
@@ -139,8 +142,8 @@ export default function WebReplayPlayer({
     }, [displayedBackgroundGap, replayEvents]);
 
     useEffect(() => {
-        playbackStateRef.current = { currentTime, durationSeconds, playbackRate };
-    }, [currentTime, durationSeconds, playbackRate]);
+        playbackStateRef.current = { currentTime, durationSeconds, playbackRate, startTime };
+    }, [currentTime, durationSeconds, playbackRate, startTime]);
 
     const destroyReplayer = useCallback((clearRoot = true) => {
         playerIsPlayingRef.current = false;
@@ -178,6 +181,7 @@ export default function WebReplayPlayer({
                 currentTime: initialCurrentTime,
                 durationSeconds: initialDurationSeconds,
                 playbackRate: initialPlaybackRate,
+                startTime: initialStartTime,
             } = playbackStateRef.current;
             const replayer = new Replayer(eventsToMount, {
                 root: rootRef.current,
@@ -194,7 +198,11 @@ export default function WebReplayPlayer({
                 insertStyleRules: REPLAY_MASK_PLACEHOLDER_STYLE_RULES,
                 triggerFocus: false,
             });
-            const initialOffsetMs = Math.max(0, Math.min(initialCurrentTime, initialDurationSeconds || initialCurrentTime) * 1000);
+            const initialOffsetMs = rrwebPlaybackOffsetMs({
+                timeSeconds: initialCurrentTime, durationSeconds: initialDurationSeconds,
+                firstEventTimestamp: eventsToMount[0].timestamp,
+                sessionStartedAt: initialStartTime ?? eventsToMount[0].timestamp,
+            });
             replayerRef.current = replayer;
             mountedEventsRef.current = eventsToMount;
             mountedReplayKeyRef.current = key;
@@ -293,7 +301,17 @@ export default function WebReplayPlayer({
         const replayer = replayerRef.current;
         if (!replayer) return;
 
-        const offsetMs = Math.max(0, Math.min(currentTime, durationSeconds || currentTime) * 1000);
+        const firstTimestamp = replayEvents[0]?.timestamp;
+        if (typeof firstTimestamp !== 'number') return;
+        const offsetMs = rrwebPlaybackOffsetMs({
+            timeSeconds: currentTime, durationSeconds, firstEventTimestamp: firstTimestamp,
+            sessionStartedAt: startTime ?? firstTimestamp,
+        });
+        if ((startTime ?? firstTimestamp) + currentTime * 1000 < firstTimestamp) {
+            replayer.pause(0);
+            playerIsPlayingRef.current = false;
+            return;
+        }
         if (backgroundFreezeOffsetMs !== null) {
             replayer.pause(backgroundFreezeOffsetMs);
             playerIsPlayingRef.current = false;
@@ -326,7 +344,7 @@ export default function WebReplayPlayer({
 
         replayer.pause(offsetMs);
         playerIsPlayingRef.current = false;
-    }, [backgroundFreezeOffsetMs, currentTime, durationSeconds, isPlaying]);
+    }, [backgroundFreezeOffsetMs, currentTime, durationSeconds, isPlaying, replayEvents, startTime]);
 
     if (replayEvents.length === 0) {
         return (
