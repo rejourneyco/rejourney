@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router';
 import { ReplayLink } from './ReplayLink';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import {
@@ -258,7 +257,6 @@ function writeStoredQueryGroups(projectId: string, groups: QueryGroup[]): void {
 }
 
 export const RecordingsList: React.FC = () => {
-  const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
   const { isDemoMode, demoReplaySessions } = useDemoMode();
   const manualRefreshVersion = useDashboardManualRefreshVersion();
@@ -1192,139 +1190,94 @@ export const RecordingsList: React.FC = () => {
                         )}
                         {smartCaptureNote && <SmartCaptureNoteBadge note={smartCaptureNote} />}
                         {hasDeepExploration && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=start`}
+                            disabled={!canNavigateToSession}
                             title="Deep session (high exploration score 70 or above)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=start`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="success" size="sm">Deep</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {(session.crashCount || 0) > 0 && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=crash`}
+                            disabled={!canNavigateToSession}
                             title="Application crash (fatal exception)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=crash`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="danger" size="sm">Crash</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {((session as any).anrCount || 0) > 0 && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=anr`}
+                            disabled={!canNavigateToSession}
                             title="App Not Responding (UI thread blocked)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=anr`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="anr" size="sm">ANR</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {((session as any).errorCount || 0) > 0 && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=error`}
+                            disabled={!canNavigateToSession}
                             title="Logged error or resource loading failure"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=error`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="warning" size="sm">Error</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {(session.rageTapCount || 0) > 0 && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=rage`}
+                            disabled={!canNavigateToSession}
                             title="Rage tap (repeated rapid taps in a small area)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=rage`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="rage" size="sm">Rage tap</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {hasDeadTaps && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=dead`}
+                            disabled={!canNavigateToSession}
                             title="Dead tap (tap on a non-interactive area with no response)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=dead`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="dead_tap" size="sm">Dead tap</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {hasSlowStart && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=slow_start`}
+                            disabled={!canNavigateToSession}
                             title="Slow cold startup duration"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=slow_start`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="slow_start" size="sm">Slow start</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {hasSlowApi && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=api`}
+                            disabled={!canNavigateToSession}
                             title="Slow API average latency (over 1000ms)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=api`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="slow_api" size="sm">Slow API</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                         {hasLowExploration && (
-                          <span
+                          <ReplayLink
+                            to={`${pathPrefix}/sessions/${session.id}?seekToType=start`}
+                            disabled={!canNavigateToSession}
                             title="Shallow session (low exploration score under 40)"
                             className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                            onClick={(e) => {
-                              if (canNavigateToSession) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                navigate(`${pathPrefix}/sessions/${session.id}?seekToType=start`);
-                              }
-                            }}
                           >
                             <NeoBadge variant="neutral" size="sm">Shallow</NeoBadge>
-                          </span>
+                          </ReplayLink>
                         )}
                       </div>
                     </div>
@@ -1682,139 +1635,94 @@ export const RecordingsList: React.FC = () => {
                       )}
                       {smartCaptureNote && <SmartCaptureNoteBadge note={smartCaptureNote} />}
                       {hasDeepExploration && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=start`}
+                          disabled={!canNavigateToSession}
                           title="Deep session (high exploration score 70 or above)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=start`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="success" size="sm">Deep</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {(session.crashCount || 0) > 0 && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=crash`}
+                          disabled={!canNavigateToSession}
                           title="Application crash (fatal exception)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=crash`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="danger" size="sm">Crash</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {((session as any).anrCount || 0) > 0 && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=anr`}
+                          disabled={!canNavigateToSession}
                           title="App Not Responding (UI thread blocked)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=anr`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="anr" size="sm">ANR</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {((session as any).errorCount || 0) > 0 && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=error`}
+                          disabled={!canNavigateToSession}
                           title="Logged error or resource loading failure"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=error`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="warning" size="sm">Error</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {(session.rageTapCount || 0) > 0 && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=rage`}
+                          disabled={!canNavigateToSession}
                           title="Rage tap (repeated rapid taps in a small area)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=rage`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="rage" size="sm">Rage tap</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {hasDeadTaps && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=dead`}
+                          disabled={!canNavigateToSession}
                           title="Dead tap (tap on a non-interactive area with no response)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=dead`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="dead_tap" size="sm">Dead tap</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {hasSlowStart && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=slow_start`}
+                          disabled={!canNavigateToSession}
                           title="Slow cold startup duration"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=slow_start`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="slow_start" size="sm">Slow start</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {hasSlowApi && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=api`}
+                          disabled={!canNavigateToSession}
                           title="Slow API average latency (over 1000ms)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=api`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="slow_api" size="sm">Slow API</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       {hasLowExploration && (
-                        <span
+                        <ReplayLink
+                          to={`${pathPrefix}/sessions/${session.id}?seekToType=start`}
+                          disabled={!canNavigateToSession}
                           title="Shallow session (low exploration score under 40)"
                           className={canNavigateToSession ? "cursor-pointer hover:opacity-80" : ""}
-                          onClick={(e) => {
-                            if (canNavigateToSession) {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              navigate(`${pathPrefix}/sessions/${session.id}?seekToType=start`);
-                            }
-                          }}
                         >
                           <NeoBadge variant="neutral" size="sm">Shallow</NeoBadge>
-                        </span>
+                        </ReplayLink>
                       )}
                       </div>
                     </td>
