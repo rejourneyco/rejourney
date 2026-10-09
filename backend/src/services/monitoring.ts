@@ -17,7 +17,8 @@
 import { sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { logger } from '../logger.js';
-import { ABANDONED_ARTIFACT_TTL_MS, REPLAY_PENDING_ARTIFACT_GRACE_MS } from './ingestUploadRelay.js';
+import { ABANDONED_ARTIFACT_TTL_MS } from './ingestUploadRelay.js';
+import { resolveQueueHealthStatus } from './queueHealthStatus.js';
 import type { BullQueueCounts } from './artifactBullQueue.js';
 
 // Worker names for monitoring
@@ -303,9 +304,7 @@ const QUEUE_HEALTH_TTL_S = 30;
  * Check queue health by counting jobs in different states.
  *
  * Performance notes:
- *   - The main ingest_jobs query only touches non-done rows
- *     (~68K rows via ingest_jobs_monitoring_idx), avoiding the previous
- *     full 8.4M-row seq scan that cost ~4.6s per call.
+ *   - Accepted work is counted in BullMQ rather than the retired ingest_jobs table.
  *   - Results are cached in Redis for 30s so concurrent worker heartbeats
  *     (3 workers × every 60s) share a single DB hit.
  *   - The two recording_artifacts subqueries use recording_artifacts_pending_stalled_idx
@@ -323,7 +322,6 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
         }
 
         const staleReplayArtifactCutoffSeconds = Math.floor(ABANDONED_ARTIFACT_TTL_MS / 1000);
-        const replayGraceSeconds = Math.floor(REPLAY_PENDING_ARTIFACT_GRACE_MS / 1000);
 
         // Query BullMQ queue counts instead of ingest_jobs table.
         const { getFlushQueueCounts, getIngestQueueCounts, getReplayQueueCounts, getSessionEffectsQueueCounts, getSessionEventRollupQueueCounts } = await import('./artifactBullQueue.js');
@@ -382,27 +380,15 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             ? Number(staleRow.oldest_age_seconds)
             : null;
 
-        // Determine status based on thresholds
-        let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
-
-        if (
-            dlqJobs > 0
-            || (oldestPendingAge && oldestPendingAge > 3600)
-            || (oldestReplayPendingAge && oldestReplayPendingAge > 900)
-            || (oldestStalePendingReplayArtifactAge && oldestStalePendingReplayArtifactAge > replayGraceSeconds)
-        ) {
-            status = 'critical';
-        } else if (
-            pendingJobs > 100
-            || (oldestPendingAge && oldestPendingAge > 600)
-            || replayPendingByKind.screenshots > 100
-            || replayPendingByKind.hierarchy > 100
-            || replayPendingByKind.rrweb > 100
-            || stalePendingReplayArtifacts > 50
-            || (oldestStalePendingReplayArtifactAge && oldestStalePendingReplayArtifactAge > staleReplayArtifactCutoffSeconds)
-        ) {
-            status = 'degraded';
-        }
+        const status = resolveQueueHealthStatus({
+            dlqJobs,
+            pendingJobs,
+            oldestPendingAge,
+            oldestReplayPendingAge,
+            replayPendingByKind,
+            stalePendingReplayArtifacts,
+            oldestStalePendingReplayArtifactAge,
+        }, staleReplayArtifactCutoffSeconds);
 
         const health: QueueHealth = {
             pendingJobs,

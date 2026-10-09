@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { getObjectSizeBytesForArtifact } from '../db/s3.js';
+import { getObjectSizeBytesForArtifact, inspectArtifactObject } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     ABANDONED_ARTIFACT_TTL_MS,
@@ -783,44 +783,49 @@ export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<S
 
     let recovered = 0;
 
-    for (const row of rows) {
-        const sizeBytes = await getObjectSizeBytesForArtifact(
+    // Bound storage concurrency while keeping database updates and enqueueing serial.
+    for (let offset = 0; offset < rows.length; offset += 4) {
+        const batch = rows.slice(offset, offset + 4);
+        const sizes = await Promise.all(batch.map((row) => getObjectSizeBytesForArtifact(
             row.projectId,
             row.artifact.s3ObjectKey,
             row.artifact.endpointId,
-        );
+        )));
+        for (const [index, row] of batch.entries()) {
+            const sizeBytes = sizes[index];
 
-        if (!sizeBytes || sizeBytes <= 0) {
-            continue;
-        }
+            if (!sizeBytes || sizeBytes <= 0) {
+                continue;
+            }
 
-        const recoveredAt = new Date();
-        await db.update(recordingArtifacts)
-            .set({
-                status: 'uploaded',
+            const recoveredAt = new Date();
+            await db.update(recordingArtifacts)
+                .set({
+                    status: 'uploaded',
+                    sizeBytes,
+                    uploadCompletedAt: row.artifact.uploadCompletedAt ?? recoveredAt,
+                })
+                .where(eq(recordingArtifacts.id, row.artifact.id));
+
+            await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
+
+            const enqueued = await enqueueArtifactJob(
+                buildArtifactJobData({ ...row.artifact, status: 'uploaded' }, row.projectId),
+            );
+
+            recovered += 1;
+            logger.info({
+                event: 'artifact.recovered_from_storage',
+                replayArtifact: true,
+                sessionId: row.artifact.sessionId,
+                artifactId: row.artifact.id,
+                kind: row.artifact.kind,
+                s3ObjectKey: row.artifact.s3ObjectKey,
+                endpointId: row.artifact.endpointId ?? null,
                 sizeBytes,
-                uploadCompletedAt: row.artifact.uploadCompletedAt ?? recoveredAt,
-            })
-            .where(eq(recordingArtifacts.id, row.artifact.id));
-
-        await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
-
-        const enqueued = await enqueueArtifactJob(
-            buildArtifactJobData({ ...row.artifact, status: 'uploaded' }, row.projectId),
-        );
-
-        recovered += 1;
-        logger.info({
-            event: 'artifact.recovered_from_storage',
-            replayArtifact: true,
-            sessionId: row.artifact.sessionId,
-            artifactId: row.artifact.id,
-            kind: row.artifact.kind,
-            s3ObjectKey: row.artifact.s3ObjectKey,
-            endpointId: row.artifact.endpointId ?? null,
-            sizeBytes,
-            queued: enqueued,
-        }, 'artifact.recovered_from_storage');
+                queued: enqueued,
+            }, 'artifact.recovered_from_storage');
+        }
     }
 
     return { checked: rows.length, recovered };
@@ -835,8 +840,11 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         kind: recordingArtifacts.kind,
         clientUploadId: recordingArtifacts.clientUploadId,
         s3ObjectKey: recordingArtifacts.s3ObjectKey,
+        endpointId: recordingArtifacts.endpointId,
+        projectId: sessions.projectId,
     })
         .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
         .where(and(
             eq(recordingArtifacts.status, 'pending'),
             isNull(recordingArtifacts.uploadCompletedAt),
@@ -852,17 +860,38 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         return 0;
     }
 
-    const ids = rows.map((row) => row.id);
+    const candidates: typeof rows = [];
+    for (let offset = 0; offset < rows.length; offset += 4) {
+        const batch = rows.slice(offset, offset + 4);
+        const inspections = await Promise.all(batch.map(async (row) => {
+            if (!isReplayArtifactKind(row.kind)) return null;
+            return inspectArtifactObject(row.projectId, row.s3ObjectKey, row.endpointId);
+        }));
+        for (const [index, row] of batch.entries()) {
+            // Preserve existing objects for recovery and unknown results for retry.
+            if (!isReplayArtifactKind(row.kind) || inspections[index]?.status === 'missing') {
+                candidates.push(row);
+            }
+        }
+    }
+    if (candidates.length === 0) return 0;
 
-    await db.update(recordingArtifacts)
+    const abandonedRows = await db.update(recordingArtifacts)
         .set({ status: 'abandoned' })
-        .where(inArray(recordingArtifacts.id, ids));
+        .where(and(
+            inArray(recordingArtifacts.id, candidates.map((row) => row.id)),
+            eq(recordingArtifacts.status, 'pending'),
+            isNull(recordingArtifacts.uploadCompletedAt),
+        ))
+        .returning({ id: recordingArtifacts.id });
+    const abandonedIds = new Set(abandonedRows.map((row) => row.id));
+    const abandoned = candidates.filter((row) => abandonedIds.has(row.id));
 
     const replaySessionIds = new Set<string>();
 
     // Remove any waiting BullMQ jobs for these artifacts (pending artifacts
     // shouldn't have jobs yet, but guard in case of race)
-    for (const row of rows) {
+    for (const row of abandoned) {
         await removeArtifactJobIfQueued(row.id, row.kind);
 
         const replayArtifact = isReplayArtifactKind(row.kind);
@@ -887,7 +916,7 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         await reconcileSessionState(sessionId);
     }
 
-    return rows.length;
+    return abandoned.length;
 }
 
 /**
