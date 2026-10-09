@@ -615,7 +615,7 @@ export const sessionMetrics = pgTable('session_metrics', {
     interactionScore: doublePrecision('interaction_score').default(0).notNull(),
     explorationScore: doublePrecision('exploration_score').default(0).notNull(),
     uxScore: doublePrecision('ux_score').default(0).notNull(),
-    eventsSizeBytes: integer('events_size_bytes').default(0).notNull(),
+    eventsSizeBytes: bigint('events_size_bytes', { mode: 'number' }).default(0).notNull(),
     // NOTE: netTotalBytes and netAvgDurationMs removed - use apiAvgResponseMs instead
     customEventCount: integer('custom_event_count').default(0).notNull(),
 
