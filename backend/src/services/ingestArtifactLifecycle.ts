@@ -783,44 +783,49 @@ export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<S
 
     let recovered = 0;
 
-    for (const row of rows) {
-        const sizeBytes = await getObjectSizeBytesForArtifact(
+    // Bound storage concurrency while keeping database updates and enqueueing serial.
+    for (let offset = 0; offset < rows.length; offset += 4) {
+        const batch = rows.slice(offset, offset + 4);
+        const sizes = await Promise.all(batch.map((row) => getObjectSizeBytesForArtifact(
             row.projectId,
             row.artifact.s3ObjectKey,
             row.artifact.endpointId,
-        );
+        )));
+        for (const [index, row] of batch.entries()) {
+            const sizeBytes = sizes[index];
 
-        if (!sizeBytes || sizeBytes <= 0) {
-            continue;
-        }
+            if (!sizeBytes || sizeBytes <= 0) {
+                continue;
+            }
 
-        const recoveredAt = new Date();
-        await db.update(recordingArtifacts)
-            .set({
-                status: 'uploaded',
+            const recoveredAt = new Date();
+            await db.update(recordingArtifacts)
+                .set({
+                    status: 'uploaded',
+                    sizeBytes,
+                    uploadCompletedAt: row.artifact.uploadCompletedAt ?? recoveredAt,
+                })
+                .where(eq(recordingArtifacts.id, row.artifact.id));
+
+            await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
+
+            const enqueued = await enqueueArtifactJob(
+                buildArtifactJobData({ ...row.artifact, status: 'uploaded' }, row.projectId),
+            );
+
+            recovered += 1;
+            logger.info({
+                event: 'artifact.recovered_from_storage',
+                replayArtifact: true,
+                sessionId: row.artifact.sessionId,
+                artifactId: row.artifact.id,
+                kind: row.artifact.kind,
+                s3ObjectKey: row.artifact.s3ObjectKey,
+                endpointId: row.artifact.endpointId ?? null,
                 sizeBytes,
-                uploadCompletedAt: row.artifact.uploadCompletedAt ?? recoveredAt,
-            })
-            .where(eq(recordingArtifacts.id, row.artifact.id));
-
-        await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
-
-        const enqueued = await enqueueArtifactJob(
-            buildArtifactJobData({ ...row.artifact, status: 'uploaded' }, row.projectId),
-        );
-
-        recovered += 1;
-        logger.info({
-            event: 'artifact.recovered_from_storage',
-            replayArtifact: true,
-            sessionId: row.artifact.sessionId,
-            artifactId: row.artifact.id,
-            kind: row.artifact.kind,
-            s3ObjectKey: row.artifact.s3ObjectKey,
-            endpointId: row.artifact.endpointId ?? null,
-            sizeBytes,
-            queued: enqueued,
-        }, 'artifact.recovered_from_storage');
+                queued: enqueued,
+            }, 'artifact.recovered_from_storage');
+        }
     }
 
     return { checked: rows.length, recovered };

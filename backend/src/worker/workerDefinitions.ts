@@ -67,7 +67,8 @@ export const SESSION_LIFECYCLE_WORKER: SessionLifecycleWorkerDefinition = {
     ownedResponsibilities: ['artifact-lifecycle-sweeps', 'session-reconciliation'],
     pollIntervalMs: 500,
     reconcileBatchSize: 500,
-    reconcileMaxBatches: 20,
+    // Yield after 1,000 sessions so upload recovery and cleanup run frequently.
+    reconcileMaxBatches: 2,
     sessionSweepIntervalMs: 10_000,
     workerName: 'sessionLifecycleWorker',
 };

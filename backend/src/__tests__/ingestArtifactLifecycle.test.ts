@@ -612,6 +612,34 @@ describe('ingestArtifactLifecycle', () => {
         expect(mocks.enqueueArtifactJob).toHaveBeenCalled();
     });
 
+    it('bounds concurrent storage checks and never publishes missing objects', async () => {
+        mocks.db.select.mockReset();
+        queueJoinedSelectRows(Array.from({ length: 5 }, (_, index) => ({
+            artifact: {
+                id: `artifact_${index}`,
+                sessionId: 'session_1',
+                status: 'pending',
+                kind: 'screenshots',
+                s3ObjectKey: `object_${index}`,
+                uploadCompletedAt: null,
+            },
+            projectId: 'project_1',
+        })));
+        const complete: Array<(size: number | null) => void> = [];
+        mocks.getObjectSizeBytesForArtifact.mockImplementation(() => new Promise((resolve) => {
+            complete.push(resolve);
+        }));
+        const recovery = recoverStalePendingReplayArtifacts(10);
+        await vi.waitFor(() => expect(complete).toHaveLength(4));
+        expect(mocks.db.update).not.toHaveBeenCalled();
+        for (const finish of complete) finish(null);
+        await vi.waitFor(() => expect(complete).toHaveLength(5));
+        complete[4]!(2048);
+        expect(await recovery).toEqual({ checked: 5, recovered: 1 });
+        expect(mocks.db.update).toHaveBeenCalledTimes(1);
+        expect(mocks.enqueueArtifactJob).toHaveBeenCalledTimes(1);
+    });
+
     it('leaves stale pending replay artifacts recoverable when the storage object is still missing', async () => {
         const updateCalls: Array<{ table: unknown; payload: any }> = [];
         mocks.db.update.mockImplementation((table: unknown) => ({
