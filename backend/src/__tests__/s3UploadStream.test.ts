@@ -84,7 +84,7 @@ vi.mock('@aws-sdk/client-s3', () => {
     };
 });
 
-import { uploadStreamToS3ForArtifact } from '../db/s3.js';
+import { inspectArtifactObject, uploadStreamToS3ForArtifact } from '../db/s3.js';
 
 function queueEndpoint(id: string) {
     mocks.db.select.mockImplementationOnce(() => ({
@@ -147,6 +147,37 @@ describe('uploadStreamToS3ForArtifact', () => {
             endpointId: 'endpoint_abort',
             errorType: 'aborted',
         });
+    });
+
+    it.each([403, 429, 500, 503])('preserves objects when storage returns %s', async (status) => {
+        const endpointId = `endpoint_error_${status}`;
+        queueEndpoint(endpointId);
+        mocks.mockS3Send.mockRejectedValueOnce({ $metadata: { httpStatusCode: status } });
+        expect(await inspectArtifactObject('project_1', 'key', endpointId)).toEqual({ status: 'unknown' });
+    });
+
+    it('identifies a confirmed missing object', async () => {
+        queueEndpoint('endpoint_missing');
+        mocks.mockS3Send.mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } });
+        expect(await inspectArtifactObject('project_1', 'key', 'endpoint_missing')).toEqual({ status: 'missing' });
+    });
+
+    it('preserves objects when a storage request times out', async () => {
+        queueEndpoint('endpoint_timeout');
+        mocks.mockS3Send.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+        expect(await inspectArtifactObject('project_1', 'key', 'endpoint_timeout')).toEqual({ status: 'unknown' });
+    });
+
+    it('reports existing object bytes', async () => {
+        queueEndpoint('endpoint_present');
+        mocks.mockS3Send.mockResolvedValueOnce({ ContentLength: 2048 });
+        expect(await inspectArtifactObject('project_1', 'key', 'endpoint_present')).toEqual({ status: 'present', sizeBytes: 2048 });
+    });
+
+    it('preserves requests when the bucket itself is unavailable', async () => {
+        queueEndpoint('endpoint_missing_bucket');
+        mocks.mockS3Send.mockRejectedValueOnce({ name: 'NoSuchBucket', $metadata: { httpStatusCode: 404 } });
+        expect(await inspectArtifactObject('project_1', 'key', 'endpoint_missing_bucket')).toEqual({ status: 'unknown' });
     });
 
     it('still succeeds for a normal upload stream', async () => {

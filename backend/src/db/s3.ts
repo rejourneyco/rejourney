@@ -1227,6 +1227,36 @@ export async function getObjectSizeBytesForProject(
     }
 }
 
+export type ArtifactObjectInspection =
+    | { status: 'present'; sizeBytes: number }
+    | { status: 'missing' }
+    | { status: 'unknown' };
+
+/** Distinguish a confirmed missing object from a storage or configuration failure. */
+export async function inspectArtifactObject(
+    projectId: string,
+    key: string,
+    endpointId: string | null | undefined,
+): Promise<ArtifactObjectInspection> {
+    try {
+        const endpoint = endpointId
+            ? await getEndpointById(endpointId)
+            : await getEndpointForProject(projectId);
+        if (!endpoint) return { status: 'unknown' };
+        const sizeBytes = await headObjectForEndpoint(endpoint, key);
+        return sizeBytes === null
+            ? { status: 'unknown' }
+            : { status: 'present', sizeBytes };
+    } catch (err) {
+        const storageError = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+        if (storageError?.$metadata?.httpStatusCode === 404 && storageError.name !== 'NoSuchBucket') {
+            return { status: 'missing' };
+        }
+        logger.debug({ err, projectId, key, endpointId }, 'Artifact storage inspection unavailable');
+        return { status: 'unknown' };
+    }
+}
+
 export async function getObjectSizeBytesForArtifact(
     projectId: string,
     key: string,

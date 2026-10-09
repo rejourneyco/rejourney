@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { getObjectSizeBytesForArtifact } from '../db/s3.js';
+import { getObjectSizeBytesForArtifact, inspectArtifactObject } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     ABANDONED_ARTIFACT_TTL_MS,
@@ -840,8 +840,11 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         kind: recordingArtifacts.kind,
         clientUploadId: recordingArtifacts.clientUploadId,
         s3ObjectKey: recordingArtifacts.s3ObjectKey,
+        endpointId: recordingArtifacts.endpointId,
+        projectId: sessions.projectId,
     })
         .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
         .where(and(
             eq(recordingArtifacts.status, 'pending'),
             isNull(recordingArtifacts.uploadCompletedAt),
@@ -857,17 +860,38 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         return 0;
     }
 
-    const ids = rows.map((row) => row.id);
+    const candidates: typeof rows = [];
+    for (let offset = 0; offset < rows.length; offset += 4) {
+        const batch = rows.slice(offset, offset + 4);
+        const inspections = await Promise.all(batch.map(async (row) => {
+            if (!isReplayArtifactKind(row.kind)) return null;
+            return inspectArtifactObject(row.projectId, row.s3ObjectKey, row.endpointId);
+        }));
+        for (const [index, row] of batch.entries()) {
+            // Preserve existing objects for recovery and unknown results for retry.
+            if (!isReplayArtifactKind(row.kind) || inspections[index]?.status === 'missing') {
+                candidates.push(row);
+            }
+        }
+    }
+    if (candidates.length === 0) return 0;
 
-    await db.update(recordingArtifacts)
+    const abandonedRows = await db.update(recordingArtifacts)
         .set({ status: 'abandoned' })
-        .where(inArray(recordingArtifacts.id, ids));
+        .where(and(
+            inArray(recordingArtifacts.id, candidates.map((row) => row.id)),
+            eq(recordingArtifacts.status, 'pending'),
+            isNull(recordingArtifacts.uploadCompletedAt),
+        ))
+        .returning({ id: recordingArtifacts.id });
+    const abandonedIds = new Set(abandonedRows.map((row) => row.id));
+    const abandoned = candidates.filter((row) => abandonedIds.has(row.id));
 
     const replaySessionIds = new Set<string>();
 
     // Remove any waiting BullMQ jobs for these artifacts (pending artifacts
     // shouldn't have jobs yet, but guard in case of race)
-    for (const row of rows) {
+    for (const row of abandoned) {
         await removeArtifactJobIfQueued(row.id, row.kind);
 
         const replayArtifact = isReplayArtifactKind(row.kind);
@@ -892,7 +916,7 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         await reconcileSessionState(sessionId);
     }
 
-    return rows.length;
+    return abandoned.length;
 }
 
 /**

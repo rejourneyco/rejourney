@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
         error: vi.fn(),
     },
     getObjectSizeBytesForArtifact: vi.fn(),
+    inspectArtifactObject: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -65,6 +66,7 @@ vi.mock('../logger.js', () => ({
 
 vi.mock('../db/s3.js', () => ({
     getObjectSizeBytesForArtifact: mocks.getObjectSizeBytesForArtifact,
+    inspectArtifactObject: mocks.inspectArtifactObject,
 }));
 
 vi.mock('../services/artifactBullQueue.js', () => ({
@@ -120,6 +122,16 @@ function simpleSelectResult(result: any[] = []) {
     }));
 }
 
+function mockAbandonedIds(ids: string[]) {
+    mocks.db.update.mockImplementation(() => ({
+        set: vi.fn(() => ({
+            where: vi.fn(() => ({
+                returning: vi.fn(async () => ids.map((id) => ({ id }))),
+            })),
+        })),
+    }));
+}
+
 describe('ingestArtifactLifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -140,10 +152,11 @@ describe('ingestArtifactLifecycle', () => {
             })),
         }));
         mocks.getObjectSizeBytesForArtifact.mockReset();
+        mocks.inspectArtifactObject.mockReset();
     });
 
     it('reconciles sessions when expired pending replay artifacts are abandoned', async () => {
-        simpleSelectResult([
+        queueJoinedSelectRows([
             {
                 id: 'artifact_screenshot',
                 sessionId: 'session_1',
@@ -160,6 +173,8 @@ describe('ingestArtifactLifecycle', () => {
             },
         ]);
 
+        mocks.inspectArtifactObject.mockResolvedValue({ status: 'missing' });
+        mockAbandonedIds(['artifact_screenshot', 'artifact_events']);
         const count = await abandonExpiredPendingArtifacts(10);
 
         expect(count).toBe(2);
@@ -167,6 +182,40 @@ describe('ingestArtifactLifecycle', () => {
         expect(mocks.removeArtifactJobIfQueued).toHaveBeenCalledWith('artifact_events', 'events');
         expect(mocks.reconcileSessionState).toHaveBeenCalledTimes(1);
         expect(mocks.reconcileSessionState).toHaveBeenCalledWith('session_1');
+    });
+
+    it('preserves existing objects and unavailable storage results during abandonment', async () => {
+        queueJoinedSelectRows(['present', 'unknown', 'missing'].map((id) => ({
+            id, sessionId: 'session_1', kind: 'screenshots', projectId: 'project_1',
+            s3ObjectKey: id, endpointId: 'endpoint_1',
+        })));
+        mocks.inspectArtifactObject
+            .mockResolvedValueOnce({ status: 'present', sizeBytes: 2048 })
+            .mockResolvedValueOnce({ status: 'unknown' })
+            .mockResolvedValueOnce({ status: 'missing' });
+        mockAbandonedIds(['missing']);
+
+        expect(await abandonExpiredPendingArtifacts()).toBe(1);
+        expect(mocks.removeArtifactJobIfQueued).toHaveBeenCalledTimes(1);
+        expect(mocks.removeArtifactJobIfQueued).toHaveBeenCalledWith('missing', 'screenshots');
+    });
+
+    it('does not remove jobs when an upload completes before abandonment updates it', async () => {
+        queueJoinedSelectRows([{
+            id: 'racing', sessionId: 'session_1', kind: 'screenshots', projectId: 'project_1',
+            s3ObjectKey: 'key', endpointId: 'endpoint_1',
+        }]);
+        mocks.inspectArtifactObject.mockResolvedValue({ status: 'missing' });
+        mockAbandonedIds([]);
+
+        expect(await abandonExpiredPendingArtifacts()).toBe(0);
+        expect(mocks.removeArtifactJobIfQueued).not.toHaveBeenCalled();
+        expect(mocks.reconcileSessionState).not.toHaveBeenCalled();
+        expect(mocks.and).toHaveBeenCalledWith(
+            expect.anything(),
+            mocks.eq(mocks.recordingArtifacts.status, 'pending'),
+            mocks.isNull(mocks.recordingArtifacts.uploadCompletedAt),
+        );
     });
 
     it('skips replay upload when the segment is already ready', async () => {
