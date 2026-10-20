@@ -54,11 +54,15 @@ namespace RejourneySDK
     {
         public long FramesCaptured, FramesSkippedBackpressure, FramesSkippedPrivacy, CaptureFailures, EventsDropped;
         public long NativeFramesAccepted, NativeFramesSkippedBackpressure;
+        /// <summary>Frames not captured because the back buffer is write-only and no render-pipeline source applies.</summary>
+        public long FramesSkippedUnreadable;
         public double LastCaptureMilliseconds;
         /// <summary>Cumulative SDK work on the Unity main thread since Init, in milliseconds.</summary>
         public double MainThreadMilliseconds;
         public int PendingEvents;
         public bool SynchronousReadback;
+        /// <summary>Where frames come from: "screen" (ScreenCapture), "urp" (inside URP, used when the back buffer is write-only) or "unreadable" (write-only back buffer without URP; frames are skipped).</summary>
+        public string CaptureSource;
         public string NativeStatus;
     }
     public sealed class NetworkRequestInfo

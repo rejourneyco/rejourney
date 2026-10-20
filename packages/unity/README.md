@@ -3,7 +3,7 @@
 Session replay and telemetry for Unity mobile games. The initial SDK targets
 Unity 6.3 LTS and 6.6, IL2CPP, iOS 15.1+, and Android API 24+.
 
-Install the `.tgz` from the [GitHub release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.0)
+Install the `.tgz` from the [GitHub release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.1)
 with **Window → Package Manager → Install package from tarball**, or select this
 directory's `package.json` for local development.
 Native artifacts must be built before using a source checkout in a player build.

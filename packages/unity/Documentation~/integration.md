@@ -2,7 +2,7 @@
 
 ## Install and configure
 
-Install `co.rejourney.unity-0.1.0.tgz` through UPM. The archive includes an iOS
+Install `co.rejourney.unity-0.1.1.tgz` through UPM. The archive includes an iOS
 XCFramework and Android AAR. UPM resolves Newtonsoft JSON and Mono.Cecil. Keep
 `Rejourney.Runtime` in assemblies that call the public API. Optional uGUI and
 Input System assemblies activate through package version defines; remove their

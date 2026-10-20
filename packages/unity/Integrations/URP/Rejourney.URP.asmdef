@@ -1,0 +1,1 @@
+{"name":"Rejourney.URP","references":["Rejourney.Runtime","Unity.RenderPipelines.Universal.Runtime","Unity.RenderPipelines.Core.Runtime"],"defineConstraints":["REJOURNEY_URP"],"versionDefines":[{"name":"com.unity.render-pipelines.universal","expression":"17.0.0","define":"REJOURNEY_URP"}]}

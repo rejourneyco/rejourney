@@ -22,13 +22,13 @@ Rejourney for Unity records what players saw and what the game did:
 
 ## Install and configure
 
-Download `co.rejourney.unity-0.1.0.tgz` from the
-[Unity SDK v0.1.0 release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.0)
+Download `co.rejourney.unity-0.1.1.tgz` from the
+[Unity SDK v0.1.1 release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.1)
 and install it with **Window → Package Manager → + → Install package from tarball**.
 To follow the release through Git instead, add this line to `Packages/manifest.json`:
 
 ```json
-"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.0"
+"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.1"
 ```
 
 The archive includes an iOS XCFramework and Android AAR. UPM resolves Newtonsoft JSON and Mono.Cecil. Keep

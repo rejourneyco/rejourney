@@ -1,8 +1,22 @@
 # Verification
 
-What was tested for 0.1.0, and what each run showed.
+What was tested for each release, and what each run showed.
 
-## Cloud sessions (production, dedicated Unity validation project)
+## 0.1.1: write-only Metal back buffer
+
+| Gate | Observed result |
+|---|---|
+| iPhone 15 Pro, iOS 27, Unity 6000.6.4f1, URP 17.6, IL2CPP, Metal Write-Only Backbuffer **on**, SDK 0.1.0 | Every stored frame black (game pixels RGB 0,0,0); only mask boxes visible. `ScreenCapture` cannot read the back buffer |
+| Same device and project, render-pipeline capture | Full-colour frames with Screen Space - Overlay UI; first build upside down with masks on mirrored rows, corrected by flipping on UV-top APIs as for `ScreenCapture`; second build upright, masks on the reported elements |
+| Compile, Unity 6000.6.4f1 + URP 17.6.0, Android and iOS build targets | Clean, including the iOS build hook that records the setting |
+| EditMode suite | 63/63 passed |
+| Readable back buffer (default) | Capture path unchanged from 0.1.0 (`ScreenCapture`) |
+
+The 0.1.0 results below still apply to builds with a readable back buffer.
+
+## 0.1.0
+
+### Cloud sessions (production, dedicated Unity validation project)
 
 The scripted Arcade Lab run (all rooms, orientation change, additive scene,
 unwrapped HTTP scenarios, handled exception, pause/resume, flush, stop) was
@@ -24,7 +38,7 @@ recorded against the deployed cloud and the stored artifacts were decoded.
 | Timestamps after the device sleeps | **Fixed.** C# events and frames were stamped with the start time plus a stopwatch, and the stopwatch stops while the device sleeps. After the host slept 47 min, events were stamped 47 min early and native rejected every frame of the next session. They now use the wall clock, covered by a regression test |
 | Android | See matrix below |
 
-## Compatibility matrix (observed)
+### Compatibility matrix (observed)
 
 | Lane | Build | Runtime in the cloud |
 |---|---|---|
@@ -40,14 +54,14 @@ Frame orientation depends on the graphics API's UV origin. Metal was observed up
 down before the fix and upright after it. Vulkan is corrected by the same rule; GLES,
 and Vulkan with pre-rotation (`vulkanEnablePreTransform`), have not been run.
 
-## Package tests
+### Package tests
 
 | Gate | Observed result |
 |---|---|
 | Release tarball, fresh projects without optional adapters | 63/63 passed on Unity 6000.3.24f1 LTS and 6000.6.2f1 (`scripts/test-unity-package.mjs`), including the gameplay, rollover and capture tests |
 | Unity 6000.3.24f1 (LTS) EditMode, uGUI + Input System installed | 63/63 passed, including linker hand-off, uGUI fail-closed, weaver assembly filter, byte-exact direct-event JSON parity, isolation from global Newtonsoft settings, errors reported with console capture off, the in-flight drain regression, and the gameplay marker contract (start/end pairing, pre-recording start marked continued, rollover restart, stop writes `session_end` without ending the segment, supersede and scope, tagged non-rage-eligible touches during play, oversized properties dropped), markers written from pause handlers and during an explicit pause, the native rollover gap (no `Error` inside the grace period, one set of session markers after a restart), and the capture contract (wall-clock times after a simulated device sleep, exception type and handled flag for Unity log exceptions, log errors and assertions, `CaptureException` with the caller's stack, unobserved task exceptions) |
 
-## Micro-benchmarks (Unity 6000.3 Editor, Mono JIT; lower is better)
+### Micro-benchmarks (Unity 6000.3 Editor, Mono JIT; lower is better)
 
 Same workloads before and after the optimization pass. Allocations are measured
 as heap growth and can under-count small objects; relative changes are reliable.
@@ -66,7 +80,7 @@ full RGBA frame per capture (about 1.7 MB at 442×960), uploads frames in bundle
 of three (about a third of the presign/PUT/confirm requests), and sends hierarchy
 snapshots only when their content changes.
 
-## Benchmark suite (iOS 26.3 simulator, Unity 6000.6.2f1, release-compiled SDK)
+### Benchmark suite (iOS 26.3 simulator, Unity 6000.6.2f1, release-compiled SDK)
 
 Eight matched 60-second cases after a 10-second warmup, each SDK case in its own
 cloud session, each scene with an SDK-disabled baseline. Unity ships only a
@@ -87,7 +101,7 @@ were durably spooled rather than acknowledged at stop, which is the documented
 semantics. Per-frame GC figures include the example's own IMGUI strings (which grow
 with the session ID) and Unity's log-callback strings, so they are not SDK-only.
 
-## Build and native gates
+### Build and native gates
 
 | Gate | Observed result |
 |---|---|

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1
+
+- Replays are no longer black on iOS devices when Player Settings > iOS > "Metal
+  Write-Only Backbuffer" is on. That setting makes the back buffer unreadable on
+  device (the simulator ignores it), so `ScreenCapture` returned black frames. The
+  iOS build now records the setting in the app's StreamingAssets, and only those
+  builds change capture path: URP projects capture inside the render pipeline (a pass
+  enqueued on capture frames copies the post-processed camera color and redraws the
+  Screen Space - Overlay UI, uGUI and UI Toolkit, into the capture texture), and
+  built-in pipeline projects skip frames instead of uploading black ones, with a build
+  warning. Every other build keeps `ScreenCapture` unchanged. `SdkHealth.CaptureSource`
+  (`screen`, `urp`, `unreadable`) and `FramesSkippedUnreadable` report the path.
+
 ## 0.1.0
 
 Initial Unity mobile integration. Documentation~/verification.md records what was

@@ -18,6 +18,12 @@ namespace RejourneySDK
         RenderTexture full, small;
         Material redact;
         bool busy, disposed;
+        // A render-pipeline source fills `full` during the next rendered frame.
+        bool awaitingSource;
+        long sourceTimestamp;
+        string sourceSession;
+        int sourceGeneration;
+        double sourceBegan;
         double next;
         double lastAttempt = double.NegativeInfinity;
         int width, height;
@@ -37,9 +43,16 @@ namespace RejourneySDK
         {
             var end = new WaitForEndOfFrame();
             while (!disposed) {
-                // Wait for the end of frame only when a capture is due.
-                if (!host.Recording || clock.Elapsed.TotalSeconds < next) { yield return null; continue; }
+                // Wait for the end of frame only when a capture is due or a render-pipeline
+                // capture is in flight.
+                if (!awaitingSource && (!host.Recording || clock.Elapsed.TotalSeconds < next)) { yield return null; continue; }
                 yield return end;
+                if (awaitingSource) {
+                    long resumed = Stopwatch.GetTimestamp();
+                    Resume();
+                    host.AddMainThreadTicks(resumed);
+                    continue;
+                }
                 if (!host.Recording || clock.Elapsed.TotalSeconds < next) continue;
                 long started = Stopwatch.GetTimestamp();
                 Attempt();
@@ -68,44 +81,85 @@ namespace RejourneySDK
             try {
                 if (!full || width != Screen.width || height != Screen.height) Allocate();
                 if (!redact) throw new InvalidOperationException("Rejourney redaction shader missing.");
-                for (int i = 0; i < masks.Count; i++) {
-                    Rect r = masks[i]; shaderMasks[i] = new Vector4(r.xMin / width, r.yMin / height, r.xMax / width, r.yMax / height);
+                if (CaptureEnvironment.BackbufferWriteOnly) {
+                    // The back buffer cannot be read, so ScreenCapture would return black.
+                    // A render-pipeline source fills `full` from inside the pipeline instead.
+                    // Readable back buffers keep the ScreenCapture path below.
+                    var source = FrameSources.Current;
+                    if (source == null || !source.Available) {
+                        host.Health.CaptureSource = "unreadable";
+                        host.Health.FramesSkippedUnreadable++;
+                        Complete(false); return;
+                    }
+                    if (!source.Request(full)) { Complete(true); return; }
+                    host.Health.CaptureSource = source.Name;
+                    awaitingSource = true;
+                    sourceTimestamp = timestamp; sourceSession = session; sourceGeneration = generation; sourceBegan = began;
+                    return;
                 }
-                redact.SetInt("_MaskCount", masks.Count);
-                redact.SetVectorArray("_Masks", shaderMasks);
+                host.Health.CaptureSource = "screen";
                 // Verified on device replays: Metal/Vulkan captures arrive upside down,
                 // GLES captures upright. Uncorrected, masks land on the wrong rows.
-                redact.SetFloat("_FlipSource", SystemInfo.graphicsUVStartsAtTop ? 1f : 0f);
                 ScreenCapture.CaptureScreenshotIntoRenderTexture(full);
-                Graphics.Blit(full, small, redact);
-                int frameWidth = small.width, frameHeight = small.height;
-                int viewportWidth = width, viewportHeight = height;
-                var hierarchy = Snapshot(timestamp, session, viewportWidth, viewportHeight);
-                if (SystemInfo.supportsAsyncGPUReadback) {
-                    AsyncGPUReadback.Request(small, 0, TextureFormat.RGBA32, request => {
-                        long callbackStarted = Stopwatch.GetTimestamp();
-                        try {
-                            if (request.hasError || !Valid(generation, session, viewportWidth, viewportHeight)) { Complete(request.hasError); return; }
-                            var data = request.GetData<byte>();
-                            if (pixels == null || pixels.Length != data.Length) pixels = new byte[data.Length];
-                            data.CopyTo(pixels);
-                            Encode(pixels, frameWidth, frameHeight, timestamp, session, generation, viewportWidth, viewportHeight, hierarchy, began);
-                        } finally { host.AddMainThreadTicks(callbackStarted); }
-                    });
-                } else {
-                    host.Health.SynchronousReadback = true;
-                    var old = RenderTexture.active;
-                    var texture = new Texture2D(frameWidth, frameHeight, TextureFormat.RGBA32, false);
+                Finish(SystemInfo.graphicsUVStartsAtTop, timestamp, session, generation, began);
+            } catch { Complete(true); }
+        }
+        void Resume()
+        {
+            var source = FrameSources.Current;
+            var status = source != null ? source.Poll() : FrameSourceStatus.Failed;
+            if (status == FrameSourceStatus.Pending) return;
+            awaitingSource = false;
+            if (status != FrameSourceStatus.Ready) { Complete(true); return; }
+            try {
+                if (!Valid(sourceGeneration, sourceSession, width, height)) { Complete(false); return; }
+                // Masks must describe the frame the pipeline just rendered, not the one
+                // that armed the request.
+                if (host.Settings.MaskImagesAndVideos || !PrivacyRegistry.Collect(masks, host.Settings.MaskTextInputs)) {
+                    host.Health.FramesSkippedPrivacy++; Complete(false); return;
+                }
+                // URP's camera color has the API's native row order, like the back buffer:
+                // verified on an iPhone (Metal) replay, frames and masks arrived upside down
+                // without the flip.
+                Finish(SystemInfo.graphicsUVStartsAtTop, sourceTimestamp, sourceSession, sourceGeneration, sourceBegan);
+            } catch { Complete(true); }
+        }
+        void Finish(bool flipSource, long timestamp, string session, int generation, double began)
+        {
+            for (int i = 0; i < masks.Count; i++) {
+                Rect r = masks[i]; shaderMasks[i] = new Vector4(r.xMin / width, r.yMin / height, r.xMax / width, r.yMax / height);
+            }
+            redact.SetInt("_MaskCount", masks.Count);
+            redact.SetVectorArray("_Masks", shaderMasks);
+            redact.SetFloat("_FlipSource", flipSource ? 1f : 0f);
+            Graphics.Blit(full, small, redact);
+            int frameWidth = small.width, frameHeight = small.height;
+            int viewportWidth = width, viewportHeight = height;
+            var hierarchy = Snapshot(timestamp, session, viewportWidth, viewportHeight);
+            if (SystemInfo.supportsAsyncGPUReadback) {
+                AsyncGPUReadback.Request(small, 0, TextureFormat.RGBA32, request => {
+                    long callbackStarted = Stopwatch.GetTimestamp();
                     try {
-                        RenderTexture.active = small;
-                        texture.ReadPixels(new Rect(0, 0, frameWidth, frameHeight), 0, 0, false);
-                        var data = texture.GetRawTextureData<byte>();
+                        if (request.hasError || !Valid(generation, session, viewportWidth, viewportHeight)) { Complete(request.hasError); return; }
+                        var data = request.GetData<byte>();
                         if (pixels == null || pixels.Length != data.Length) pixels = new byte[data.Length];
                         data.CopyTo(pixels);
                         Encode(pixels, frameWidth, frameHeight, timestamp, session, generation, viewportWidth, viewportHeight, hierarchy, began);
-                    } finally { RenderTexture.active = old; UnityEngine.Object.Destroy(texture); }
-                }
-            } catch { Complete(true); }
+                    } finally { host.AddMainThreadTicks(callbackStarted); }
+                });
+            } else {
+                host.Health.SynchronousReadback = true;
+                var old = RenderTexture.active;
+                var texture = new Texture2D(frameWidth, frameHeight, TextureFormat.RGBA32, false);
+                try {
+                    RenderTexture.active = small;
+                    texture.ReadPixels(new Rect(0, 0, frameWidth, frameHeight), 0, 0, false);
+                    var data = texture.GetRawTextureData<byte>();
+                    if (pixels == null || pixels.Length != data.Length) pixels = new byte[data.Length];
+                    data.CopyTo(pixels);
+                    Encode(pixels, frameWidth, frameHeight, timestamp, session, generation, viewportWidth, viewportHeight, hierarchy, began);
+                } finally { RenderTexture.active = old; UnityEngine.Object.Destroy(texture); }
+            }
         }
         sealed class PendingHierarchy { internal object Snapshot; internal ulong Key; }
         readonly List<RejourneyTarget> targetBuffer = new List<RejourneyTarget>(128);
@@ -195,6 +249,11 @@ namespace RejourneySDK
             if (redact) UnityEngine.Object.Destroy(redact);
             full = small = null; redact = null;
         }
-        public void Dispose() { disposed = true; if (!busy) Release(); }
+        public void Dispose()
+        {
+            disposed = true;
+            if (awaitingSource) { FrameSources.Current?.Cancel(); awaitingSource = false; busy = false; }
+            if (!busy) Release();
+        }
     }
 }

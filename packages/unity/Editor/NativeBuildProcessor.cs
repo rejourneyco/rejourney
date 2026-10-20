@@ -26,12 +26,23 @@ namespace RejourneySDK.Editor
                     throw new BuildFailedException("Rejourney iOS XCFramework missing. Install the release tarball, or run Tools~/build-native.sh ios from the source checkout.");
                 if (Version.TryParse(PlayerSettings.iOS.targetOSVersionString, out var minimum) && minimum < new Version(15, 1))
                     throw new BuildFailedException("Rejourney requires iOS 15.1 or later.");
+                // With a write-only Metal back buffer, URP projects capture inside the
+                // pipeline. Without URP there is no readable source, so frames are skipped.
+                if (MetalWriteOnlyBackbuffer() && UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline == null)
+                    UnityEngine.Debug.LogWarning("Rejourney: \"Metal Write-Only Backbuffer\" is on and this project uses the built-in render pipeline, so session replay frames cannot be captured on iOS devices. Turn it off in Player Settings > iOS > Other Settings, or use URP.");
             }
             if (report.summary.platform == BuildTarget.Android) {
                 if (!File.Exists(System.IO.Path.Combine(root, "Plugins/Android/rejourney-unity.aar")))
                     throw new BuildFailedException("Rejourney Android AAR missing. Install the release tarball, or run Tools~/build-native.sh android.");
                 if ((int)PlayerSettings.Android.minSdkVersion < 24) throw new BuildFailedException("Rejourney requires Android API 24 or later.");
             }
+        }
+        // Player Settings > iOS > Metal Write-Only Backbuffer has no public editor API.
+        static bool MetalWriteOnlyBackbuffer()
+        {
+            var settings = Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings");
+            var property = settings ? new SerializedObject(settings).FindProperty("metalFramebufferOnly") : null;
+            return property != null && property.boolValue;
         }
         internal static string PackageRoot()
         {
@@ -57,6 +68,11 @@ namespace RejourneySDK.Editor
             project.SetBuildProperty(frameworkTarget, "SWIFT_VERSION", "5.0");
             project.SetBuildProperty(project.GetUnityMainTargetGuid(), "ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES", "YES");
             project.WriteToFile(path);
+            // Data is a folder reference in Unity's Xcode project, so this file ships in
+            // the app's StreamingAssets (Data/Raw) without a project change.
+            var capture = System.IO.Path.Combine(root, "Data", "Raw", RejourneySDK.CaptureEnvironment.RelativePath);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(capture));
+            File.WriteAllText(capture, "{\"metalWriteOnlyBackbuffer\":" + (MetalWriteOnlyBackbuffer() ? "true" : "false") + "}");
 #endif
         }
 #if UNITY_ANDROID
