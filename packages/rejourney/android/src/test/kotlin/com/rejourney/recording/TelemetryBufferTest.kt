@@ -164,4 +164,17 @@ internal class TelemetryBufferTest {
             dispatcher.observeOnly = false
         }
     }
+
+    @Test
+    fun unboundSession_neverRequestsGeolocation() {
+        // Crash recovery finalizes a session this process never configured; its
+        // geolocation opt-out is unknown, so the request must not ask for location.
+        val dispatcher = SegmentDispatcher.shared
+        try {
+            dispatcher.collectGeoLocation = true
+            assertFalse(dispatcher.uploadBinding("session-recovered-unbound").collectGeoLocation)
+        } finally {
+            dispatcher.collectGeoLocation = true
+        }
+    }
 }

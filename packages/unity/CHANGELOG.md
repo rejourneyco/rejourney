@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Bug fixes and performance improvements.
+
 ## 0.1.1
 
 - Replays are no longer black on iOS devices when Player Settings > iOS > "Metal

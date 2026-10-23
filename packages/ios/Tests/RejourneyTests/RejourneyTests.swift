@@ -996,6 +996,16 @@ final class RejourneyTests: XCTestCase {
         ))
     }
 
+    func testUnboundSessionNeverRequestsGeolocation() {
+        // Crash recovery finalizes a session this process never configured; its
+        // geolocation opt-out is unknown, so the request must not ask for location.
+        let dispatcher = SegmentDispatcher.shared
+        dispatcher.collectGeoLocation = true
+        defer { dispatcher.collectGeoLocation = true }
+
+        XCTAssertFalse(dispatcher.uploadBinding(for: "session-recovered-unbound").collectGeoLocation)
+    }
+
     func testPauseStatePayloadIsSmallAndSessionOwned() {
         let payload = SegmentDispatcher.pauseStatePayload(
             replayId: "session-1",

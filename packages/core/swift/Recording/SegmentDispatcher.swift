@@ -561,11 +561,16 @@ final class SegmentDispatcher {
 
     func uploadBinding(for sessionId: String) -> SessionUploadBinding {
         withState {
+            // A session without a binding was not configured in this process: it is
+            // being recovered after the app was killed, or its binding was evicted.
+            // The geolocation opt-out it ran under is unknown, and the backend already
+            // resolved location while the session was live when it was allowed, so
+            // these requests never ask for it.
             _sessionUploadBindings[sessionId] ?? SessionUploadBinding(
                 endpoint: _endpoint,
                 projectId: _projectId,
                 isSampledIn: _isSampledIn,
-                collectGeoLocation: _collectGeoLocation,
+                collectGeoLocation: false,
                 observeOnly: _observeOnly
             )
         }
@@ -591,7 +596,8 @@ final class SegmentDispatcher {
                 endpoint: upload.routeEndpoint ?? _endpoint,
                 apiToken: _apiToken,
                 credential: _credential,
-                collectGeoLocation: upload.collectGeoLocation ?? _collectGeoLocation,
+                // Uploads persisted without the flag predate it; see uploadBinding(for:).
+                collectGeoLocation: upload.collectGeoLocation ?? false,
                 observeOnly: upload.observeOnly ?? _observeOnly
             )
         }

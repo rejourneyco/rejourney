@@ -16,7 +16,7 @@ namespace RejourneySDK.Editor
                     try { current = File.Exists(Path) ? JsonConvert.DeserializeObject<Configuration>(File.ReadAllText(Path)) ?? new Configuration() : new Configuration(); }
                     catch { current = new Configuration(); }
                 }
-                EditorGUILayout.LabelField("Rejourney for Unity · 0.1.1", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Rejourney for Unity · 0.1.2", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox("Init configures the SDK. Your consent flow must call StartAsync before recording. Device builds use the native core; Editor sessions provide diagnostics only.", MessageType.Info);
                 EditorGUI.BeginChangeCheck();
                 current.PublicProjectKey = EditorGUILayout.TextField("Public project key", current.PublicProjectKey);

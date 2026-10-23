@@ -239,10 +239,10 @@ identity, event capture, and recording controls.
 
 ### Unity
 
-Install the Unity package tarball from the [Unity SDK release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.1) via Package Manager (**Window → Package Manager → + → Install package from tarball**) or add the git URL to `Packages/manifest.json`:
+Install the Unity package tarball from the [Unity SDK release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.2) via Package Manager (**Window → Package Manager → + → Install package from tarball**) or add the git URL to `Packages/manifest.json`:
 
 ```json
-"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.1"
+"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.2"
 ```
 
 Initialize once on the main thread and start recording after consent:

@@ -599,13 +599,17 @@ class SegmentDispatcher private constructor() {
     @Synchronized
     internal fun currentUploadRoute(): UploadRoute = UploadRoute(endpoint, projectId)
 
+    // A session without a binding was not configured in this process: it is being
+    // recovered after the app was killed, or its binding was evicted. The geolocation
+    // opt-out it ran under is unknown, and the backend already resolved location while
+    // the session was live when it was allowed, so these requests never ask for it.
     @Synchronized
     internal fun uploadBinding(sessionId: String): SessionUploadBinding =
         sessionUploadBindings[sessionId] ?: SessionUploadBinding(
             endpoint = endpoint,
             projectId = projectId,
             isSampledIn = isSampledIn,
-            collectGeoLocation = collectGeoLocation,
+            collectGeoLocation = false,
             observeOnly = observeOnly
         )
 
@@ -624,7 +628,8 @@ class SegmentDispatcher private constructor() {
             endpoint = upload.routeEndpoint ?: endpoint,
             apiToken = apiToken,
             credential = credential,
-            collectGeoLocation = upload.collectGeoLocation ?: collectGeoLocation,
+            // Uploads persisted without the flag predate it; see uploadBinding().
+            collectGeoLocation = upload.collectGeoLocation ?: false,
             observeOnly = upload.observeOnly ?: observeOnly
         )
     }

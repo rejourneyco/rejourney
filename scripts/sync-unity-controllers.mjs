@@ -20,7 +20,7 @@ kotlin = removeBetween(kotlin, '    fun forceFlutterLayerCaptureForTesting', '  
 kotlin = kotlin.replace('            flutterFrameProvider?.let(visualCapture::setFlutterFrameProvider)\n', '')
   .replace('        setFlutterFrameProvider(null)\n', '')
   .replaceAll('Flutter SDK configured', 'Unity SDK configured')
-  .replaceAll('0.4.1', '0.1.1').replaceAll('com.rejourney.flutter', 'com.rejourney.unity')
+  .replaceAll('0.4.1', '0.1.2').replaceAll('com.rejourney.flutter', 'com.rejourney.unity')
   .replace('duration > SESSION_TIMEOUT_MS', 'duration >= SESSION_TIMEOUT_MS');
 let failed = false;
 for (const [path, data] of [
