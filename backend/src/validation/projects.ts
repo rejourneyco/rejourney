@@ -42,7 +42,7 @@ const appIdentifierSchema = z
     .string()
     .refine(
         (val) => validateAppIdentifier(val) === null,
-        (val) => ({ message: validateAppIdentifier(val) || 'Invalid identifier' })
+        { error: (issue) => validateAppIdentifier(String(issue.input)) || 'Invalid identifier' }
     );
 
 const textInputMaskingSchema = z.enum(['all', 'secure_only']);

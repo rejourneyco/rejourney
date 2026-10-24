@@ -84,7 +84,7 @@ export function validateAll<
  * Format Zod errors into a more readable format
  */
 function formatZodErrors(error: ZodError): Array<{ path: string; message: string }> {
-    return error.errors.map((err) => ({
+    return error.issues.map((err) => ({
         path: err.path.join('.'),
         message: err.message,
     }));

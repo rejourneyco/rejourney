@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => {
     const state: { stripeClient?: any } = {};
     return {
         state,
-        StripeConstructor: vi.fn(() => state.stripeClient),
+        // A regular function so `new Stripe()` works with Vitest 4 mocks.
+        StripeConstructor: vi.fn(function () { return state.stripeClient; }),
         dbSelect: vi.fn(),
         dbFrom: vi.fn(),
         dbWhere: vi.fn(),

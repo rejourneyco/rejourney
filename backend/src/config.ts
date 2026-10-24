@@ -66,7 +66,7 @@ const optionalHexEncryptionKey = z.preprocess(
 const envSchema = z.object({
     // Server
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-    PORT: z.string().transform(Number).default('3000'),
+    PORT: z.string().transform(Number).prefault('3000'),
 
     // Database
     DATABASE_URL: z.string(),
@@ -77,15 +77,15 @@ const envSchema = z.object({
 
     // ClickHouse analytics projection. These default off so adding the
     // dependency/config is safe before the local/prod clusters exist.
-    CLICKHOUSE_ENABLED: z.string().transform(v => v === 'true').default('false'),
-    CLICKHOUSE_DUAL_WRITE_ENABLED: z.string().transform(v => v === 'true').default('false'),
-    CLICKHOUSE_READS_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    CLICKHOUSE_ENABLED: z.string().transform(v => v === 'true').prefault('false'),
+    CLICKHOUSE_DUAL_WRITE_ENABLED: z.string().transform(v => v === 'true').prefault('false'),
+    CLICKHOUSE_READS_ENABLED: z.string().transform(v => v === 'true').prefault('false'),
     CLICKHOUSE_URL: z.string().optional(),
     CLICKHOUSE_USER: z.string().default('default'),
     CLICKHOUSE_PASSWORD: z.string().optional(),
     CLICKHOUSE_DATABASE: z.string().default('rejourney'),
-    CLICKHOUSE_ASYNC_INSERT: z.string().transform(v => v !== 'false').default('true'),
-    CLICKHOUSE_REQUEST_TIMEOUT_MS: z.string().transform(Number).default('5000'),
+    CLICKHOUSE_ASYNC_INSERT: z.string().transform(v => v !== 'false').prefault('true'),
+    CLICKHOUSE_REQUEST_TIMEOUT_MS: z.string().transform(Number).prefault('5000'),
 
     // Private issue-detection integration. The UI/API default is intentionally
     // closed unless explicitly enabled by runtime env.
@@ -123,49 +123,49 @@ const envSchema = z.object({
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     S3_PUBLIC_ENDPOINT: z.string().optional(),
-    RETENTION_BATCH_SIZE: z.string().transform(Number).default('100'),
-    RETENTION_REPAIR_BATCH_SIZE: z.string().transform(Number).default('100'),
-    RETENTION_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
-    RETENTION_S3_CONCURRENCY: z.string().transform(Number).default('4'),
-    RETENTION_SESSION_CONCURRENCY: z.string().transform(Number).default('8'),
-    RETENTION_FAIL_ON_MISSING_STORAGE: z.string().transform(v => v === 'true').default('false'),
-    RESEARCH_LAKE_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    RETENTION_BATCH_SIZE: z.string().transform(Number).prefault('100'),
+    RETENTION_REPAIR_BATCH_SIZE: z.string().transform(Number).prefault('100'),
+    RETENTION_MAX_RUNTIME_MS: z.string().transform(Number).prefault('240000'),
+    RETENTION_S3_CONCURRENCY: z.string().transform(Number).prefault('4'),
+    RETENTION_SESSION_CONCURRENCY: z.string().transform(Number).prefault('8'),
+    RETENTION_FAIL_ON_MISSING_STORAGE: z.string().transform(v => v === 'true').prefault('false'),
+    RESEARCH_LAKE_ENABLED: z.string().transform(v => v === 'true').prefault('false'),
     RESEARCH_LAKE_ENDPOINT: z.string().optional(),
     RESEARCH_LAKE_BUCKET: z.string().optional(),
     RESEARCH_LAKE_REGION: z.string().default('us-east-1'),
     RESEARCH_LAKE_ACCESS_KEY_ID: z.string().optional(),
     RESEARCH_LAKE_SECRET_ACCESS_KEY: z.string().optional(),
     RESEARCH_LAKE_PREFIX: z.string().default('v1'),
-    RESEARCH_LAKE_BATCH_SIZE: z.string().transform(Number).default('50'),
-    RESEARCH_LAKE_CONCURRENCY: z.string().transform(Number).default('4'),
-    RESEARCH_LAKE_UPLOAD_CONCURRENCY: z.string().transform(Number).default('3'),
-    RESEARCH_LAKE_ARTIFACT_DOWNLOAD_CONCURRENCY: z.string().transform(Number).default('4'),
-    RESEARCH_LAKE_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
-    RESEARCH_LAKE_LOOKAHEAD_HOURS: z.string().transform(Number).default('24'),
-    RESEARCH_LAKE_SEED_MULTIPLIER: z.string().transform(Number).default('40'),
-    RESEARCH_LAKE_MIN_EVENT_COUNT: z.string().transform(Number).default('3'),
-    RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED: z.string().transform(v => v !== 'false').default('true'),
-    RESEARCH_LAKE_REVENUE_OUTCOMES_BATCH_SIZE: z.string().transform(Number).default('500'),
+    RESEARCH_LAKE_BATCH_SIZE: z.string().transform(Number).prefault('50'),
+    RESEARCH_LAKE_CONCURRENCY: z.string().transform(Number).prefault('4'),
+    RESEARCH_LAKE_UPLOAD_CONCURRENCY: z.string().transform(Number).prefault('3'),
+    RESEARCH_LAKE_ARTIFACT_DOWNLOAD_CONCURRENCY: z.string().transform(Number).prefault('4'),
+    RESEARCH_LAKE_MAX_RUNTIME_MS: z.string().transform(Number).prefault('240000'),
+    RESEARCH_LAKE_LOOKAHEAD_HOURS: z.string().transform(Number).prefault('24'),
+    RESEARCH_LAKE_SEED_MULTIPLIER: z.string().transform(Number).prefault('40'),
+    RESEARCH_LAKE_MIN_EVENT_COUNT: z.string().transform(Number).prefault('3'),
+    RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED: z.string().transform(v => v !== 'false').prefault('true'),
+    RESEARCH_LAKE_REVENUE_OUTCOMES_BATCH_SIZE: z.string().transform(Number).prefault('500'),
     RESEARCH_LAKE_HASH_SECRET: z.string().optional(),
     // Schema V2 runs beside V1. These settings never disable or redirect V1.
-    RESEARCH_LAKE_V2_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    RESEARCH_LAKE_V2_ENABLED: z.string().transform(v => v === 'true').prefault('false'),
     RESEARCH_LAKE_V2_PREFIX: z.string().default('v2'),
-    RESEARCH_LAKE_V2_BATCH_SIZE: z.string().transform(Number).default('120'),
-    RESEARCH_LAKE_V2_CONCURRENCY: z.string().transform(Number).default('4'),
-    RESEARCH_LAKE_V2_MAX_RUNTIME_MS: z.string().transform(Number).default('240000'),
-    RESEARCH_LAKE_V2_DRAIN_BUFFER_MS: z.string().transform(Number).default('30000'),
-    RESEARCH_LAKE_V2_BACKFILL_PERCENT: z.string().transform(Number).default('20'),
+    RESEARCH_LAKE_V2_BATCH_SIZE: z.string().transform(Number).prefault('120'),
+    RESEARCH_LAKE_V2_CONCURRENCY: z.string().transform(Number).prefault('4'),
+    RESEARCH_LAKE_V2_MAX_RUNTIME_MS: z.string().transform(Number).prefault('240000'),
+    RESEARCH_LAKE_V2_DRAIN_BUFFER_MS: z.string().transform(Number).prefault('30000'),
+    RESEARCH_LAKE_V2_BACKFILL_PERCENT: z.string().transform(Number).prefault('20'),
     // Share of each batch for the forward-outcomes lane; the rest splits evenly between interaction and behavioral.
-    RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT: z.string().transform(Number).default('34'),
-    RESEARCH_LAKE_V2_SEED_MULTIPLIER: z.string().transform(Number).default('2'),
-    RESEARCH_LAKE_V2_SPINE_RATE_BPS: z.string().transform(Number).default('300'),
-    RESEARCH_LAKE_V2_UNIFORM_RATE_BPS: z.string().transform(Number).default('200'),
-    RESEARCH_LAKE_V2_POLICY_VERSION: z.string().transform(Number).default('1'),
-    RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS: z.string().transform(Number).default('24'),
-    RESEARCH_LAKE_V2_RETRY_WINDOW_HOURS: z.string().transform(Number).default('24'),
-    RESEARCH_LAKE_V2_PANEL_TTL_DAYS: z.string().transform(Number).default('62'),
-    RESEARCH_LAKE_V2_MEMORY_LIMIT_MB: z.string().transform(Number).default('4096'),
-    RESEARCH_LAKE_V2_CPU_LIMIT_CORES: z.string().transform(Number).default('2'),
+    RESEARCH_LAKE_V2_FORWARD_LANE_PERCENT: z.string().transform(Number).prefault('34'),
+    RESEARCH_LAKE_V2_SEED_MULTIPLIER: z.string().transform(Number).prefault('2'),
+    RESEARCH_LAKE_V2_SPINE_RATE_BPS: z.string().transform(Number).prefault('300'),
+    RESEARCH_LAKE_V2_UNIFORM_RATE_BPS: z.string().transform(Number).prefault('200'),
+    RESEARCH_LAKE_V2_POLICY_VERSION: z.string().transform(Number).prefault('1'),
+    RESEARCH_LAKE_V2_VISUAL_HOLD_HOURS: z.string().transform(Number).prefault('24'),
+    RESEARCH_LAKE_V2_RETRY_WINDOW_HOURS: z.string().transform(Number).prefault('24'),
+    RESEARCH_LAKE_V2_PANEL_TTL_DAYS: z.string().transform(Number).prefault('62'),
+    RESEARCH_LAKE_V2_MEMORY_LIMIT_MB: z.string().transform(Number).prefault('4096'),
+    RESEARCH_LAKE_V2_CPU_LIMIT_CORES: z.string().transform(Number).prefault('2'),
     RESEARCH_LAKE_V2_QUARANTINED_PROJECT_IDS: z.string().default(''),
 
     // Visitor ledger (pseudonymous returning-visitor recognition across identity scrub).
@@ -175,7 +175,7 @@ const envSchema = z.object({
     VISITOR_KEY_SECRET: z.string().min(32).optional(),
     // Kill switch for the ingest write path (schema always ships ahead of app pods via
     // db-setup / infra additive migrations, so writes are safe by default).
-    VISITOR_LEDGER_WRITE_ENABLED: z.string().transform(v => v !== 'false').default('true'),
+    VISITOR_LEDGER_WRITE_ENABLED: z.string().transform(v => v !== 'false').prefault('true'),
 
     // Auth
     JWT_SECRET: z.string().min(32),
@@ -218,14 +218,14 @@ const envSchema = z.object({
     PUBLIC_INGEST_URL: z.string().optional(),
 
     // Limits
-    MAX_RECORDING_MINUTES: z.string().transform(Number).default('10'),
-    INGEST_MAX_OBJECT_BYTES: z.string().transform(Number).default('26214400'), // 25 MB
-    INGEST_DEVICE_BYTES_PER_MINUTE: z.string().transform(Number).default('52428800'), // 50 MB/min per device
-    INGEST_DEVICE_BYTES_PER_DAY: z.string().transform(Number).default('2147483648'), // 2 GB/day per device
-    INGEST_PROJECT_BYTES_PER_MINUTE: z.string().transform(Number).default('536870912'), // 512 MB/min per project
-    INGEST_PROJECT_BYTES_PER_DAY: z.string().transform(Number).default('107374182400'), // 100 GB/day per project
-    INGEST_IP_BYTES_PER_MINUTE: z.string().transform(Number).default('104857600'), // 100 MB/min per IP
-    INGEST_IP_BYTES_PER_DAY: z.string().transform(Number).default('5368709120'), // 5 GB/day per IP
+    MAX_RECORDING_MINUTES: z.string().transform(Number).prefault('10'),
+    INGEST_MAX_OBJECT_BYTES: z.string().transform(Number).prefault('26214400'), // 25 MB
+    INGEST_DEVICE_BYTES_PER_MINUTE: z.string().transform(Number).prefault('52428800'), // 50 MB/min per device
+    INGEST_DEVICE_BYTES_PER_DAY: z.string().transform(Number).prefault('2147483648'), // 2 GB/day per device
+    INGEST_PROJECT_BYTES_PER_MINUTE: z.string().transform(Number).prefault('536870912'), // 512 MB/min per project
+    INGEST_PROJECT_BYTES_PER_DAY: z.string().transform(Number).prefault('107374182400'), // 100 GB/day per project
+    INGEST_IP_BYTES_PER_MINUTE: z.string().transform(Number).prefault('104857600'), // 100 MB/min per IP
+    INGEST_IP_BYTES_PER_DAY: z.string().transform(Number).prefault('5368709120'), // 5 GB/day per IP
 
     // Storage encryption
     STORAGE_ENCRYPTION_KEY: z.string().length(64).optional(), // 32-byte hex key

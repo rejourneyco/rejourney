@@ -16,7 +16,7 @@ export const sessionsQuerySchema = z.object({
 });
 
 export const sessionIdParamSchema = z.object({
-    id: z.string({ required_error: 'Session ID is required' }),
+    id: z.string({ error: 'Session ID is required' }),
 });
 
 export const networkGroupBySchema = z.object({
@@ -32,7 +32,7 @@ export const createReplayShareLinkSchema = z.object({
 });
 
 export const replayShareIdParamSchema = z.object({
-    id: z.string({ required_error: 'Session ID is required' }),
+    id: z.string({ error: 'Session ID is required' }),
     shareId: z.string().uuid({ message: 'Share ID must be a UUID' }),
 });
 

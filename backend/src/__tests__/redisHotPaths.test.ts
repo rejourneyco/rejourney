@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     checkRateLimit,
     checkRateLimitStrict,
@@ -8,6 +8,11 @@ import {
 } from '../db/redis.js';
 
 describe('Redis hot-path helpers', () => {
+    // Vitest 4 reuses an existing spy on re-spy, so restore to keep call counts per test.
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('checks a sliding-window rate limit atomically in one Lua call', async () => {
         const client = {
             eval: vi.fn(async () => 3),

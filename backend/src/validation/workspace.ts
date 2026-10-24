@@ -9,7 +9,7 @@ export const tabStateSchema = z.object({
     type: z.string().optional(),
     route: z.string().optional(),
     icon: z.string().optional(),
-    state: z.record(z.any()).optional(),
+    state: z.record(z.string(), z.any()).optional(),
     pinned: z.boolean().optional(),
     createdAt: z.string().optional(),
     lastActiveAt: z.string().optional(),

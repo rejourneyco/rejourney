@@ -54,7 +54,7 @@ export function loadEnv(): Env {
 
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
-    const message = parsed.error.errors
+    const message = parsed.error.issues
       .map((err) => `${err.path.join(".")}: ${err.message}`)
       .join("; ");
     throw new Error(`Invalid environment configuration: ${message}`);

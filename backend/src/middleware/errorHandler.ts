@@ -112,7 +112,7 @@ export function errorHandler(
         }
     } else if (err instanceof ZodError) {
         logger.warn(
-            { requestId, path: req.path, errors: err.errors, event: 'api.validation_error', ...ingestCtx },
+            { requestId, path: req.path, errors: err.issues, event: 'api.validation_error', ...ingestCtx },
             'Validation error',
         );
     } else {
@@ -133,7 +133,7 @@ export function errorHandler(
         res.status(400).json({
             error: 'Validation Error',
             message: 'Invalid request data',
-            details: err.errors.map((e) => ({
+            details: err.issues.map((e) => ({
                 path: e.path.join('.'),
                 message: e.message,
             })),
