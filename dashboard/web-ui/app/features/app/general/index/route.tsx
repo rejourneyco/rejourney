@@ -38,7 +38,6 @@ import {
 import { Link, useNavigate } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import {
-    createManualRevenueEntry,
     getDashboardOverviewHeavy,
     getGeoSummary,
     getGrowthObservability,
@@ -52,7 +51,6 @@ import {
     CustomRevenueEventConfig,
     connectRevenueCatRevenue,
     connectSuperwallRevenue,
-    deleteManualRevenueEntry,
     disconnectRevenueSource,
     GeoSummary,
     GrowthObservability,
@@ -60,12 +58,10 @@ import {
     ObservabilityDeepMetrics,
     RevenueOverview,
     RevenueProvider,
-    RevenueManualEntry,
     RetentionCohortRow,
     setRevenueSource,
     syncRevenueSource,
     TopUserEntry,
-    updateManualRevenueEntry,
     UserEngagementTrends,
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -128,19 +124,6 @@ const formatCurrencyMinor = (amountMinor: number, currency: string | null | unde
             maximumFractionDigits: compact ? 1 : 2,
         })}`;
     }
-};
-
-const formatManualAmountInput = (amountCents: number): string => {
-    const amount = amountCents / 100;
-    return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
-};
-
-const parseManualAmountInput = (value: string): number | null => {
-    const normalized = value.trim().replace(/,/g, '');
-    if (!normalized || !/^-?\d+(\.\d{1,2})?$/.test(normalized)) return null;
-    const amount = Number(normalized);
-    if (!Number.isFinite(amount)) return null;
-    return Math.round(amount * 100);
 };
 
 const formatRevenueChange = (value: number | null): string => {
@@ -295,6 +278,7 @@ function buildDemoRevenueOverview(trendRows: TrendChartRow[]): RevenueOverview |
         },
         manualEntries: daily.slice(0, 1).map((row) => ({
             id: 'demo-starting-revenue',
+            kind: 'starting_balance' as const,
             date: row.date,
             currency: 'usd',
             amountCents: startingRevenueCents,
@@ -805,21 +789,9 @@ type RevenueActionState = {
         | 'connect_superwall'
         | 'connect_revenuecat'
         | 'save_custom_events'
-        | 'save_manual'
-        | 'delete_manual'
         | 'disconnect';
     provider?: RevenueProvider;
-    entryId?: string;
 } | null;
-
-type ManualRevenueEntryInput = {
-    entryId?: string;
-    date: string;
-    amountCents: number;
-    currency: string;
-    transactionCount: number;
-    note?: string | null;
-};
 
 function fallbackRevenueProviderStatus(provider: RevenueProvider): RevenueProviderStatusView {
     return {
@@ -873,133 +845,6 @@ function patchRevenueProviderStatus(
                 canManage: overview.connection.canManage,
             }
             : overview.connection,
-    };
-}
-
-function normalizeManualEntryForUi(input: ManualRevenueEntryInput, existing?: RevenueManualEntry | null): RevenueManualEntry {
-    const now = new Date().toISOString();
-    return {
-        id: input.entryId || existing?.id || 'optimistic-starting-revenue',
-        date: input.date,
-        currency: input.currency.toLowerCase(),
-        amountCents: input.amountCents,
-        transactionCount: Math.max(1, Math.round(input.transactionCount || 1)),
-        note: input.note ?? null,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-    };
-}
-
-function patchDailyRowForManualEntry(
-    rows: RevenueOverview['daily'],
-    entry: RevenueManualEntry,
-    previousEntry: RevenueManualEntry | null,
-): RevenueOverview['daily'] {
-    const deltaAmount = entry.amountCents - (previousEntry?.amountCents ?? 0);
-    const deltaTransactions = entry.transactionCount - (previousEntry?.transactionCount ?? 0);
-    if (deltaAmount === 0 && deltaTransactions === 0) return rows;
-
-    const rowIndex = rows.findIndex((row) => row.date === entry.date && row.currency === entry.currency);
-    if (rowIndex === -1) {
-        return [
-            ...rows,
-            {
-                date: entry.date,
-                currency: entry.currency,
-                grossAmountCents: Math.max(entry.amountCents, 0),
-                refundAmountCents: entry.amountCents < 0 ? Math.abs(entry.amountCents) : 0,
-                feeAmountCents: 0,
-                netAmountCents: entry.amountCents,
-                transactionCount: entry.transactionCount,
-                refundCount: entry.amountCents < 0 ? entry.transactionCount : 0,
-                subscriberCount: 0,
-                trialCount: 0,
-                subscriptionStartCount: 0,
-                cancellationCount: 0,
-                conversionCount: 0,
-                customEventCounts: {},
-            },
-        ].sort((a, b) => a.date.localeCompare(b.date));
-    }
-
-    return rows.map((row, index) => {
-        if (index !== rowIndex) return row;
-        return {
-            ...row,
-            grossAmountCents: Math.max(0, row.grossAmountCents + Math.max(deltaAmount, 0)),
-            refundAmountCents: Math.max(0, row.refundAmountCents + (deltaAmount < 0 ? Math.abs(deltaAmount) : 0)),
-            netAmountCents: row.netAmountCents + deltaAmount,
-            transactionCount: Math.max(0, row.transactionCount + deltaTransactions),
-        };
-    });
-}
-
-function patchRevenueManualEntry(
-    overview: RevenueOverview | null,
-    input: ManualRevenueEntryInput,
-): RevenueOverview | null {
-    if (!overview) return overview;
-    const existing = input.entryId
-        ? overview.manualEntries.find((entry) => entry.id === input.entryId) ?? overview.manualEntries[0] ?? null
-        : overview.manualEntries[0] ?? null;
-    const entry = normalizeManualEntryForUi(input, existing);
-    const previousAmount = overview.manualEntries.reduce((sum, item) => sum + item.amountCents, 0);
-    const previousTransactions = overview.manualEntries.reduce((sum, item) => sum + item.transactionCount, 0);
-    const amountDelta = entry.amountCents - previousAmount;
-    const transactionDelta = entry.transactionCount - previousTransactions;
-    const selectedCurrency = overview.selectedCurrency ?? entry.currency;
-    const currencies = overview.currencies.some((row) => row.currency === entry.currency)
-        ? overview.currencies.map((row) => row.currency === entry.currency
-            ? { ...row, grossAmountCents: Math.max(0, row.grossAmountCents + amountDelta) }
-            : row)
-        : [...overview.currencies, { currency: entry.currency, grossAmountCents: Math.max(entry.amountCents, 0) }];
-
-    return patchRevenueProviderStatus({
-        ...overview,
-        selectedCurrency,
-        manualEntries: [entry],
-        currencies,
-        summary: {
-            ...overview.summary,
-            grossAmountCents: Math.max(0, overview.summary.grossAmountCents + Math.max(amountDelta, 0)),
-            netAmountCents: overview.summary.netAmountCents + amountDelta,
-            transactionCount: Math.max(0, overview.summary.transactionCount + transactionDelta),
-        },
-        daily: patchDailyRowForManualEntry(overview.daily, entry, existing),
-    }, 'custom_events', {
-        status: 'connected',
-        connectedAt: overview.connection.connectedAt ?? new Date().toISOString(),
-        lastSyncError: null,
-    }, { activeProvider: 'custom_events', updateConnection: true });
-}
-
-function removeRevenueManualEntry(
-    overview: RevenueOverview | null,
-    entryId: string,
-): RevenueOverview | null {
-    if (!overview) return overview;
-    const entry = overview.manualEntries.find((item) => item.id === entryId) ?? overview.manualEntries[0] ?? null;
-    if (!entry) return overview;
-
-    return {
-        ...overview,
-        manualEntries: overview.manualEntries.filter((item) => item.id !== entry.id),
-        summary: {
-            ...overview.summary,
-            grossAmountCents: Math.max(0, overview.summary.grossAmountCents - Math.max(entry.amountCents, 0)),
-            netAmountCents: overview.summary.netAmountCents - entry.amountCents,
-            transactionCount: Math.max(0, overview.summary.transactionCount - entry.transactionCount),
-        },
-        daily: overview.daily.map((row) => {
-            if (row.date !== entry.date || row.currency !== entry.currency) return row;
-            return {
-                ...row,
-                grossAmountCents: Math.max(0, row.grossAmountCents - Math.max(entry.amountCents, 0)),
-                refundAmountCents: Math.max(0, row.refundAmountCents - (entry.amountCents < 0 ? Math.abs(entry.amountCents) : 0)),
-                netAmountCents: row.netAmountCents - entry.amountCents,
-                transactionCount: Math.max(0, row.transactionCount - entry.transactionCount),
-            };
-        }),
     };
 }
 
@@ -1686,8 +1531,6 @@ const RevenueImpactSection: React.FC<{
     onSaveSuperwall: (input: { apiKey: string }) => void;
     onSaveRevenueCat: (input: { apiKey: string; revenueCatProjectId: string }) => void;
     onSaveCustomEvents: (input: typeof DEFAULT_CUSTOM_REVENUE_CONFIG) => void;
-    onSaveManualEntry: (input: { entryId?: string; date: string; amountCents: number; currency: string; transactionCount: number; note?: string | null }) => void;
-    onDeleteManualEntry: (entryId: string) => void;
     isActionLoading: boolean;
     actionState: RevenueActionState;
     customEvents: RevenueCustomEventOption[];
@@ -1706,8 +1549,6 @@ const RevenueImpactSection: React.FC<{
     onSaveSuperwall,
     onSaveRevenueCat,
     onSaveCustomEvents,
-    onSaveManualEntry,
-    onDeleteManualEntry,
     isActionLoading,
     actionState,
     customEvents,
@@ -1730,14 +1571,7 @@ const RevenueImpactSection: React.FC<{
     const [revenueCatProjectId, setRevenueCatProjectId] = useState('');
     const [customConfig, setCustomConfig] = useState(DEFAULT_CUSTOM_REVENUE_CONFIG);
     const [copiedCustomSetupPrompt, setCopiedCustomSetupPrompt] = useState(false);
-    const [isManualFormOpen, setIsManualFormOpen] = useState(false);
-    const [editingManualEntryId, setEditingManualEntryId] = useState<string | null>(null);
-    const [manualEntryDate, setManualEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
-    const [manualEntryAmount, setManualEntryAmount] = useState('');
-    const [manualEntryCurrency, setManualEntryCurrency] = useState('usd');
-    const [manualEntryTransactionCount, setManualEntryTransactionCount] = useState('1');
-    const [manualEntryNote, setManualEntryNote] = useState('');
-    const [manualEntryError, setManualEntryError] = useState<string | null>(null);
+    const booksPath = `${usePathPrefix()}/books`;
     const customEventOptions = useMemo(() => dedupeRevenueEventOptions(customEvents), [customEvents]);
     const connection = revenue?.connection;
     const activeProvider = revenue?.activeProvider ?? null;
@@ -1746,10 +1580,7 @@ const RevenueImpactSection: React.FC<{
     const hasActiveConnection = status === 'connected' || status === 'syncing' || status === 'error';
     const currency = revenue?.selectedCurrency ?? selectedCurrency ?? null;
     const manualEntries = revenue?.manualEntries ?? [];
-    const startingRevenueEntry = manualEntries[0] ?? null;
-    const startingRevenueAmountCents = manualEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
-    const startingRevenueCurrency = (startingRevenueEntry?.currency || currency || 'usd').toUpperCase();
-    const startingRevenueDate = startingRevenueEntry?.date || chartData[0]?.dateKey || new Date().toISOString().slice(0, 10);
+    const startingRevenueEntry = manualEntries.find((entry) => entry.kind !== 'adjustment') ?? null;
     const grossChange = revenue?.summary.grossChangePercent ?? null;
     const hasRevenueData = Boolean(
         chartData.length > 0
@@ -1777,11 +1608,7 @@ const RevenueImpactSection: React.FC<{
                     ? 'Connecting RevenueCat and starting sync...'
                 : actionState?.kind === 'save_custom_events'
                     ? 'Saving custom event mapping and syncing...'
-                    : actionState?.kind === 'save_manual'
-                        ? 'Saving starting revenue...'
-                        : actionState?.kind === 'delete_manual'
-                            ? 'Clearing starting revenue...'
-                            : actionState?.kind === 'select_provider'
+                    : actionState?.kind === 'select_provider'
                                 ? 'Changing revenue source...'
                                 : null;
     const syncPreview = revenue?.syncPreview ?? null;
@@ -1958,91 +1785,6 @@ const RevenueImpactSection: React.FC<{
         setIsSettingsOpen(true);
     }, [canManage, getProviderStatus, onSelectProvider]);
 
-    const resetManualEntryForm = useCallback(() => {
-        setEditingManualEntryId(null);
-        setManualEntryDate(startingRevenueDate);
-        setManualEntryAmount('');
-        setManualEntryCurrency(startingRevenueCurrency);
-        setManualEntryTransactionCount('1');
-        setManualEntryNote('');
-        setManualEntryError(null);
-    }, [startingRevenueCurrency, startingRevenueDate]);
-
-    const handleOpenManualEntryForm = useCallback((entry?: RevenueManualEntry) => {
-        if (entry) {
-            setEditingManualEntryId(entry.id);
-            setManualEntryDate(entry.date);
-            setManualEntryAmount(formatManualAmountInput(entry.amountCents));
-            setManualEntryCurrency(entry.currency.toUpperCase());
-            setManualEntryTransactionCount(String(Math.max(1, entry.transactionCount || 1)));
-            setManualEntryNote(entry.note || '');
-        } else {
-            setEditingManualEntryId(null);
-            setManualEntryDate(startingRevenueDate);
-            setManualEntryAmount('');
-            setManualEntryCurrency(startingRevenueCurrency);
-            setManualEntryTransactionCount('1');
-            setManualEntryNote('Initial revenue before Rejourney tracking');
-        }
-        setManualEntryError(null);
-        setIsManualFormOpen(true);
-    }, [startingRevenueCurrency, startingRevenueDate]);
-
-    const handleCancelManualEntry = useCallback(() => {
-        resetManualEntryForm();
-        setIsManualFormOpen(false);
-    }, [resetManualEntryForm]);
-
-    const handleSubmitManualEntry = useCallback((event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const amountCents = parseManualAmountInput(manualEntryAmount);
-        const transactionCount = Number(manualEntryTransactionCount);
-        const normalizedCurrency = manualEntryCurrency.trim().toLowerCase();
-        if (!manualEntryDate) {
-            setManualEntryError('Choose a revenue date.');
-            return;
-        }
-        if (amountCents === null || amountCents <= 0) {
-            setManualEntryError('Enter a starting revenue amount greater than 0, for example 1299.00.');
-            return;
-        }
-        if (!/^[a-z]{3}$/i.test(normalizedCurrency)) {
-            setManualEntryError('Use a three-letter currency code like USD.');
-            return;
-        }
-        if (!Number.isFinite(transactionCount) || transactionCount < 1) {
-            setManualEntryError('Transaction count must be at least 1.');
-            return;
-        }
-
-        onSaveManualEntry({
-            entryId: editingManualEntryId || undefined,
-            date: manualEntryDate,
-            amountCents,
-            currency: normalizedCurrency,
-            transactionCount: Math.round(transactionCount),
-            note: manualEntryNote.trim() || null,
-        });
-        setIsManualFormOpen(false);
-        resetManualEntryForm();
-    }, [
-        editingManualEntryId,
-        manualEntryAmount,
-        manualEntryCurrency,
-        manualEntryDate,
-        manualEntryNote,
-        manualEntryTransactionCount,
-        onSaveManualEntry,
-        resetManualEntryForm,
-    ]);
-
-    const handleDeleteManualEntry = useCallback((entry: RevenueManualEntry) => {
-        const confirmed = window.confirm('Clear the starting revenue baseline?');
-        if (!confirmed) return;
-        setIsManualFormOpen(false);
-        onDeleteManualEntry(entry.id);
-    }, [onDeleteManualEntry]);
-
     const renderProviderMark = (provider: RevenueProvider) => {
         const meta = REVENUE_PROVIDER_META[provider];
         if (meta.logo) {
@@ -2165,7 +1907,6 @@ const RevenueImpactSection: React.FC<{
                                 const apiKey = superwallApiKey;
                                 setSuperwallApiKey('');
                                 setIsSettingsOpen(false);
-                                setIsManualFormOpen(false);
                                 onSaveSuperwall({
                                     apiKey,
                                 });
@@ -2216,7 +1957,6 @@ const RevenueImpactSection: React.FC<{
                                 setRevenueCatApiKey('');
                                 setRevenueCatProjectId('');
                                 setIsSettingsOpen(false);
-                                setIsManualFormOpen(false);
                                 onSaveRevenueCat({
                                     apiKey,
                                     revenueCatProjectId: projectId,
@@ -2290,7 +2030,6 @@ const RevenueImpactSection: React.FC<{
                             onSubmit={(event) => {
                                 event.preventDefault();
                                 setIsSettingsOpen(false);
-                                setIsManualFormOpen(false);
                                 onSaveCustomEvents(customConfig);
                             }}
                         >
@@ -2448,105 +2187,39 @@ const RevenueImpactSection: React.FC<{
     };
 
     const renderManualRevenuePanel = () => {
-        if (!canManage && manualEntries.length === 0) return null;
+        const adjustmentEntries = manualEntries.filter((entry) => entry.kind === 'adjustment');
+        const adjustmentTotalCents = adjustmentEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
+        const exclusionCount = revenue?.exclusionSummary?.count ?? 0;
+        if (!canManage && manualEntries.length === 0 && exclusionCount === 0) return null;
+        const parts = [
+            startingRevenueEntry
+                ? `Starting balance ${formatCurrencyMinor(startingRevenueEntry.amountCents, startingRevenueEntry.currency)}`
+                : null,
+            adjustmentEntries.length
+                ? `${adjustmentEntries.length} ${adjustmentEntries.length === 1 ? 'adjustment' : 'adjustments'} (${adjustmentTotalCents < 0 ? '−' : '+'}${formatCurrencyMinor(Math.abs(adjustmentTotalCents), currency)})`
+                : null,
+            exclusionCount
+                ? `${exclusionCount} excluded ${exclusionCount === 1 ? 'transaction' : 'transactions'}`
+                : null,
+        ].filter(Boolean);
 
         return (
             <div className="border-t border-[#e8eaed] pt-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#5f6368]">
                     <div className="min-w-0">
-                        <span className="font-medium text-[#3c4043]">Starting revenue</span>
+                        <span className="font-medium text-[#3c4043]">Books</span>
                         <span className="mx-2 text-[#dadce0]">/</span>
-                        {startingRevenueEntry ? (
-                            <span className="font-medium tabular-nums text-[#202124]">
-                                {formatCurrencyMinor(startingRevenueAmountCents, startingRevenueCurrency)}
-                                <span className="ml-1 font-normal text-[#5f6368]">baseline before Rejourney tracking</span>
-                            </span>
+                        {parts.length > 0 ? (
+                            <span className="tabular-nums text-[#202124]">{parts.join(' · ')}</span>
                         ) : (
-                            <span>Add one baseline amount if you already had revenue before tracking.</span>
+                            <span>Set a starting balance, exclude test purchases, or export revenue reports.</span>
                         )}
                     </div>
-                    {canManage && (
-                        <div className="flex items-center gap-1.5">
-                            <button
-                                type="button"
-                                onClick={() => handleOpenManualEntryForm(startingRevenueEntry ?? undefined)}
-                                disabled={isActionLoading}
-                                className={dashboardButtonClass('secondary', 'sm')}
-                            >
-                                {startingRevenueEntry ? <Pencil className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                                {startingRevenueEntry ? 'Adjust' : 'Set'}
-                            </button>
-                            {startingRevenueEntry && (
-                                <button
-                                    type="button"
-                                    onClick={() => handleDeleteManualEntry(startingRevenueEntry)}
-                                    disabled={isActionLoading}
-                                    className={dashboardButtonClass('secondary', 'sm')}
-                                >
-                                    <Trash2 className="h-3 w-3" />
-                                    Clear
-                                </button>
-                            )}
-                        </div>
-                    )}
+                    <Link to={`${booksPath}`} className={dashboardButtonClass('secondary', 'sm')}>
+                        <BookOpen className="h-3 w-3" />
+                        {canManage ? 'Edit books' : 'Open books'}
+                    </Link>
                 </div>
-
-                {isManualFormOpen && canManage && (
-                    <form className="mt-3 grid gap-3 border border-[#dadce0] bg-[#f8fafd] p-3 md:grid-cols-[minmax(0,1fr)_120px] lg:grid-cols-[minmax(0,220px)_120px_minmax(0,1fr)_auto]" onSubmit={handleSubmitManualEntry}>
-                        <label className="space-y-1">
-                            <span className={`block ${dashboardLabelClass}`}>Starting revenue</span>
-                            <input
-                                value={manualEntryAmount}
-                                onChange={(event) => setManualEntryAmount(event.target.value)}
-                                placeholder="1299.00"
-                                inputMode="decimal"
-                                required
-                                className={`${dashboardFieldClass} tabular-nums`}
-                            />
-                        </label>
-                        <label className="space-y-1">
-                            <span className={`block ${dashboardLabelClass}`}>Currency</span>
-                            <input
-                                value={manualEntryCurrency}
-                                onChange={(event) => setManualEntryCurrency(event.target.value.toUpperCase())}
-                                maxLength={3}
-                                required
-                                className={`${dashboardFieldClass} uppercase`}
-                            />
-                        </label>
-                        <label className="space-y-1 md:col-span-2 lg:col-span-1">
-                            <span className={`block ${dashboardLabelClass}`}>Note</span>
-                            <input
-                                value={manualEntryNote}
-                                onChange={(event) => setManualEntryNote(event.target.value)}
-                                placeholder="Initial revenue before Rejourney tracking"
-                                className={dashboardFieldClass}
-                            />
-                        </label>
-                        {manualEntryError && (
-                            <div className="border border-[#f6aea9] bg-[#fce8e6] px-3 py-2 text-xs text-[#a50e0e] md:col-span-2 lg:col-span-4">
-                                {manualEntryError}
-                            </div>
-                        )}
-                        <div className="flex flex-wrap items-end gap-2 md:col-span-2 lg:col-span-1">
-                            <button
-                                type="submit"
-                                disabled={isActionLoading}
-                                className={dashboardButtonClass('primary', 'sm')}
-                            >
-                                <Check className="h-3.5 w-3.5" />
-                                Save baseline
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleCancelManualEntry}
-                                className={dashboardButtonClass('secondary', 'sm')}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                )}
             </div>
         );
     };
@@ -2605,7 +2278,6 @@ const RevenueImpactSection: React.FC<{
                                             type="button"
                                             onClick={() => {
                                                 setIsSettingsOpen(false);
-                                                setIsManualFormOpen(false);
                                                 onSync(activeProvider);
                                             }}
                                             disabled={isActionLoading || status === 'syncing' || isSyncPending}
@@ -2618,7 +2290,6 @@ const RevenueImpactSection: React.FC<{
                                             type="button"
                                             onClick={() => {
                                                 setIsSettingsOpen(false);
-                                                setIsManualFormOpen(false);
                                                 onDisconnect(activeProvider);
                                             }}
                                             disabled={isActionLoading || isDisconnectPending}
@@ -3358,7 +3029,7 @@ export const GeneralOverview: React.FC = () => {
         if (!displayRevenue?.daily?.length) return [];
         const startingRevenueByDate = new Map<string, { amountCents: number; transactionCount: number }>();
         for (const entry of displayRevenue.manualEntries || []) {
-            if (entry.amountCents <= 0) continue;
+            if (entry.amountCents <= 0 || entry.kind === 'adjustment') continue;
             const current = startingRevenueByDate.get(entry.date) ?? { amountCents: 0, transactionCount: 0 };
             current.amountCents += entry.amountCents;
             current.transactionCount += Math.max(1, entry.transactionCount || 1);
@@ -3855,55 +3526,6 @@ export const GeneralOverview: React.FC = () => {
         }
     }, [isDemoMode, loadRevenue, revenueOverview, selectedProject?.id]);
 
-    const handleSaveManualRevenueEntry = useCallback(async (input: ManualRevenueEntryInput) => {
-        if (!selectedProject?.id) return;
-        if (isDemoMode) return;
-        const previousRevenue = revenueOverview;
-        setRevenueActionState({ kind: 'save_manual', provider: 'custom_events', entryId: input.entryId });
-        setRevenueError(null);
-        setRevenue((current) => patchRevenueManualEntry(current, input));
-        try {
-            const payload = {
-                date: input.date,
-                amountCents: input.amountCents,
-                currency: input.currency,
-                transactionCount: input.transactionCount,
-                note: input.note ?? null,
-            };
-            if (input.entryId) {
-                const result = await updateManualRevenueEntry(selectedProject.id, input.entryId, payload);
-                setRevenue((current) => current ? { ...current, manualEntries: [result.entry] } : current);
-            } else {
-                const result = await createManualRevenueEntry(selectedProject.id, payload);
-                setRevenue((current) => current ? { ...current, manualEntries: [result.entry] } : current);
-            }
-            await loadRevenue();
-        } catch (error) {
-            setRevenue(previousRevenue);
-            setRevenueError(error instanceof Error ? error.message : 'Unable to save historical revenue.');
-        } finally {
-            setRevenueActionState(null);
-        }
-    }, [isDemoMode, loadRevenue, revenueOverview, selectedProject?.id]);
-
-    const handleDeleteManualRevenueEntry = useCallback(async (entryId: string) => {
-        if (!selectedProject?.id) return;
-        if (isDemoMode) return;
-        const previousRevenue = revenueOverview;
-        setRevenueActionState({ kind: 'delete_manual', provider: 'custom_events', entryId });
-        setRevenueError(null);
-        setRevenue((current) => removeRevenueManualEntry(current, entryId));
-        try {
-            await deleteManualRevenueEntry(selectedProject.id, entryId);
-            await loadRevenue();
-        } catch (error) {
-            setRevenue(previousRevenue);
-            setRevenueError(error instanceof Error ? error.message : 'Unable to delete historical revenue.');
-        } finally {
-            setRevenueActionState(null);
-        }
-    }, [isDemoMode, loadRevenue, revenueOverview, selectedProject?.id]);
-
     const handleDisconnectRevenue = useCallback(async (provider: RevenueProvider) => {
         if (!selectedProject?.id) return;
         if (isDemoMode) return;
@@ -4030,8 +3652,6 @@ export const GeneralOverview: React.FC = () => {
                         onSaveSuperwall={handleSaveSuperwallRevenue}
                         onSaveRevenueCat={handleSaveRevenueCatRevenue}
                         onSaveCustomEvents={handleSaveCustomEventRevenue}
-                        onSaveManualEntry={handleSaveManualRevenueEntry}
-                        onDeleteManualEntry={handleDeleteManualRevenueEntry}
                         isActionLoading={isRevenueActionLoading}
                         actionState={revenueActionState}
                         customEvents={customEvents}

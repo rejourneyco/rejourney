@@ -9,6 +9,7 @@ import {
     projectRevenueSourceSettings,
     projects,
     revenueProviderTransactions,
+    revenueTransactionExclusions,
     sessions,
 } from '../db/schema.js';
 import { logger } from '../logger.js';
@@ -30,8 +31,11 @@ export interface RevenueCurrencySummary {
     grossAmountCents: number;
 }
 
+export type RevenueManualEntryKind = 'starting_balance' | 'adjustment';
+
 export interface RevenueManualEntry {
     id: string;
+    kind: RevenueManualEntryKind;
     date: string;
     currency: string;
     amountCents: number;
@@ -106,6 +110,7 @@ export interface RevenueOverview {
     customEventConfig: CustomRevenueEventConfig | null;
     syncPreview: RevenueSyncPreview | null;
     manualEntries: RevenueManualEntry[];
+    exclusionSummary: RevenueExclusionSummary;
     currencies: RevenueCurrencySummary[];
     selectedCurrency: string | null;
     summary: {
@@ -124,6 +129,38 @@ export interface RevenueOverview {
         grossChangePercent: number | null;
     };
     daily: RevenueDailyRow[];
+}
+
+export interface RevenueExclusionSummary {
+    count: number;
+    netAmountCents: number;
+}
+
+export interface RevenueLedgerEntry {
+    id: string;
+    externalTransactionId: string;
+    occurredAt: string;
+    date: string;
+    currency: string;
+    amountCents: number;
+    category: string;
+    label: string;
+    sessionId: string | null;
+    transactionCount: number;
+    exclusion: {
+        id: string;
+        reason: string | null;
+        createdAt: string;
+    } | null;
+}
+
+export interface RevenueLedgerPage {
+    provider: RevenueProvider | null;
+    currency: string | null;
+    entries: RevenueLedgerEntry[];
+    totalCount: number;
+    excludedCount: number;
+    hasMore: boolean;
 }
 
 export interface GenericRevenueTransaction {
@@ -168,6 +205,8 @@ const PROVIDER_LABELS: Record<RevenueProvider, string> = {
 };
 
 const MANUAL_REVENUE_SOURCE = 'manual_historical';
+const REVENUE_LEDGER_MAX_PAGE_SIZE = 100;
+const REVENUE_EXCLUSION_REASON_MAX_LENGTH = 200;
 const GENERIC_REVENUE_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const GENERIC_REVENUE_SYNC_STALE_MS = 60 * 60 * 1000;
 const GENERIC_REVENUE_UPSERT_BATCH_SIZE = 500;
@@ -309,6 +348,7 @@ async function providerHasRevenueTransactions(projectId: string, provider: Reven
         .where(and(
             eq(revenueProviderTransactions.projectId, projectId),
             eq(revenueProviderTransactions.provider, provider),
+            sql`COALESCE(${revenueProviderTransactions.metadata}->>'source', '') <> ${MANUAL_REVENUE_SOURCE}`,
             sql`(
                 ${revenueProviderTransactions.amountCents} <> 0
                 OR ${revenueProviderTransactions.grossAmountCents} <> 0
@@ -1083,8 +1123,31 @@ function normalizeManualAmountCents(value: unknown): number {
     return numeric;
 }
 
+function normalizeManualEntryKind(value: unknown): RevenueManualEntryKind {
+    return value === 'adjustment' ? 'adjustment' : 'starting_balance';
+}
+
+// Starting balances count as revenue transactions; adjustments correct the
+// day's gross/net (negative removes money) without touching transaction or
+// refund counts.
+function manualEntryAccounting(kind: RevenueManualEntryKind, amountCents: number): {
+    grossAmountCents: number;
+    refundAmountCents: number;
+    reportingCategory: string;
+} {
+    if (kind === 'adjustment') {
+        return { grossAmountCents: amountCents, refundAmountCents: 0, reportingCategory: 'adjustment' };
+    }
+    return {
+        grossAmountCents: amountCents > 0 ? amountCents : 0,
+        refundAmountCents: amountCents < 0 ? Math.abs(amountCents) : 0,
+        reportingCategory: amountCents < 0 ? 'refund' : 'revenue',
+    };
+}
+
 function manualRevenueMetadata(input: {
     existing?: Record<string, unknown> | null;
+    kind: RevenueManualEntryKind;
     note?: string | null;
     transactionCount: number;
     userId: string;
@@ -1092,7 +1155,8 @@ function manualRevenueMetadata(input: {
     return {
         ...(input.existing ?? {}),
         source: MANUAL_REVENUE_SOURCE,
-        eventName: 'manual_historical_revenue',
+        kind: input.kind,
+        eventName: input.kind === 'adjustment' ? 'manual_revenue_adjustment' : 'manual_historical_revenue',
         note: nullableTrim(input.note),
         transactionCount: Math.max(1, input.transactionCount),
         updatedByUserId: input.userId,
@@ -1102,16 +1166,17 @@ function manualRevenueMetadata(input: {
 
 async function getManualRevenueEntries(
     projectId: string,
+    provider: RevenueProvider | null,
     selectedCurrency: string | null,
-    currentStartKey: string | null,
 ): Promise<RevenueManualEntry[]> {
+    // Book entries are shown regardless of the chart range so a baseline dated
+    // before the selected window can still be found and edited.
     const conditions = [
         eq(revenueProviderTransactions.projectId, projectId),
-        eq(revenueProviderTransactions.provider, 'custom_events'),
+        eq(revenueProviderTransactions.provider, provider ?? 'custom_events'),
         sql`${revenueProviderTransactions.metadata}->>'source' = ${MANUAL_REVENUE_SOURCE}`,
     ];
     if (selectedCurrency) conditions.push(eq(revenueProviderTransactions.currency, selectedCurrency));
-    if (currentStartKey) conditions.push(gte(revenueProviderTransactions.occurredAt, new Date(`${currentStartKey}T00:00:00Z`)));
 
     const rows = await dbRead
         .select({
@@ -1126,12 +1191,13 @@ async function getManualRevenueEntries(
         .from(revenueProviderTransactions)
         .where(and(...conditions))
         .orderBy(desc(revenueProviderTransactions.occurredAt), desc(revenueProviderTransactions.updatedAt))
-        .limit(100);
+        .limit(200);
 
-    return rows.map((row) => {
+    const entries = rows.map((row) => {
         const metadata = asRecord(row.metadata) ?? {};
         return {
             id: row.id,
+            kind: normalizeManualEntryKind(metadata.kind),
             date: toUtcDateKey(row.occurredAt),
             currency: row.currency,
             amountCents: row.netCents,
@@ -1141,6 +1207,46 @@ async function getManualRevenueEntries(
             updatedAt: row.updatedAt.toISOString(),
         };
     });
+    // Starting balance first, so existing clients reading manualEntries[0] keep working.
+    return [
+        ...entries.filter((entry) => entry.kind === 'starting_balance'),
+        ...entries.filter((entry) => entry.kind === 'adjustment'),
+    ];
+}
+
+async function getRevenueExclusionSummary(
+    projectId: string,
+    provider: RevenueProvider | null,
+    selectedCurrency: string | null,
+): Promise<RevenueExclusionSummary> {
+    if (!provider) return { count: 0, netAmountCents: 0 };
+    const conditions = [
+        eq(revenueTransactionExclusions.projectId, projectId),
+        eq(revenueTransactionExclusions.provider, provider),
+    ];
+    if (selectedCurrency) conditions.push(eq(revenueTransactionExclusions.currency, selectedCurrency));
+    const [row] = await dbRead
+        .select({
+            count: sql<number>`COUNT(*)::int`,
+            netAmountCents: sql<number>`COALESCE(SUM(${revenueTransactionExclusions.amountCents}), 0)`,
+        })
+        .from(revenueTransactionExclusions)
+        .where(and(...conditions));
+    return {
+        count: numberFromDb(row?.count),
+        netAmountCents: numberFromDb(row?.netAmountCents),
+    };
+}
+
+async function getExcludedTransactionIds(projectId: string, provider: RevenueProvider): Promise<Set<string>> {
+    const rows = await dbRead
+        .select({ externalTransactionId: revenueTransactionExclusions.externalTransactionId })
+        .from(revenueTransactionExclusions)
+        .where(and(
+            eq(revenueTransactionExclusions.projectId, projectId),
+            eq(revenueTransactionExclusions.provider, provider),
+        ));
+    return new Set(rows.map((row) => row.externalTransactionId));
 }
 
 async function getCustomEventSyncPreview(
@@ -1294,7 +1400,8 @@ export async function getRevenueOverview(
     const syncPreview = activeProvider === 'custom_events'
         ? await getCustomEventSyncPreview(projectId, customEventConfig)
         : null;
-    const manualEntries = await getManualRevenueEntries(projectId, selectedCurrency, bounds.currentStartKey);
+    const manualEntries = await getManualRevenueEntries(projectId, activeProvider, selectedCurrency);
+    const exclusionSummary = await getRevenueExclusionSummary(projectId, activeProvider, selectedCurrency);
     const grossChangePercent = previousGrossAmountCents && previousGrossAmountCents > 0
         ? ((summary.grossAmountCents - previousGrossAmountCents) / previousGrossAmountCents) * 100
         : null;
@@ -1310,6 +1417,7 @@ export async function getRevenueOverview(
         customEventConfig,
         syncPreview,
         manualEntries,
+        exclusionSummary,
         currencies,
         selectedCurrency,
         summary: {
@@ -1380,6 +1488,8 @@ async function ensureManualRevenueConnection(projectId: string, userId: string) 
 
 async function writeManualRevenueEntryToClickHouse(params: {
     projectId: string;
+    provider: RevenueProvider;
+    kind: RevenueManualEntryKind;
     entryId: string;
     externalTransactionId: string;
     occurredAt: Date;
@@ -1389,32 +1499,41 @@ async function writeManualRevenueEntryToClickHouse(params: {
     isDeleted?: boolean;
     operationId: string;
 }): Promise<void> {
+    const accounting = manualEntryAccounting(params.kind, params.amountCents);
     await writeRevenueEventsToClickHouse({
-        dedupeKey: `${params.projectId}:custom_events:manual:${params.externalTransactionId}:${params.operationId}`,
+        dedupeKey: `${params.projectId}:${params.provider}:manual:${params.externalTransactionId}:${params.operationId}`,
         rows: [buildClickHouseRevenueEventRow({
             projectId: params.projectId,
-            provider: 'custom_events',
+            provider: params.provider,
             occurredAt: params.occurredAt,
             externalTransactionId: params.externalTransactionId,
             externalSourceId: params.entryId,
             amountCents: params.amountCents,
-            grossAmountCents: params.amountCents > 0 ? params.amountCents : 0,
-            refundAmountCents: params.amountCents < 0 ? Math.abs(params.amountCents) : 0,
+            grossAmountCents: accounting.grossAmountCents,
+            refundAmountCents: accounting.refundAmountCents,
             feeCents: 0,
             netCents: params.amountCents,
             currency: params.currency,
             type: 'manual_adjustment',
-            reportingCategory: params.isDeleted ? 'deleted' : (params.amountCents < 0 ? 'refund' : 'revenue'),
+            reportingCategory: params.isDeleted ? 'deleted' : accounting.reportingCategory,
             metadata: params.metadata,
             isDeleted: params.isDeleted,
         })],
     });
 }
 
+async function getManualRevenueConnection(projectId: string, provider: RevenueProvider, userId: string) {
+    if (provider === 'custom_events') return ensureManualRevenueConnection(projectId, userId);
+    const connection = await getProviderConnection(projectId, provider);
+    if (!connection) throw new Error(`${PROVIDER_LABELS[provider]} revenue is not connected for this project`);
+    return connection;
+}
+
 export async function upsertManualRevenueEntry(input: {
     projectId: string;
     userId: string;
     entryId?: string | null;
+    kind?: RevenueManualEntryKind | null;
     date: string;
     amountCents: number;
     currency: string;
@@ -1426,12 +1545,13 @@ export async function upsertManualRevenueEntry(input: {
     const amountCents = normalizeManualAmountCents(input.amountCents);
     const currency = normalizeCurrency(input.currency, 'usd');
     const transactionCount = Math.max(1, positiveInt(input.transactionCount ?? 1));
-    const connection = await ensureManualRevenueConnection(input.projectId, input.userId);
     const now = new Date();
+    let kind = normalizeManualEntryKind(input.kind);
     let oldDateKey: string | null = null;
     let externalTransactionId = `manual:${randomUUID()}`;
     let existingMetadata: Record<string, unknown> | null = null;
     let targetEntryId = input.entryId ?? null;
+    let provider: RevenueProvider = (await getActiveProvider(input.projectId)) ?? 'custom_events';
     let staleManualRows: Array<{
         id: string;
         occurredAt: Date;
@@ -1447,15 +1567,17 @@ export async function upsertManualRevenueEntry(input: {
             .where(and(
                 eq(revenueProviderTransactions.id, targetEntryId),
                 eq(revenueProviderTransactions.projectId, input.projectId),
-                eq(revenueProviderTransactions.provider, 'custom_events'),
                 sql`${revenueProviderTransactions.metadata}->>'source' = ${MANUAL_REVENUE_SOURCE}`,
             ))
             .limit(1);
-        if (!existing) throw new Error('Starting revenue baseline not found');
+        if (!existing || !isRevenueProvider(existing.provider)) throw new Error('Revenue book entry not found');
+        provider = existing.provider;
         oldDateKey = toUtcDateKey(existing.occurredAt);
         externalTransactionId = existing.externalTransactionId;
         existingMetadata = asRecord(existing.metadata) ?? {};
-    } else {
+        kind = normalizeManualEntryKind(existingMetadata.kind);
+    } else if (kind === 'starting_balance') {
+        // A project keeps one starting balance; saving a new one replaces it.
         const existingRows = await db
             .select({
                 id: revenueProviderTransactions.id,
@@ -1468,8 +1590,9 @@ export async function upsertManualRevenueEntry(input: {
             .from(revenueProviderTransactions)
             .where(and(
                 eq(revenueProviderTransactions.projectId, input.projectId),
-                eq(revenueProviderTransactions.provider, 'custom_events'),
+                eq(revenueProviderTransactions.provider, provider),
                 sql`${revenueProviderTransactions.metadata}->>'source' = ${MANUAL_REVENUE_SOURCE}`,
+                sql`COALESCE(${revenueProviderTransactions.metadata}->>'kind', 'starting_balance') = 'starting_balance'`,
             ))
             .orderBy(desc(revenueProviderTransactions.updatedAt), desc(revenueProviderTransactions.occurredAt))
             .limit(100);
@@ -1489,27 +1612,37 @@ export async function upsertManualRevenueEntry(input: {
         }
     }
 
+    if (kind === 'starting_balance' && amountCents <= 0) {
+        throw new Error('Starting revenue must be greater than 0');
+    }
+    if (kind === 'adjustment' && amountCents === 0) {
+        throw new Error('Adjustment amount cannot be 0');
+    }
+
+    const connection = await getManualRevenueConnection(input.projectId, provider, input.userId);
     const metadata = manualRevenueMetadata({
         existing: existingMetadata,
+        kind,
         note: input.note,
         transactionCount,
         userId: input.userId,
     });
+    const accounting = manualEntryAccounting(kind, amountCents);
     const values = {
         connectionId: connection.id,
         projectId: input.projectId,
-        provider: 'custom_events' as const,
+        provider,
         externalTransactionId,
         externalSourceId: 'manual',
         occurredAt,
         amountCents,
         feeCents: 0,
         netCents: amountCents,
-        grossAmountCents: amountCents > 0 ? amountCents : 0,
-        refundAmountCents: amountCents < 0 ? Math.abs(amountCents) : 0,
+        grossAmountCents: accounting.grossAmountCents,
+        refundAmountCents: accounting.refundAmountCents,
         currency,
         type: 'manual_adjustment',
-        reportingCategory: amountCents < 0 ? 'refund' : 'revenue',
+        reportingCategory: accounting.reportingCategory,
         metadata,
         updatedAt: now,
     };
@@ -1537,6 +1670,8 @@ export async function upsertManualRevenueEntry(input: {
         rebuildDateKeys.push(...staleManualRows.map((staleRow) => toUtcDateKey(staleRow.occurredAt)));
         await Promise.all(staleManualRows.map((staleRow) => writeManualRevenueEntryToClickHouse({
             projectId: input.projectId,
+            provider,
+            kind: 'starting_balance',
             entryId: staleRow.id,
             externalTransactionId: staleRow.externalTransactionId,
             occurredAt: staleRow.occurredAt,
@@ -1555,10 +1690,14 @@ export async function upsertManualRevenueEntry(input: {
         })));
     }
 
-    await setProjectRevenueActiveProvider(input.projectId, 'custom_events', input.userId);
-    await rebuildGenericProviderDailyRollups(input.projectId, 'custom_events', rebuildDateKeys);
+    if (!(await getActiveProvider(input.projectId))) {
+        await setProjectRevenueActiveProvider(input.projectId, provider, input.userId);
+    }
+    await rebuildGenericProviderDailyRollups(input.projectId, provider, rebuildDateKeys);
     await writeManualRevenueEntryToClickHouse({
         projectId: input.projectId,
+        provider,
+        kind,
         entryId: row.id,
         externalTransactionId,
         occurredAt,
@@ -1570,6 +1709,7 @@ export async function upsertManualRevenueEntry(input: {
 
     return {
         id: row.id,
+        kind,
         date: dateKey,
         currency,
         amountCents,
@@ -1584,6 +1724,7 @@ export async function deleteManualRevenueEntry(projectId: string, entryId: strin
     const [existing] = await db
         .select({
             id: revenueProviderTransactions.id,
+            provider: revenueProviderTransactions.provider,
             occurredAt: revenueProviderTransactions.occurredAt,
             externalTransactionId: revenueProviderTransactions.externalTransactionId,
             currency: revenueProviderTransactions.currency,
@@ -1593,35 +1734,280 @@ export async function deleteManualRevenueEntry(projectId: string, entryId: strin
         .where(and(
             eq(revenueProviderTransactions.id, entryId),
             eq(revenueProviderTransactions.projectId, projectId),
-            eq(revenueProviderTransactions.provider, 'custom_events'),
             sql`${revenueProviderTransactions.metadata}->>'source' = ${MANUAL_REVENUE_SOURCE}`,
         ))
         .limit(1);
 
-    if (!existing) return false;
+    if (!existing || !isRevenueProvider(existing.provider)) return false;
+    const metadata = asRecord(existing.metadata) ?? {};
     const dateKey = toUtcDateKey(existing.occurredAt);
     const deletedAt = new Date();
     await db
         .delete(revenueProviderTransactions)
         .where(eq(revenueProviderTransactions.id, entryId));
-    await rebuildGenericProviderDailyRollups(projectId, 'custom_events', [dateKey]);
+    await rebuildGenericProviderDailyRollups(projectId, existing.provider, [dateKey]);
     await writeManualRevenueEntryToClickHouse({
         projectId,
+        provider: existing.provider,
+        kind: normalizeManualEntryKind(metadata.kind),
         entryId: existing.id,
         externalTransactionId: existing.externalTransactionId,
         occurredAt: existing.occurredAt,
         amountCents: 0,
         currency: existing.currency,
         metadata: {
-            ...(asRecord(existing.metadata) ?? {}),
+            ...metadata,
             source: MANUAL_REVENUE_SOURCE,
-            eventName: 'manual_historical_revenue',
             deleted: true,
             deletedAt: deletedAt.toISOString(),
         },
         isDeleted: true,
         operationId: deletedAt.toISOString(),
     });
+    return true;
+}
+
+type RevenueLedgerQueryRow = {
+    id: string;
+    external_transaction_id: string;
+    occurred_at: Date | string;
+    currency: string;
+    net_cents: string | number;
+    reporting_category: string | null;
+    type: string;
+    metadata: Record<string, unknown> | string | null;
+    external_source_id: string | null;
+    exclusion_id: string | null;
+    exclusion_reason: string | null;
+    excluded_at: Date | string | null;
+};
+
+function rowsFromExecute<T>(result: unknown): T[] {
+    return Array.isArray(result)
+        ? result as T[]
+        : ((result as { rows?: T[] }).rows ?? []);
+}
+
+function toIsoString(value: Date | string): string {
+    return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function ledgerEntryLabel(provider: RevenueProvider, category: string, metadata: Record<string, unknown>): string {
+    if (provider === 'revenuecat') return category === 'refund' ? 'RevenueCat daily refunds' : 'RevenueCat daily revenue';
+    if (provider === 'superwall') return category === 'refund' ? 'Superwall daily refunds' : 'Superwall daily revenue';
+    return nullableTrim(metadata.eventName) || (category === 'refund' ? 'Refund' : 'Purchase');
+}
+
+/**
+ * Money-moving provider rows for the revenue books editor, newest first, with
+ * their exclusion state. Manual book entries are listed in the overview instead.
+ */
+export async function listRevenueLedgerEntries(
+    projectId: string,
+    options: {
+        timeRange?: string;
+        currency?: string | null;
+        filter?: 'all' | 'excluded';
+        offset?: number;
+        limit?: number;
+    },
+): Promise<RevenueLedgerPage> {
+    const provider = await getActiveProvider(projectId);
+    const currency = options.currency?.trim().toLowerCase() || null;
+    if (!provider || !currency) {
+        return { provider, currency, entries: [], totalCount: 0, excludedCount: 0, hasMore: false };
+    }
+    const limit = Math.min(Math.max(1, Math.floor(options.limit ?? 25)), REVENUE_LEDGER_MAX_PAGE_SIZE);
+    const offset = Math.max(0, Math.floor(options.offset ?? 0));
+    const { currentStartKey } = buildRevenueDateBounds(options.timeRange);
+    const whereSql = sql`
+        t.project_id = ${projectId}
+        AND t.provider = ${provider}
+        AND t.currency = ${currency}
+        AND (t.net_cents <> 0 OR t.gross_amount_cents <> 0 OR t.refund_amount_cents <> 0)
+        AND COALESCE(t.metadata->>'source', '') <> ${MANUAL_REVENUE_SOURCE}
+        ${currentStartKey ? sql`AND t.occurred_at >= ${new Date(`${currentStartKey}T00:00:00Z`)}` : sql``}
+    `;
+    const joinSql = sql`
+        LEFT JOIN revenue_transaction_exclusions x
+          ON x.project_id = t.project_id
+         AND x.provider = t.provider
+         AND x.external_transaction_id = t.external_transaction_id
+    `;
+
+    const pageResult = await dbRead.execute(sql`
+        SELECT
+          t.id,
+          t.external_transaction_id,
+          t.occurred_at,
+          t.currency,
+          t.net_cents,
+          t.reporting_category,
+          t.type,
+          t.metadata,
+          t.external_source_id,
+          x.id AS exclusion_id,
+          x.reason AS exclusion_reason,
+          x.created_at AS excluded_at
+        FROM revenue_provider_transactions t
+        ${joinSql}
+        WHERE ${whereSql}
+          ${options.filter === 'excluded' ? sql`AND x.id IS NOT NULL` : sql``}
+        ORDER BY t.occurred_at DESC, t.id DESC
+        LIMIT ${limit + 1}
+        OFFSET ${offset}
+    `);
+    const countResult = await dbRead.execute(sql`
+        SELECT
+          COUNT(*)::int AS total_count,
+          COUNT(x.id)::int AS excluded_count
+        FROM revenue_provider_transactions t
+        ${joinSql}
+        WHERE ${whereSql}
+    `);
+
+    const rows = rowsFromExecute<RevenueLedgerQueryRow>(pageResult);
+    const [counts] = rowsFromExecute<{ total_count: number | string; excluded_count: number | string }>(countResult);
+    const entries = rows.slice(0, limit).map((row): RevenueLedgerEntry => {
+        const metadata = typeof row.metadata === 'string' ? safeJsonRecord(row.metadata) : (row.metadata ?? {});
+        const category = row.reporting_category || row.type;
+        const occurredAt = toIsoString(row.occurred_at);
+        return {
+            id: row.id,
+            externalTransactionId: row.external_transaction_id,
+            occurredAt,
+            date: occurredAt.slice(0, 10),
+            currency: row.currency,
+            amountCents: numberFromDb(row.net_cents),
+            category,
+            label: ledgerEntryLabel(provider, category, metadata),
+            sessionId: nullableTrim(metadata.sessionId) || (provider === 'custom_events' ? nullableTrim(row.external_source_id) : null),
+            transactionCount: positiveInt(metadata.transactionCount) || 1,
+            exclusion: row.exclusion_id
+                ? {
+                    id: row.exclusion_id,
+                    reason: nullableTrim(row.exclusion_reason),
+                    createdAt: toIsoString(row.excluded_at ?? new Date()),
+                }
+                : null,
+        };
+    });
+
+    const totalCount = numberFromDb(counts?.total_count);
+    const excludedCount = numberFromDb(counts?.excluded_count);
+    return {
+        provider,
+        currency,
+        entries,
+        totalCount: options.filter === 'excluded' ? excludedCount : totalCount,
+        excludedCount,
+        hasMore: rows.length > limit,
+    };
+}
+
+async function writeLedgerTransactionToClickHouse(
+    transaction: typeof revenueProviderTransactions.$inferSelect,
+    isDeleted: boolean,
+    operationId: string,
+): Promise<void> {
+    await writeRevenueEventsToClickHouse({
+        dedupeKey: `${transaction.projectId}:${transaction.provider}:book:${transaction.externalTransactionId}:${operationId}`,
+        rows: [buildClickHouseRevenueEventRow({
+            projectId: transaction.projectId,
+            provider: transaction.provider,
+            occurredAt: transaction.occurredAt,
+            externalTransactionId: transaction.externalTransactionId,
+            externalSourceId: transaction.externalSourceId,
+            amountCents: transaction.amountCents,
+            grossAmountCents: transaction.grossAmountCents,
+            refundAmountCents: transaction.refundAmountCents,
+            feeCents: transaction.feeCents,
+            netCents: transaction.netCents,
+            currency: transaction.currency,
+            type: transaction.type,
+            reportingCategory: transaction.reportingCategory,
+            metadata: asRecord(transaction.metadata),
+            isDeleted,
+        })],
+    });
+}
+
+export async function excludeRevenueTransaction(input: {
+    projectId: string;
+    userId: string;
+    transactionId: string;
+    reason?: string | null;
+}): Promise<{ id: string; externalTransactionId: string; reason: string | null; createdAt: string }> {
+    const [transaction] = await db
+        .select()
+        .from(revenueProviderTransactions)
+        .where(and(
+            eq(revenueProviderTransactions.id, input.transactionId),
+            eq(revenueProviderTransactions.projectId, input.projectId),
+            sql`COALESCE(${revenueProviderTransactions.metadata}->>'source', '') <> ${MANUAL_REVENUE_SOURCE}`,
+        ))
+        .limit(1);
+    if (!transaction || !isRevenueProvider(transaction.provider)) throw new Error('Revenue transaction not found');
+
+    const reason = nullableTrim(input.reason)?.slice(0, REVENUE_EXCLUSION_REASON_MAX_LENGTH) ?? null;
+    const [exclusion] = await db
+        .insert(revenueTransactionExclusions)
+        .values({
+            projectId: input.projectId,
+            provider: transaction.provider,
+            externalTransactionId: transaction.externalTransactionId,
+            occurredAt: transaction.occurredAt,
+            currency: transaction.currency,
+            amountCents: transaction.netCents,
+            reason,
+            excludedByUserId: input.userId,
+        })
+        .onConflictDoUpdate({
+            target: [
+                revenueTransactionExclusions.projectId,
+                revenueTransactionExclusions.provider,
+                revenueTransactionExclusions.externalTransactionId,
+            ],
+            set: { reason, excludedByUserId: input.userId },
+        })
+        .returning();
+
+    await rebuildGenericProviderDailyRollups(input.projectId, transaction.provider, [toUtcDateKey(transaction.occurredAt)]);
+    await writeLedgerTransactionToClickHouse(transaction, true, `exclude:${exclusion.id}:${Date.now()}`);
+
+    return {
+        id: exclusion.id,
+        externalTransactionId: exclusion.externalTransactionId,
+        reason: exclusion.reason,
+        createdAt: exclusion.createdAt.toISOString(),
+    };
+}
+
+export async function restoreRevenueTransaction(projectId: string, exclusionId: string): Promise<boolean> {
+    const [exclusion] = await db
+        .delete(revenueTransactionExclusions)
+        .where(and(
+            eq(revenueTransactionExclusions.id, exclusionId),
+            eq(revenueTransactionExclusions.projectId, projectId),
+        ))
+        .returning();
+    if (!exclusion || !isRevenueProvider(exclusion.provider)) return false;
+
+    const [transaction] = await db
+        .select()
+        .from(revenueProviderTransactions)
+        .where(and(
+            eq(revenueProviderTransactions.projectId, projectId),
+            eq(revenueProviderTransactions.provider, exclusion.provider),
+            eq(revenueProviderTransactions.externalTransactionId, exclusion.externalTransactionId),
+        ))
+        .limit(1);
+    const dateKeys = [toUtcDateKey(exclusion.occurredAt)];
+    if (transaction) dateKeys.push(toUtcDateKey(transaction.occurredAt));
+    await rebuildGenericProviderDailyRollups(projectId, exclusion.provider, dateKeys);
+    if (transaction) {
+        await writeLedgerTransactionToClickHouse(transaction, false, `restore:${exclusion.id}:${Date.now()}`);
+    }
     return true;
 }
 
@@ -1794,6 +2180,7 @@ async function syncSuperwallRevenue(projectId: string, mode: RevenueSyncMode): P
             .where(and(
                 eq(revenueProviderTransactions.projectId, projectId),
                 eq(revenueProviderTransactions.provider, 'superwall'),
+                sql`COALESCE(${revenueProviderTransactions.metadata}->>'source', '') <> ${MANUAL_REVENUE_SOURCE}`,
             ));
         const nextTransactionIds = new Set(transactions.map((row) => row.externalTransactionId));
         const staleIds = existingRows
@@ -1918,6 +2305,7 @@ async function replaceRevenueProviderTransactionsForDateRange(
             eq(revenueProviderTransactions.provider, provider),
             gte(revenueProviderTransactions.occurredAt, startAt),
             lt(revenueProviderTransactions.occurredAt, endExclusive),
+            sql`COALESCE(${revenueProviderTransactions.metadata}->>'source', '') <> ${MANUAL_REVENUE_SOURCE}`,
         ));
 
     for (let index = 0; index < existingRows.length; index += GENERIC_REVENUE_UPSERT_BATCH_SIZE) {
@@ -2054,6 +2442,7 @@ async function upsertGenericRevenueTransactions(
     rows: GenericRevenueTransaction[],
 ): Promise<void> {
     if (!rows.length) return;
+    const excludedIds = await getExcludedTransactionIds(connection.projectId, provider);
 
     for (let index = 0; index < rows.length; index += GENERIC_REVENUE_UPSERT_BATCH_SIZE) {
         const batch = rows.slice(index, index + GENERIC_REVENUE_UPSERT_BATCH_SIZE);
@@ -2102,7 +2491,7 @@ async function upsertGenericRevenueTransactions(
             });
 
         await writeRevenueEventsToClickHouse({
-            dedupeKey: `${connection.projectId}:${provider}:${batch[0]?.externalTransactionId ?? index}:${batch[batch.length - 1]?.externalTransactionId ?? index}`,
+            dedupeKey: `${connection.projectId}:${provider}:${batch[0]?.externalTransactionId ?? index}:${batch[batch.length - 1]?.externalTransactionId ?? index}:x${excludedIds.size}`,
             rows: batch.map((row) => buildClickHouseRevenueEventRow({
                 projectId: connection.projectId,
                 provider,
@@ -2118,6 +2507,7 @@ async function upsertGenericRevenueTransactions(
                 type: row.type,
                 reportingCategory: row.reportingCategory,
                 metadata: row.metadata,
+                isDeleted: excludedIds.has(row.externalTransactionId),
             })),
         });
     }
@@ -2158,6 +2548,13 @@ async function rebuildGenericProviderDailyRollups(
           WHERE ${revenueProviderTransactions.projectId} = ${projectId}
             AND ${revenueProviderTransactions.provider} = ${provider}
             AND occurred_at::date = ANY(${dateKeyArraySql})
+            AND NOT EXISTS (
+              SELECT 1
+              FROM revenue_transaction_exclusions x
+              WHERE x.project_id = revenue_provider_transactions.project_id
+                AND x.provider = revenue_provider_transactions.provider
+                AND x.external_transaction_id = revenue_provider_transactions.external_transaction_id
+            )
         ),
         event_counts AS (
           SELECT date, currency, event_name, COUNT(*)::int AS event_count
@@ -2497,6 +2894,7 @@ async function rebuildCustomEventRevenueTransactions(
             .groupBy(sql`${revenueProviderTransactions.occurredAt}::date::text`);
         dateKeys = allDateRows.map((row) => row.date).filter(Boolean);
     }
+    const excludedIds = await getExcludedTransactionIds(connection.projectId, 'custom_events');
     const clickHouseRows = rows.map((row) => {
         const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : new Date(row.occurred_at);
         const metadata = typeof row.metadata === 'string'
@@ -2517,10 +2915,11 @@ async function rebuildCustomEventRevenueTransactions(
             type: row.type,
             reportingCategory: row.reporting_category,
             metadata,
+            isDeleted: excludedIds.has(row.external_transaction_id),
         });
     });
     await writeRevenueEventsToClickHouse({
-        dedupeKey: `${connection.projectId}:custom_events:${modeSafeDateKey(since)}:${rows[0]?.external_transaction_id ?? 'empty'}:${rows[rows.length - 1]?.external_transaction_id ?? 'empty'}`,
+        dedupeKey: `${connection.projectId}:custom_events:${modeSafeDateKey(since)}:${rows[0]?.external_transaction_id ?? 'empty'}:${rows[rows.length - 1]?.external_transaction_id ?? 'empty'}:x${excludedIds.size}`,
         rows: clickHouseRows,
     });
     await rebuildGenericProviderDailyRollups(connection.projectId, 'custom_events', dateKeys);

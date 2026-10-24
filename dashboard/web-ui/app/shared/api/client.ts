@@ -2062,6 +2062,36 @@ export async function getTeamBillingDashboard(teamId: string): Promise<TeamBilli
     return res;
 }
 
+export interface TeamBillingHistoryRow {
+    period: string;
+    sessions: number;
+    sessionReplays: number;
+    storageBytes: number;
+    requests: number;
+    invoiceStatus: string | null;
+    invoiceUrl: string | null;
+    computedAt?: string;
+}
+
+export async function getTeamBillingHistory(teamId: string, limit = 24): Promise<{ history: TeamBillingHistoryRow[] }> {
+    return fetchJson<{ history: TeamBillingHistoryRow[] }>(`/api/teams/${teamId}/billing/history?limit=${limit}`);
+}
+
+export interface TeamProjectUsageRow {
+    id: string;
+    name: string;
+    platform: string | null;
+    sessions: number;
+    sessionReplays: number;
+    storageBytes: number;
+    requests: number;
+}
+
+export async function getTeamProjectUsage(teamId: string, period?: string): Promise<{ period: string; projects: TeamProjectUsageRow[] }> {
+    const qs = period ? `?period=${encodeURIComponent(period)}` : '';
+    return fetchJson<{ period: string; projects: TeamProjectUsageRow[] }>(`/api/teams/${teamId}/billing/projects${qs}`);
+}
+
 // =============================================================================
 // Stripe Billing API
 // =============================================================================
@@ -2234,8 +2264,11 @@ export interface RevenueCurrencySummary {
     grossAmountCents: number;
 }
 
+export type RevenueManualEntryKind = 'starting_balance' | 'adjustment';
+
 export interface RevenueManualEntry {
     id: string;
+    kind?: RevenueManualEntryKind;
     date: string;
     currency: string;
     amountCents: number;
@@ -2263,6 +2296,7 @@ export interface RevenueOverview {
     customEventConfig: CustomRevenueEventConfig | null;
     syncPreview: RevenueSyncPreview | null;
     manualEntries: RevenueManualEntry[];
+    exclusionSummary?: RevenueExclusionSummary;
     currencies: RevenueCurrencySummary[];
     selectedCurrency: string | null;
     summary: {
@@ -2281,6 +2315,38 @@ export interface RevenueOverview {
         grossChangePercent: number | null;
     };
     daily: RevenueDailyRow[];
+}
+
+export interface RevenueExclusionSummary {
+    count: number;
+    netAmountCents: number;
+}
+
+export interface RevenueLedgerEntry {
+    id: string;
+    externalTransactionId: string;
+    occurredAt: string;
+    date: string;
+    currency: string;
+    amountCents: number;
+    category: string;
+    label: string;
+    sessionId: string | null;
+    transactionCount: number;
+    exclusion: {
+        id: string;
+        reason: string | null;
+        createdAt: string;
+    } | null;
+}
+
+export interface RevenueLedgerPage {
+    provider: RevenueProvider | null;
+    currency: string | null;
+    entries: RevenueLedgerEntry[];
+    totalCount: number;
+    excludedCount: number;
+    hasMore: boolean;
 }
 
 function buildDisconnectedRevenueProvider(provider: RevenueProvider, label: string): RevenueProviderStatus {
@@ -2366,7 +2432,7 @@ export async function configureCustomEventRevenue(projectId: string, input: Cust
 
 export async function createManualRevenueEntry(
     projectId: string,
-    input: { date: string; amountCents: number; currency: string; transactionCount?: number; note?: string | null },
+    input: { kind?: RevenueManualEntryKind; date: string; amountCents: number; currency: string; transactionCount?: number; note?: string | null },
 ): Promise<{ success: boolean; entry: RevenueManualEntry }> {
     return fetchJson<{ success: boolean; entry: RevenueManualEntry }>(`/api/projects/${projectId}/revenue/manual`, {
         method: 'POST',
@@ -2387,6 +2453,35 @@ export async function updateManualRevenueEntry(
 
 export async function deleteManualRevenueEntry(projectId: string, entryId: string): Promise<void> {
     await fetchJson<void>(`/api/projects/${projectId}/revenue/manual/${entryId}`, { method: 'DELETE' });
+}
+
+export async function getRevenueLedger(
+    projectId: string,
+    options: { timeRange?: string; currency?: string | null; filter?: 'all' | 'excluded'; offset?: number; limit?: number },
+): Promise<RevenueLedgerPage> {
+    const params = new URLSearchParams();
+    if (options.timeRange) params.set('timeRange', options.timeRange);
+    if (options.currency) params.set('currency', options.currency);
+    if (options.filter) params.set('filter', options.filter);
+    if (options.offset) params.set('offset', String(options.offset));
+    if (options.limit) params.set('limit', String(options.limit));
+    const qs = params.toString();
+    return fetchJson<RevenueLedgerPage>(`/api/projects/${projectId}/revenue/ledger${qs ? `?${qs}` : ''}`);
+}
+
+export async function excludeRevenueTransaction(
+    projectId: string,
+    transactionId: string,
+    reason: string | null,
+): Promise<{ success: boolean; exclusion: { id: string; externalTransactionId: string; reason: string | null; createdAt: string } }> {
+    return fetchJson(`/api/projects/${projectId}/revenue/ledger/${transactionId}/exclude`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+    });
+}
+
+export async function restoreRevenueTransaction(projectId: string, exclusionId: string): Promise<void> {
+    await fetchJson<void>(`/api/projects/${projectId}/revenue/exclusions/${exclusionId}`, { method: 'DELETE' });
 }
 
 /**

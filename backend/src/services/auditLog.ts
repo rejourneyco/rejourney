@@ -62,7 +62,9 @@ export type AuditAction =
     | 'custom_event_revenue_configured'
     | 'manual_revenue_created'
     | 'manual_revenue_updated'
-    | 'manual_revenue_deleted';
+    | 'manual_revenue_deleted'
+    | 'revenue_transaction_excluded'
+    | 'revenue_transaction_restored';
 
 export type TargetType = 'team' | 'project' | 'session' | 'replay_share' | 'api_key' | 'user' | 'billing' | 'revenue_source';
 

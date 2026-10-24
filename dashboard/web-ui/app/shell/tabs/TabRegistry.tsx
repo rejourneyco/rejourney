@@ -65,6 +65,7 @@ const loadAlertEmails = () => import('~/features/app/alerts/email/route').then((
 const loadSetup = () => import('~/features/app/setup/route').then((module) => ({ default: module.SetupRoute }));
 const loadStability = () => import('~/features/app/stability/index/route').then((module) => ({ default: module.Stability }));
 const loadTeamSettings = () => import('~/features/app/team/route').then((module) => ({ default: module.TeamSettings }));
+const loadBooks = () => import('~/features/app/books/route').then((module) => ({ default: module.BooksPage }));
 const loadBillingSettings = () => import('~/features/app/billing/route').then((module) => ({ default: module.BillingSettings }));
 const loadAccountSettings = () => import('~/features/app/account/route').then((module) => ({ default: module.AccountSettings }));
 const loadProjectSettings = () => import('~/features/app/settings/project/route').then((module) => ({ default: module.ProjectSettings }));
@@ -204,6 +205,7 @@ const routes: RouteDefinition[] = [
         getProps: (p) => ({ sessionId: p.sessionId }),
     },
     { pattern: '/team', getInfo: () => ({ id: 'team', title: DASHBOARD_PAGE_META.team.tabTitle, icon: DASHBOARD_PAGE_META.team.icon }), Component: React.lazy(loadTeamSettings), loadComponent: loadTeamSettings },
+    { pattern: '/books', getInfo: () => ({ id: 'books', title: DASHBOARD_PAGE_META.books.tabTitle, icon: DASHBOARD_PAGE_META.books.icon }), Component: React.lazy(loadBooks), loadComponent: loadBooks },
     { pattern: '/billing', getInfo: () => ({ id: 'billing', title: DASHBOARD_PAGE_META.billing.tabTitle, icon: DASHBOARD_PAGE_META.billing.icon }), Component: React.lazy(loadBillingSettings), loadComponent: loadBillingSettings },
     { pattern: '/account', getInfo: () => ({ id: 'account', title: DASHBOARD_PAGE_META.account.tabTitle, icon: DASHBOARD_PAGE_META.account.icon }), Component: React.lazy(loadAccountSettings), loadComponent: loadAccountSettings },
     {

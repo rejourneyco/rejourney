@@ -21,6 +21,7 @@ const SHARED_APP_ROUTE_MODULES = [
   { key: "errors", path: "stability/errors", file: "shell/routing/redirects/StabilityRedirect.tsx" },
   { key: "error-detail", path: "stability/errors/:projectId/:errorId", file: "shell/routing/redirects/StabilityRedirect.tsx" },
   { key: "team", path: "team", file: "features/app/team/route.tsx" },
+  { key: "books", path: "books", file: "features/app/books/route.tsx" },
   { key: "billing", path: "billing", file: "features/app/billing/route.tsx" },
   { key: "billing-return", path: "billing/return", file: "features/app/billing/return/route.tsx" },
   { key: "account", path: "account", file: "features/app/account/route.tsx" },

@@ -399,6 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ...(showSetupNavItem ? [createSidebarNavItem(setupPath, 'setup')] : []),
         ...(currentProject ? [createSidebarNavItem(p(`/settings/${currentProject.id}`), 'project')] : []),
         createSidebarNavItem(p('/team'), 'team'),
+        ...(currentProject ? [createSidebarNavItem(p('/books'), 'books')] : []),
         createSidebarNavItem(p('/billing'), 'billing'),
       ],
     },

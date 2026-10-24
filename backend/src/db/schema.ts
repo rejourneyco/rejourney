@@ -357,6 +357,28 @@ export const projectRevenueDaily = pgTable(
     ]
 );
 
+// Rows a project manager removed from the revenue books (test purchases,
+// duplicates). Keyed by the provider's stable transaction id so the exclusion
+// survives provider re-syncs that delete and re-insert transaction rows.
+export const revenueTransactionExclusions = pgTable(
+    'revenue_transaction_exclusions',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+        provider: varchar('provider', { length: 32 }).notNull(),
+        externalTransactionId: varchar('external_transaction_id', { length: 255 }).notNull(),
+        occurredAt: timestamp('occurred_at').notNull(),
+        currency: varchar('currency', { length: 12 }).notNull(),
+        amountCents: integer('amount_cents').default(0).notNull(),
+        reason: text('reason'),
+        excludedByUserId: uuid('excluded_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('revenue_transaction_exclusions_project_provider_tx_unique').on(table.projectId, table.provider, table.externalTransactionId),
+    ]
+);
+
 // =============================================================================
 // Audit Logging (Security & Compliance)
 // =============================================================================

@@ -3645,8 +3645,14 @@ async function loadSessionContext(sessionId: string): Promise<{
         }>(
             `
         SELECT amount_cents AS "amount_cents", reporting_category AS "reporting_category", type
-        FROM revenue_provider_transactions
-        WHERE project_id = $1 AND (external_source_id = $2 OR metadata->>'sessionId' = $2)
+        FROM revenue_provider_transactions t
+        WHERE t.project_id = $1 AND (t.external_source_id = $2 OR t.metadata->>'sessionId' = $2)
+          AND NOT EXISTS (
+            SELECT 1 FROM revenue_transaction_exclusions x
+            WHERE x.project_id = t.project_id
+              AND x.provider = t.provider
+              AND x.external_transaction_id = t.external_transaction_id
+          )
         `,
             [session.project_id, sessionId],
         ),

@@ -8,6 +8,7 @@ import {
     Route,
     AlertTriangle,
     LayoutDashboard,
+    BookOpen,
     CreditCard,
     Video,
     Smartphone,
@@ -59,6 +60,7 @@ export const Search: React.FC = () => {
             keywords: ['project', 'config', 'configure', 'options', 'sdk']
         }] : []),
         { id: 'team', title: 'Team members', path: '/team', icon: Users, description: 'Manage team members and invitations', section: 'Workspace', keywords: ['members', 'invite', 'roles', 'permissions', 'access'] },
+        { id: 'books', title: 'Books', path: '/books', icon: BookOpen, description: 'Edit revenue records and export reports', section: 'Workspace', keywords: ['revenue', 'export', 'csv', 'accounting', 'adjustment', 'test purchase', 'starting balance'] },
         { id: 'billing', title: 'Plan & billing', path: '/billing', icon: CreditCard, description: 'Manage subscription, plans, and payment methods', section: 'Workspace', keywords: ['subscription', 'payment', 'plan', 'upgrade', 'invoice', 'pricing'] },
         { id: 'alerts', title: 'Alerts', path: '/alerts/emails', icon: Mail, description: 'Configure email alerts and notifications', section: 'Workspace', keywords: ['email', 'notifications', 'notify', 'webhook'] },
         // You (Personal - stays same across teams)

@@ -12,7 +12,11 @@ import {
     deleteManualRevenueEntry,
     disconnectGenericRevenueProvider,
     enqueueGenericRevenueSync,
+    excludeRevenueTransaction,
     getRevenueOverview,
+    listRevenueLedgerEntries,
+    restoreRevenueTransaction,
+    RevenueManualEntryKind,
     RevenueProvider,
     SUPPORTED_REVENUE_PROVIDERS,
     updateProjectRevenueSource,
@@ -55,6 +59,30 @@ function parseRevenueProvider(value: unknown): RevenueProvider | null {
 function parseManualAmountCents(value: unknown): number | null {
     const numeric = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : null;
+}
+
+function parseManualEntryKind(value: unknown): RevenueManualEntryKind {
+    return value === 'adjustment' ? 'adjustment' : 'starting_balance';
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseQueryInt(value: unknown): number | undefined {
+    const numeric = typeof value === 'string' ? Number(value) : NaN;
+    return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+// Book writes reject bad input with the service's message instead of a 500.
+async function runBookWrite<T>(res: Response, action: () => Promise<T>): Promise<T | null> {
+    try {
+        return await action();
+    } catch (error) {
+        res.status(400).json({
+            error: 'BAD_REQUEST',
+            message: error instanceof Error ? error.message : 'Unable to update revenue books',
+        });
+        return null;
+    }
 }
 
 revenueProjectRouter.get(
@@ -101,20 +129,24 @@ revenueProjectRouter.post(
             return;
         }
 
-        const entry = await upsertManualRevenueEntry({
-            projectId: req.project.id,
-            userId: req.user.id,
+        const projectId = req.project.id;
+        const userId = req.user.id;
+        const entry = await runBookWrite(res, () => upsertManualRevenueEntry({
+            projectId,
+            userId,
+            kind: parseManualEntryKind(req.body?.kind),
             date: String(req.body?.date || ''),
             amountCents,
             currency: String(req.body?.currency || 'usd'),
             transactionCount: parseManualAmountCents(req.body?.transactionCount) ?? 1,
             note: typeof req.body?.note === 'string' ? req.body.note : null,
-        });
+        }));
+        if (!entry) return;
 
         await auditFromRequest(req, 'manual_revenue_created', {
             targetType: 'revenue_source',
             targetId: entry.id,
-            metadata: { projectId: req.project.id, currency: entry.currency, amountCents: entry.amountCents },
+            metadata: { projectId, kind: entry.kind, currency: entry.currency, amountCents: entry.amountCents },
         });
 
         res.status(201).json({ success: true, entry });
@@ -133,27 +165,35 @@ revenueProjectRouter.put(
             return;
         }
 
+        if (!UUID_PATTERN.test(req.params.entryId)) {
+            res.status(404).json({ error: 'Revenue book entry not found' });
+            return;
+        }
+
         const amountCents = parseManualAmountCents(req.body?.amountCents);
         if (amountCents === null) {
             res.status(400).json({ error: 'Invalid manual revenue amount' });
             return;
         }
 
-        const entry = await upsertManualRevenueEntry({
-            projectId: req.project.id,
-            userId: req.user.id,
+        const projectId = req.project.id;
+        const userId = req.user.id;
+        const entry = await runBookWrite(res, () => upsertManualRevenueEntry({
+            projectId,
+            userId,
             entryId: req.params.entryId,
             date: String(req.body?.date || ''),
             amountCents,
             currency: String(req.body?.currency || 'usd'),
             transactionCount: parseManualAmountCents(req.body?.transactionCount) ?? 1,
             note: typeof req.body?.note === 'string' ? req.body.note : null,
-        });
+        }));
+        if (!entry) return;
 
         await auditFromRequest(req, 'manual_revenue_updated', {
             targetType: 'revenue_source',
             targetId: entry.id,
-            metadata: { projectId: req.project.id, currency: entry.currency, amountCents: entry.amountCents },
+            metadata: { projectId, kind: entry.kind, currency: entry.currency, amountCents: entry.amountCents },
         });
 
         res.json({ success: true, entry });
@@ -172,15 +212,114 @@ revenueProjectRouter.delete(
             return;
         }
 
+        if (!UUID_PATTERN.test(req.params.entryId)) {
+            res.status(404).json({ error: 'Revenue book entry not found' });
+            return;
+        }
+
         const deleted = await deleteManualRevenueEntry(req.project.id, req.params.entryId);
         if (!deleted) {
-            res.status(404).json({ error: 'Starting revenue baseline not found' });
+            res.status(404).json({ error: 'Revenue book entry not found' });
             return;
         }
 
         await auditFromRequest(req, 'manual_revenue_deleted', {
             targetType: 'revenue_source',
             targetId: req.params.entryId,
+            metadata: { projectId: req.project.id },
+        });
+
+        res.status(204).send();
+    },
+);
+
+revenueProjectRouter.get(
+    '/ledger',
+    sessionAuth,
+    dashboardRateLimiter,
+    requireProjectAccess,
+    requireRevenueManager,
+    async (req, res) => {
+        if (!req.project) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        const page = await listRevenueLedgerEntries(req.project.id, {
+            timeRange: typeof req.query.timeRange === 'string' ? req.query.timeRange : undefined,
+            currency: typeof req.query.currency === 'string' ? req.query.currency : null,
+            filter: req.query.filter === 'excluded' ? 'excluded' : 'all',
+            offset: parseQueryInt(req.query.offset),
+            limit: parseQueryInt(req.query.limit),
+        });
+
+        res.json(page);
+    },
+);
+
+revenueProjectRouter.post(
+    '/ledger/:transactionId/exclude',
+    sessionAuth,
+    writeApiRateLimiter,
+    requireProjectAccess,
+    requireRevenueManager,
+    async (req, res) => {
+        if (!req.project || !req.user) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        if (!UUID_PATTERN.test(req.params.transactionId)) {
+            res.status(404).json({ error: 'Revenue transaction not found' });
+            return;
+        }
+
+        const projectId = req.project.id;
+        const userId = req.user.id;
+        const exclusion = await runBookWrite(res, () => excludeRevenueTransaction({
+            projectId,
+            userId,
+            transactionId: req.params.transactionId,
+            reason: typeof req.body?.reason === 'string' ? req.body.reason : null,
+        }));
+        if (!exclusion) return;
+
+        await auditFromRequest(req, 'revenue_transaction_excluded', {
+            targetType: 'revenue_source',
+            targetId: exclusion.id,
+            metadata: { projectId, externalTransactionId: exclusion.externalTransactionId, reason: exclusion.reason },
+        });
+
+        res.status(201).json({ success: true, exclusion });
+    },
+);
+
+revenueProjectRouter.delete(
+    '/exclusions/:exclusionId',
+    sessionAuth,
+    writeApiRateLimiter,
+    requireProjectAccess,
+    requireRevenueManager,
+    async (req, res) => {
+        if (!req.project) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        if (!UUID_PATTERN.test(req.params.exclusionId)) {
+            res.status(404).json({ error: 'Revenue exclusion not found' });
+            return;
+        }
+
+        const restored = await restoreRevenueTransaction(req.project.id, req.params.exclusionId);
+        if (!restored) {
+            res.status(404).json({ error: 'Revenue exclusion not found' });
+            return;
+        }
+
+        await auditFromRequest(req, 'revenue_transaction_restored', {
+            targetType: 'revenue_source',
+            targetId: req.params.exclusionId,
             metadata: { projectId: req.project.id },
         });
 

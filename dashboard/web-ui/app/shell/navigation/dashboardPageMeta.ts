@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Activity,
   AlertTriangle,
+  BookOpen,
   CreditCard,
   Droplets,
   Flame,
@@ -31,6 +32,7 @@ export type DashboardPageKey =
   | 'setup'
   | 'project'
   | 'team'
+  | 'books'
   | 'billing'
   | 'account';
 
@@ -147,6 +149,14 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     accent: '#0f766e',
     activeBg: '#f0fdfa',
     iconBgClass: 'bg-[#f0fdfa]',
+  },
+  books: {
+    sidebarLabel: 'Books',
+    tabTitle: 'Books',
+    icon: BookOpen,
+    accent: '#137333',
+    activeBg: '#e6f4ea',
+    iconBgClass: 'bg-[#e6f4ea]',
   },
   billing: {
     sidebarLabel: 'Plan & billing',
