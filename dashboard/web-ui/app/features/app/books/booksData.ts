@@ -1,6 +1,7 @@
 import type {
     RevenueDailyRow,
     RevenueLedgerEntry,
+    RevenueLedgerSession,
     RevenueManualEntry,
     RevenueOverview,
 } from '~/shared/api/client';
@@ -110,6 +111,34 @@ export type DemoBooks = {
     ledger: RevenueLedgerEntry[];
 };
 
+const DEMO_BUYERS = [
+    { userId: 'user_8f2a91', platform: 'ios', deviceModel: 'iPhone16,2', osVersion: '18.1', country: 'United States', countryCode: 'US', city: 'Austin' },
+    { userId: null, platform: 'android', deviceModel: 'SM-S921B', osVersion: '14', country: 'Germany', countryCode: 'DE', city: 'Berlin' },
+    { userId: 'maya@studio.dev', platform: 'ios', deviceModel: 'iPhone15,3', osVersion: '17.6', country: 'United Kingdom', countryCode: 'GB', city: 'London' },
+    { userId: 'user_41c7d0', platform: 'android', deviceModel: 'Pixel 8 Pro', osVersion: '15', country: 'Canada', countryCode: 'CA', city: 'Toronto' },
+    { userId: null, platform: 'ios', deviceModel: 'iPhone14,7', osVersion: '18.0', country: 'Brazil', countryCode: 'BR', city: 'São Paulo' },
+] as const;
+
+function buildDemoLedgerSession(seed: number, occurredAt: Date): RevenueLedgerSession {
+    const buyer = DEMO_BUYERS[seed % DEMO_BUYERS.length];
+    const durationSeconds = 90 + ((seed * 47) % 600);
+    return {
+        userId: buyer.userId,
+        anonymousDisplayName: buyer.userId ? null : ['CalmOtter4B21', 'BrightFalcon9C03'][seed % 2],
+        deviceId: `demo-device-${seed % DEMO_BUYERS.length}`,
+        platform: buyer.platform,
+        deviceModel: buyer.deviceModel,
+        osVersion: buyer.osVersion,
+        appVersion: '3.4.1',
+        country: buyer.country,
+        countryCode: buyer.countryCode,
+        city: buyer.city,
+        startedAt: new Date(occurredAt.getTime() - durationSeconds * 500).toISOString(),
+        durationSeconds,
+        replayAvailable: seed % 11 !== 5,
+    };
+}
+
 export function buildDemoBooks(days = 30): DemoBooks {
     const today = new Date(`${todayDateKey()}T00:00:00Z`);
     const ledger: RevenueLedgerEntry[] = [];
@@ -132,6 +161,7 @@ export function buildDemoBooks(days = 30): DemoBooks {
                 category: isRefund ? 'refund' : 'revenue',
                 label: isRefund ? 'refund' : product.label,
                 sessionId: `session_demo_${(dayOffset * 31 + index).toString(16).padStart(6, '0')}`,
+                session: buildDemoLedgerSession(dayOffset * 3 + index, occurredAt),
                 transactionCount: 1,
                 exclusion: null,
             });
@@ -324,7 +354,8 @@ export function rangeStartKey(timeRange: string): string | null {
 export function buildJournalRows(input: {
     ledger: RevenueLedgerEntry[];
     manualEntries: RevenueManualEntry[];
-    closingBalanceCents: number;
+    /** Null when rows mix currencies, so no running balance is shown. */
+    closingBalanceCents: number | null;
     hasMoreLedger: boolean;
     rangeStart: string | null;
 }): JournalRow[] {
@@ -365,6 +396,7 @@ export function buildJournalRows(input: {
             })),
     ].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.key.localeCompare(b.key));
 
+    if (input.closingBalanceCents === null) return rows;
     let balance = input.closingBalanceCents;
     for (const row of rows) {
         if (!row.counted) continue;

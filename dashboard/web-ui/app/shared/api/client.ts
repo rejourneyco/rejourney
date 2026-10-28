@@ -2338,12 +2338,30 @@ export interface RevenueLedgerEntry {
     category: string;
     label: string;
     sessionId: string | null;
+    /** The session the purchase was logged in, when it still exists. */
+    session?: RevenueLedgerSession | null;
     transactionCount: number;
     exclusion: {
         id: string;
         reason: string | null;
         createdAt: string;
     } | null;
+}
+
+export interface RevenueLedgerSession {
+    userId: string | null;
+    anonymousDisplayName: string | null;
+    deviceId: string | null;
+    platform: string | null;
+    deviceModel: string | null;
+    osVersion: string | null;
+    appVersion: string | null;
+    country: string | null;
+    countryCode: string | null;
+    city: string | null;
+    startedAt: string;
+    durationSeconds: number | null;
+    replayAvailable: boolean;
 }
 
 export interface RevenueLedgerPage {

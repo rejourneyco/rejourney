@@ -19,6 +19,7 @@ import {
     excludeRevenueTransaction,
     getRevenueLedger,
     getRevenueOverview,
+    REVENUE_USD_TOTAL,
     restoreRevenueTransaction,
     updateManualRevenueEntry,
     type RevenueLedgerEntry,
@@ -149,7 +150,7 @@ export const BooksJournal: React.FC<{
     onExport: (key: string, build: () => Promise<string>) => Promise<void>;
     exportingKey: string | null;
 }> = ({ projectId, projectName, isDemoMode, timeRange, pathPrefix, onExport, exportingKey }) => {
-    const [currency, setCurrency] = useState<string | null>(null);
+    const [currency, setCurrency] = useState<string | null>(REVENUE_USD_TOTAL);
     const [overview, setOverview] = useState<RevenueOverview | null>(null);
     const [ledger, setLedger] = useState<RevenueLedgerEntry[]>([]);
     const [ledgerMeta, setLedgerMeta] = useState({ totalCount: 0, excludedCount: 0, hasMore: false });
@@ -166,7 +167,7 @@ export const BooksJournal: React.FC<{
     const serverFilter = typeFilter === 'excluded' ? 'excluded' : 'all';
 
     useEffect(() => {
-        setCurrency(null);
+        setCurrency(REVENUE_USD_TOTAL);
         setDrawer(null);
         setSaveState({ status: 'idle' });
     }, [projectId]);
@@ -196,7 +197,8 @@ export const BooksJournal: React.FC<{
             const data = await getRevenueOverview(projectId, timeRange, currency);
             setOverview(data);
             if (data.connection.canManage) {
-                await loadLedgerPage(data.selectedCurrency, { limit: options.silent ? Math.min(loadedCountRef.current, 100) : PAGE_SIZE });
+                // The USD view lists every currency, each row in its own currency.
+                await loadLedgerPage(data.usdConversion ? REVENUE_USD_TOTAL : data.selectedCurrency, { limit: options.silent ? Math.min(loadedCountRef.current, 100) : PAGE_SIZE });
             } else {
                 setLedger([]);
                 setLedgerMeta({ totalCount: 0, excludedCount: 0, hasMore: false });
@@ -221,6 +223,8 @@ export const BooksJournal: React.FC<{
         ? { totalCount: ledgerRows.length, excludedCount: demoBooks.ledger.filter((entry) => entry.exclusion).length, hasMore: false }
         : ledgerMeta;
     const selectedCurrency = books?.selectedCurrency ?? 'usd';
+    const isUsdTotal = Boolean(books?.usdConversion);
+    const ledgerCurrency = isUsdTotal ? REVENUE_USD_TOTAL : selectedCurrency;
     const canManage = isDemoMode || Boolean(books?.connection.canManage);
     const provider = books?.activeProvider ?? null;
     const manualEntries = books?.manualEntries ?? [];
@@ -231,10 +235,11 @@ export const BooksJournal: React.FC<{
     const journal = useMemo(() => buildJournalRows({
         ledger: ledgerRows,
         manualEntries: serverFilter === 'excluded' ? [] : manualEntries,
-        closingBalanceCents: books?.summary.netAmountCents ?? 0,
+        // Rows in several currencies have no single running balance.
+        closingBalanceCents: isUsdTotal ? null : books?.summary.netAmountCents ?? 0,
         hasMoreLedger: meta.hasMore,
         rangeStart,
-    }), [books?.summary.netAmountCents, ledgerRows, manualEntries, meta.hasMore, rangeStart, serverFilter]);
+    }), [books?.summary.netAmountCents, isUsdTotal, ledgerRows, manualEntries, meta.hasMore, rangeStart, serverFilter]);
 
     const filteredJournal = useMemo(() => {
         const needle = search.trim().toLowerCase();
@@ -270,10 +275,13 @@ export const BooksJournal: React.FC<{
     }, [filteredJournal]);
 
     const totals = useMemo(() => {
+        if (isUsdTotal && books) {
+            return { moneyIn: books.summary.grossAmountCents, moneyOut: -books.summary.refundAmountCents };
+        }
         const moneyIn = journal.filter((row) => row.counted && row.amountCents > 0 && row.category !== 'opening_balance').reduce((sum, row) => sum + row.amountCents, 0);
         const moneyOut = journal.filter((row) => row.counted && row.amountCents < 0).reduce((sum, row) => sum + row.amountCents, 0);
         return { moneyIn, moneyOut };
-    }, [journal]);
+    }, [books, isUsdTotal, journal]);
 
     const drawerRow = drawer?.mode === 'record' ? journal.find((row) => row.key === drawer.key) ?? null : null;
 
@@ -369,30 +377,30 @@ export const BooksJournal: React.FC<{
     const handleLoadMore = useCallback(async () => {
         setIsLoadingMore(true);
         try {
-            await loadLedgerPage(selectedCurrency, { append: true });
+            await loadLedgerPage(ledgerCurrency, { append: true });
         } catch (error) {
             setLoadError(errorMessage(error, 'Unable to load more records.'));
         } finally {
             setIsLoadingMore(false);
         }
-    }, [loadLedgerPage, selectedCurrency]);
+    }, [ledgerCurrency, loadLedgerPage]);
 
     const exportJournal = useCallback(() => onExport('revenue-journal', async () => {
         if (isDemoMode || !projectId) return buildJournalCsv(journal);
         const all: RevenueLedgerEntry[] = [];
         for (let offset = 0; offset < EXPORT_MAX_ROWS; offset += EXPORT_PAGE_SIZE) {
-            const page = await getRevenueLedger(projectId, { timeRange, currency: selectedCurrency, offset, limit: EXPORT_PAGE_SIZE });
+            const page = await getRevenueLedger(projectId, { timeRange, currency: ledgerCurrency, offset, limit: EXPORT_PAGE_SIZE });
             all.push(...page.entries);
             if (!page.hasMore) break;
         }
         return buildJournalCsv(buildJournalRows({
             ledger: all,
             manualEntries,
-            closingBalanceCents: books?.summary.netAmountCents ?? 0,
+            closingBalanceCents: isUsdTotal ? null : books?.summary.netAmountCents ?? 0,
             hasMoreLedger: false,
             rangeStart,
         }));
-    }), [books?.summary.netAmountCents, isDemoMode, journal, manualEntries, onExport, projectId, rangeStart, selectedCurrency, timeRange]);
+    }), [books?.summary.netAmountCents, isDemoMode, isUsdTotal, journal, ledgerCurrency, manualEntries, onExport, projectId, rangeStart, timeRange]);
 
     const saveIndicator = saveState.status === 'saving'
         ? <span className="inline-flex items-center gap-1 text-xs text-[#5f6368]" aria-live="polite"><RefreshCw className="h-3 w-3 animate-spin" />Saving…</span>
@@ -412,11 +420,12 @@ export const BooksJournal: React.FC<{
                 {saveIndicator}
                 {books?.currencies && books.currencies.length > 1 && (
                     <select
-                        value={selectedCurrency}
-                        onChange={(event) => setCurrency(event.target.value || null)}
+                        value={ledgerCurrency}
+                        onChange={(event) => setCurrency(event.target.value || REVENUE_USD_TOTAL)}
                         aria-label="Journal currency"
                         className="h-8 rounded-none border border-[#dadce0] bg-white px-2 text-xs text-[#3c4043] outline-none focus:border-[#1a73e8]"
                     >
+                        <option value={REVENUE_USD_TOTAL}>All in USD</option>
                         {books.currencies.map((row) => <option key={row.currency} value={row.currency}>{row.currency.toUpperCase()}</option>)}
                     </select>
                 )}

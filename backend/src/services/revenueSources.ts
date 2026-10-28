@@ -13,6 +13,7 @@ import {
     sessions,
 } from '../db/schema.js';
 import { logger } from '../logger.js';
+import { generateAnonymousName } from '../utils/anonymousName.js';
 import {
     buildClickHouseRevenueEventRow,
     writeRevenueEventsToClickHouse,
@@ -157,12 +158,30 @@ export interface RevenueLedgerEntry {
     category: string;
     label: string;
     sessionId: string | null;
+    /** The session the purchase was logged in, when it still exists. */
+    session: RevenueLedgerSession | null;
     transactionCount: number;
     exclusion: {
         id: string;
         reason: string | null;
         createdAt: string;
     } | null;
+}
+
+export interface RevenueLedgerSession {
+    userId: string | null;
+    anonymousDisplayName: string | null;
+    deviceId: string | null;
+    platform: string | null;
+    deviceModel: string | null;
+    osVersion: string | null;
+    appVersion: string | null;
+    country: string | null;
+    countryCode: string | null;
+    city: string | null;
+    startedAt: string;
+    durationSeconds: number | null;
+    replayAvailable: boolean;
 }
 
 export interface RevenueLedgerPage {
@@ -510,11 +529,28 @@ async function getCurrencySummaries(
             projectRevenueDaily.currency,
         );
 
-    return rows.map((row) => ({
+    const summaries = rows.map((row) => ({
         currency: row.currency,
         grossAmountCents: numberFromDb(row.grossAmountCents),
         transactionCount: numberFromDb(row.transactionCount),
     }));
+
+    // A currency whose every transaction was excluded (test purchases) has no daily
+    // rows left, but its excluded rows must stay reachable in the books.
+    const excluded = await dbRead
+        .selectDistinct({ currency: revenueTransactionExclusions.currency })
+        .from(revenueTransactionExclusions)
+        .where(and(
+            eq(revenueTransactionExclusions.projectId, projectId),
+            eq(revenueTransactionExclusions.provider, provider),
+        ));
+    for (const { currency } of excluded) {
+        const code = currency?.toLowerCase();
+        if (code && !summaries.some((row) => row.currency === code)) {
+            summaries.push({ currency: code, grossAmountCents: 0, transactionCount: 0 });
+        }
+    }
+    return summaries;
 }
 
 async function getDailyRows(
@@ -1442,7 +1478,8 @@ export async function getRevenueOverview(
     const wantsUsdTotal = requestedCurrency === USD_TOTAL_CURRENCY;
     const configuredCurrency = activeProvider === 'custom_events' ? customEventConfig?.defaultCurrency ?? null : null;
     const nativeCurrency = [wantsUsdTotal ? null : requestedCurrency, configuredCurrency]
-        .find((candidate) => candidate && currencies.some((row) => row.currency === candidate))
+        .find((candidate) => candidate && currencies.some((row) => row.currency === candidate
+            && (candidate === requestedCurrency || row.transactionCount > 0)))
         ?? currencies[0]?.currency
         ?? null;
     // A USD total converts every currency at the latest rates. A project that only
@@ -1904,6 +1941,19 @@ type RevenueLedgerQueryRow = {
     exclusion_id: string | null;
     exclusion_reason: string | null;
     excluded_at: Date | string | null;
+    session_id: string | null;
+    session_user_display_id: string | null;
+    session_device_id: string | null;
+    session_platform: string | null;
+    session_device_model: string | null;
+    session_os_version: string | null;
+    session_app_version: string | null;
+    session_geo_country: string | null;
+    session_geo_country_code: string | null;
+    session_geo_city: string | null;
+    session_started_at: Date | string | null;
+    session_duration_seconds: number | string | null;
+    session_replay_available: boolean | null;
 };
 
 function rowsFromExecute<T>(result: unknown): T[] {
@@ -1938,6 +1988,8 @@ export async function listRevenueLedgerEntries(
 ): Promise<RevenueLedgerPage> {
     const provider = await getActiveProvider(projectId);
     const currency = options.currency?.trim().toLowerCase() || null;
+    // `all` lists every currency, each row in its own currency.
+    const allCurrencies = currency === USD_TOTAL_CURRENCY;
     if (!provider || !currency) {
         return { provider, currency, entries: [], totalCount: 0, excludedCount: 0, hasMore: false };
     }
@@ -1947,7 +1999,7 @@ export async function listRevenueLedgerEntries(
     const whereSql = sql`
         t.project_id = ${projectId}
         AND t.provider = ${provider}
-        AND t.currency = ${currency}
+        ${allCurrencies ? sql`` : sql`AND t.currency = ${currency}`}
         AND (t.net_cents <> 0 OR t.gross_amount_cents <> 0 OR t.refund_amount_cents <> 0)
         AND COALESCE(t.metadata->>'source', '') <> ${MANUAL_REVENUE_SOURCE}
         ${currentStartKey ? sql`AND t.occurred_at >= ${new Date(`${currentStartKey}T00:00:00Z`)}` : sql``}
@@ -1972,9 +2024,28 @@ export async function listRevenueLedgerEntries(
           t.external_source_id,
           x.id AS exclusion_id,
           x.reason AS exclusion_reason,
-          x.created_at AS excluded_at
+          x.created_at AS excluded_at,
+          s.id AS session_id,
+          s.user_display_id AS session_user_display_id,
+          s.device_id AS session_device_id,
+          s.platform AS session_platform,
+          s.device_model AS session_device_model,
+          s.os_version AS session_os_version,
+          s.app_version AS session_app_version,
+          s.geo_country AS session_geo_country,
+          s.geo_country_code AS session_geo_country_code,
+          s.geo_city AS session_geo_city,
+          s.started_at AS session_started_at,
+          s.duration_seconds AS session_duration_seconds,
+          (s.replay_available AND NOT s.is_replay_expired) AS session_replay_available
         FROM revenue_provider_transactions t
         ${joinSql}
+        LEFT JOIN sessions s
+          ON s.project_id = t.project_id
+         AND s.id = COALESCE(
+               NULLIF(t.metadata->>'sessionId', ''),
+               CASE WHEN t.provider = 'custom_events' THEN t.external_source_id END
+             )
         WHERE ${whereSql}
           ${options.filter === 'excluded' ? sql`AND x.id IS NOT NULL` : sql``}
         ORDER BY t.occurred_at DESC, t.id DESC
@@ -2006,6 +2077,23 @@ export async function listRevenueLedgerEntries(
             category,
             label: ledgerEntryLabel(provider, category, metadata),
             sessionId: nullableTrim(metadata.sessionId) || (provider === 'custom_events' ? nullableTrim(row.external_source_id) : null),
+            session: row.session_id
+                ? {
+                    userId: nullableTrim(row.session_user_display_id),
+                    anonymousDisplayName: row.session_device_id ? generateAnonymousName(row.session_device_id) : null,
+                    deviceId: row.session_device_id,
+                    platform: row.session_platform,
+                    deviceModel: row.session_device_model,
+                    osVersion: row.session_os_version,
+                    appVersion: row.session_app_version,
+                    country: row.session_geo_country,
+                    countryCode: row.session_geo_country_code,
+                    city: row.session_geo_city,
+                    startedAt: toIsoString(row.session_started_at ?? row.occurred_at),
+                    durationSeconds: row.session_duration_seconds === null ? null : numberFromDb(row.session_duration_seconds),
+                    replayAvailable: Boolean(row.session_replay_available),
+                }
+                : null,
             transactionCount: positiveInt(metadata.transactionCount) || 1,
             exclusion: row.exclusion_id
                 ? {

@@ -9,6 +9,7 @@ import {
     ExternalLink,
     Globe2,
     Info,
+    ListOrdered,
     Maximize2,
     Pencil,
     Plus,
@@ -70,6 +71,7 @@ import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
+import { RevenueLedgerPanel } from './RevenueLedgerPanel';
 import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { formatCountryDisplayName, formatGeoDisplay } from '~/shared/lib/geoDisplay';
@@ -1538,6 +1540,9 @@ const RevenueImpactSection: React.FC<{
     chartData: RevenueImpactChartRow[];
     releaseMarkers: VersionReleaseMarker[];
     collapseStorageKey: string;
+    projectId: string | null;
+    timeRange: string;
+    isDemoMode: boolean;
 }> = ({
     revenue,
     isLoading,
@@ -1556,6 +1561,9 @@ const RevenueImpactSection: React.FC<{
     chartData,
     releaseMarkers,
     collapseStorageKey,
+    projectId,
+    timeRange,
+    isDemoMode,
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(() => {
         if (typeof window === 'undefined') return false;
@@ -1572,7 +1580,9 @@ const RevenueImpactSection: React.FC<{
     const [revenueCatProjectId, setRevenueCatProjectId] = useState('');
     const [customConfig, setCustomConfig] = useState(DEFAULT_CUSTOM_REVENUE_CONFIG);
     const [copiedCustomSetupPrompt, setCopiedCustomSetupPrompt] = useState(false);
-    const booksPath = `${usePathPrefix()}/books`;
+    const pathPrefix = usePathPrefix();
+    const booksPath = `${pathPrefix}/books`;
+    const [isLedgerOpen, setIsLedgerOpen] = useState(false);
     const customEventOptions = useMemo(() => dedupeRevenueEventOptions(customEvents), [customEvents]);
     const connection = revenue?.connection;
     const activeProvider = revenue?.activeProvider ?? null;
@@ -2194,7 +2204,8 @@ const RevenueImpactSection: React.FC<{
         const adjustmentEntries = manualEntries.filter((entry) => entry.kind === 'adjustment');
         const adjustmentTotalCents = adjustmentEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
         const exclusionCount = revenue?.exclusionSummary?.count ?? 0;
-        if (!canManage && manualEntries.length === 0 && exclusionCount === 0) return null;
+        const hasLedger = showRevenueDataView && ((revenue?.summary.transactionCount ?? 0) > 0 || exclusionCount > 0);
+        if (!canManage && manualEntries.length === 0 && exclusionCount === 0 && !hasLedger) return null;
         const parts = [
             startingRevenueEntry
                 ? `Starting balance ${formatCurrencyMinor(startingRevenueEntry.amountCents, startingRevenueEntry.currency)}`
@@ -2219,11 +2230,34 @@ const RevenueImpactSection: React.FC<{
                             <span>Set a starting balance, exclude test purchases, or export revenue reports.</span>
                         )}
                     </div>
-                    <Link to={`${booksPath}`} className={dashboardButtonClass('secondary', 'sm')}>
-                        <BookOpen className="h-3 w-3" />
-                        {canManage ? 'Edit books' : 'Open books'}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Link to={`${booksPath}`} className={dashboardButtonClass('secondary', 'sm')}>
+                            <BookOpen className="h-3 w-3" />
+                            {canManage ? 'Edit books' : 'Open books'}
+                        </Link>
+                        {hasLedger && (
+                            <button
+                                type="button"
+                                onClick={() => setIsLedgerOpen((open) => !open)}
+                                aria-expanded={isLedgerOpen}
+                                className={dashboardButtonClass('secondary', 'sm')}
+                            >
+                                <ListOrdered className="h-3 w-3" />
+                                {isLedgerOpen ? 'Hide ledger' : 'View ledger'}
+                                <ChevronDown className={`h-3 w-3 transition-transform ${isLedgerOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                        )}
+                    </div>
                 </div>
+                {hasLedger && isLedgerOpen && (
+                    <RevenueLedgerPanel
+                        projectId={projectId}
+                        timeRange={timeRange}
+                        pathPrefix={pathPrefix}
+                        isDemoMode={isDemoMode}
+                        refreshKey={`${revenue?.summary.transactionCount ?? 0}:${exclusionCount}:${revenue?.connection?.lastSyncCompletedAt ?? ''}`}
+                    />
+                )}
             </div>
         );
     };
@@ -2423,7 +2457,7 @@ const RevenueImpactSection: React.FC<{
                                     <div className="min-w-0">
                                         <span className="dashboard-label">Synced</span>
                                         <div className="mt-1 break-words text-sm font-medium text-[#202124]">
-                                            {formatSyncTime(revenue?.connection.lastSyncCompletedAt ?? revenue?.connection.lastSyncStartedAt)}
+                                            {formatSyncTime(revenue?.connection?.lastSyncCompletedAt ?? revenue?.connection.lastSyncStartedAt)}
                                         </div>
                                     </div>
                                 </div>
@@ -3673,6 +3707,9 @@ export const GeneralOverview: React.FC = () => {
                         chartData={revenueChartData}
                         releaseMarkers={revenueVersionMarkers}
                         collapseStorageKey={revenueImpactCollapsedStorageKey}
+                        projectId={selectedProject?.id ?? null}
+                        timeRange={timeRange}
+                        isDemoMode={isDemoMode}
                     />
                 )}
 
