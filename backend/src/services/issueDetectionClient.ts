@@ -59,8 +59,33 @@ export async function callIssueDetection<T>(input: IssueDetectionRequest): Promi
     }
 }
 
+/** A timeout, network failure or gateway error that a second attempt may clear. */
+class UpstreamTransientError extends Error {
+    constructor(readonly apiError: Error) {
+        super(apiError.message);
+    }
+}
+
+// Plain reads retry once: a single stalled upstream response otherwise surfaces as a
+// failed page. Each attempt gets a shorter budget so the retry fits in the same wait.
+const SINGLE_ATTEMPT_TIMEOUT_MS = 30_000;
+const RETRIED_ATTEMPT_TIMEOUT_MS = 20_000;
+
 async function requestIssueDetection<T>(input: IssueDetectionRequest): Promise<T> {
     const method = input.method ?? 'GET';
+    const attempts = method === 'GET' && !input.raw ? 2 : 1;
+    const timeoutMs = attempts > 1 ? RETRIED_ATTEMPT_TIMEOUT_MS : SINGLE_ATTEMPT_TIMEOUT_MS;
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await requestIssueDetectionOnce<T>(input, method, timeoutMs);
+        } catch (error) {
+            const retryable = error instanceof UpstreamTransientError;
+            if (!retryable || attempt >= attempts) throw retryable ? error.apiError : error;
+        }
+    }
+}
+
+async function requestIssueDetectionOnce<T>(input: IssueDetectionRequest, method: string, timeoutMs: number): Promise<T> {
     const headers = new Headers({
         ...signInternalServiceRequest({
             body: input.body,
@@ -77,10 +102,20 @@ async function requestIssueDetection<T>(input: IssueDetectionRequest): Promise<T
         headers.set('Content-Type', 'application/json');
     }
 
+    // Outside the transport try: a missing configuration is not a transient failure.
+    const url = buildUpstreamUrl(input.pathWithQuery);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(buildUpstreamUrl(input.pathWithQuery), { method, headers, body, signal: controller.signal });
+        let response: Response;
+        try {
+            response = await fetch(url, { method, headers, body, signal: controller.signal });
+        } catch (error) {
+            if (controller.signal.aborted) {
+                throw new UpstreamTransientError(ApiError.gatewayTimeout('Issue detection timed out'));
+            }
+            throw new UpstreamTransientError(ApiError.serviceUnavailable('Issue detection service unavailable'));
+        }
 
         if (!response.ok) {
             if (response.status === 404) throw ApiError.notFound('Not found');
@@ -88,6 +123,9 @@ async function requestIssueDetection<T>(input: IssueDetectionRequest): Promise<T
             if (response.status === 400) throw ApiError.badRequest('Issue detection rejected the request');
             if (response.status === 429) throw ApiError.tooManyRequests('Issue detection is rate limited');
             if (response.status === 503) throw ApiError.serviceUnavailable('Issue detection is not configured');
+            if (response.status === 502 || response.status === 504) {
+                throw new UpstreamTransientError(ApiError.serviceUnavailable('Issue detection service unavailable'));
+            }
             throw ApiError.serviceUnavailable('Issue detection service unavailable');
         }
 

@@ -44,6 +44,7 @@ import {
     getInsightsTrends,
     getObservabilityDeepMetrics,
     getRevenueOverview,
+    REVENUE_USD_TOTAL,
     getRetentionCohorts,
     getSessionsPaginated,
     getUserEngagementTrends,
@@ -1578,7 +1579,10 @@ const RevenueImpactSection: React.FC<{
     const status = connection?.status ?? 'not_connected';
     const canManage = Boolean(connection?.canManage);
     const hasActiveConnection = status === 'connected' || status === 'syncing' || status === 'error';
-    const currency = revenue?.selectedCurrency ?? selectedCurrency ?? null;
+    const currency = revenue?.selectedCurrency
+        ?? (selectedCurrency === REVENUE_USD_TOTAL ? 'usd' : selectedCurrency)
+        ?? null;
+    const usdConversion = revenue?.usdConversion ?? null;
     const manualEntries = revenue?.manualEntries ?? [];
     const startingRevenueEntry = manualEntries.find((entry) => entry.kind !== 'adjustment') ?? null;
     const grossChange = revenue?.summary.grossChangePercent ?? null;
@@ -2259,14 +2263,15 @@ const RevenueImpactSection: React.FC<{
                             <>
                                 {revenue?.currencies && revenue.currencies.length > 1 && (
                                     <select
-                                        value={currency ?? ''}
-                                        onChange={(event) => onCurrencyChange(event.target.value || null)}
+                                        value={usdConversion ? REVENUE_USD_TOTAL : currency ?? ''}
+                                        onChange={(event) => onCurrencyChange(event.target.value || REVENUE_USD_TOTAL)}
                                         aria-label="Revenue currency"
                                         className="h-8 rounded-none border border-[#dadce0] bg-white px-2 text-xs font-medium text-[#3c4043] outline-none transition-colors hover:bg-[#f8fafd] focus:border-[#1a73e8] focus:ring-2 focus:ring-[#1a73e8]/20"
                                     >
+                                        <option value={REVENUE_USD_TOTAL}>All in USD</option>
                                         {revenue.currencies.map((row) => (
                                             <option key={row.currency} value={row.currency}>
-                                                {row.currency.toUpperCase()}
+                                                {row.currency.toUpperCase()} · {formatCurrencyMinor(row.grossAmountCents, row.currency, true)}
                                             </option>
                                         ))}
                                     </select>
@@ -2384,6 +2389,16 @@ const RevenueImpactSection: React.FC<{
                                         <div className="mt-1 whitespace-nowrap text-2xl font-medium leading-tight tabular-nums text-[#202124]">
                                             {formatCurrencyMinor(revenue?.summary.grossAmountCents ?? 0, currency)}
                                         </div>
+                                        {usdConversion && (
+                                            <div
+                                                className="mt-1 text-xs text-[#5f6368]"
+                                                title={`Rates as of ${new Date(usdConversion.ratesAsOf).toLocaleString()}`}
+                                            >
+                                                Converted to USD at latest rates
+                                                {usdConversion.unconvertedCurrencies.length > 0
+                                                    && ` · excludes ${usdConversion.unconvertedCurrencies.map((code) => code.toUpperCase()).join(', ')}`}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="min-w-0">
                                         <span className="dashboard-label">Change</span>
@@ -2580,7 +2595,7 @@ export const GeneralOverview: React.FC = () => {
     const [revenueOverview, setRevenue] = useState<RevenueOverview | null>(null);
     const [isRevenueLoading, setIsRevenueLoading] = useState(false);
     const [revenueOverviewError, setRevenueError] = useState<string | null>(null);
-    const [revenueOverviewCurrency, setRevenueCurrency] = useState<string | null>(null);
+    const [revenueOverviewCurrency, setRevenueCurrency] = useState<string | null>(REVENUE_USD_TOTAL);
     const [revenueActionState, setRevenueActionState] = useState<RevenueActionState>(null);
     const isRevenueActionLoading = revenueActionState !== null;
     const [copiedTopUserKey, setCopiedTopUserKey] = useState<string | null>(null);
@@ -2597,7 +2612,7 @@ export const GeneralOverview: React.FC = () => {
     const referralDataScopeRef = useRef<string | null>(null);
 
     useEffect(() => {
-        setRevenueCurrency(null);
+        setRevenueCurrency(REVENUE_USD_TOTAL);
     }, [selectedProject?.id]);
 
     const loadRevenue = useCallback(async (options: { showLoading?: boolean } = {}) => {

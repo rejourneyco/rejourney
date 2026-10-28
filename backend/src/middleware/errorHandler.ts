@@ -66,6 +66,10 @@ export class ApiError extends Error {
     static serviceUnavailable(message: string = 'Service unavailable') {
         return new ApiError(message, 503, 'SERVICE_UNAVAILABLE');
     }
+
+    static gatewayTimeout(message: string = 'Upstream service timed out') {
+        return new ApiError(message, 504, 'GATEWAY_TIMEOUT');
+    }
 }
 
 /**

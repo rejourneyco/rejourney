@@ -22,6 +22,9 @@ import {
     X,
     XCircle,
 } from 'lucide-react';
+
+/** Backend message for a missing issue-detection configuration (not a transient failure). */
+const ISSUE_DETECTION_NOT_CONFIGURED = 'Issue detection is not configured';
 import { Link, useLocation } from 'react-router';
 import type { LoaderFunctionArgs } from 'react-router';
 import {
@@ -1153,6 +1156,8 @@ export const Leaks: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isDetailLoading, setIsDetailLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Bumped by Retry to reload the inbox after a transient failure.
+    const [inboxReload, setInboxReload] = useState(0);
     const [copied, setCopied] = useState(false);
     const [handoffStatus, setHandoffStatus] = useState<string | null>(null);
     const [isGeneratingContext, setIsGeneratingContext] = useState(false);
@@ -1398,7 +1403,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [loadRunHistory, projectId]);
+    }, [inboxReload, loadRunHistory, projectId]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1662,8 +1667,23 @@ export const Leaks: React.FC = () => {
                                     </div>
                                 )}
                             {!isLoading && error && !showSetupEmptyState && (
-                                <div className="m-5 rounded-none border border-[#f6aea9] bg-[#fce8e6] p-4 text-sm font-medium text-[#a50e0e]">
-                                    Issue detection is not configured.
+                                // Only the backend's not-configured response means setup is missing;
+                                // timeouts and outages are transient and can be retried.
+                                <div className="m-5 flex items-center justify-between gap-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] p-4 text-sm font-medium text-[#a50e0e]">
+                                    <span>
+                                        {error === ISSUE_DETECTION_NOT_CONFIGURED
+                                            ? 'Issue detection is not configured.'
+                                            : `Couldn't load issues: ${error}`}
+                                    </span>
+                                    {error !== ISSUE_DETECTION_NOT_CONFIGURED && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setInboxReload((value) => value + 1)}
+                                            className="inline-flex shrink-0 items-center gap-1.5 border border-[#a50e0e] bg-white px-3 py-1.5 text-xs font-semibold text-[#a50e0e] hover:bg-[#fce8e6]"
+                                        >
+                                            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+                                        </button>
+                                    )}
                                 </div>
                             )}
                             {showSetupEmptyState && (

@@ -9,7 +9,13 @@ vi.mock('../middleware/index.js', () => ({ ApiError: {
     notFound: (message: string) => new Error(message),
     forbidden: (message: string) => new Error(message),
     serviceUnavailable: (message: string) => new Error(message),
+    gatewayTimeout: (message: string) => new Error(message),
 } }));
+// Route the client's node:timers import through the globals so fake timers apply.
+vi.mock('node:timers', () => ({
+    setTimeout: (...args: Parameters<typeof globalThis.setTimeout>) => globalThis.setTimeout(...args),
+    clearTimeout: (...args: Parameters<typeof globalThis.clearTimeout>) => globalThis.clearTimeout(...args),
+}));
 vi.mock('../services/internalServiceAuth.js', () => ({ signInternalServiceRequest: () => ({}) }));
 vi.mock('../services/projectAccess.js', () => ({ userCanAccessProject: vi.fn() }));
 
@@ -50,5 +56,39 @@ describe('issue proxy reads', () => {
         await callIssueDetection({ pathWithQuery: '/v1/projects/permission-test/leaks' });
         await expect(requireProjectAccess('denied', 'permission-test')).rejects.toThrow('Access denied');
         expect(userCanAccessProject).toHaveBeenLastCalledWith('denied', 'permission-test');
+    });
+
+    it('retries a read once when the upstream stalls, then reports a timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const stalled = vi.fn((_url: URL, init: RequestInit) => new Promise<Response>((_, reject) => {
+                init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            }));
+            vi.stubGlobal('fetch', stalled);
+            const read = callIssueDetection({ pathWithQuery: '/v1/projects/stall-test/leaks?view=inbox' });
+            const outcome = expect(read).rejects.toThrow('Issue detection timed out');
+            await vi.advanceTimersByTimeAsync(40_000);
+            await outcome;
+            expect(stalled).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('returns the second attempt when the first read fails transiently', async () => {
+        const fetch = vi.fn()
+            .mockRejectedValueOnce(new TypeError('fetch failed'))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ leaks: [] })));
+        vi.stubGlobal('fetch', fetch);
+        await expect(callIssueDetection({ pathWithQuery: '/v1/projects/flaky-test/leaks' })).resolves.toEqual({ leaks: [] });
+        expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry writes', async () => {
+        const fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+        vi.stubGlobal('fetch', fetch);
+        await expect(callIssueDetection({ method: 'PATCH', pathWithQuery: '/v1/leaks/write-test', body: { status: 'resolved' } }))
+            .rejects.toThrow('Issue detection service unavailable');
+        expect(fetch).toHaveBeenCalledTimes(1);
     });
 });

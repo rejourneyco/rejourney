@@ -18,6 +18,7 @@ import {
     writeRevenueEventsToClickHouse,
 } from './clickhouseRevenueEventsSink.js';
 import { encrypt, isEncryptionKeyConfigured, safeDecrypt, safeEncrypt } from './crypto.js';
+import { getUsdRates, toUsdCents, type UsdRates } from './fxRates.js';
 
 // Providers all write into the same generic revenue tables and ClickHouse
 // revenue_events fact table.
@@ -29,6 +30,7 @@ export type RevenueSyncMode = 'initial' | 'manual' | 'scheduled';
 export interface RevenueCurrencySummary {
     currency: string;
     grossAmountCents: number;
+    transactionCount: number;
 }
 
 export type RevenueManualEntryKind = 'starting_balance' | 'adjustment';
@@ -113,6 +115,15 @@ export interface RevenueOverview {
     exclusionSummary: RevenueExclusionSummary;
     currencies: RevenueCurrencySummary[];
     selectedCurrency: string | null;
+    /**
+     * Set when every currency was converted into one USD total (the default view).
+     * Null when a single native currency is shown.
+     */
+    usdConversion: {
+        ratesAsOf: string;
+        /** Currencies with no known rate, left out of the total. */
+        unconvertedCurrencies: string[];
+    } | null;
     summary: {
         grossAmountCents: number;
         refundAmountCents: number;
@@ -487,15 +498,22 @@ async function getCurrencySummaries(
         .select({
             currency: projectRevenueDaily.currency,
             grossAmountCents: sql<number>`COALESCE(SUM(${projectRevenueDaily.grossAmountCents}), 0)`,
+            transactionCount: sql<number>`COALESCE(SUM(${projectRevenueDaily.transactionCount}), 0)`,
         })
         .from(projectRevenueDaily)
         .where(and(...conditions))
         .groupBy(projectRevenueDaily.currency)
-        .orderBy(desc(sql`COALESCE(SUM(${projectRevenueDaily.grossAmountCents}), 0)`));
+        // Minor-unit sums are not comparable across currencies (1,500 IQD outweighs
+        // 0.99 EUR), so rank by how often each currency was used.
+        .orderBy(
+            desc(sql`COALESCE(SUM(${projectRevenueDaily.transactionCount}), 0)`),
+            projectRevenueDaily.currency,
+        );
 
     return rows.map((row) => ({
         currency: row.currency,
         grossAmountCents: numberFromDb(row.grossAmountCents),
+        transactionCount: numberFromDb(row.transactionCount),
     }));
 }
 
@@ -1340,6 +1358,72 @@ async function getCustomEventSyncPreview(
     };
 }
 
+/** The `currency` query value that asks for every currency converted into one USD total. */
+export const USD_TOTAL_CURRENCY = 'all';
+
+function mergeDailyRowsAsUsd(
+    perCurrency: Array<{ currency: string; daily: RevenueDailyRow[] }>,
+    rates: UsdRates,
+): RevenueDailyRow[] {
+    const byDate = new Map<string, RevenueDailyRow>();
+    for (const { currency, daily } of perCurrency) {
+        const usd = (cents: number) => toUsdCents(cents, currency, rates) ?? 0;
+        for (const row of daily) {
+            const merged = byDate.get(row.date) ?? {
+                date: row.date,
+                currency: 'usd',
+                grossAmountCents: 0,
+                refundAmountCents: 0,
+                feeAmountCents: 0,
+                netAmountCents: 0,
+                transactionCount: 0,
+                refundCount: 0,
+                subscriberCount: 0,
+                trialCount: 0,
+                subscriptionStartCount: 0,
+                cancellationCount: 0,
+                conversionCount: 0,
+                customEventCounts: {},
+            };
+            merged.grossAmountCents += usd(row.grossAmountCents);
+            merged.refundAmountCents += usd(row.refundAmountCents);
+            merged.feeAmountCents += usd(row.feeAmountCents);
+            merged.netAmountCents += usd(row.netAmountCents);
+            merged.transactionCount += row.transactionCount;
+            merged.refundCount += row.refundCount;
+            merged.subscriberCount += row.subscriberCount;
+            merged.trialCount += row.trialCount;
+            merged.subscriptionStartCount += row.subscriptionStartCount;
+            merged.cancellationCount += row.cancellationCount;
+            merged.conversionCount += row.conversionCount;
+            for (const [name, count] of Object.entries(row.customEventCounts)) {
+                merged.customEventCounts[name] = (merged.customEventCounts[name] ?? 0) + count;
+            }
+            byDate.set(row.date, merged);
+        }
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function getUsdExclusionSummary(
+    projectId: string,
+    provider: RevenueProvider | null,
+    currencies: string[],
+    rates: UsdRates,
+): Promise<RevenueExclusionSummary> {
+    const summaries = await Promise.all(currencies.map(async (currency) => ({
+        currency,
+        summary: await getRevenueExclusionSummary(projectId, provider, currency),
+    })));
+    return summaries.reduce(
+        (acc, { currency, summary }) => ({
+            count: acc.count + summary.count,
+            netAmountCents: acc.netAmountCents + (toUsdCents(summary.netAmountCents, currency, rates) ?? 0),
+        }),
+        { count: 0, netAmountCents: 0 },
+    );
+}
+
 export async function getRevenueOverview(
     projectId: string,
     options: { timeRange?: string; currency?: string | null; canManage: boolean },
@@ -1352,18 +1436,56 @@ export async function getRevenueOverview(
 
     const bounds = buildRevenueDateBounds(options.timeRange);
     const currencies = await getCurrencySummaries(projectId, activeProvider, bounds.currentStartKey);
+    const customConnection = await getProviderConnection(projectId, 'custom_events');
+    const customEventConfig = normalizeCustomEventConfig(customConnection?.customEventConfig);
     const requestedCurrency = options.currency?.trim().toLowerCase() || null;
-    const selectedCurrency = requestedCurrency && currencies.some((row) => row.currency === requestedCurrency)
-        ? requestedCurrency
-        : (currencies[0]?.currency ?? null);
-    const daily = await getDailyRows(projectId, activeProvider, selectedCurrency, bounds.currentStartKey);
-    const previousGrossAmountCents = await getPreviousGrossAmountCents(
-        projectId,
-        activeProvider,
-        selectedCurrency,
-        bounds.previousStartKey,
-        bounds.previousEndKey,
-    );
+    const wantsUsdTotal = requestedCurrency === USD_TOTAL_CURRENCY;
+    const configuredCurrency = activeProvider === 'custom_events' ? customEventConfig?.defaultCurrency ?? null : null;
+    const nativeCurrency = [wantsUsdTotal ? null : requestedCurrency, configuredCurrency]
+        .find((candidate) => candidate && currencies.some((row) => row.currency === candidate))
+        ?? currencies[0]?.currency
+        ?? null;
+    // A USD total converts every currency at the latest rates. A project that only
+    // ever sold in USD needs no rates; without rates the native view is shown.
+    const onlyUsd = currencies.every((row) => row.currency === 'usd');
+    const rates = wantsUsdTotal && !onlyUsd ? await getUsdRates() : null;
+    const convertToUsd = rates !== null;
+    const selectedCurrency = convertToUsd ? 'usd' : nativeCurrency;
+
+    let daily: RevenueDailyRow[];
+    let previousGrossAmountCents: number | null;
+    let usdConversion: RevenueOverview['usdConversion'] = null;
+    if (convertToUsd && rates) {
+        const convertible = currencies.filter((row) => toUsdCents(0, row.currency, rates) !== null);
+        usdConversion = {
+            ratesAsOf: rates.asOf,
+            unconvertedCurrencies: currencies.filter((row) => !convertible.includes(row)).map((row) => row.currency),
+        };
+        const perCurrency = await Promise.all(convertible.map(async (row) => ({
+            currency: row.currency,
+            daily: await getDailyRows(projectId, activeProvider, row.currency, bounds.currentStartKey),
+            previous: await getPreviousGrossAmountCents(
+                projectId,
+                activeProvider,
+                row.currency,
+                bounds.previousStartKey,
+                bounds.previousEndKey,
+            ),
+        })));
+        daily = mergeDailyRowsAsUsd(perCurrency, rates);
+        previousGrossAmountCents = perCurrency.some((row) => row.previous !== null)
+            ? perCurrency.reduce((sum, row) => sum + (toUsdCents(row.previous ?? 0, row.currency, rates) ?? 0), 0)
+            : null;
+    } else {
+        daily = await getDailyRows(projectId, activeProvider, selectedCurrency, bounds.currentStartKey);
+        previousGrossAmountCents = await getPreviousGrossAmountCents(
+            projectId,
+            activeProvider,
+            selectedCurrency,
+            bounds.previousStartKey,
+            bounds.previousEndKey,
+        );
+    }
 
     const summary = daily.reduce(
         (acc, row) => {
@@ -1395,13 +1517,14 @@ export async function getRevenueOverview(
         },
     );
 
-    const customConnection = await getProviderConnection(projectId, 'custom_events');
-    const customEventConfig = normalizeCustomEventConfig(customConnection?.customEventConfig);
     const syncPreview = activeProvider === 'custom_events'
         ? await getCustomEventSyncPreview(projectId, customEventConfig)
         : null;
-    const manualEntries = await getManualRevenueEntries(projectId, activeProvider, selectedCurrency);
-    const exclusionSummary = await getRevenueExclusionSummary(projectId, activeProvider, selectedCurrency);
+    // Book entries keep their own currency; the USD view lists them all.
+    const manualEntries = await getManualRevenueEntries(projectId, activeProvider, usdConversion ? null : selectedCurrency);
+    const exclusionSummary = usdConversion && rates
+        ? await getUsdExclusionSummary(projectId, activeProvider, currencies.map((row) => row.currency), rates)
+        : await getRevenueExclusionSummary(projectId, activeProvider, selectedCurrency);
     const grossChangePercent = previousGrossAmountCents && previousGrossAmountCents > 0
         ? ((summary.grossAmountCents - previousGrossAmountCents) / previousGrossAmountCents) * 100
         : null;
@@ -1420,6 +1543,7 @@ export async function getRevenueOverview(
         exclusionSummary,
         currencies,
         selectedCurrency,
+        usdConversion,
         summary: {
             ...summary,
             previousGrossAmountCents,

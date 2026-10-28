@@ -57,7 +57,6 @@
         "@aws-sdk/s3-request-presigner": "^3.1048.0",
         "@clickhouse/client": "^1.18.5",
         "archiver": "^8.0.0",
-        "better-auth": "^1.6.25",
         "bullmq": "^5.76.4",
         "compression": "^1.7.4",
         "cookie-parser": "^1.4.7",

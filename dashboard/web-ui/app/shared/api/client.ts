@@ -2262,7 +2262,11 @@ export interface RevenueDailyRow {
 export interface RevenueCurrencySummary {
     currency: string;
     grossAmountCents: number;
+    transactionCount?: number;
 }
+
+/** `currency` value that asks the revenue overview for one USD total across currencies. */
+export const REVENUE_USD_TOTAL = 'all';
 
 export type RevenueManualEntryKind = 'starting_balance' | 'adjustment';
 
@@ -2299,6 +2303,8 @@ export interface RevenueOverview {
     exclusionSummary?: RevenueExclusionSummary;
     currencies: RevenueCurrencySummary[];
     selectedCurrency: string | null;
+    /** Set when every currency was converted into one USD total (`currency=all`). */
+    usdConversion?: { ratesAsOf: string; unconvertedCurrencies: string[] } | null;
     summary: {
         grossAmountCents: number;
         refundAmountCents: number;
