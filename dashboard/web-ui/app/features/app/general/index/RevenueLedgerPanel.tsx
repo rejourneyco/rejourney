@@ -5,6 +5,7 @@ import { ArrowRight, Check, Copy, Play } from 'lucide-react';
 import { buildDemoBooks, formatMoney } from '~/features/app/books/booksData';
 import { ReplayLink } from '~/features/app/sessions/index/ReplayLink';
 import { getRevenueLedger, REVENUE_USD_TOTAL, type RevenueLedgerEntry } from '~/shared/api/client';
+import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { DEMO_REPLAY_SESSION_IDS } from '~/shared/data/demoData';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
@@ -52,6 +53,8 @@ export const RevenueLedgerPanel: React.FC<{
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const demoLedger = useMemo(() => (isDemoMode ? buildDemoBooks().ledger : []), [isDemoMode]);
 
+    // The top-bar refresh reloads the ledger even when the totals it is keyed on did not move.
+    const manualRefreshVersion = useDashboardManualRefreshVersion();
     const loadPage = useCallback(async () => {
         if (!projectId) return;
         setIsLoading(true);
@@ -71,7 +74,7 @@ export const RevenueLedgerPanel: React.FC<{
     useEffect(() => {
         if (isDemoMode) return;
         void loadPage();
-    }, [isDemoMode, loadPage, refreshKey]);
+    }, [isDemoMode, loadPage, manualRefreshVersion, refreshKey]);
 
     const rows = isDemoMode ? demoLedger.slice(0, PAGE_SIZE) : entries;
     const count = isDemoMode ? demoLedger.length : totalCount;

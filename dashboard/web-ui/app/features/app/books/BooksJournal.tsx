@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import {
     AlertCircle,
     Check,
@@ -164,6 +165,9 @@ export const BooksJournal: React.FC<{
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const [demoBooks, setDemoBooks] = useState<DemoBooks>(() => buildDemoBooks());
     const loadedCountRef = useRef(PAGE_SIZE);
+    const manualRefreshVersion = useDashboardManualRefreshVersion();
+    /** Bumped per journal load, so a slower, older load never overwrites a newer one. */
+    const loadSeqRef = useRef(0);
     const serverFilter = typeFilter === 'excluded' ? 'excluded' : 'all';
 
     useEffect(() => {
@@ -172,7 +176,7 @@ export const BooksJournal: React.FC<{
         setSaveState({ status: 'idle' });
     }, [projectId]);
 
-    const loadLedgerPage = useCallback(async (selectedCurrency: string | null, options: { append?: boolean; limit?: number } = {}) => {
+    const loadLedgerPage = useCallback(async (selectedCurrency: string | null, options: { append?: boolean; limit?: number; isCurrent?: () => boolean } = {}) => {
         if (!projectId || isDemoMode) return;
         const page = await getRevenueLedger(projectId, {
             timeRange,
@@ -181,6 +185,7 @@ export const BooksJournal: React.FC<{
             offset: options.append ? loadedCountRef.current : 0,
             limit: options.limit ?? PAGE_SIZE,
         });
+        if (options.isCurrent && !options.isCurrent()) return;
         setLedger((current) => {
             const next = options.append ? [...current, ...page.entries] : page.entries;
             loadedCountRef.current = Math.max(PAGE_SIZE, next.length);
@@ -191,24 +196,31 @@ export const BooksJournal: React.FC<{
 
     const loadBooks = useCallback(async (options: { silent?: boolean } = {}) => {
         if (!projectId || isDemoMode) return;
+        const seq = ++loadSeqRef.current;
+        const isCurrent = () => seq === loadSeqRef.current;
         if (!options.silent) setIsLoading(true);
         setLoadError(null);
         try {
             const data = await getRevenueOverview(projectId, timeRange, currency);
+            if (!isCurrent()) return;
             setOverview(data);
             if (data.connection.canManage) {
                 // The USD view lists every currency, each row in its own currency.
-                await loadLedgerPage(data.usdConversion ? REVENUE_USD_TOTAL : data.selectedCurrency, { limit: options.silent ? Math.min(loadedCountRef.current, 100) : PAGE_SIZE });
+                await loadLedgerPage(data.usdConversion ? REVENUE_USD_TOTAL : data.selectedCurrency, {
+                    limit: options.silent ? Math.min(loadedCountRef.current, 100) : PAGE_SIZE,
+                    isCurrent,
+                });
             } else {
                 setLedger([]);
                 setLedgerMeta({ totalCount: 0, excludedCount: 0, hasMore: false });
             }
         } catch (error) {
-            setLoadError(errorMessage(error, 'Unable to load the revenue journal.'));
+            if (isCurrent()) setLoadError(errorMessage(error, 'Unable to load the revenue journal.'));
         } finally {
-            setIsLoading(false);
+            if (isCurrent()) setIsLoading(false);
         }
-    }, [currency, isDemoMode, loadLedgerPage, projectId, timeRange]);
+    // manualRefreshVersion: the top-bar refresh reloads the journal too.
+    }, [currency, isDemoMode, loadLedgerPage, manualRefreshVersion, projectId, timeRange]);
 
     useEffect(() => {
         loadedCountRef.current = PAGE_SIZE;

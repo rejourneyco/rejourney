@@ -20,6 +20,8 @@ import {
 } from './clickhouseRevenueEventsSink.js';
 import { encrypt, isEncryptionKeyConfigured, safeDecrypt, safeEncrypt } from './crypto.js';
 import { getUsdRates, toUsdCents, type UsdRates } from './fxRates.js';
+import { getRedis } from '../db/redis.js';
+import { acquireRedisLease, releaseRedisLease, type RedisLease } from './redisLease.js';
 
 // Providers all write into the same generic revenue tables and ClickHouse
 // revenue_events fact table.
@@ -242,6 +244,22 @@ const GENERIC_REVENUE_SYNC_STALE_MS = 60 * 60 * 1000;
 const GENERIC_REVENUE_UPSERT_BATCH_SIZE = 500;
 const GENERIC_REVENUE_BACKFILL_DAYS = 365;
 const GENERIC_REVENUE_INCREMENTAL_OVERLAP_MS = 48 * 60 * 60 * 1000;
+/**
+ * Opening the revenue view imports purchases from recent sessions, so a refresh shows
+ * them without waiting for the 6-hour sync. Throttled per project; the window covers
+ * any session still recording or whose events are still being rolled up.
+ */
+const REFRESH_IMPORT_WINDOW_MS = 6 * 60 * 60 * 1000;
+const REFRESH_IMPORT_MIN_INTERVAL_SECONDS = 60;
+const REFRESH_IMPORT_WAIT_MS = 4_000;
+/**
+ * Custom-event imports for a project (refresh, scheduled, manual, initial) hold this
+ * lock, so a delete-and-rebuild never interleaves with a refresh import across pods.
+ */
+const CUSTOM_EVENT_IMPORT_LOCK_TTL_MS = 15 * 60 * 1000;
+const CUSTOM_EVENT_IMPORT_LOCK_WAIT_MS = 60_000;
+/** The setup preview scans every session, so page loads reuse it for a while. */
+const CUSTOM_EVENT_SYNC_PREVIEW_TTL_SECONDS = 15 * 60;
 
 const runningProviderSyncs = new Set<string>();
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
@@ -1323,6 +1341,20 @@ async function getCustomEventSyncPreview(
         .map((value) => value.toLowerCase());
     if (eventNames.length === 0) return null;
 
+    // The scan covers every session in the project, so page loads share a cached
+    // result for a while. Config changes drop it.
+    const cacheKey = customEventSyncPreviewCacheKey(projectId);
+    const configFingerprint = JSON.stringify([eventNames, normalizedConfig.revenueAmountProperty, normalizedConfig.amountUnit]);
+    try {
+        const cached = await getRedis().get(cacheKey);
+        if (cached) {
+            const parsed = JSON.parse(cached) as { config: string; preview: RevenueSyncPreview };
+            if (parsed.config === configFingerprint) return parsed.preview;
+        }
+    } catch (err) {
+        logger.debug({ err, projectId }, 'Revenue sync preview cache read failed');
+    }
+
     const eventNameArraySql = sql`ARRAY[${sql.join(eventNames.map((eventName) => sql`${eventName}`), sql`, `)}]::text[]`;
     const amountMultiplier = normalizedConfig.amountUnit === 'minor' ? 1 : 100;
     const previewQuery = await dbRead.execute(sql`
@@ -1385,13 +1417,86 @@ async function getCustomEventSyncPreview(
         }> }).rows ?? []);
     const row = rows[0];
 
-    return {
+    const preview: RevenueSyncPreview = {
         provider: 'custom_events',
         scannedSessionCount: numberFromDb(row?.scanned_session_count),
         matchedSessionCount: numberFromDb(row?.matched_session_count),
         matchedEventCount: numberFromDb(row?.matched_event_count),
         revenueEventCount: numberFromDb(row?.revenue_event_count),
     };
+    try {
+        await getRedis().set(cacheKey, JSON.stringify({ config: configFingerprint, preview }), 'EX', CUSTOM_EVENT_SYNC_PREVIEW_TTL_SECONDS);
+    } catch (err) {
+        logger.debug({ err, projectId }, 'Revenue sync preview cache write failed');
+    }
+    return preview;
+}
+
+function customEventSyncPreviewCacheKey(projectId: string): string {
+    return `revenue:sync-preview:${projectId}`;
+}
+
+async function forgetCustomEventSyncPreview(projectId: string): Promise<void> {
+    try {
+        await getRedis().del(customEventSyncPreviewCacheKey(projectId));
+    } catch (err) {
+        logger.debug({ err, projectId }, 'Revenue sync preview cache delete failed');
+    }
+}
+
+function customEventImportLockKey(projectId: string): string {
+    return `lock:revenue-custom-events:${projectId}`;
+}
+
+async function acquireCustomEventImportLock(projectId: string, waitMs: number): Promise<RedisLease | null> {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+        const lease = await acquireRedisLease(getRedis(), customEventImportLockKey(projectId), CUSTOM_EVENT_IMPORT_LOCK_TTL_MS);
+        if (lease || Date.now() >= deadline) return lease;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+}
+
+async function releaseCustomEventImportLock(lease: RedisLease | null): Promise<void> {
+    if (!lease) return;
+    await releaseRedisLease(getRedis(), lease).catch((err) => {
+        logger.debug({ err, key: lease.key }, 'Custom-event import lock release failed');
+    });
+}
+
+/**
+ * Imports custom revenue events from sessions started in the last few hours, at most
+ * once a minute per project. Skipped while another import holds the project, and when
+ * Redis is unavailable to throttle it. Never throws.
+ */
+export async function refreshRecentCustomEventRevenue(projectId: string): Promise<boolean> {
+    let lease: RedisLease | null = null;
+    try {
+        if (runningProviderSyncs.has(providerSyncKey(projectId, 'custom_events'))) return false;
+        const claimed = await getRedis().set(
+            `revenue:refresh-import:${projectId}`,
+            '1',
+            'EX',
+            REFRESH_IMPORT_MIN_INTERVAL_SECONDS,
+            'NX',
+        );
+        if (claimed !== 'OK') return false;
+        lease = await acquireCustomEventImportLock(projectId, 0);
+        if (!lease) return false;
+        // Read under the lock, so a config saved meanwhile is the one imported.
+        const connection = await getProviderConnection(projectId, 'custom_events');
+        // 'syncing' means a full or scheduled import is running; it covers these sessions.
+        if (!connection || (connection.status !== 'connected' && connection.status !== 'error')) return false;
+        const config = normalizeCustomEventConfig(connection.customEventConfig);
+        if (!config) return false;
+        await rebuildCustomEventRevenueTransactions(connection, config, new Date(Date.now() - REFRESH_IMPORT_WINDOW_MS));
+        return true;
+    } catch (err) {
+        logger.warn({ err, projectId }, 'Recent custom-event revenue import failed');
+        return false;
+    } finally {
+        await releaseCustomEventImportLock(lease);
+    }
 }
 
 /** The `currency` query value that asks for every currency converted into one USD total. */
@@ -1469,6 +1574,13 @@ export async function getRevenueOverview(
     const activeStatus = activeProvider
         ? providers.find((provider) => provider.provider === activeProvider) ?? defaultProviderStatus(activeProvider)
         : defaultProviderStatus('custom_events');
+
+    if (activeProvider === 'custom_events') {
+        // Wait briefly so this response already has new purchases; a slow import
+        // finishes in the background and shows on the next load.
+        const refresh = refreshRecentCustomEventRevenue(projectId);
+        await Promise.race([refresh, new Promise((resolve) => setTimeout(resolve, REFRESH_IMPORT_WAIT_MS))]);
+    }
 
     const bounds = buildRevenueDateBounds(options.timeRange);
     const currencies = await getCurrencySummaries(projectId, activeProvider, bounds.currentStartKey);
@@ -2641,6 +2753,7 @@ export async function configureCustomEventRevenue(input: {
         .returning({ id: projectRevenueConnections.id });
 
     await setProjectRevenueActiveProvider(input.projectId, 'custom_events', input.userId);
+    await forgetCustomEventSyncPreview(input.projectId);
     void enqueueGenericRevenueSync(input.projectId, 'custom_events', 'initial').catch((err) => {
         logger.error({ err, projectId: input.projectId }, 'Unable to enqueue custom event revenue rebuild');
     });
@@ -2734,95 +2847,99 @@ async function rebuildGenericProviderDailyRollups(
     if (!uniqueDateKeys.length) return 0;
     const dateKeyArraySql = sql`ARRAY[${sql.join(uniqueDateKeys.map((dateKey) => sql`${dateKey}`), sql`, `)}]::date[]`;
 
-    await db
-        .delete(projectRevenueDaily)
-        .where(and(
-            eq(projectRevenueDaily.projectId, projectId),
-            eq(projectRevenueDaily.sourceProvider, provider),
-            sql`${projectRevenueDaily.date} = ANY(${dateKeyArraySql})`,
-        ));
+    // One transaction, so readers never see the days deleted but not yet rebuilt.
+    return db.transaction(async (tx) => {
+        await tx
+            .delete(projectRevenueDaily)
+            .where(and(
+                eq(projectRevenueDaily.projectId, projectId),
+                eq(projectRevenueDaily.sourceProvider, provider),
+                sql`${projectRevenueDaily.date} = ANY(${dateKeyArraySql})`,
+            ));
 
-    const aggregateQuery = await db.execute(sql`
-        WITH base AS (
-          SELECT
-            occurred_at::date::text AS date,
-            currency,
-            provider,
-            type,
-            reporting_category,
-            gross_amount_cents,
-            refund_amount_cents,
-            fee_cents,
-            net_cents,
-            metadata,
-            COALESCE(NULLIF(metadata->>'eventName', ''), reporting_category, type) AS event_name
-          FROM ${revenueProviderTransactions}
-          WHERE ${revenueProviderTransactions.projectId} = ${projectId}
-            AND ${revenueProviderTransactions.provider} = ${provider}
-            AND occurred_at::date = ANY(${dateKeyArraySql})
-            AND NOT EXISTS (
-              SELECT 1
-              FROM revenue_transaction_exclusions x
-              WHERE x.project_id = revenue_provider_transactions.project_id
-                AND x.provider = revenue_provider_transactions.provider
-                AND x.external_transaction_id = revenue_provider_transactions.external_transaction_id
+        const aggregateQuery = await tx.execute(sql`
+            WITH base AS (
+              SELECT
+                occurred_at::date::text AS date,
+                currency,
+                provider,
+                type,
+                reporting_category,
+                gross_amount_cents,
+                refund_amount_cents,
+                fee_cents,
+                net_cents,
+                metadata,
+                COALESCE(NULLIF(metadata->>'eventName', ''), reporting_category, type) AS event_name
+              FROM ${revenueProviderTransactions}
+              WHERE ${revenueProviderTransactions.projectId} = ${projectId}
+                AND ${revenueProviderTransactions.provider} = ${provider}
+                AND occurred_at::date = ANY(${dateKeyArraySql})
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM revenue_transaction_exclusions x
+                  WHERE x.project_id = revenue_provider_transactions.project_id
+                    AND x.provider = revenue_provider_transactions.provider
+                    AND x.external_transaction_id = revenue_provider_transactions.external_transaction_id
+                )
+            ),
+            event_counts AS (
+              SELECT date, currency, event_name, COUNT(*)::int AS event_count
+              FROM base
+              WHERE event_name IS NOT NULL AND event_name <> ''
+              GROUP BY date, currency, event_name
+            ),
+            aggregates AS (
+              SELECT
+                date,
+                currency,
+                COALESCE(SUM(gross_amount_cents), 0) AS gross_amount_cents,
+                COALESCE(SUM(refund_amount_cents), 0) AS refund_amount_cents,
+                COALESCE(SUM(fee_cents), 0) AS fee_amount_cents,
+                COALESCE(SUM(net_cents), 0) AS net_amount_cents,
+                COALESCE(SUM(CASE WHEN reporting_category = 'revenue' THEN COALESCE((metadata->>'transactionCount')::int, 1) ELSE 0 END), 0) AS transaction_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'refund' OR refund_amount_cents > 0 THEN 1 ELSE 0 END), 0) AS refund_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'subscriber' THEN 1 ELSE 0 END), 0) AS subscriber_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'trial' THEN 1 ELSE 0 END), 0) AS trial_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'subscription_start' THEN 1 ELSE 0 END), 0) AS subscription_start_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'cancellation' THEN 1 ELSE 0 END), 0) AS cancellation_count,
+                COALESCE(SUM(CASE WHEN reporting_category = 'conversion' THEN 1 ELSE 0 END), 0) AS conversion_count
+              FROM base
+              GROUP BY date, currency
             )
-        ),
-        event_counts AS (
-          SELECT date, currency, event_name, COUNT(*)::int AS event_count
-          FROM base
-          WHERE event_name IS NOT NULL AND event_name <> ''
-          GROUP BY date, currency, event_name
-        ),
-        aggregates AS (
-          SELECT
-            date,
-            currency,
-            COALESCE(SUM(gross_amount_cents), 0) AS gross_amount_cents,
-            COALESCE(SUM(refund_amount_cents), 0) AS refund_amount_cents,
-            COALESCE(SUM(fee_cents), 0) AS fee_amount_cents,
-            COALESCE(SUM(net_cents), 0) AS net_amount_cents,
-            COALESCE(SUM(CASE WHEN reporting_category = 'revenue' THEN COALESCE((metadata->>'transactionCount')::int, 1) ELSE 0 END), 0) AS transaction_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'refund' OR refund_amount_cents > 0 THEN 1 ELSE 0 END), 0) AS refund_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'subscriber' THEN 1 ELSE 0 END), 0) AS subscriber_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'trial' THEN 1 ELSE 0 END), 0) AS trial_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'subscription_start' THEN 1 ELSE 0 END), 0) AS subscription_start_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'cancellation' THEN 1 ELSE 0 END), 0) AS cancellation_count,
-            COALESCE(SUM(CASE WHEN reporting_category = 'conversion' THEN 1 ELSE 0 END), 0) AS conversion_count
-          FROM base
-          GROUP BY date, currency
-        )
-        SELECT
-          aggregates.*,
-          COALESCE((
-            SELECT jsonb_object_agg(event_counts.event_name, event_counts.event_count)
-            FROM event_counts
-            WHERE event_counts.date = aggregates.date
-              AND event_counts.currency = aggregates.currency
-          ), '{}'::jsonb) AS custom_event_counts
-        FROM aggregates
-    `);
+            SELECT
+              aggregates.*,
+              COALESCE((
+                SELECT jsonb_object_agg(event_counts.event_name, event_counts.event_count)
+                FROM event_counts
+                WHERE event_counts.date = aggregates.date
+                  AND event_counts.currency = aggregates.currency
+              ), '{}'::jsonb) AS custom_event_counts
+            FROM aggregates
+        `);
 
-    const rows = Array.isArray(aggregateQuery)
-        ? aggregateQuery as CustomEventAggregateRow[]
-        : (((aggregateQuery as unknown) as { rows?: CustomEventAggregateRow[] }).rows ?? []);
+        const rows = Array.isArray(aggregateQuery)
+            ? aggregateQuery as CustomEventAggregateRow[]
+            : (((aggregateQuery as unknown) as { rows?: CustomEventAggregateRow[] }).rows ?? []);
 
-    for (const row of rows) {
-        await upsertDailyRow(projectId, provider, row, {
-            customEventCounts: row.custom_event_counts || {},
-        });
-    }
+        for (const row of rows) {
+            await upsertDailyRow(tx, projectId, provider, row, {
+                customEventCounts: row.custom_event_counts || {},
+            });
+        }
 
-    return uniqueDateKeys.length;
+        return uniqueDateKeys.length;
+    });
 }
 
 async function upsertDailyRow(
+    executor: Pick<typeof db, 'insert'>,
     projectId: string,
     provider: RevenueProvider,
     row: RawAggregateRow,
     extra: { customEventCounts?: Record<string, number> },
 ): Promise<void> {
-    await db
+    await executor
         .insert(projectRevenueDaily)
         .values({
             projectId,
@@ -3055,6 +3172,35 @@ async function rebuildCustomEventRevenueTransactions(
             reporting_category = excluded.reporting_category,
             metadata = excluded.metadata,
             updated_at = excluded.updated_at
+          -- Unchanged rows are neither rewritten nor returned, so a repeat import of the
+          -- same window writes nothing and rebuilds no rollups.
+          WHERE (
+            ${revenueProviderTransactions}.connection_id,
+            ${revenueProviderTransactions}.external_source_id,
+            ${revenueProviderTransactions}.occurred_at,
+            ${revenueProviderTransactions}.amount_cents,
+            ${revenueProviderTransactions}.fee_cents,
+            ${revenueProviderTransactions}.net_cents,
+            ${revenueProviderTransactions}.gross_amount_cents,
+            ${revenueProviderTransactions}.refund_amount_cents,
+            ${revenueProviderTransactions}.currency,
+            ${revenueProviderTransactions}.type,
+            ${revenueProviderTransactions}.reporting_category,
+            ${revenueProviderTransactions}.metadata
+          ) IS DISTINCT FROM (
+            excluded.connection_id,
+            excluded.external_source_id,
+            excluded.occurred_at,
+            excluded.amount_cents,
+            excluded.fee_cents,
+            excluded.net_cents,
+            excluded.gross_amount_cents,
+            excluded.refund_amount_cents,
+            excluded.currency,
+            excluded.type,
+            excluded.reporting_category,
+            excluded.metadata
+          )
           RETURNING
             external_transaction_id,
             external_source_id,
@@ -3221,7 +3367,16 @@ export async function syncGenericRevenueProvider(
                     : (connection.newestSyncedAt
                         ? new Date(connection.newestSyncedAt.getTime() - GENERIC_REVENUE_INCREMENTAL_OVERLAP_MS)
                         : null);
-                importedDateCount = await rebuildCustomEventRevenueTransactions(connection, normalizedConfig, since);
+                // Waits out a refresh import in progress. Without Redis this runs unlocked, as before.
+                const lease = await acquireCustomEventImportLock(projectId, CUSTOM_EVENT_IMPORT_LOCK_WAIT_MS).catch((err) => {
+                    logger.warn({ err, projectId }, 'Custom-event import lock unavailable; importing without it');
+                    return null;
+                });
+                try {
+                    importedDateCount = await rebuildCustomEventRevenueTransactions(connection, normalizedConfig, since);
+                } finally {
+                    await releaseCustomEventImportLock(lease);
+                }
             } else {
                 const manualDateRows = await dbRead
                     .select({
@@ -3282,6 +3437,7 @@ export async function syncGenericRevenueProvider(
                 eq(projectRevenueConnections.provider, provider),
             ));
 
+        if (provider === 'custom_events') await forgetCustomEventSyncPreview(projectId);
         logger.info({
             projectId,
             provider,
@@ -3330,6 +3486,7 @@ export async function disconnectGenericRevenueProvider(projectId: string, provid
             updatedAt: new Date(),
         })
         .where(eq(projectRevenueConnections.id, connection.id));
+    if (provider === 'custom_events') await forgetCustomEventSyncPreview(projectId);
 }
 
 export async function getConnectedGenericRevenueProvidersDueForSync(): Promise<Array<{ projectId: string; provider: RevenueProvider }>> {
