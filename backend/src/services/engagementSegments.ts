@@ -17,7 +17,7 @@
  *   - 28-day window and active-day counts: the L28 "power user curve" used by
  *     Facebook and a16z, which grades users by distinct days active per 28.
  *   - 4 days with 7+ days of tenure: weekly usage is the most common natural usage
- *     interval for consumer apps (Amplitude's retention playbook); 4 of 28 days is
+ *     interval for consumer apps in product-retention research; 4 of 28 days is
  *     that cadence, and requiring the habit to span two weeks separates retained
  *     users from a single burst (e.g. a 3-day trial used on consecutive days).
  *   - Returning on a second day is the earliest retention signal (D1/D7 retention),
