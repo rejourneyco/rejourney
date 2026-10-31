@@ -145,6 +145,23 @@ async function handleUnauthorized(endpoint: string): Promise<never> {
     throw new ApiUnauthorizedError();
 }
 
+// Reads sent just after the top-bar refresh or a browser reload ask the API to
+// recompute instead of serving its response caches (the API throttles this per
+// cached response), and skip the browser's HTTP cache.
+const DASHBOARD_REFRESH_WINDOW_MS = 15_000;
+let dashboardRefreshUntil = 0;
+
+export function markDashboardRefresh(): void {
+    dashboardRefreshUntil = Date.now() + DASHBOARD_REFRESH_WINDOW_MS;
+}
+
+if (typeof window !== 'undefined') {
+    try {
+        const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+        if (navigation?.type === 'reload') markDashboardRefresh();
+    } catch { /* Navigation timing is optional. */ }
+}
+
 async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers = withDefaultHeaders(options.headers);
     if (!headers.has('Content-Type') && options.body) {
@@ -157,6 +174,10 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
         credentials: 'include',
     };
     const method = (requestInit.method ?? 'GET').toUpperCase();
+    if (method === 'GET' && Date.now() < dashboardRefreshUntil) {
+        headers.set('X-Dashboard-Refresh', '1');
+        requestInit.cache ??= 'no-cache';
+    }
 
     let response: Response;
     try {

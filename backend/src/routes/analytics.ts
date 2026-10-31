@@ -39,6 +39,8 @@ import {
 } from '../services/productRollupsClickHouse.js';
 import { canOpenReplayFromSessionFields } from '../services/replayAvailability.js';
 import { buildPositionedJourneyGraph } from '../services/positionedJourneyGraph.js';
+import { gradeEngagementByDay } from '../services/engagementSegments.js';
+import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
 
 const router = Router();
 const redis = getRedis();
@@ -744,8 +746,8 @@ router.get(
         }
 
         // Build cache key (v3: rollup-backed geo for non-24h windows)
-        const cacheKey = `analytics:geo:v3:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        const cacheKey = `analytics:geo:v3:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:through:${await getLastRolledUpDate()}`;
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
@@ -3449,8 +3451,8 @@ router.get(
 
         const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
         const growthPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all' ? req.query.platform : undefined;
-        const cacheKey = `analytics:growth-observability:v5:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${growthPlatform || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        const cacheKey = `analytics:growth-observability:v5:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${growthPlatform || 'all'}:through:${await getLastRolledUpDate()}`;
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
@@ -3946,8 +3948,8 @@ router.get(
 
         const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
         const deepMetricsPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all' ? req.query.platform : undefined;
-        const cacheKey = `analytics:observability-deep-metrics:v2:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${deepMetricsPlatform || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        const cacheKey = `analytics:observability-deep-metrics:v2:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${deepMetricsPlatform || 'all'}:through:${await getLastRolledUpDate()}`;
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
@@ -4568,8 +4570,8 @@ router.get(
         // sessions. The rollup has no per-platform engagement split, so a platform
         // filter forces the exact (raw-scan) path.
         const responseMode = req.query.mode === 'summary' && !engagementPlatform ? 'summary' : 'full';
-        const cacheKey = `analytics:user-engagement-trends:v3:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${engagementPlatform || 'all'}`;
-        const cached = await redis.get(cacheKey);
+        const cacheKey = `analytics:user-engagement-trends:v4:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}:${engagementPlatform || 'all'}:through:${await getLastRolledUpDate()}`;
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
@@ -4620,72 +4622,30 @@ router.get(
             return;
         }
 
-        const engagementPlatformCond =
+        const engagementPlatformFilter =
             engagementPlatform === 'mobile'
-                ? sql` AND ${sessions.platform} IN ('ios', 'android')`
+                ? sql`${sessions.platform} IN ('ios', 'android')`
                 : engagementPlatform
-                  ? sql` AND ${sessions.platform} = ${engagementPlatform}`
-                  : sql``;
+                  ? sql`${sessions.platform} = ${engagementPlatform}`
+                  : undefined;
 
-        // Compute per-user-day segments: each user is classified once per day by their
-        // BEST session of that day (longest duration), so the chart shows unique active
-        // users per segment rather than raw session counts.
-        const rawRows = await db.execute<{
-            day: string;
-            bouncers: number;
-            casuals: number;
-            explorers: number;
-            loyalists: number;
-        }>(sql`
-            WITH user_day AS (
-                SELECT
-                    (${sessions.startedAt}::date)::text AS day,
-                    coalesce(
-                        nullif(trim(${sessions.userDisplayId}), ''),
-                        nullif(trim(${sessions.anonymousHash}), ''),
-                        ${sessions.deviceId}
-                    ) AS user_key,
-                    max(coalesce(${sessions.durationSeconds}, 0)) AS best_duration
-                FROM ${sessions}
-                WHERE ${inArray(sessions.projectId, projectIds)}
-                  AND ${startedAfter ? sql`${sessions.startedAt} >= ${startedAfter}` : sql`true`}${engagementPlatformCond}
-                  AND coalesce(
-                        nullif(trim(${sessions.userDisplayId}), ''),
-                        nullif(trim(${sessions.anonymousHash}), ''),
-                        ${sessions.deviceId}
-                    ) IS NOT NULL
-                GROUP BY day, user_key
-            )
-            SELECT
-                day,
-                cast(count(*) FILTER (WHERE best_duration < 10) AS int) AS bouncers,
-                cast(count(*) FILTER (WHERE best_duration >= 10 AND best_duration <= 60) AS int) AS casuals,
-                cast(count(*) FILTER (WHERE best_duration > 60 AND best_duration <= 180) AS int) AS explorers,
-                cast(count(*) FILTER (WHERE best_duration > 180) AS int) AS loyalists
-            FROM user_day
-            GROUP BY day
-            ORDER BY day
-        `);
-
-        const dailyResult: Array<{ day: string; bouncers: number; casuals: number; explorers: number; loyalists: number }> = Array.isArray(rawRows)
-            ? rawRows
-            : ((rawRows as any).rows ?? []);
+        // Each user active on a day is graded once for that day from their trailing
+        // 28-day retention (see services/engagementSegments), so the chart shows unique
+        // users per segment, matching the summary rollup.
+        const gradedDays = await gradeEngagementByDay({
+            projectIds,
+            fromDate: (startedAfter ?? new Date(Date.now() - ANALYTICS_LONG_WINDOW_DAYS * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
+            sessionFilter: engagementPlatformFilter,
+        });
 
         const totals = { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
-        for (const row of dailyResult) {
-            totals.bouncers += Number(row.bouncers);
-            totals.casuals += Number(row.casuals);
-            totals.explorers += Number(row.explorers);
-            totals.loyalists += Number(row.loyalists);
-        }
-
-        const daily = dailyResult.map((row) => ({
-            date: row.day,
-            bouncers: Number(row.bouncers),
-            casuals: Number(row.casuals),
-            explorers: Number(row.explorers),
-            loyalists: Number(row.loyalists),
-        }));
+        const daily = gradedDays.map((row) => {
+            totals.bouncers += row.bouncers;
+            totals.casuals += row.casuals;
+            totals.explorers += row.explorers;
+            totals.loyalists += row.loyalists;
+            return row;
+        });
 
         const result = { daily, totals };
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);

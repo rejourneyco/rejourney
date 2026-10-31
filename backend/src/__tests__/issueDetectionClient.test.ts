@@ -16,13 +16,24 @@ vi.mock('node:timers', () => ({
     setTimeout: (...args: Parameters<typeof globalThis.setTimeout>) => globalThis.setTimeout(...args),
     clearTimeout: (...args: Parameters<typeof globalThis.clearTimeout>) => globalThis.clearTimeout(...args),
 }));
+vi.mock('../logger.js', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../services/internalServiceAuth.js', () => ({ signInternalServiceRequest: () => ({}) }));
 vi.mock('../services/projectAccess.js', () => ({ userCanAccessProject: vi.fn() }));
+const { redisStore } = vi.hoisted(() => ({ redisStore: new Map<string, string>() }));
+vi.mock('../db/redis.js', () => ({ getRedis: () => ({
+    get: async (key: string) => redisStore.get(key) ?? null,
+    set: async (key: string, value: string) => { redisStore.set(key, value); return 'OK'; },
+    incr: async (key: string) => { const next = Number(redisStore.get(key) ?? 0) + 1; redisStore.set(key, String(next)); return next; },
+}) }));
 
 import { callIssueDetection, requireProjectAccess } from '../services/issueDetectionClient.js';
+import { FRESH_MS, STALE_WAIT_MS } from '../services/issueStaleCache.js';
 import { userCanAccessProject } from '../services/projectAccess.js';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+});
 
 describe('issue proxy reads', () => {
     it('coalesces list requests and invalidates them after a status mutation', async () => {
@@ -90,5 +101,34 @@ describe('issue proxy reads', () => {
         await expect(callIssueDetection({ method: 'PATCH', pathWithQuery: '/v1/leaks/write-test', body: { status: 'resolved' } }))
             .rejects.toThrow('Issue detection service unavailable');
         expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    it('serves the last good inbox at once when the upstream is slow, and refreshes it behind', async () => {
+        const list = { pathWithQuery: '/v1/projects/stale-test/leaks?view=inbox' };
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ version: 1 }))));
+        await expect(callIssueDetection(list)).resolves.toEqual({ version: 1 });
+
+        vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+        vi.setSystemTime(Date.now() + FRESH_MS + 11_000);
+        let release!: () => void;
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => {
+            release = () => resolve(new Response(JSON.stringify({ version: 2 })));
+        })));
+        const slow = callIssueDetection(list);
+        await vi.advanceTimersByTimeAsync(STALE_WAIT_MS);
+        await expect(slow).resolves.toEqual({ version: 1 });
+
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(callIssueDetection(list)).resolves.toEqual({ version: 2 });
+    });
+
+    it('serves the last good detail when the upstream fails', async () => {
+        const detail = { pathWithQuery: '/v1/leaks/stale-detail?view=stored' };
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'stale-detail' }))));
+        await callIssueDetection(detail);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + FRESH_MS + 11_000);
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
+        await expect(callIssueDetection(detail)).resolves.toEqual({ id: 'stale-detail' });
     });
 });

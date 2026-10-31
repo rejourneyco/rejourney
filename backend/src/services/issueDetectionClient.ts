@@ -8,6 +8,7 @@
 import { setTimeout, clearTimeout } from 'node:timers';
 import { config } from '../config.js';
 import { IssueReadCache } from './issueReadCache.js';
+import { readWithStaleCopy, retireStaleCopies } from './issueStaleCache.js';
 
 import { ApiError } from '../middleware/index.js';
 import { signInternalServiceRequest } from './internalServiceAuth.js';
@@ -49,13 +50,17 @@ export async function callIssueDetection<T>(input: IssueDetectionRequest): Promi
     const cacheable = method === 'GET' && !input.raw && input.body === undefined
         && /^\/v1\/(?:projects\/[^/]+\/leaks(?:\?|$)|leaks\/[^/?]+(?:\?|$))/.test(input.pathWithQuery);
     if (cacheable) {
-        return issueReads.read(`${origin}${input.pathWithQuery}`, () => requestIssueDetection<T>(input));
+        const key = `${origin}${input.pathWithQuery}`;
+        return readWithStaleCopy(key, () => issueReads.read(key, () => requestIssueDetection<T>(input)));
     }
     if (method !== 'GET') issueReads.clear();
     try {
         return await requestIssueDetection<T>(input);
     } finally {
-        if (method !== 'GET') issueReads.clear();
+        if (method !== 'GET') {
+            issueReads.clear();
+            await retireStaleCopies();
+        }
     }
 }
 

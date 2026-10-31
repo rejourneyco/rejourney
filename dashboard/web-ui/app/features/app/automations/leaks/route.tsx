@@ -48,6 +48,7 @@ import { contextCanBeCopied, measuredAffectedPercent } from './presentation';
 import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
 import { buildProjectAIIntegrationPrompt } from '~/shared/constants/aiPrompts';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
+import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { AnimalAvatar, getAnimalAvatarSeed, getAnimalForIdentity } from '~/shared/ui/core/AnimalAvatar';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -1156,8 +1157,14 @@ export const Leaks: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isDetailLoading, setIsDetailLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Detail failures stay in the detail pane; the inbox itself loaded fine.
+    const [detailError, setDetailError] = useState<string | null>(null);
+    const [detailReload, setDetailReload] = useState(0);
     // Bumped by Retry to reload the inbox after a transient failure.
     const [inboxReload, setInboxReload] = useState(0);
+    const manualRefreshVersion = useDashboardManualRefreshVersion();
+    const inboxScopeRef = useRef<string | null>(null);
+    const inboxShownRef = useRef(false);
     const [copied, setCopied] = useState(false);
     const [handoffStatus, setHandoffStatus] = useState<string | null>(null);
     const [isGeneratingContext, setIsGeneratingContext] = useState(false);
@@ -1370,6 +1377,8 @@ export const Leaks: React.FC = () => {
 
     useEffect(() => {
         if (!projectId) {
+            inboxScopeRef.current = null;
+            inboxShownRef.current = false;
             setLeaks([]);
             setSelectedLeakId(null);
             setError(null);
@@ -1378,11 +1387,21 @@ export const Leaks: React.FC = () => {
         }
 
         let cancelled = false;
-        setIsLoading(true);
+        // A refresh of the inbox already on screen keeps it there while it reloads;
+        // another project starts empty so its old rows can't be opened meanwhile.
+        const refreshingShownInbox = inboxScopeRef.current === projectId && inboxShownRef.current;
+        if (inboxScopeRef.current !== projectId) {
+            inboxScopeRef.current = projectId;
+            inboxShownRef.current = false;
+            setLeaks([]);
+            setSelectedLeakId(null);
+        }
+        setIsLoading(!refreshingShownInbox);
         setError(null);
         getLeaks({ projectId, view: 'inbox' })
             .then((response) => {
                 if (cancelled) return;
+                inboxShownRef.current = true;
                 setLeaks(response.leaks || []);
                 // Empty inboxes need history to distinguish setup from a clean scan.
                 // Start it only after the list returns, without delaying the inbox.
@@ -1392,7 +1411,7 @@ export const Leaks: React.FC = () => {
                 );
             })
             .catch((err) => {
-                if (cancelled) return;
+                if (cancelled || refreshingShownInbox) return;
                 setError(err instanceof Error ? err.message : 'Issue detection is not available');
                 setLeaks([]);
             })
@@ -1403,7 +1422,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [inboxReload, loadRunHistory, projectId]);
+    }, [inboxReload, loadRunHistory, manualRefreshVersion, projectId]);
 
     useEffect(() => {
         if (!selectedLeakId) {
@@ -1413,6 +1432,7 @@ export const Leaks: React.FC = () => {
 
         let cancelled = false;
         setSelectedLeak(null);
+        setDetailError(null);
         setIsDetailLoading(true);
         getLeak(selectedLeakId, { view: 'stored' })
             .then(async (detail) => {
@@ -1427,7 +1447,7 @@ export const Leaks: React.FC = () => {
             })
             .catch((err) => {
                 if (!cancelled) {
-                    setError(err instanceof Error ? err.message : 'Issue detection is not available');
+                    setDetailError(err instanceof Error ? err.message : 'Issue detection is not available');
                     setSelectedLeak(null);
                 }
             })
@@ -1438,7 +1458,7 @@ export const Leaks: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [selectedLeakId]);
+    }, [detailReload, selectedLeakId]);
 
     const filteredLeaks = useMemo(
         () => filterLeaks(leaks, search).filter((leak) => affectedFilterMatches(leak, affectedFilter)),
@@ -1804,6 +1824,18 @@ export const Leaks: React.FC = () => {
                             </div>
 
                             <div className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden">
+                                {detailError && !isDetailLoading && (
+                                    <div className="m-5 flex items-center justify-between gap-4 rounded-none border border-[#f6aea9] bg-[#fce8e6] p-4 text-sm font-medium text-[#a50e0e]">
+                                        <span>Couldn't load full details: {detailError}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDetailReload((value) => value + 1)}
+                                            className="inline-flex shrink-0 items-center gap-1.5 border border-[#a50e0e] bg-white px-3 py-1.5 text-xs font-semibold text-[#a50e0e] hover:bg-[#fce8e6]"
+                                        >
+                                            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+                                        </button>
+                                    </div>
+                                )}
                                 {isDetailLoading ? (
                                     <div className="flex h-56 items-center justify-center text-sm font-medium text-[#5f6368]">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading context

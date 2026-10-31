@@ -4,7 +4,7 @@
 export class IssueReadCache {
     private readonly entries = new Map<string, { promise: Promise<unknown>; expiresAt: number }>();
 
-    constructor(private readonly ttlMs = 10_000, private readonly maxEntries = 128, private readonly now = Date.now) {}
+    constructor(private readonly ttlMs = 10_000, private readonly maxEntries = 128, private readonly now = () => Date.now()) {}
 
     clear(): void {
         this.entries.clear();

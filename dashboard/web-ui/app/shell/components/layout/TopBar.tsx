@@ -6,7 +6,7 @@ import { useAuth } from '~/shared/providers/AuthContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { clearCache, getTeamBillingUsage, getTeamPlan, TeamUsage } from '~/features/app/billing/api';
-import { clearCacheMatching } from '~/shared/api/client';
+import { clearCacheMatching, markDashboardRefresh } from '~/shared/api/client';
 import { RefreshCw, User as UserIcon, LogOut, ChevronDown, Copy, Check, Menu, Home } from 'lucide-react';
 import { formatSetupPlatform } from '~/features/app/setup/setupUtils';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE, DASHBOARD_MANUAL_REFRESH_START } from '~/shared/constants/events';
@@ -55,6 +55,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
     let success = false;
 
     try {
+      markDashboardRefresh();
       clearDashboardCachesForRefresh();
       await refreshSessions();
       // Also refresh team usage and plan

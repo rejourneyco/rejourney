@@ -22,4 +22,5 @@ export const CORS_ALLOWED_HEADERS = [
     'Idempotency-Key',
     'X-Session-Id',
     'X-RJ-Observe-Only',
+    'X-Dashboard-Refresh',
 ];

@@ -13,8 +13,11 @@ import { logger } from '../logger.js';
 import { pingWorker } from '../services/monitoring.js';
 import { writeProductAnalyticsDailyRollupInputToClickHouse } from '../services/clickhouseProductRollupsSink.js';
 import {
+    queryProductDailyStatsFromClickHouse,
     queryProductDailyUniqueUserCountFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
+import { gradeEngagementByDay, type EngagementSegmentCounts } from '../services/engagementSegments.js';
+import { regradeEngagementRollups } from '../services/engagementRollupRegrade.js';
 import { protectUniqueUserCountAfterIdentityScrub } from '../services/rollupIdentityProtection.js';
 import {
     acquireRedisLease,
@@ -148,6 +151,40 @@ async function resolveUniqueUserCountForRollup(params: {
 }
 
 /**
+ * Retention-graded user counts for the day (see services/engagementSegments). Once
+ * sessions lose their identity to the scrub they can no longer be graded, so a
+ * recompute after the scrub keeps the counts stored while identities were intact.
+ */
+async function resolveEngagementSegmentsForRollup(params: {
+    projectId: string;
+    date: string;
+    identityScrubbedSessionCount: number;
+}): Promise<EngagementSegmentCounts> {
+    if (params.identityScrubbedSessionCount > 0) {
+        try {
+            const [existing] = await queryProductDailyStatsFromClickHouse({
+                projectIds: [params.projectId],
+                startDate: params.date,
+                endDate: params.date,
+                includeDimensions: false,
+            });
+            if (existing) {
+                return {
+                    bouncers: existing.totalBouncers,
+                    casuals: existing.totalCasuals,
+                    explorers: existing.totalExplorers,
+                    loyalists: existing.totalLoyalists,
+                };
+            }
+        } catch (err) {
+            logger.warn({ err, projectId: params.projectId, date: params.date }, 'Failed to read existing engagement rollup before identity-scrub protection');
+        }
+    }
+    const [graded] = await gradeEngagementByDay({ projectIds: [params.projectId], fromDate: params.date, toDate: params.date });
+    return graded ?? { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
+}
+
+/**
  * Compute percentile values for a given array
  */
 function computePercentile(values: number[], percentile: number): number {
@@ -219,12 +256,6 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         const totalSessions = daySessions.length;
         const completedSessions = daySessions.filter(s => s.status === 'ready').length;
 
-        // Engagement Segments
-        let bouncers = 0;
-        let casuals = 0;
-        let explorers = 0;
-        let loyalists = 0;
-
         // JSONB Breakdowns
         const deviceModelBreakdown: Record<string, number> = {};
         const osVersionBreakdown: Record<string, number> = {};
@@ -240,21 +271,9 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         let identityScrubbedSessionCount = 0;
 
         for (const s of daySessions) {
-            const dur = s.durationSeconds || 0;
             const screens = s.screensVisited || [];
             if (s.identityScrubbedAt) {
                 identityScrubbedSessionCount++;
-            }
-
-            // Engagement segments
-            if (dur < 10) {
-                bouncers++;
-            } else if (dur > 180) {
-                loyalists++;
-            } else if (dur > 60 || screens.length > 3) {
-                explorers++;
-            } else {
-                casuals++;
             }
 
             // Device breakdown
@@ -368,6 +387,11 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             computedUniqueUserCount: uniqueUserSet.size,
             identityScrubbedSessionCount,
         });
+        const engagementSegments = await resolveEngagementSegmentsForRollup({
+            projectId,
+            date: dateStr,
+            identityScrubbedSessionCount,
+        });
 
         await writeProductAnalyticsDailyRollupInputToClickHouse({
             projectId,
@@ -388,10 +412,10 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             totalDeadTaps,
             totalCrashes,
             totalAnrs,
-            totalBouncers: bouncers,
-            totalCasuals: casuals,
-            totalExplorers: explorers,
-            totalLoyalists: loyalists,
+            totalBouncers: engagementSegments.bouncers,
+            totalCasuals: engagementSegments.casuals,
+            totalExplorers: engagementSegments.explorers,
+            totalLoyalists: engagementSegments.loyalists,
             totalTouches,
             totalScrolls,
             totalGestures,
@@ -645,6 +669,11 @@ export async function runStatsAggregation(): Promise<void> {
         if (leaseGuard.renewal.signal.aborted) {
             logger.warn('Stopped stats aggregation after losing its distributed lease');
             return;
+        }
+
+        const rolledUpThrough = await redis.get('stats:daily_rollup:last_rolled_up_date');
+        if (rolledUpThrough) {
+            await regradeEngagementRollups({ signal: leaseGuard.renewal.signal, throughDate: rolledUpThrough });
         }
 
         const duration = Date.now() - startTime;

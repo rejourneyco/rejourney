@@ -32,6 +32,7 @@ import {
 } from '../services/productRollupsClickHouse.js';
 import { normalizeHeatmapScreenName, normalizeHeatmapScreenPath } from '../utils/heatmapScreens.js';
 import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
+import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
 
 const router = Router();
 const redis = getRedis();
@@ -1173,7 +1174,7 @@ router.get(
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
         const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
         const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v4-calendar-weeks`;
-        const cached = await redis.get(cacheKey);
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
@@ -1290,8 +1291,8 @@ router.get(
             : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v8-activity-snapshots`;
-        const cached = await redis.get(cacheKey);
+        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v8-activity-snapshots:through:${await getLastRolledUpDate()}`;
+        const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;

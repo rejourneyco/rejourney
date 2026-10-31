@@ -6,7 +6,7 @@
  */
 
 import { createSingleFlight } from '../utils/asyncWork.js';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
@@ -56,6 +56,7 @@ import {
 } from '../utils/mobileAttentionHeatmap.js';
 import { getSessionScreenshotFrames } from '../services/screenshotFrames.js';
 import { getThumbnailAtTimestamp } from '../services/sessionThumbnail.js';
+import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
 
 const router = Router();
 const redis = getRedis();
@@ -153,6 +154,7 @@ const buildOverviewOnce = createSingleFlight<{ serializedPayload: string; failed
 async function respondWithOverviewCache<T>({
     cacheKey,
     routeName,
+    req,
     res,
     build,
     ttlSeconds = OVERVIEW_CACHE_TTL_SECONDS,
@@ -160,12 +162,14 @@ async function respondWithOverviewCache<T>({
 }: {
     cacheKey: string;
     routeName: string;
+    /** When given, a dashboard refresh may recompute (see dashboardRefreshCache). */
+    req?: Pick<Request, 'get'>;
     res: { setHeader: (name: string, value: string) => void; json: (body: unknown) => void };
     build: () => Promise<T>;
     ttlSeconds?: number;
     logContext?: Record<string, unknown>;
 }): Promise<void> {
-    const cached = await redis.get(cacheKey);
+    const cached = req ? await readRefreshableCache(req, cacheKey) : await redis.get(cacheKey);
     if (cached) {
         setOverviewCacheHeaders(res);
         res.setHeader('X-Rejourney-Overview-Cache', 'hit');
@@ -2707,6 +2711,7 @@ router.get(
                 scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined,
             ),
             routeName: requestedSection ? `general:heavy:${requestedSection}` : 'general:heavy',
+            req,
             res,
             logContext: {
                 projectId: scope.normalizedProjectId,
