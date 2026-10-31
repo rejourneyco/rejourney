@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { Project } from '~/shared/types';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useAuth } from '~/shared/providers/AuthContext';
@@ -22,6 +22,8 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
   const { refreshSessions } = useSessionData();
   const { user, logout } = useAuth();
   const { currentTeam } = useTeam();
+  const currentTeamId = currentTeam?.id ?? null;
+  const { pathname } = useLocation();
   const pathPrefix = usePathPrefix();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
@@ -59,11 +61,11 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
       clearDashboardCachesForRefresh();
       await refreshSessions();
       // Also refresh team usage and plan
-      if (currentTeam) {
+      if (currentTeamId) {
         try {
           const [planData, usageData] = await Promise.all([
-            getTeamPlan(currentTeam.id).catch(() => null),
-            getTeamBillingUsage(currentTeam.id).catch(() => null),
+            getTeamPlan(currentTeamId).catch(() => null),
+            getTeamBillingUsage(currentTeamId).catch(() => null),
           ]);
 
           if (planData) {
@@ -95,14 +97,16 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
       setIsRefreshing(false);
       window.dispatchEvent(new CustomEvent(DASHBOARD_MANUAL_REFRESH_COMPLETE, { detail: { at: Date.now(), success } }));
     }
-  }, [clearDashboardCachesForRefresh, refreshSessions, currentTeam]);
+  }, [clearDashboardCachesForRefresh, refreshSessions, currentTeamId]);
 
-  // Fetch team usage and plan when team changes
+  // Fetch team usage and plan when the team id changes (not on every new
+  // team object from a context refresh with the same data) and on navigation,
+  // so the meter stays current; the 60s client cache absorbs quick page hops.
   useEffect(() => {
-    if (currentTeam) {
+    if (currentTeamId) {
       Promise.all([
-        getTeamPlan(currentTeam.id).catch(() => null),
-        getTeamBillingUsage(currentTeam.id).catch(() => null),
+        getTeamPlan(currentTeamId).catch(() => null),
+        getTeamBillingUsage(currentTeamId).catch(() => null),
       ]).then(([planData, usageData]) => {
         if (planData) {
           setTeamPlan({
@@ -117,18 +121,18 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
       setTeamUsage(null);
       setTeamPlan(null);
     }
-  }, [currentTeam]);
+  }, [currentTeamId, pathname]);
 
   // Listen for plan changes to refresh usage and plan
   useEffect(() => {
     const handlePlanChanged = (event: CustomEvent) => {
-      if (currentTeam && event.detail?.teamId === currentTeam.id) {
-        clearCache(`/api/teams/${currentTeam.id}/billing/plan`);
-        clearCache(`/api/teams/${currentTeam.id}/billing/usage`);
-        clearCache(`/api/teams/${currentTeam.id}/billing/dashboard`);
+      if (currentTeamId && event.detail?.teamId === currentTeamId) {
+        clearCache(`/api/teams/${currentTeamId}/billing/plan`);
+        clearCache(`/api/teams/${currentTeamId}/billing/usage`);
+        clearCache(`/api/teams/${currentTeamId}/billing/dashboard`);
         Promise.all([
-          getTeamPlan(currentTeam.id).catch(() => null),
-          getTeamBillingUsage(currentTeam.id).catch(() => null),
+          getTeamPlan(currentTeamId).catch(() => null),
+          getTeamBillingUsage(currentTeamId).catch(() => null),
         ]).then(([planData, usageData]) => {
           if (planData) {
             setTeamPlan({
@@ -146,7 +150,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject, hideDemoHomeLink
     return () => {
       window.removeEventListener('planChanged', handlePlanChanged as EventListener);
     };
-  }, [currentTeam]);
+  }, [currentTeamId]);
 
   useEffect(() => {
     return () => {

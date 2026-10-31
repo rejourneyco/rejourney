@@ -4,6 +4,7 @@ import { deleteObjectsFromProjectStorage } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { normalizeHeatmapScreenName } from '../utils/heatmapScreens.js';
 import { getFrustrationTapKind } from '../utils/mobileFrustration.js';
+import { USER_REGEX_MAX_INPUT_LENGTH, USER_REGEX_MAX_TEXT_LENGTH, analyzeUserRegex, testUserRegex } from '../utils/safeRegex.js';
 import { removeArtifactJobIfQueued } from './artifactBullQueue.js';
 import { getTeamSubscription } from './stripeProducts.js';
 
@@ -261,6 +262,64 @@ function smartCaptureRuleDisplayName(rule: SmartCaptureRule): string {
     return (typeof rule.name === 'string' && rule.name.trim() ? rule.name : rule.label).slice(0, 120);
 }
 
+const SMART_CAPTURE_REGEX_CHECK_MAX_DEPTH = 16;
+
+function isRegexOperator(operator: string | null | undefined): boolean {
+    return (operator ?? '').trim().toLowerCase() === 'matches_regex';
+}
+
+/**
+ * Collects the values a rule compares with "matches regex", resolving each
+ * operator the way ruleMatches() does: compound clauses carry their own
+ * operator, a rule's value uses ruleOperator(), and a scope uses its own
+ * operator (per event) or falls back to the rule's (session aggregate).
+ */
+function collectRegexPatterns(rule: SmartCaptureRule, out: string[], depth = 0): void {
+    if (depth > SMART_CAPTURE_REGEX_CHECK_MAX_DEPTH) return;
+    const allClauses = conditionClauses(rule, 'all');
+    const clauses = allClauses.length > 0 ? allClauses : conditionClauses(rule, 'any');
+    if (clauses.length > 0) {
+        for (const [index, clause] of clauses.entries()) {
+            collectRegexPatterns(ruleFromConditionClause(rule, clause, index), out, depth + 1);
+        }
+        return;
+    }
+
+    const value = primitiveToString(ruleValue(rule));
+    if (value && ruleOperator(rule, 'contains') === 'matches_regex') out.push(value);
+
+    const scope = scopeCondition(rule);
+    const scopeValue = scope ? primitiveToString(scope.value) : null;
+    if (scope && scopeValue) {
+        const scopeOperator = primitiveToString(scope.operator);
+        if (isRegexOperator(scopeOperator) || (scopeOperator === null && isRegexOperator(rule.operator))) {
+            out.push(scopeValue);
+            const normalized = normalizeHeatmapScreenName(scopeValue);
+            if (normalized && normalized !== scopeValue) out.push(normalized);
+        }
+    }
+}
+
+/**
+ * Save-time check for "matches regex" rules: every value compared with the
+ * regex operator, after operator inheritance, must pass the ReDoS guard.
+ * Returns the first offending pattern.
+ */
+export function findUnsafeSmartCaptureRegex(rules: readonly SmartCaptureRule[]): { ruleId: string; pattern: string; reason: string } | null {
+    for (const rule of rules) {
+        const patterns: string[] = [];
+        collectRegexPatterns(rule, patterns);
+        for (const pattern of patterns) {
+            const analysis = analyzeUserRegex(pattern);
+            // Invalid syntax was always accepted (it simply never matches); keep that.
+            if (!analysis.safe && analysis.reason !== 'invalid') {
+                return { ruleId: rule.id, pattern, reason: analysis.reason };
+            }
+        }
+    }
+    return null;
+}
+
 export function normalizeSmartCaptureRules(rawRules: unknown): SmartCaptureRule[] {
     if (!Array.isArray(rawRules)) return [];
     return rawRules
@@ -430,7 +489,7 @@ function compareNumber(actual: number, operator: string | undefined, expected: n
     }
 }
 
-function compareText(actual: string, operator: string | undefined, expected: string): boolean {
+function compareText(actual: string, operator: string | undefined, expected: string, maxRegexInput = USER_REGEX_MAX_INPUT_LENGTH): boolean {
     const op = operator && TEXT_OPERATORS.has(operator) ? operator : 'contains';
     const haystack = actual.toLowerCase();
     const needle = expected.toLowerCase();
@@ -440,11 +499,8 @@ function compareText(actual: string, operator: string | undefined, expected: str
         case 'starts_with': return haystack.startsWith(needle);
         case 'ends_with': return haystack.endsWith(needle);
         case 'matches_regex':
-            try {
-                return new RegExp(expected, 'i').test(actual);
-            } catch {
-                return false;
-            }
+            // Unsafe patterns never match and the tested input is bounded (ReDoS guard).
+            return testUserRegex(expected, actual, maxRegexInput);
         case 'contains':
         default:
             return haystack.includes(needle);
@@ -838,7 +894,7 @@ function attributeMatches(
     if (values.some((value) => compareText(value, operator, expected))) return true;
 
     if (['url_path', 'screen_name', 'event_name', 'custom_event'].includes(canonicalSignal(attribute))) {
-        return compareText(text, operator, expected);
+        return compareText(text, operator, expected, USER_REGEX_MAX_TEXT_LENGTH);
     }
     return false;
 }

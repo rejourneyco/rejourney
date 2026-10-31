@@ -628,6 +628,17 @@ export async function extractFramesFromArchive(
 const FRAME_CACHE_PREFIX = 'screenshot_frames:v2:';
 const FRAME_CACHE_TTL = Number(process.env.RJ_SCREENSHOT_FRAME_CACHE_TTL_SECONDS ?? 604_800); // 7d default
 const URL_SIGN_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_URL_SIGN_CONCURRENCY ?? 16);
+// Frame URLs are signed as of the start of the current hour so every manifest
+// built within that hour hands out the same URL and the browser reuses its
+// cached frame bytes. The two-hour expiry leaves every URL more than the
+// previous one hour of validity at the moment it is issued.
+const FRAME_URL_SIGNING_WINDOW_SECONDS = 3600;
+const FRAME_URL_EXPIRES_IN_SECONDS = 2 * FRAME_URL_SIGNING_WINDOW_SECONDS;
+
+export function frameUrlSigningDate(nowMs: number = Date.now()): Date {
+    const windowMs = FRAME_URL_SIGNING_WINDOW_SECONDS * 1000;
+    return new Date(Math.floor(nowMs / windowMs) * windowMs);
+}
 const FRAME_UPLOAD_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_FRAME_UPLOAD_CONCURRENCY ?? 4);
 const MATERIALIZE_FRAME_OBJECTS = process.env.RJ_SCREENSHOT_FRAME_OBJECTS_ENABLED !== 'false';
 const frameBuildInFlight = new Set<string>();
@@ -781,6 +792,7 @@ async function buildFrameResponses(
         }));
     }
 
+    const signingDate = frameUrlSigningDate();
     const signed = await mapWithConcurrency(
         frames,
         URL_SIGN_CONCURRENCY,
@@ -788,8 +800,8 @@ async function buildFrameResponses(
             const proxyUrl = `/api/session/frame/${sessionId}/${f.timestamp}`;
             const directUrl = f.directReady && f.s3Key
                 ? f.endpointId
-                    ? await getSignedDownloadUrl(f.endpointId, f.s3Key)
-                    : await getSignedDownloadUrlForProject(projectId, f.s3Key)
+                    ? await getSignedDownloadUrl(f.endpointId, f.s3Key, FRAME_URL_EXPIRES_IN_SECONDS, signingDate)
+                    : await getSignedDownloadUrlForProject(projectId, f.s3Key, FRAME_URL_EXPIRES_IN_SECONDS, signingDate)
                 : null;
 
             return {

@@ -525,7 +525,6 @@ export const sessions = pgTable(
         metadata: jsonb('metadata').default({}).notNull(),
     },
     (table) => [
-        index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
         // Keep the historical physical index name for migration compatibility; it now
         // supports ordered retention and lifecycle scans.
@@ -560,9 +559,10 @@ export const sessions = pgTable(
             .where(sql`${table.webReferral} IS NOT NULL`),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
-        index('sessions_events_idx').using('gin', table.events),
+        /** Custom-event filters and checkout funnels only use `events @> ...` containment; jsonb_path_ops serves @> with a much smaller GIN than the default jsonb_ops. */
+        index('sessions_events_path_idx').using('gin', table.events.op('jsonb_path_ops')),
         index('sessions_metadata_idx').using('gin', table.metadata),
-        /** Retention worker: status IN ('ready','completed') AND recording_deleted=false, ordered by retention_tier + started_at. The existing sessions_retention_eligible_idx excludes status='completed' so it can't serve this query. */
+        /** Retention worker: status IN ('ready','completed') AND recording_deleted=false, ordered by retention_tier + started_at. */
         index('sessions_retention_due_idx')
             .on(table.retentionTier, table.startedAt, table.id)
             .where(sql`${table.recordingDeleted} = false AND ${table.status} IN ('ready', 'completed')`),
@@ -574,14 +574,10 @@ export const sessions = pgTable(
         index('sessions_artifact_deletion_idx')
             .on(table.startedAt, table.id)
             .where(sql`${table.recordingDeleted} = true OR ${table.isReplayExpired} = true`),
-        /** sessionReconciliation: status IN ('processing','pending') AND last_ingest_activity_at <= cutoff. sessions_status_idx alone forces a post-filter sort. */
-        index('sessions_reconciliation_activity_idx')
-            .on(table.lastIngestActivityAt)
-            .where(sql`${table.status} IN ('processing', 'pending')`),
         index('sessions_sdk_paused_started_idx')
             .on(table.startedAt)
             .where(sql`${table.status} IN ('processing', 'pending') AND ${table.sdkPausedAt} IS NOT NULL`),
-        /** Covering index for any future analytics shape filtering by project + time window + status. sessions_project_started_idx alone does not cover status, so a post-filter scans the full project's session range (1M+ rows on the top project). */
+        /** Project + time window (+ status) reads; also serves every (project_id, started_at) prefix lookup. Keep last_ingest_activity_at / updated_at out of all session indexes so ingest activity updates stay HOT (table fillfactor 85 is set by migration 20261031210000_index_diet). */
         index('sessions_project_started_status_idx').on(table.projectId, table.startedAt, table.status),
     ]
 
@@ -735,19 +731,24 @@ export const recordingArtifacts = pgTable(
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
     (table) => [
-        index('recording_artifacts_session_id_idx').on(table.sessionId),
         index('recording_artifacts_kind_idx').on(table.sessionId, table.kind),
-        index('recording_artifacts_created_status_endpoint_idx')
-            .on(table.createdAt, table.status, table.kind, table.endpointId),
+        /**
+         * Ready artifacts per session/kind. Production and migrated databases carry
+         * INCLUDE (size_bytes, endpoint_id) (migration 20261031210000_index_diet);
+         * Drizzle cannot express INCLUDE, so pushed databases get the same key and predicate.
+         */
+        index('recording_artifacts_kind_ready_covering_idx')
+            .on(table.sessionId, table.kind)
+            .where(sql`${table.status} = 'ready'`),
+        /** Monitoring / exporter created_at windows. */
+        index('recording_artifacts_created_at_idx')
+            .on(sql`${table.createdAt} DESC`),
         index('recording_artifacts_upload_completed_at_idx')
-            .on(table.uploadCompletedAt, table.kind, table.endpointId, table.createdAt)
+            .on(sql`${table.uploadCompletedAt} DESC`)
             .where(sql`${table.uploadCompletedAt} IS NOT NULL`),
         index('recording_artifacts_pending_stalled_idx')
-            .on(table.kind, table.createdAt, table.endpointId)
+            .on(table.kind, table.createdAt)
             .where(sql`${table.status} = 'pending' AND ${table.uploadCompletedAt} IS NULL`),
-        index('recording_artifacts_session_ready_endpoint_idx')
-            .on(table.sessionId, table.endpointId)
-            .where(sql`${table.status} = 'ready'`),
         index('recording_artifacts_failed_recent_idx')
             .on(table.status, table.createdAt, table.kind, table.endpointId)
             .where(sql`${table.status} IN ('abandoned', 'failed')`),
@@ -878,7 +879,6 @@ export const retentionDeletionLog = pgTable(
         finishedAt: timestamp('finished_at'),
     },
     (table) => [
-        index('retention_deletion_log_run_id_idx').on(table.runId),
         index('retention_deletion_log_scope_idx').on(table.scope, table.startedAt),
         index('retention_deletion_log_session_id_idx').on(table.sessionId),
         /** Lets the exporter fetch the latest successful purge without scanning the audit history. */
@@ -942,7 +942,6 @@ export const researchExtractionJobs = pgTable(
         index('research_extraction_jobs_sdk_event_timeline_pending_idx')
             .on(table.sessionId)
             .where(sql`${table.status} = 'exported' AND ${table.sdkEventTimelineAt} IS NULL AND ${table.lakeType} IN ('interaction', 'behavioral_outcomes')`),
-        index('research_extraction_jobs_claim_idx').on(table.lakeType, table.status, table.nextRetryAt, table.dueAt, table.sessionId),
         index('research_extraction_jobs_fair_claim_idx').on(table.lakeType, table.status, table.projectId, table.dueAt, table.createdAt),
         index('research_extraction_jobs_project_status_idx').on(table.projectId, table.lakeType, table.status, table.dueAt),
         index('research_extraction_jobs_v2_claim_idx')

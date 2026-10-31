@@ -491,10 +491,11 @@ const getTopStatusCodes = (breakdown: Record<string, number> | null | undefined,
 export const ApiAnalytics: React.FC = () => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
 
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const lensReady = timeRangeReady && platformLensReady;
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState<EndpointSortKey>('totalCalls');
@@ -519,6 +520,7 @@ export const ApiAnalytics: React.FC = () => {
         : null;
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setIsLoading(false);
             setEndpointStats(null);
@@ -548,7 +550,7 @@ export const ApiAnalytics: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;

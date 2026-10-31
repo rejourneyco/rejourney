@@ -57,7 +57,12 @@ export type BooksContext = {
     teamId: string | null;
     isDemoMode: boolean;
     timeRange: string;
+    /** False until the stored time range is known; reports wait so they load once. */
+    lensReady: boolean;
 };
+
+/** Delay before re-reading the revenue overview while a background purchase import is still running. */
+export const REVENUE_IMPORT_PENDING_REFETCH_MS = 3000;
 
 type ExportProps = {
     onExport: (key: string, build: () => Promise<string>) => Promise<void>;
@@ -149,19 +154,42 @@ async function loadStability(ctx: BooksContext): Promise<StabilityRecords> {
     };
 }
 
-function useReportData<T>(load: () => Promise<T>, deps: unknown[]): { data: T | null; isLoading: boolean; error: string | null } {
+function useReportData<T>(
+    load: () => Promise<T>,
+    deps: unknown[],
+    options: { enabled?: boolean; refetchOnceIf?: (data: T) => boolean } = {},
+): { data: T | null; isLoading: boolean; error: string | null } {
+    const enabled = options.enabled ?? true;
     const [state, setState] = useState<{ data: T | null; isLoading: boolean; error: string | null }>({ data: null, isLoading: true, error: null });
     useEffect(() => {
+        if (!enabled) return undefined;
         let cancelled = false;
+        let refetchTimer: number | null = null;
         setState((current) => ({ ...current, isLoading: true, error: null }));
         load()
-            .then((data) => { if (!cancelled) setState({ data, isLoading: false, error: null }); })
+            .then((data) => {
+                if (cancelled) return;
+                setState({ data, isLoading: false, error: null });
+                if (options.refetchOnceIf?.(data)) {
+                    refetchTimer = window.setTimeout(() => {
+                        refetchTimer = null;
+                        load()
+                            .then((next) => { if (!cancelled) setState({ data: next, isLoading: false, error: null }); })
+                            .catch(() => { /* Keep the data already shown. */ });
+                    }, REVENUE_IMPORT_PENDING_REFETCH_MS);
+                }
+            })
             .catch((error) => { if (!cancelled) setState({ data: null, isLoading: false, error: error instanceof Error ? error.message : 'Unable to load this report.' }); });
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            if (refetchTimer !== null) window.clearTimeout(refetchTimer);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, deps);
+    }, [enabled, ...deps]);
     return state;
 }
+
+const isRevenueImportPending = (data: RevenueOverview | null) => Boolean(data?.importPending);
 
 const ReportError: React.FC<{ error: string | null }> = ({ error }) => error
     ? <div className="border-b border-[#f6aea9] bg-[#fce8e6] px-5 py-2.5 text-sm text-[#a50e0e]">{error}</div>
@@ -172,7 +200,10 @@ const ReportError: React.FC<{ error: string | null }> = ({ error }) => error
 // ---------------------------------------------------------------------------
 
 export const RevenueSummaryReport: React.FC<{ ctx: BooksContext } & ExportProps> = ({ ctx, onExport, exportingKey }) => {
-    const { data, isLoading, error } = useReportData(() => loadRevenue(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode]);
+    const { data, isLoading, error } = useReportData(() => loadRevenue(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode], {
+        enabled: ctx.lensReady,
+        refetchOnceIf: isRevenueImportPending,
+    });
     const currency = data?.selectedCurrency ?? 'usd';
     const months = useMemo(() => groupRevenueByMonth(data?.daily ?? []), [data?.daily]);
     const summary = data?.summary;
@@ -354,7 +385,7 @@ function formatDuration(seconds: number): string {
 
 export const AnalyticsReport: React.FC<{ ctx: BooksContext } & ExportProps> = ({ ctx, onExport, exportingKey }) => {
     const [grouping, setGrouping] = useState<AnalyticsGrouping>('week');
-    const { data, isLoading, error } = useReportData(() => loadAnalytics(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode]);
+    const { data, isLoading, error } = useReportData(() => loadAnalytics(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode], { enabled: ctx.lensReady });
     const rows = useMemo(() => groupAnalytics(data ?? [], grouping), [data, grouping]);
     const totals = useMemo(() => {
         const days = data ?? [];
@@ -435,7 +466,7 @@ const ISSUE_TYPE_META: Record<string, { label: string; tone: 'danger' | 'warning
 
 export const StabilityReport: React.FC<{ ctx: BooksContext } & ExportProps> = ({ ctx, onExport, exportingKey }) => {
     const [typeFilter, setTypeFilter] = useState<'all' | 'crash' | 'anr' | 'error'>('all');
-    const { data, isLoading, error } = useReportData(() => loadStability(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode]);
+    const { data, isLoading, error } = useReportData(() => loadStability(ctx), [ctx.projectId, ctx.timeRange, ctx.isDemoMode], { enabled: ctx.lensReady });
     const rows = useMemo(() => (data?.rows ?? [])
         .filter((row) => typeFilter === 'all' || row.type === typeFilter)
         .sort((a, b) => b.eventCount - a.eventCount), [data?.rows, typeFilter]);

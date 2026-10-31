@@ -28,7 +28,8 @@ export const addTeamMemberSchema = z.object({
 
 export const updateTeamMemberSchema = z.object({
     userId: z.string().uuid('Invalid user ID'),
-    role: z.enum(['owner', 'admin', 'member', 'billing_admin']),
+    // Ownership is never granted through member role updates.
+    role: z.enum(['admin', 'member', 'billing_admin']),
 });
 
 export const removeTeamMemberSchema = z.object({

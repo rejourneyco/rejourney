@@ -982,7 +982,8 @@ export async function uploadBytesToS3ForArtifact(
 export async function getSignedDownloadUrl(
     endpointId: string,
     key: string,
-    expiresInSeconds: number = 3600
+    expiresInSeconds: number = 3600,
+    signingDate?: Date
 ): Promise<string | null> {
     try {
         const endpoint = await getEndpointById(endpointId);
@@ -1001,6 +1002,8 @@ export async function getSignedDownloadUrl(
 
         const url = await getSignedUrl(publicClient, command, {
             expiresIn: expiresInSeconds,
+            // A fixed signing date yields the same URL across calls, so browsers can reuse cached bytes.
+            ...(signingDate ? { signingDate } : {}),
         });
 
         return url;
@@ -1017,11 +1020,12 @@ export async function getSignedDownloadUrl(
 export async function getSignedDownloadUrlForProject(
     projectId: string,
     key: string,
-    expiresInSeconds: number = 3600
+    expiresInSeconds: number = 3600,
+    signingDate?: Date
 ): Promise<string | null> {
     try {
         const endpoint = await getEndpointForProject(projectId);
-        return getSignedDownloadUrl(endpoint.id, key, expiresInSeconds);
+        return getSignedDownloadUrl(endpoint.id, key, expiresInSeconds, signingDate);
     } catch (err) {
         logger.error({ err, key, projectId }, 'Failed to get download URL for project');
         return null;

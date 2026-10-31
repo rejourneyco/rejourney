@@ -424,9 +424,10 @@ export const Journeys: React.FC = () => {
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const pathPrefix = usePathPrefix();
     const navigate = useNavigate();
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const lensReady = timeRangeReady && platformLensReady;
     const [data, setData] = useState<ObservabilityJourneySummary | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
@@ -465,11 +466,17 @@ export const Journeys: React.FC = () => {
         }
     }, [hydratedSelectedTransitionsKey, selectedTransitionIds, selectedTransitionsStorageKey]);
 
-    useEffect(() => {
+    // Clear the app-version filter in the same render as a project, time range or
+    // platform change, so the overview is not fetched once with the stale version.
+    const appVersionScope = `${selectedProject?.id ?? ''}:${timeRange}:${platform ?? 'all'}`;
+    const [appVersionScopeKey, setAppVersionScopeKey] = useState(appVersionScope);
+    if (appVersionScopeKey !== appVersionScope) {
+        setAppVersionScopeKey(appVersionScope);
         setSelectedAppVersion(null);
-    }, [selectedProject?.id, timeRange, platform]);
+    }
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setData(null);
             setTrends(null);
@@ -504,7 +511,7 @@ export const Journeys: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform, selectedAppVersion]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform, selectedAppVersion]);
 
     const totalSessions = useMemo(() => {
         if (!data) return 0;

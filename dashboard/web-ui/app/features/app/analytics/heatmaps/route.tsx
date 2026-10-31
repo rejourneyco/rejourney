@@ -9,8 +9,8 @@ import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 
 export const Heatmaps: React.FC = () => {
     const { selectedProject } = useSessionData();
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
 
     return (
@@ -26,7 +26,13 @@ export const Heatmaps: React.FC = () => {
             </DashboardPageHeader>
 
             <div className="heatmap-page-main flex w-full flex-1 flex-col p-3 xl:min-h-0">
-                <TouchHeatmapSection timeRange={timeRange} platform={platform} compact={false} className="xl:min-h-0 xl:flex-1" />
+                <TouchHeatmapSection
+                    timeRange={timeRange}
+                    platform={platform}
+                    lensReady={timeRangeReady && platformLensReady}
+                    compact={false}
+                    className="xl:min-h-0 xl:flex-1"
+                />
             </div>
         </div>
     );

@@ -12,6 +12,8 @@ import { logger } from '../logger.js';
 import { setBoundedMapEntry } from '../utils/boundedMap.js';
 import { constantTimeEqualSha256Hex, constantTimeEqualStrings } from '../utils/secureCompare.js';
 import { isWebOriginAllowed } from '../utils/webAllowedDomains.js';
+import { isTeamOwner } from '../utils/teamRoles.js';
+import { sessionAuthCacheKey, sessionAuthCacheTtlSeconds } from '../services/sessionAuthCache.js';
 
 const AUTH_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const AUTH_CONTEXT_CACHE_MAX_ENTRIES = 25_000;
@@ -217,7 +219,7 @@ export async function sessionAuth(
         try {
             const { getRedis } = await import('../db/redis.js');
             const redisClient = getRedis();
-            const cacheKey = `session:${token}`;
+            const cacheKey = sessionAuthCacheKey(token);
             const cached = await Promise.race([
                 redisClient.get(cacheKey),
                 new Promise<string | null>((_, reject) =>
@@ -284,8 +286,8 @@ export async function sessionAuth(
                 try {
                     const { getRedis } = await import('../db/redis.js');
                     const redisClient = getRedis();
-                    const cacheKey = `session:${token}`;
-                    const ttl = Math.floor((sessionResult.session.expiresAt.getTime() - Date.now()) / 1000);
+                    const cacheKey = sessionAuthCacheKey(token);
+                    const ttl = sessionAuthCacheTtlSeconds(sessionResult.session.expiresAt);
                     if (ttl > 0) {
                         await redisClient.setex(
                             cacheKey,
@@ -739,7 +741,19 @@ export async function requireTeamOwner(
             .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, req.user.id)))
             .limit(1);
 
-        if (!membership || membership.role !== 'owner') {
+        const [team] = membership
+            ? await db
+                .select({ ownerUserId: teams.ownerUserId })
+                .from(teams)
+                .where(eq(teams.id, teamId))
+                .limit(1)
+            : [];
+
+        if (
+            !membership
+            || !team
+            || !isTeamOwner({ userId: req.user.id, ownerUserId: team.ownerUserId, membershipRole: membership.role })
+        ) {
             res.status(403).json({ error: 'Forbidden', message: 'Owner access required' });
             return;
         }

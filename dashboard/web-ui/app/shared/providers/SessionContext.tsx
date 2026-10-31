@@ -7,12 +7,14 @@
  */
 
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import { useAuth } from './AuthContext';
 import { useDemoMode } from './DemoModeContext';
 import { useSafeTeam } from './TeamContext';
 import { api, ApiProject, clearCache, clearCacheByPrefixes, getProjects } from '~/shared/api/client';
 import { RecordingSession, Project, ProjectDailyStats, TimeRange, Platform } from '~/shared/types';
 import { clearSelectionCookie, SELECTED_PROJECT_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
+import { isSetupWizardRoute, projectHasRecentData } from '~/features/app/setup/setupUtils';
 
 function apiProjectToProject(apiProject: ApiProject): Project {
   return {
@@ -43,6 +45,13 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 
 const SELECTED_PROJECT_ID_KEY_PREFIX = 'rejourney_selected_project_id';
 const MIN_HIDDEN_MS_BEFORE_VISIBLE_REFETCH = 15000;
+// Background poll for the visible tab only. Returning to the tab already
+// refetches on visibilitychange, so a slower poll keeps data fresh while
+// sending fewer /api/projects requests per open tab. Projects still waiting
+// on their first session (and the setup wizard) keep the faster poll so
+// "Waiting for first session" clears as quickly as before.
+const VISIBLE_PROJECTS_POLL_MS = 300000;
+const AWAITING_DATA_PROJECTS_POLL_MS = 120000;
 
 function selectedProjectStorageKey(teamId?: string | null): string {
   return teamId ? `${SELECTED_PROJECT_ID_KEY_PREFIX}:${teamId}` : SELECTED_PROJECT_ID_KEY_PREFIX;
@@ -177,6 +186,7 @@ export function SessionDataProvider({
   const { currentTeam, isLoading: isTeamLoading } = useSafeTeam();
   const { isAuthenticated, isLoading: isAuthLoading, refreshUser } = useAuth();
   const demoMode = useDemoMode();
+  const { pathname } = useLocation();
 
   const bootstrappedProjects = useMemo(
     () => initialProjects.map(apiProjectToProject),
@@ -367,6 +377,10 @@ export function SessionDataProvider({
     refreshProjects,
   ]);
 
+  const projectsPollMs = isSetupWizardRoute(pathname) || !projectHasRecentData(selectedProject)
+    ? AWAITING_DATA_PROJECTS_POLL_MS
+    : VISIBLE_PROJECTS_POLL_MS;
+
   useEffect(() => {
     if (demoMode.isDemoMode) return;
 
@@ -374,10 +388,10 @@ export function SessionDataProvider({
       if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
       if (document.visibilityState !== 'visible') return;
       void refreshProjects({ silent: true, force: false });
-    }, 120000);
+    }, projectsPollMs);
 
     return () => clearInterval(interval);
-  }, [currentTeam?.id, demoMode.isDemoMode, isAuthLoading, isAuthenticated, isTeamLoading, refreshProjects]);
+  }, [currentTeam?.id, demoMode.isDemoMode, isAuthLoading, isAuthenticated, isTeamLoading, projectsPollMs, refreshProjects]);
 
   useEffect(() => {
     if (demoMode.isDemoMode) return;
@@ -473,7 +487,14 @@ export function SessionDataProvider({
     }
   }, [demoMode.isDemoMode, sessions]);
 
-  const value: SessionContextValue = {
+  // Page routes receive a separate manual-refresh signal. Refreshing this
+  // lightweight project list should not blank their already-rendered data.
+  const refreshSessions = useCallback(
+    (options?: { silent?: boolean }) => refreshProjects({ force: true, silent: options?.silent ?? true }),
+    [refreshProjects],
+  );
+
+  const value = useMemo<SessionContextValue>(() => ({
     sessions,
     projects,
     dailyStats,
@@ -486,12 +507,23 @@ export function SessionDataProvider({
     projectsLoading,
     projectsReady,
     projectsError,
-    // Page routes receive a separate manual-refresh signal. Refreshing this
-    // lightweight project list should not blank their already-rendered data.
-    refreshSessions: (options?: { silent?: boolean }) => refreshProjects({ force: true, silent: options?.silent ?? true }),
+    refreshSessions,
     getSession,
     dashboardStats,
-  };
+  }), [
+    sessions,
+    projects,
+    dailyStats,
+    selectedProject,
+    setSelectedProject,
+    timeRange,
+    projectsLoading,
+    projectsError,
+    projectsReady,
+    refreshSessions,
+    getSession,
+    dashboardStats,
+  ]);
 
   return (
     <SessionContext.Provider value={value}>

@@ -34,6 +34,42 @@ describe('archive request reliability', () => {
         const query = { projectId: 'count-test', q: 'user_456' };
         expect(await getSessionsArchiveTotalCount(query)).toBe(0);
         expect(await getSessionsArchiveTotalCount(query, { fresh: true, signal: controller.signal })).toBe(4);
-        expect(fetcher.mock.calls[1][1].signal).toBe(controller.signal);
+        expect(fetcher).toHaveBeenCalledTimes(2);
+
+        // Aborting the caller aborts the in-flight request it alone is waiting on.
+        const pendingController = new AbortController();
+        let pendingFetchSignal: AbortSignal | null | undefined;
+        fetcher.mockImplementationOnce((_url, options: RequestInit) => new Promise((_resolve, reject) => {
+            pendingFetchSignal = options.signal;
+            options.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        }));
+        const pending = getSessionsArchiveTotalCount(query, { fresh: true, signal: pendingController.signal });
+        const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+        pendingController.abort();
+        await rejected;
+        expect(pendingFetchSignal?.aborted).toBe(true);
+    });
+    it('shares one in-flight request between callers and keeps it alive for callers that did not abort', async () => {
+        let resolveFetch: (response: Response) => void = () => undefined;
+        let fetchSignal: AbortSignal | null | undefined;
+        const fetcher = vi.fn().mockImplementationOnce((_url, options: RequestInit) => new Promise<Response>((resolve) => {
+            fetchSignal = options.signal;
+            resolveFetch = resolve;
+        }));
+        vi.stubGlobal('fetch', fetcher);
+        const query = { projectId: 'shared-count-test', q: 'user_789' };
+        const leaving = new AbortController();
+        const staying = new AbortController();
+        const abandoned = getSessionsArchiveTotalCount(query, { signal: leaving.signal });
+        const kept = getSessionsArchiveTotalCount(query, { signal: staying.signal });
+        const abandonedRejects = expect(abandoned).rejects.toMatchObject({ name: 'AbortError' });
+        await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+        leaving.abort();
+        await abandonedRejects;
+        expect(fetchSignal?.aborted).toBe(false);
+        resolveFetch(new Response(JSON.stringify({ totalCount: 7 })));
+        expect(await kept).toBe(7);
+        expect(fetcher).toHaveBeenCalledTimes(1);
     });
 });

@@ -197,8 +197,9 @@ router.patch('/leaks/:leakId', asyncHandler(async (req, res) => {
     const data = await callIssueDetection<unknown>({
         method: 'PATCH',
         pathWithQuery: `/v1/leaks/${encodeURIComponent(req.params.leakId)}`,
+        // Forward only the validated field; never relay arbitrary client keys upstream.
         body: {
-            ...req.body,
+            ...(status !== undefined ? { status } : {}),
             actorUserId: req.user!.id,
         },
     });

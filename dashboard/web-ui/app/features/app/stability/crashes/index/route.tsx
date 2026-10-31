@@ -49,14 +49,16 @@ export const CrashesList: React.FC = () => {
   const [crashGroups, setCrashGroups] = useState<CrashOverviewGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+  const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [crashDetails, setCrashDetails] = useState<Record<string, CrashReport | null>>({});
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
-  const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+  const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+  const lensReady = timeRangeReady && platformLensReady;
   const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
+    if (!lensReady) return;
     if (!selectedProject?.id) {
       setCrashGroups([]);
       setIsLoading(false);
@@ -80,7 +82,7 @@ export const CrashesList: React.FC = () => {
     return () => {
        cancelled = true;
     };
-  }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+  }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

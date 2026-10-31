@@ -25,6 +25,7 @@ import {
     triggerSessionScreenshotFramePrewarm,
     type ScreenshotFrameUrlMode,
 } from '../services/screenshotFrames.js';
+import { getThumbnailAtTimestamp, resolveSessionCoverResponse } from '../services/sessionThumbnail.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, networkRateLimiter, replayShareRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
@@ -383,7 +384,10 @@ function buildSessionArchiveBaseConditions(
     const startedAfter = getTimeRangeFilter(timeRange);
     // Access-control and static conditions — always AND'd regardless of conditionLogic
     const baseConditions: (SQL | undefined)[] = [
-        projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
+        // A requested project narrows the caller's projects; it never widens them.
+        projectId
+            ? and(eq(sessions.projectId, projectId), inArray(sessions.projectId, accessibleProjectIds))
+            : inArray(sessions.projectId, accessibleProjectIds),
     ];
     if (userId) baseConditions.push(eq(sessions.userDisplayId, userId));
     if (deviceId) baseConditions.push(eq(sessions.deviceId, deviceId));
@@ -695,6 +699,13 @@ const RRWEB_SEGMENT_DATA_CACHE_TTL_SECONDS = Number(process.env.RJ_RRWEB_SEGMENT
 const RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES = Number(process.env.RJ_RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES ?? 5_000_000);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 const SESSION_BOOTSTRAP_CACHE_CONTROL = 'private, max-age=15, stale-while-revalidate=45';
+// Cover URLs are keyed by session, not artifact, so even an ended session keeps
+// the existing one-day browser lifetime (a retention purge must still drop the
+// cover); revalidation is a cheap ETag 304. Live sessions revalidate sooner.
+const SESSION_COVER_STABLE_CACHE_CONTROL = 'private, max-age=86400';
+const SESSION_COVER_UNSTABLE_CACHE_CONTROL = 'private, max-age=300';
+// rrweb segments are addressed by artifact id and never rewritten.
+const RRWEB_SEGMENT_CACHE_CONTROL = 'private, max-age=31536000, immutable';
 const SESSION_DETAIL_CACHE_VERSION = 'v6';
 // Inline-events cap for /core rrweb payload. When the total rrweb segment size
 // exceeds this, the server returns segment URLs (events: []) and the dashboard
@@ -971,6 +982,96 @@ async function getAuthorizedSessionForFrames(userId: string, sessionId: string) 
     }
 
     return sessionResult;
+}
+
+/**
+ * Access check for cover/thumbnail images: the same rule as getAuthorizedSession
+ * (caller belongs to the team that owns the session's project) sharing the
+ * frame-auth cache, but selecting only the columns a cover needs instead of the
+ * full session row (events/metadata JSONB) and metrics.
+ */
+async function getAuthorizedSessionForCover(userId: string, sessionId: string) {
+    const coverColumns = {
+        id: sessions.id,
+        projectId: sessions.projectId,
+        startedAt: sessions.startedAt,
+        endedAt: sessions.endedAt,
+        status: sessions.status,
+    };
+    const cacheKey = `session_frame_auth:${sessionId}:${userId}`;
+    try {
+        const cachedProjectId = await getRedis().get(cacheKey);
+        if (cachedProjectId) {
+            const [session] = await db
+                .select(coverColumns)
+                .from(sessions)
+                .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, cachedProjectId)))
+                .limit(1);
+            if (session) return session;
+        }
+    } catch (err) {
+        logger.warn({ err, sessionId, userId }, '[sessions] Cover auth cache lookup failed, falling back to DB');
+    }
+
+    const [sessionResult] = await db
+        .select({ ...coverColumns, teamId: projects.teamId })
+        .from(sessions)
+        .innerJoin(projects, eq(sessions.projectId, projects.id))
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
+
+    if (!sessionResult) {
+        throw ApiError.notFound('Session not found');
+    }
+
+    const [membership] = await db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, sessionResult.teamId), eq(teamMembers.userId, userId)))
+        .limit(1);
+
+    if (!membership) {
+        throw ApiError.forbidden('Access denied');
+    }
+
+    try {
+        await getRedis().setex(cacheKey, FRAME_AUTH_CACHE_TTL_SECONDS, sessionResult.projectId);
+    } catch (err) {
+        logger.warn({ err, sessionId, userId }, '[sessions] Failed to cache cover auth projectId');
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- drop teamId from the returned shape
+    const { teamId: _teamId, ...session } = sessionResult;
+    return session;
+}
+
+type CoverSession = Awaited<ReturnType<typeof getAuthorizedSessionForCover>>;
+
+/**
+ * Sends the session cover (first frame of the first ready screenshot archive)
+ * through the Redis cover cache. The ETag is derived from that artifact, so a
+ * browser revalidation is answered 304 before any storage work. Returns false
+ * when the session has no cover so the caller can raise its own 404.
+ */
+async function sendCachedSessionCover(req: any, res: any, session: CoverSession): Promise<boolean> {
+    const stable = isStableForSessionDetailCache(session);
+    const result = await resolveSessionCoverResponse(session, {
+        ifNoneMatch: req.headers['if-none-match'],
+        stable,
+    });
+    if (result.status === 404) return false;
+
+    res.setHeader('ETag', result.etag);
+    res.setHeader('Cache-Control', stable ? SESSION_COVER_STABLE_CACHE_CONTROL : SESSION_COVER_UNSTABLE_CACHE_CONTROL);
+    if (result.status === 304) {
+        res.status(304).end();
+        return true;
+    }
+
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('X-Session-Cover-Cache', result.cacheStatus);
+    res.send(result.cover);
+    return true;
 }
 
 function canManageReplayShares(role?: string | null): boolean {
@@ -3148,6 +3249,9 @@ router.get(
             res.status(404).send('No accessible projects');
             return;
         }
+        if (typeof req.query.projectId === 'string' && req.query.projectId && !accessibleProjectIds.includes(req.query.projectId)) {
+            throw ApiError.forbidden('Access denied');
+        }
 
         const { baseConditions } = buildSessionArchiveBaseConditions(
             {
@@ -3333,6 +3437,9 @@ router.get(
         if (accessibleProjectIds.length === 0) {
             res.json({ sessions: [], nextCursor: null, hasMore: false, totalCount: 0 });
             return;
+        }
+        if (typeof req.query.projectId === 'string' && req.query.projectId && !accessibleProjectIds.includes(req.query.projectId)) {
+            throw ApiError.forbidden('Access denied');
         }
 
         const searchQuery = typeof q === 'string' ? normalizeArchiveSearchQuery(q) : '';
@@ -4507,7 +4614,7 @@ router.get(
                 Boolean(s3ObjectKey?.endsWith('.gz'));
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             if (isGzipped) res.setHeader('Content-Encoding', 'gzip');
-            res.setHeader('Cache-Control', 'private, max-age=300');
+            res.setHeader('Cache-Control', RRWEB_SEGMENT_CACHE_CONTROL);
             res.setHeader('Content-Length', String(data.length));
             return res.send(data);
         };
@@ -4606,7 +4713,7 @@ router.get(
 
         const sendFrameData = (data: Buffer) => {
             res.setHeader('Content-Type', 'image/jpeg');
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
             res.setHeader('Content-Length', String(data.length));
             return res.send(data);
         };
@@ -4794,6 +4901,9 @@ router.get(
  *   - ts: Absolute timestamp in ms (epoch) - if provided, extracts frame at this time
  *   - w: Width in pixels (default: 375)
  *   - format: Ignored (responses are JPEG)
+ *
+ * Without `ts` (or when no frame matches it) this is the session cover and is
+ * served through the same cached path as /cover.
  */
 router.get(
     '/thumbnail/:sessionId',
@@ -4820,66 +4930,7 @@ router.get(
             '[sessions] Thumbnail request received'
         );
 
-        // Verify session access
-        const [session] = await db
-            .select({ projectId: sessions.projectId })
-            .from(sessions)
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
-
-        if (!session) {
-            logger.warn({ sessionId, userId: req.user!.id }, '[sessions] Thumbnail request session not found');
-            throw ApiError.notFound('Session not found');
-        }
-
-        logger.info(
-            { sessionId, projectId: session.projectId, userId: req.user!.id },
-            '[sessions] Thumbnail request session resolved'
-        );
-
-        // Verify user has access to project
-        const teamMemberships = await db
-            .select({ teamId: teamMembers.teamId })
-            .from(teamMembers)
-            .where(eq(teamMembers.userId, req.user!.id));
-
-        const teamIds = teamMemberships.map(m => m.teamId);
-        if (teamIds.length === 0) {
-            logger.warn({ sessionId, userId: req.user!.id }, '[sessions] Thumbnail request denied because user has no team memberships');
-            throw ApiError.forbidden('Access denied');
-        }
-
-        logger.info(
-            {
-                sessionId,
-                userId: req.user!.id,
-                teamMembershipCount: teamIds.length,
-                teamIds,
-            },
-            '[sessions] Thumbnail request team memberships resolved'
-        );
-
-        const [project] = await db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(and(
-                eq(projects.id, session.projectId),
-                inArray(projects.teamId, teamIds)
-            ))
-            .limit(1);
-
-        if (!project) {
-            logger.warn(
-                {
-                    sessionId,
-                    projectId: session.projectId,
-                    userId: req.user!.id,
-                    teamIds,
-                },
-                '[sessions] Thumbnail request denied because project is not accessible to user'
-            );
-            throw ApiError.forbidden('Access denied');
-        }
+        const session = await getAuthorizedSessionForCover(req.user!.id, sessionId);
 
         logger.info(
             {
@@ -4890,11 +4941,6 @@ router.get(
             },
             '[sessions] Thumbnail request authorization succeeded'
         );
-
-        // Import thumbnail service
-        const { getSessionThumbnail, getThumbnailAtTimestamp } = await import('../services/sessionThumbnail.js');
-
-        let thumbnail: Buffer | null = null;
 
         // If absolute timestamp provided, use getThumbnailAtTimestamp for screen-specific frames
         if (absoluteTimestampMs && !isNaN(absoluteTimestampMs)) {
@@ -4908,7 +4954,7 @@ router.get(
                 },
                 '[sessions] Attempting timestamped thumbnail extraction'
             );
-            thumbnail = await getThumbnailAtTimestamp(sessionId, absoluteTimestampMs, {
+            const thumbnail = await getThumbnailAtTimestamp(sessionId, absoluteTimestampMs, {
                 width,
                 format,
             });
@@ -4922,38 +4968,28 @@ router.get(
                 },
                 '[sessions] Timestamped thumbnail extraction finished'
             );
+
+            if (thumbnail) {
+                res.setHeader('Content-Type', 'image/jpeg');
+                res.setHeader('Cache-Control', 'private, max-age=86400'); // 24 hours
+                logger.info(
+                    {
+                        sessionId,
+                        projectId: session.projectId,
+                        responseBytes: thumbnail.length,
+                        absoluteTimestampMs,
+                        durationMs: Date.now() - requestStartedAt,
+                    },
+                    '[sessions] Thumbnail request succeeded'
+                );
+                res.send(thumbnail);
+                return;
+            }
         }
 
-        // Fallback to first available screenshot extraction
-        if (!thumbnail) {
-            logger.info(
-                {
-                    sessionId,
-                    projectId: session.projectId,
-                    absoluteTimestampMs,
-                    timeOffset,
-                    width,
-                    format,
-                },
-                '[sessions] Falling back to generic session thumbnail extraction'
-            );
-            thumbnail = await getSessionThumbnail(sessionId, {
-                timeOffset,
-                width,
-                format,
-            });
-            logger.info(
-                {
-                    sessionId,
-                    projectId: session.projectId,
-                    thumbnailFound: Boolean(thumbnail),
-                    durationMs: Date.now() - requestStartedAt,
-                },
-                '[sessions] Generic thumbnail extraction finished'
-            );
-        }
-
-        if (!thumbnail) {
+        // Fallback to the session cover (first available screenshot)
+        const sent = await sendCachedSessionCover(req, res, session);
+        if (!sent) {
             logger.warn(
                 {
                     sessionId,
@@ -4969,19 +5005,16 @@ router.get(
             throw ApiError.notFound('No thumbnail available for this session');
         }
 
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
         logger.info(
             {
                 sessionId,
                 projectId: session.projectId,
-                responseBytes: thumbnail.length,
+                status: res.statusCode,
                 absoluteTimestampMs,
                 durationMs: Date.now() - requestStartedAt,
             },
             '[sessions] Thumbnail request succeeded'
         );
-        res.send(thumbnail);
     })
 );
 
@@ -4997,59 +5030,12 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { sessionId } = req.params;
+        const session = await getAuthorizedSessionForCover(req.user!.id, req.params.sessionId);
 
-        // Verify session access
-        const [session] = await db
-            .select({ projectId: sessions.projectId })
-            .from(sessions)
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
-
-        if (!session) {
-            throw ApiError.notFound('Session not found');
-        }
-
-        // Verify user has access to project
-        const teamMemberships = await db
-            .select({ teamId: teamMembers.teamId })
-            .from(teamMembers)
-            .where(eq(teamMembers.userId, req.user!.id));
-
-        const teamIds = teamMemberships.map(m => m.teamId);
-        if (teamIds.length === 0) {
-            throw ApiError.forbidden('Access denied');
-        }
-
-        const [project] = await db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(and(
-                eq(projects.id, session.projectId),
-                inArray(projects.teamId, teamIds)
-            ))
-            .limit(1);
-
-        if (!project) {
-            throw ApiError.forbidden('Access denied');
-        }
-
-        // Import and use thumbnail service
-        const { getSessionThumbnail } = await import('../services/sessionThumbnail.js');
-
-        const thumbnail = await getSessionThumbnail(sessionId, {
-            timeOffset: 0.5,
-            width: 375,
-            format: 'jpeg',
-        });
-
-        if (!thumbnail) {
+        const sent = await sendCachedSessionCover(req, res, session);
+        if (!sent) {
             throw ApiError.notFound('No cover photo available for this session');
         }
-
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
-        res.send(thumbnail);
     })
 );
 

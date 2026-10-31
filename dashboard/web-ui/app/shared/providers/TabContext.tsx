@@ -1,4 +1,4 @@
-import React, { createContext, startTransition, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, startTransition, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { TabRegistry } from '~/shell/tabs/TabRegistry';
 import { useSessionData } from './SessionContext';
@@ -54,6 +54,29 @@ const MAX_OPEN_TABS = 14;
 const MAX_DETAIL_TABS = 6;
 const STALE_TAB_KEEP_COUNT = 6;
 const RECENTLY_CLOSED_LIMIT = 10;
+// Trailing debounce for workspace saves. Pending saves are also flushed when
+// the page is hidden, so the last change is not dropped.
+const WORKSPACE_SAVE_DEBOUNCE_MS = 1000;
+
+function toWorkspaceTabs(tabs: ReadonlyArray<{ id: string; title: string; path: string }>): WorkspaceTab[] {
+    return tabs.map(t => ({
+        id: t.id,
+        title: t.title,
+        path: t.path,
+    }));
+}
+
+// Serialized form of exactly what a save would send, so unchanged state can
+// skip the PUT (which also invalidates the server-side workspace cache).
+function workspaceSnapshot(
+    teamId: string,
+    projectId: string,
+    tabs: WorkspaceTab[],
+    activeTabId: string | null,
+    recentlyClosed: WorkspaceTab[],
+): string {
+    return JSON.stringify({ teamId, projectId, tabs, activeTabId, recentlyClosed });
+}
 
 function getDefaultDashboardTabId(): string {
     return 'general';
@@ -168,7 +191,11 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const recentlyClosedRef = useRef(recentlyClosed);
     const hasLoadedRef = useRef(hasLoaded);
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingSaveRef = useRef<(() => Promise<void>) | null>(null);
     const isSavingRef = useRef(false);
+    const saveQueuedRef = useRef(false);
+    const lastSavedSnapshotRef = useRef<string | null>(null);
+    const saveToBackendRef = useRef<() => void>(() => { });
     const isScopeTransitionRef = useRef(false);
     const skipRestoreForNextScopeRef = useRef(false);
 
@@ -222,42 +249,79 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             clearTimeout(saveTimeoutRef.current);
         }
 
-        // Debounce: wait 1 second before saving
-        saveTimeoutRef.current = setTimeout(async () => {
+        const runSave = async () => {
+            if (pendingSaveRef.current === runSave) {
+                pendingSaveRef.current = null;
+            }
             if (isScopeTransitionRef.current || !hasLoadedRef.current) return;
-            if (isSavingRef.current) return;
+            if (isSavingRef.current) {
+                // A save is in flight; re-run once it settles so the latest
+                // state is not dropped.
+                saveQueuedRef.current = true;
+                return;
+            }
+
+            // Read current state from refs (not stale closures)
+            const workspaceTabs = toWorkspaceTabs(tabsRef.current);
+            const closedTabs = toWorkspaceTabs(recentlyClosedRef.current);
+            const activeId = activeTabIdRef.current || getDefaultDashboardTabId();
+            const snapshot = workspaceSnapshot(teamId, projectId, workspaceTabs, activeId, closedTabs);
+            if (snapshot === lastSavedSnapshotRef.current) return;
+
             isSavingRef.current = true;
-
             try {
-                // Read current state from refs (not stale closures)
-                const currentTabs = tabsRef.current;
-                const currentActiveId = activeTabIdRef.current;
-                const currentClosed = recentlyClosedRef.current;
-
-                const workspaceTabs: WorkspaceTab[] = currentTabs.map(t => ({
-                    id: t.id,
-                    title: t.title,
-                    path: t.path,
-                }));
-                const closedTabs: WorkspaceTab[] = currentClosed.map(t => ({
-                    id: t.id,
-                    title: t.title,
-                    path: t.path,
-                }));
                 await saveWorkspace(
                     teamId,
                     projectId,
                     workspaceTabs,
-                    currentActiveId || getDefaultDashboardTabId(),
+                    activeId,
                     closedTabs
                 );
+                lastSavedSnapshotRef.current = snapshot;
             } catch (err) {
                 console.warn('Failed to save workspace:', err);
             } finally {
                 isSavingRef.current = false;
+                if (saveQueuedRef.current) {
+                    saveQueuedRef.current = false;
+                    // Latest scope's saver; the dirty check skips it if nothing changed.
+                    saveToBackendRef.current();
+                }
             }
-        }, 1000);
+        };
+
+        pendingSaveRef.current = runSave;
+        saveTimeoutRef.current = setTimeout(() => {
+            saveTimeoutRef.current = null;
+            void runSave();
+        }, WORKSPACE_SAVE_DEBOUNCE_MS);
     }, [workspaceTabsEnabled, demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId]);
+
+    useEffect(() => {
+        saveToBackendRef.current = saveToBackend;
+    }, [saveToBackend]);
+
+    // Flush a pending debounced save when the page is hidden or unloaded, so
+    // the trailing debounce never loses the last tab change.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const flushPendingSave = () => {
+            const pending = pendingSaveRef.current;
+            if (!pending || !saveTimeoutRef.current) return;
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+            void pending();
+        };
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') flushPendingSave();
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('pagehide', flushPendingSave);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('pagehide', flushPendingSave);
+        };
+    }, []);
 
     // Persist whenever tabs change (but only after initial load completes)
     useEffect(() => {
@@ -269,6 +333,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
             }
+            pendingSaveRef.current = null;
         };
     }, [workspaceTabsEnabled, tabs, activeTabId, recentlyClosed, hasLoaded, hasPersistableWorkspaceScope, demoMode.isDemoMode, location.pathname, saveToBackend]);
 
@@ -360,6 +425,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
         }
+        pendingSaveRef.current = null;
 
         loadedProjectIdRef.current = null;
         tabsRef.current = [];
@@ -431,6 +497,15 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             try {
                 const workspace = await getWorkspace(teamId, projectId);
                 if (isCancelled) return;
+                // Seed the dirty check with what the server already holds, so
+                // restoring an unchanged workspace does not PUT it straight back.
+                lastSavedSnapshotRef.current = workspaceSnapshot(
+                    teamId,
+                    projectId,
+                    toWorkspaceTabs(workspace.tabs || []),
+                    workspace.activeTabId ?? null,
+                    toWorkspaceTabs(workspace.recentlyClosed || []),
+                );
                 const prefix = getPathPrefix();
 
                 if (workspace.tabs && workspace.tabs.length > 0) {
@@ -913,28 +988,49 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
     }, [tabs, isSplitView]);
 
+    const value = useMemo<TabContextType>(() => ({
+        tabs,
+        activeTabId,
+        recentlyClosed,
+        isSplitView,
+        secondaryTabId,
+        splitRatio: splitRatioState,
+        openTab,
+        closeTab,
+        closeAllTabs,
+        closeOtherTabs,
+        closeStaleTabs,
+        openTabInSplit,
+        moveTabToGroup,
+        closeSplitView,
+        setSplitRatio,
+        setActiveTabId,
+        reorderTabs,
+        reopenTab,
+        maxTabs: MAX_OPEN_TABS,
+    }), [
+        tabs,
+        activeTabId,
+        recentlyClosed,
+        isSplitView,
+        secondaryTabId,
+        splitRatioState,
+        openTab,
+        closeTab,
+        closeAllTabs,
+        closeOtherTabs,
+        closeStaleTabs,
+        openTabInSplit,
+        moveTabToGroup,
+        closeSplitView,
+        setSplitRatio,
+        setActiveTabId,
+        reorderTabs,
+        reopenTab,
+    ]);
+
     return (
-        <TabContext.Provider value={{
-            tabs,
-            activeTabId,
-            recentlyClosed,
-            isSplitView,
-            secondaryTabId,
-            splitRatio: splitRatioState,
-            openTab,
-            closeTab,
-            closeAllTabs,
-            closeOtherTabs,
-            closeStaleTabs,
-            openTabInSplit,
-            moveTabToGroup,
-            closeSplitView,
-            setSplitRatio,
-            setActiveTabId,
-            reorderTabs,
-            reopenTab,
-            maxTabs: MAX_OPEN_TABS,
-        }}>
+        <TabContext.Provider value={value}>
             {children}
         </TabContext.Provider>
     );

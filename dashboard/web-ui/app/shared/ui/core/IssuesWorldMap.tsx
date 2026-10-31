@@ -167,9 +167,9 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                     const segmentMix = region.engagementSegments
                         ? [
                             { label: 'Loyalists', value: region.engagementSegments.loyalists },
-                            { label: 'Explorers', value: region.engagementSegments.explorers },
-                            { label: 'Casuals', value: region.engagementSegments.casuals },
-                            { label: 'Bouncers', value: region.engagementSegments.bouncers },
+                            { label: 'Returning', value: region.engagementSegments.explorers },
+                            { label: 'One-time', value: region.engagementSegments.casuals },
+                            { label: 'Bounced', value: region.engagementSegments.bouncers },
                         ]
                         : [];
                     const totalSegments = segmentMix.reduce((sum, segment) => sum + segment.value, 0);

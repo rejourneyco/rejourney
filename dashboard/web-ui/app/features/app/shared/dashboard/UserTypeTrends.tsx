@@ -165,13 +165,13 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
                     <span className="h-3 w-3 bg-[#188038]"></span> Loyalists
                 </span>
                 <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
-                    <span className="h-3 w-3 bg-[#1a73e8]"></span> Explorers
+                    <span className="h-3 w-3 bg-[#1a73e8]"></span> Returning
                 </span>
                 <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
-                    <span className="h-3 w-3 bg-[#e37400]"></span> Casuals
+                    <span className="h-3 w-3 bg-[#e37400]"></span> One-time
                 </span>
                 <span className="flex items-center gap-2 text-xs font-medium text-[#3c4043]">
-                    <span className="h-3 w-3 bg-[#d93025]"></span> Bouncers
+                    <span className="h-3 w-3 bg-[#d93025]"></span> Bounced
                 </span>
 
                 {/* Version markers legend */}
@@ -230,10 +230,10 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
                             />
                         ))}
 
-                        <Area type="monotone" dataKey="bouncers" stackId="1" stroke="#d93025" fill="#d93025" name="Bouncers (<10s)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="casuals" stackId="1" stroke="#e37400" fill="#e37400" name="Casuals (10-60s)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="explorers" stackId="1" stroke="#1a73e8" fill="#1a73e8" name="Explorers (active)" isAnimationActive={false} />
-                        <Area type="monotone" dataKey="loyalists" stackId="1" stroke="#188038" fill="#188038" name="Loyalists (>3m)" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="bouncers" stackId="1" stroke="#d93025" fill="#d93025" name="Bounced" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="casuals" stackId="1" stroke="#e37400" fill="#e37400" name="One-time" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="explorers" stackId="1" stroke="#1a73e8" fill="#1a73e8" name="Returning" isAnimationActive={false} />
+                        <Area type="monotone" dataKey="loyalists" stackId="1" stroke="#188038" fill="#188038" name="Loyalists" isAnimationActive={false} />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>

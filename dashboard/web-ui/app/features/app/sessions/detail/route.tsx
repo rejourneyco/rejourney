@@ -1815,6 +1815,44 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                 }, delayMs);
             };
 
+            // The manifest only needs the session id, so its first request goes out alongside
+            // core and is applied once core has landed. It is what turns the loader into a
+            // playable replay, so a transient failure is retried with backoff before the
+            // player offers a manual retry, but retries only start after core has succeeded
+            // (a failed, aborted or superseded load never needs the manifest).
+            let markCoreSettled: (succeeded: boolean) => void = () => { };
+            const coreSettled = new Promise<boolean>((resolve) => {
+                markCoreSettled = resolve;
+            });
+            const loadReplayManifest = async () => {
+                for (let attempt = 0; ; attempt += 1) {
+                    try {
+                        return activeShareToken
+                            ? await api.getSharedReplayManifest(activeShareToken, { signal: requestSignal })
+                            : await api.getSessionReplayManifest(id!, { frameUrlMode: 'signed', signal: requestSignal });
+                    } catch (err) {
+                        const retryDelayMs = REPLAY_MANIFEST_RETRY_DELAYS_MS[attempt];
+                        if (
+                            retryDelayMs === undefined ||
+                            requestSignal.aborted ||
+                            isAbortError(err) ||
+                            activeReplayRequestRef.current !== requestId
+                        ) {
+                            throw err;
+                        }
+                        const coreLanded = await coreSettled;
+                        if (!coreLanded || requestSignal.aborted || activeReplayRequestRef.current !== requestId) throw err;
+                        console.warn('Replay manifest request failed; retrying.', err);
+                        await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+                        if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) throw err;
+                    }
+                }
+            };
+            const manifestPromise = loadReplayManifest();
+            // Handled below once core lands; this keeps an early rejection from being reported as unhandled.
+            manifestPromise.catch(() => undefined);
+
+            let coreSucceeded = false;
             try {
                 const coreResult = activeShareToken
                     ? await api.getSharedReplayCore(activeShareToken, { includeReplay: false, signal: requestSignal })
@@ -1842,6 +1880,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     };
                 });
                 setIsCoreLoading(false);
+                coreSucceeded = true;
             } catch (err) {
                 if (requestSignal.aborted || isAbortError(err)) return;
                 if (activeReplayRequestRef.current !== requestId) return;
@@ -1856,34 +1895,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     console.error('Failed to fetch session core:', err);
                 }
                 return;
+            } finally {
+                markCoreSettled(coreSucceeded);
             }
 
             setIsReplayManifestLoading(true);
-            // The manifest is what turns the loader into a playable replay, so a transient
-            // failure is retried with backoff before the player offers a manual retry.
-            const loadReplayManifest = async () => {
-                for (let attempt = 0; ; attempt += 1) {
-                    try {
-                        return activeShareToken
-                            ? await api.getSharedReplayManifest(activeShareToken, { signal: requestSignal })
-                            : await api.getSessionReplayManifest(id!, { frameUrlMode: 'signed', signal: requestSignal });
-                    } catch (err) {
-                        const retryDelayMs = REPLAY_MANIFEST_RETRY_DELAYS_MS[attempt];
-                        if (
-                            retryDelayMs === undefined ||
-                            requestSignal.aborted ||
-                            isAbortError(err) ||
-                            activeReplayRequestRef.current !== requestId
-                        ) {
-                            throw err;
-                        }
-                        console.warn('Replay manifest request failed; retrying.', err);
-                        await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
-                        if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) throw err;
-                    }
-                }
-            };
-            void loadReplayManifest()
+            void manifestPromise
                 .then((manifest) => {
                     if (activeReplayRequestRef.current !== requestId) return;
                     setFullSession((prev) => {
@@ -1924,7 +1941,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                     }
                 });
 
-            scheduleReplayTask(() => {
+            // The timeline feeds the event list beside the player, so it starts as soon as
+            // core lands; stats and hierarchy below still wait for an idle slot.
+            const loadTimeline = () => {
+                if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) return;
                 const timelinePromise = activeShareToken
                     ? api.getSharedReplayTimeline(activeShareToken, { signal: requestSignal })
                     : api.getSessionTimeline(id!, { signal: requestSignal });
@@ -1956,7 +1976,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string; shareToken?: string
                             setIsTimelineLoading(false);
                         }
                     });
-            }, 350);
+            };
+            loadTimeline();
 
             scheduleReplayTask(() => {
                 const statsPromise = activeShareToken

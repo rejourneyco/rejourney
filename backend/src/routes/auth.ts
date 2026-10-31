@@ -32,6 +32,7 @@ import {
     recordFailedAuthAttempt,
 } from '../services/abuseDetection.js';
 import { isStripeEnabled } from '../services/stripe.js';
+import { evictSessionAuthCache } from '../services/sessionAuthCache.js';
 
 const router = Router();
 
@@ -545,6 +546,7 @@ router.post(
                 .limit(1);
 
             await db.delete(userSessions).where(eq(userSessions.token, token));
+            await evictSessionAuthCache(token);
 
             if (session) {
                 await auditAuthEvent(req, {

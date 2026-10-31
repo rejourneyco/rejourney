@@ -23,6 +23,7 @@ import {
 import { hardDeleteTeam } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
 import { isDisposableEmail } from '../utils/disposableEmail.js';
+import { canChangeTeamMemberRole } from '../utils/teamRoles.js';
 import {
     assertNoDuplicateContentSpam,
     enforceNewAccountActionLimit,
@@ -676,9 +677,21 @@ router.put(
             throw ApiError.notFound('Team member not found');
         }
 
-        // Cannot change owner role
+        // Cannot grant ownership or change the owner's role here
         const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
-        if (team?.ownerUserId === userId && role !== 'owner') {
+        const roleChange = canChangeTeamMemberRole({
+            actorIsTeamOwner: team?.ownerUserId === req.user!.id,
+            targetIsTeamOwner: team?.ownerUserId === userId,
+            targetCurrentRole: existingMembership.role,
+            nextRole: role,
+        });
+        if (!roleChange.allowed) {
+            if (roleChange.reason === 'owner_access_required') {
+                throw ApiError.forbidden('Owner access required');
+            }
+            if (roleChange.reason === 'owner_role_not_assignable') {
+                throw ApiError.badRequest('Owner role cannot be assigned. Transfer ownership instead.');
+            }
             throw ApiError.badRequest('Cannot change owner role. Transfer ownership first.');
         }
 

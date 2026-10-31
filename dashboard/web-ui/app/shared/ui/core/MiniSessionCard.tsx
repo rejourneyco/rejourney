@@ -18,6 +18,33 @@ const COVER_MISS_CACHE_TTL_MS = 60 * 1000;
 const COVER_BLOB_CACHE_LIMIT = 120;
 const coverBlobCache = new Map<string, { blob: Blob | null; timestamp: number }>();
 const coverBlobInFlight = new Map<string, Promise<Blob | null>>();
+// Covers that failed to load recently; remounted cards skip them for a minute
+// instead of re-requesting a cover the server just said does not exist.
+const coverMissCache = new Map<string, number>();
+
+function rememberCoverMiss(url: string): void {
+    coverMissCache.set(url, Date.now());
+    while (coverMissCache.size > COVER_BLOB_CACHE_LIMIT) {
+        const oldestKey = coverMissCache.keys().next().value;
+        if (!oldestKey) break;
+        coverMissCache.delete(oldestKey);
+    }
+}
+
+function hasRecentCoverMiss(url: string): boolean {
+    const missedAt = coverMissCache.get(url);
+    if (missedAt === undefined) return false;
+    if (Date.now() - missedAt < COVER_MISS_CACHE_TTL_MS) return true;
+    coverMissCache.delete(url);
+    return false;
+}
+
+// Browsers other than Safari cannot decode HEIC in <img>, so those covers still
+// go through fetch + heic2any. Everything else (the JPEG cover endpoints, demo
+// assets) is a plain lazy <img> so the HTTP cache and lazy loading apply.
+function isHeicUrl(url: string): boolean {
+    return /\.(heic|heif)(?:[?#]|$)/i.test(url);
+}
 
 function rememberCoverBlob(url: string, blob: Blob | null): Blob | null {
     coverBlobCache.set(url, { blob, timestamp: Date.now() });
@@ -101,8 +128,10 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
     showMeta = true,
     className = '',
 }) => {
-    const [imageUrl, setImageUrl] = useState<string | null>(null);
-    const [imageLoaded, setImageLoaded] = useState(false);
+    const [hasMounted, setHasMounted] = useState(false);
+    const [heicObjectUrl, setHeicObjectUrl] = useState<string | null>(null);
+    const [loadedImageSrc, setLoadedImageSrc] = useState<string | null>(null);
+    const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
     const isWebSession = String(session.platform || '').toLowerCase() === 'web';
     const webEnvironment = isWebSession ? getWebSessionEnvironment(session) : null;
     const webChrome = webEnvironment?.osLabel.toLowerCase().startsWith('windows')
@@ -130,49 +159,54 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             : `${API_BASE_URL}${normalizedCoverPath}`)
         : null;
 
+    const decodeViaBlob = coverUrl ? isHeicUrl(coverUrl) : false;
+
+    // Covers render on the client only (as before), so a server-rendered <img>
+    // cannot finish loading before hydration and miss its onLoad.
     useEffect(() => {
-        if (!coverUrl) {
-            setImageUrl(null);
-            setImageLoaded(false);
+        setHasMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (!coverUrl || !decodeViaBlob) {
+            setHeicObjectUrl(null);
             return;
         }
         let cancelled = false;
         let objectUrl: string | null = null;
-        setImageUrl(null);
-        setImageLoaded(false);
+        setHeicObjectUrl(null);
 
         loadCoverBlob(coverUrl)
             .then((blob) => {
                 if (cancelled) return;
                 if (!blob) {
-                    setImageUrl(null);
-                    setImageLoaded(false);
+                    setFailedCoverUrl(coverUrl);
                     return;
                 }
                 objectUrl = URL.createObjectURL(blob);
-                setImageUrl(objectUrl);
+                setHeicObjectUrl(objectUrl);
             })
             .catch(() => {
                 // Silently handle errors - sessions without video artifacts are common
                 if (cancelled) return;
-                setImageUrl(null);
-                setImageLoaded(false);
+                setFailedCoverUrl(coverUrl);
             });
 
         return () => {
             cancelled = true;
             if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
-    }, [coverUrl]);
+    }, [coverUrl, decodeViaBlob]);
 
-    const previewContent = imageUrl ? (
-        <img
-            src={imageUrl}
-            alt="Session"
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-            onLoad={() => setImageLoaded(true)}
-        />
-    ) : isWebSession ? (
+    const coverMissed = coverUrl !== null && (failedCoverUrl === coverUrl || hasRecentCoverMiss(coverUrl));
+    const imageSrc = !hasMounted || !coverUrl || coverMissed
+        ? null
+        : decodeViaBlob
+            ? heicObjectUrl
+            : coverUrl;
+    const imageLoaded = imageSrc !== null && loadedImageSrc === imageSrc;
+
+    const placeholderContent = isWebSession ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[#f8fafd] px-2">
             <Globe className="h-4 w-4 shrink-0 text-[#bdc1c6]" />
             <span className="w-full truncate text-center text-[10px] font-medium text-[#80868b]">{displayUrl}</span>
@@ -181,6 +215,29 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
         <div className="absolute inset-0 flex items-center justify-center bg-[#f8fafd]">
             <span className="text-[11px] font-medium text-[#80868b]">No preview</span>
         </div>
+    );
+
+    // The placeholder stays until the cover has decoded, then the cover fades in.
+    const previewContent = (
+        <>
+            {!imageLoaded && placeholderContent}
+            {imageSrc && (
+                <img
+                    key={imageSrc}
+                    src={imageSrc}
+                    alt="Session"
+                    loading="lazy"
+                    decoding="async"
+                    className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                    onLoad={() => setLoadedImageSrc(imageSrc)}
+                    onError={() => {
+                        if (!coverUrl) return;
+                        rememberCoverMiss(coverUrl);
+                        setFailedCoverUrl(coverUrl);
+                    }}
+                />
+            )}
+        </>
     );
 
     const playOverlay = (

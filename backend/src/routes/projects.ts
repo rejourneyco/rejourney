@@ -47,6 +47,7 @@ import {
     queryProductDailyStatsFromClickHouse,
 } from '../services/productRollupsClickHouse.js';
 import { normalizeWebAllowedDomains } from '../utils/webAllowedDomains.js';
+import { canMoveProjectBetweenTeams } from '../utils/teamRoles.js';
 import {
     getSmartCapturePresetRules,
     isSmartCaptureEntitled,
@@ -54,6 +55,7 @@ import {
     normalizeSmartCaptureMode,
     normalizeSmartCapturePreset,
     normalizeSmartCaptureRules,
+    findUnsafeSmartCaptureRegex,
 } from '../services/smartCapture.js';
 
 function getProjectWebAllowedDomains(project: { webAllowedDomains?: string[] | null; webDomain?: string | null }): string[] {
@@ -1836,6 +1838,13 @@ router.put(
         const mode = normalizeSmartCaptureMode(data.mode);
         const preset = normalizeSmartCapturePreset(data.preset);
         const rules = normalizeSmartCaptureRules(data.rules);
+        const unsafeRegex = findUnsafeSmartCaptureRegex(rules);
+        if (unsafeRegex) {
+            throw ApiError.badRequest(
+                'This regex pattern is not supported. Avoid backreferences, repeated groups that contain quantifiers or alternatives, and long chains of open-ended wildcards, and keep patterns under 256 characters.',
+                { ruleId: unsafeRegex.ruleId, reason: unsafeRegex.reason },
+            );
+        }
         const wantsSmartCapture = Boolean(data.enabled)
             || mode !== 'record_all'
             || preset !== 'none'
@@ -1917,7 +1926,7 @@ router.put(
             throw ApiError.notFound('Project not found');
         }
 
-        // If changing team, verify access to new team
+        // If changing team, verify admin access to both the current and the new team
         if (data.teamId) {
             const [membership] = await db
                 .select()
@@ -1925,7 +1934,18 @@ router.put(
                 .where(and(eq(teamMembers.teamId, data.teamId), eq(teamMembers.userId, req.user!.id)))
                 .limit(1);
 
-            if (!membership || !['owner', 'admin'].includes(membership.role)) {
+            const [sourceMembership] = data.teamId === currentProject.teamId
+                ? [membership]
+                : await db
+                    .select()
+                    .from(teamMembers)
+                    .where(and(eq(teamMembers.teamId, currentProject.teamId), eq(teamMembers.userId, req.user!.id)))
+                    .limit(1);
+
+            if (!canMoveProjectBetweenTeams({
+                sourceRole: sourceMembership?.role,
+                destinationRole: membership?.role,
+            })) {
                 throw ApiError.forbidden('Admin access required to move project');
             }
         }

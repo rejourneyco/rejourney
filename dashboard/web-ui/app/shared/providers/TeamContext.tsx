@@ -5,7 +5,7 @@
  * Teams own projects and billing.
  */
 
-import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getTeams, getTeamMembers, ApiTeam, ApiTeamMember, clearCache, clearCacheByPrefixes } from '~/shared/api/client';
 import { clearSelectionCookie, SELECTED_TEAM_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 import { useAuth } from './AuthContext';
@@ -47,6 +47,18 @@ export function useTeam(): TeamContextValue {
   return context;
 }
 
+// Stable default so consumers outside a provider do not see a new value each render.
+const EMPTY_TEAM_CONTEXT: TeamContextValue = {
+  teams: [],
+  currentTeam: null,
+  teamMembers: [],
+  isLoading: false,
+  error: null,
+  setCurrentTeam: () => { },
+  refreshTeams: async () => [],
+  refreshMembers: async () => { },
+};
+
 // Safe version that returns defaults when not in provider (for demo mode)
 export function useSafeTeam(): TeamContextValue {
   // Call both hooks unconditionally (React Hooks rules)
@@ -59,16 +71,7 @@ export function useSafeTeam(): TeamContextValue {
   }
 
   if (!context) {
-    return {
-      teams: [],
-      currentTeam: null,
-      teamMembers: [],
-      isLoading: false,
-      error: null,
-      setCurrentTeam: () => { },
-      refreshTeams: async () => [],
-      refreshMembers: async () => { },
-    };
+    return EMPTY_TEAM_CONTEXT;
   }
   return context;
 }
@@ -81,6 +84,27 @@ interface Props {
 }
 
 const EMPTY_TEAMS: ApiTeam[] = [];
+
+// Loader revalidation and refetches hand back fresh objects with the same data.
+// Keep the previous references when nothing changed so consumers keyed on the
+// team object (billing chips, members) do not refetch or re-render.
+function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function keepTeamsIfUnchanged(current: ApiTeam[], next: ApiTeam[]): ApiTeam[] {
+  return sameJson(current, next) ? current : next;
+}
+
+function keepTeamIfUnchanged(current: ApiTeam | null, next: ApiTeam | null): ApiTeam | null {
+  if (!current || !next) return next;
+  return current.id === next.id && sameJson(current, next) ? current : next;
+}
 
 function readStoredTeamId(): string | null {
   if (typeof window === 'undefined') {
@@ -176,8 +200,8 @@ export function TeamProvider({
       preferStoredSelection: true,
     });
     startTransition(() => {
-      setTeams(normalizedInitialTeams);
-      setCurrentTeamState(bootstrappedTeam);
+      setTeams((current) => keepTeamsIfUnchanged(current, normalizedInitialTeams));
+      setCurrentTeamState((current) => keepTeamIfUnchanged(current, bootstrappedTeam));
       // Only clear members when the team actually changed — clearing unconditionally
       // races with the member-loading useEffect: if the fetch completes before this
       // transition runs it wipes the data and the effect never re-fires (same team ID).
@@ -218,7 +242,7 @@ export function TeamProvider({
         return fetchedTeams;
       }
 
-      setTeams(fetchedTeams);
+      setTeams((current) => keepTeamsIfUnchanged(current, fetchedTeams));
 
       // Always ensure a team is selected if teams exist
       if (fetchedTeams.length > 0) {
@@ -228,7 +252,7 @@ export function TeamProvider({
         }) || fetchedTeams[0];
 
         // Always set current team to ensure it's available for new accounts
-        setCurrentTeamState(teamToSelect);
+        setCurrentTeamState((current) => keepTeamIfUnchanged(current, teamToSelect));
         if (typeof window !== 'undefined') {
           localStorage.setItem('selectedTeamId', teamToSelect.id);
           writeSelectionCookie(SELECTED_TEAM_COOKIE, teamToSelect.id);
@@ -257,18 +281,20 @@ export function TeamProvider({
     }
   }, []); // SSR guard handles client-side check
 
+  const currentTeamId = currentTeam?.id ?? null;
+
   const refreshMembers = useCallback(async () => {
-    if (!currentTeam) {
+    if (!currentTeamId) {
       setTeamMembers([]);
       return;
     }
     try {
-      const members = await getTeamMembers(currentTeam.id);
+      const members = await getTeamMembers(currentTeamId);
       setTeamMembers(members);
     } catch (err) {
       console.error('Failed to fetch team members:', err);
     }
-  }, [currentTeam]);
+  }, [currentTeamId]);
 
   const setCurrentTeam = useCallback((team: ApiTeam) => {
     setTeams((prev) => {
@@ -318,7 +344,7 @@ export function TeamProvider({
     };
   }, [refreshTeams]);
 
-  const value: TeamContextValue = {
+  const value = useMemo<TeamContextValue>(() => ({
     teams,
     currentTeam,
     teamMembers,
@@ -327,7 +353,7 @@ export function TeamProvider({
     setCurrentTeam,
     refreshTeams,
     refreshMembers,
-  };
+  }), [teams, currentTeam, teamMembers, isLoading, error, setCurrentTeam, refreshTeams, refreshMembers]);
 
   return (
     <TeamContext.Provider value={value}>

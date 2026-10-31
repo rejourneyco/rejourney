@@ -160,8 +160,12 @@ async function releaseRollupLock(sessionId: string, token: string): Promise<void
 
 function pendingEventRollupPredicate(sessionId?: string) {
     const predicates = [
-        eq(recordingArtifacts.kind, 'events'),
-        eq(recordingArtifacts.status, 'ready'),
+        // SQL literals, not bind parameters: recording_artifacts_event_rollup_pending_idx
+        // is partial on status = 'ready' AND kind = 'events', and a generic plan for
+        // `kind = $1 AND status = $2` can never prove that predicate (it falls back to
+        // recording_artifacts_kind_idx plus a sort). Keep these as constant SQL text.
+        sql`${recordingArtifacts.kind} = 'events'`,
+        sql`${recordingArtifacts.status} = 'ready'`,
         isNotNull(recordingArtifacts.eventRollupRequestedAt),
         isNull(recordingArtifacts.eventRollupProcessedAt),
     ];

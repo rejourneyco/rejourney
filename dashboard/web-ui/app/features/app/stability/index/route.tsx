@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -745,16 +745,23 @@ export const Stability: React.FC = () => {
   const activeKindSet = useMemo(() => parseKinds(filterParam), [filterParam]);
   const focusId = searchParams.get('focusId');
 
-  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(currentProject?.id);
-  const { platformLens } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(currentProject?.id);
+  const { platformLens, ready: platformLensReady } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const lensReady = timeRangeReady && platformLensReady;
   const platform = platformLensToSessionPlatform(platformLens);
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [crashGroups, setCrashGroups] = useState<CrashOverviewGroup[]>([]);
   const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [anrs, setAnrs] = useState<ANRRecord[]>([]);
   const [apiSpikes, setApiSpikes] = useState<ApiErrorSpikeRecord[]>([]);
   const [stabilitySummary, setStabilitySummary] = useState<StabilityIssuesResponse['summary']>(EMPTY_STABILITY_SUMMARY);
-  const [failedSections, setFailedSections] = useState<string[]>([]);
+  const [failedIssueSections, setFailedIssueSections] = useState<string[]>([]);
+  const [failedSettingsSections, setFailedSettingsSections] = useState<string[]>([]);
+  const failedSections = useMemo(
+    () => [...failedIssueSections, ...failedSettingsSections],
+    [failedIssueSections, failedSettingsSections],
+  );
   const [retryVersion, setRetryVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedIssueKey, setExpandedIssueKey] = useState<string | null>(null);
@@ -766,10 +773,14 @@ export const Stability: React.FC = () => {
   const [recordedEndpointOptions, setRecordedEndpointOptions] = useState<IgnoredEndpointOption[]>([]);
   const [selectedEndpointPattern, setSelectedEndpointPattern] = useState('');
   const [isSavingIgnoredEndpoints, setIsSavingIgnoredEndpoints] = useState(false);
+  // Project whose alert settings last loaded. Saving the ignore list before they
+  // load would replace the stored list with the empty placeholder.
+  const [alertSettingsProjectId, setAlertSettingsProjectId] = useState<string | null>(null);
   const [ignoreSettingsError, setIgnoreSettingsError] = useState<string | null>(null);
   const [occurrencePages, setOccurrencePages] = useState<Record<string, StabilityOccurrencePageState>>({});
 
   useEffect(() => {
+    if (!lensReady) return;
     const projectId = currentProject?.id || (isDemoMode ? 'demo' : '');
     if (!projectId) {
       setCrashGroups([]);
@@ -777,11 +788,8 @@ export const Stability: React.FC = () => {
       setAnrs([]);
       setApiSpikes([]);
       setStabilitySummary(EMPTY_STABILITY_SUMMARY);
-      setFailedSections([]);
+      setFailedIssueSections([]);
       setOccurrencePages({});
-      setIgnoredEndpointPatterns([]);
-      setRecordedEndpointOptions([]);
-      setSelectedEndpointPattern('');
       setIsLoading(false);
       return;
     }
@@ -828,14 +836,12 @@ export const Stability: React.FC = () => {
           summary: response.summary,
         }));
 
+    // The issue list only waits for issues and API spikes. The endpoint catalog
+    // and alert settings (ignored endpoints) load in parallel in the effect below.
     Promise.allSettled([
       stabilityRequest,
       getApiErrorSpikes(projectId, timeRange),
-      getApiEndpointStats(projectId, 'all'),
-      isDemoMode
-        ? Promise.resolve({ ignoredApiEndpoints: [] } as unknown as Awaited<ReturnType<typeof getProjectAlertSettings>>)
-        : getProjectAlertSettings(projectId),
-    ]).then(([stabilityResult, spikesResult, endpointStatsResult, alertSettingsResult]) => {
+    ]).then(([stabilityResult, spikesResult]) => {
       if (cancelled) return;
 
       const nextFailedSections: string[] = [];
@@ -858,7 +864,38 @@ export const Stability: React.FC = () => {
         setApiSpikes([]);
         nextFailedSections.push('API spikes');
       }
+      setFailedIssueSections(nextFailedSections);
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.id, isDemoMode, lensReady, manualRefreshVersion, timeRange, platform, retryVersion]);
+
+  useEffect(() => {
+    if (!lensReady) return;
+    const projectId = currentProject?.id || (isDemoMode ? 'demo' : '');
+    if (!projectId) {
+      setFailedSettingsSections([]);
+      setIgnoredEndpointPatterns([]);
+      setRecordedEndpointOptions([]);
+      setSelectedEndpointPattern('');
+      setAlertSettingsProjectId(null);
+      return;
+    }
+
+    let cancelled = false;
+    Promise.allSettled([
+      getApiEndpointStats(projectId, 'all'),
+      isDemoMode
+        ? Promise.resolve({ ignoredApiEndpoints: [] } as unknown as Awaited<ReturnType<typeof getProjectAlertSettings>>)
+        : getProjectAlertSettings(projectId),
+    ]).then(([endpointStatsResult, alertSettingsResult]) => {
+      if (cancelled) return;
+
+      const nextFailedSections: string[] = [];
       if (endpointStatsResult.status === 'fulfilled') {
         const seen = new Set<string>();
         const options = (endpointStatsResult.value.allEndpoints || [])
@@ -887,19 +924,20 @@ export const Stability: React.FC = () => {
         const patterns = normalizeIgnoredEndpointPatterns(alertSettingsResult.value.ignoredApiEndpoints || []);
         setIgnoredEndpointPatterns(patterns);
         setIgnoreSettingsError(null);
+        setAlertSettingsProjectId(projectId);
       } else {
         setIgnoredEndpointPatterns([]);
+        setAlertSettingsProjectId(null);
         nextFailedSections.push('alert settings');
       }
-      setFailedSections(nextFailedSections);
-    }).finally(() => {
-      if (!cancelled) setIsLoading(false);
+      setFailedSettingsSections(nextFailedSections);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [currentProject?.id, isDemoMode, manualRefreshVersion, timeRange, platform, retryVersion]);
+    // Same refresh triggers as the issue list, so the catalog stays as fresh as before.
+  }, [currentProject?.id, isDemoMode, lensReady, manualRefreshVersion, timeRange, platform, retryVersion]);
 
   const allRows = useMemo<StabilityIssueRow[]>(() => {
     return [
@@ -918,13 +956,13 @@ export const Stability: React.FC = () => {
   }, [allRows]);
 
   const filteredRows = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = deferredSearchQuery.trim().toLowerCase();
     return allRows.filter((row) => {
       const matchesKind = activeKindSet.size === 0 || activeKindSet.has(row.kind);
       const matchesSearch = !query || row.searchText.includes(query);
       return matchesKind && matchesSearch;
     });
-  }, [activeKindSet, allRows, searchQuery]);
+  }, [activeKindSet, allRows, deferredSearchQuery]);
 
   const availableEndpointOptions = useMemo(() => {
     const ignored = new Set(ignoredEndpointPatterns.map((pattern) => pattern.toLowerCase()));
@@ -1140,9 +1178,13 @@ export const Stability: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const alertSettingsProjectKey = currentProject?.id || (isDemoMode ? 'demo' : '');
+  const alertSettingsLoaded = Boolean(alertSettingsProjectKey) && alertSettingsProjectId === alertSettingsProjectKey;
+  const ignoredEndpointControlsDisabled = isSavingIgnoredEndpoints || !alertSettingsLoaded;
+
   const saveIgnoredEndpointPatterns = async (patterns: string[]) => {
     const projectId = currentProject?.id || (isDemoMode ? 'demo' : '');
-    if (!projectId || isDemoMode) return;
+    if (!projectId || isDemoMode || !alertSettingsLoaded) return;
 
     const normalized = normalizeIgnoredEndpointPatterns(patterns);
     setIsSavingIgnoredEndpoints(true);
@@ -1572,7 +1614,7 @@ export const Stability: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         leftIcon={<Plus size={12} />}
-                        disabled={isIgnored || isSavingIgnoredEndpoints}
+                        disabled={isIgnored || ignoredEndpointControlsDisabled}
                         onClick={(event) => handleIgnoreEndpoint(ep, event)}
                         className="shrink-0"
                       >
@@ -1606,7 +1648,7 @@ export const Stability: React.FC = () => {
                   variant="primary"
                   size="md"
                   leftIcon={isSavingIgnoredEndpoints ? <Loader size={13} className="animate-spin" /> : <Plus size={13} />}
-                  disabled={!selectedEndpointOption || isSavingIgnoredEndpoints}
+                  disabled={!selectedEndpointOption || ignoredEndpointControlsDisabled}
                   onClick={handleAddSelectedIgnoredEndpoint}
                 >
                   Add
@@ -1619,7 +1661,7 @@ export const Stability: React.FC = () => {
                       key={pattern}
                       type="button"
                       onClick={(event) => handleRemoveIgnoredEndpoint(pattern, event)}
-                      disabled={isSavingIgnoredEndpoints}
+                      disabled={ignoredEndpointControlsDisabled}
                       className={IGNORED_PATTERN_CHIP_CLASS}
                     >
                       <span className="truncate">{pattern}</span>
@@ -1989,7 +2031,7 @@ export const Stability: React.FC = () => {
                       variant="primary"
                       size="md"
                       leftIcon={isSavingIgnoredEndpoints ? <Loader size={13} className="animate-spin" /> : <Plus size={13} />}
-                      disabled={!selectedEndpointOption || isSavingIgnoredEndpoints}
+                      disabled={!selectedEndpointOption || ignoredEndpointControlsDisabled}
                       onClick={handleAddSelectedIgnoredEndpoint}
                     >
                       Add
@@ -2002,7 +2044,7 @@ export const Stability: React.FC = () => {
                           key={pattern}
                           type="button"
                           onClick={(event) => handleRemoveIgnoredEndpoint(pattern, event)}
-                          disabled={isSavingIgnoredEndpoints}
+                          disabled={ignoredEndpointControlsDisabled}
                           className={IGNORED_PATTERN_CHIP_CLASS}
                         >
                           <span className="truncate">{pattern}</span>

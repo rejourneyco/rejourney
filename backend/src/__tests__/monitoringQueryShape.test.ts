@@ -25,11 +25,14 @@ describe('monitoring query shape', () => {
     it('declares the monitoring-focused indexes in schema', () => {
         const schema = readWorkspaceFile('../db/schema.ts');
 
-        expect(schema).toContain("index('recording_artifacts_created_status_endpoint_idx')");
+        expect(schema).toContain("index('recording_artifacts_created_at_idx')");
         expect(schema).toContain("index('recording_artifacts_upload_completed_at_idx')");
         expect(schema).toContain("index('recording_artifacts_pending_stalled_idx')");
-        expect(schema).toContain("index('recording_artifacts_session_ready_endpoint_idx')");
+        expect(schema).toContain("index('recording_artifacts_kind_ready_covering_idx')");
         expect(schema).toContain("index('recording_artifacts_failed_recent_idx')");
+        // Dropped by 20261031210000_index_diet: redundant with the indexes above.
+        expect(schema).not.toContain("index('recording_artifacts_created_status_endpoint_idx')");
+        expect(schema).not.toContain("index('recording_artifacts_session_ready_endpoint_idx')");
     });
 
     // Moved to the infra repo (__tests__/infraContract.test.ts) with the k8s manifests.

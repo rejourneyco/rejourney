@@ -110,6 +110,8 @@ export interface CustomRevenueEventConfig {
 export interface RevenueOverview {
     configured: boolean;
     activeProvider: RevenueProvider | null;
+    /** A background import of recent purchases is still running; reload shortly. */
+    importPending: boolean;
     providers: RevenueProviderStatus[];
     connection: RevenueProviderStatus & { canManage: boolean };
     customEventConfig: CustomRevenueEventConfig | null;
@@ -251,6 +253,8 @@ const GENERIC_REVENUE_INCREMENTAL_OVERLAP_MS = 48 * 60 * 60 * 1000;
  */
 const REFRESH_IMPORT_WINDOW_MS = 6 * 60 * 60 * 1000;
 const REFRESH_IMPORT_MIN_INTERVAL_SECONDS = 60;
+// The overview waits this long for the import; a slower import answers with
+// importPending so the page reloads once when it has landed.
 const REFRESH_IMPORT_WAIT_MS = 4_000;
 /**
  * Custom-event imports for a project (refresh, scheduled, manual, initial) hold this
@@ -1575,11 +1579,12 @@ export async function getRevenueOverview(
         ? providers.find((provider) => provider.provider === activeProvider) ?? defaultProviderStatus(activeProvider)
         : defaultProviderStatus('custom_events');
 
+    let importPending = false;
     if (activeProvider === 'custom_events') {
-        // Wait briefly so this response already has new purchases; a slow import
-        // finishes in the background and shows on the next load.
-        const refresh = refreshRecentCustomEventRevenue(projectId);
-        await Promise.race([refresh, new Promise((resolve) => setTimeout(resolve, REFRESH_IMPORT_WAIT_MS))]);
+        // Wait briefly so this response already has new purchases; a slower import
+        // finishes in the background and the page reloads once it is done.
+        const refresh = refreshRecentCustomEventRevenue(projectId).then(() => true);
+        importPending = !(await Promise.race([refresh, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), REFRESH_IMPORT_WAIT_MS))]));
     }
 
     const bounds = buildRevenueDateBounds(options.timeRange);
@@ -1681,6 +1686,7 @@ export async function getRevenueOverview(
     return {
         configured: activeProvider ? activeStatus.configured : providers.some((provider) => provider.configured),
         activeProvider,
+        importPending,
         providers,
         connection: {
             ...activeStatus,

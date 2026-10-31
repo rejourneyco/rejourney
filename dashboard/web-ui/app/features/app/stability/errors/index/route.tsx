@@ -49,16 +49,18 @@ export const ErrorsList: React.FC = () => {
   const pathPrefix = usePathPrefix();
 
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(currentProject?.id);
+  const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(currentProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
 
   const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const { platformLens } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const { platformLens, ready: platformLensReady } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const lensReady = timeRangeReady && platformLensReady;
   const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
+    if (!lensReady) return;
     if (!isDemoMode && !currentProject) {
       setErrorGroups([]);
       setLoading(false);
@@ -79,7 +81,7 @@ export const ErrorsList: React.FC = () => {
     };
 
     fetchErrors();
-  }, [currentProject?.id, isDemoMode, manualRefreshVersion, timeRange, platform]);
+  }, [currentProject?.id, isDemoMode, lensReady, manualRefreshVersion, timeRange, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

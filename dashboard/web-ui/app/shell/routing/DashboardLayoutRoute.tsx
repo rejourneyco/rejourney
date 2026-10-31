@@ -6,6 +6,7 @@
  */
 
 import { isRouteErrorResponse, useOutlet, redirect, useLoaderData, useNavigate, useRouteError, useLocation } from "react-router";
+import type { ShouldRevalidateFunctionArgs } from "react-router";
 import type { Route } from "./+types/DashboardLayoutRoute";
 import { useEffect, useState } from "react";
 import { ProjectLayout } from "~/shell/components/layout/AppLayout";
@@ -66,6 +67,19 @@ export async function loader({ request }: Route.LoaderArgs) {
     const url = new URL(request.url);
     const returnTo = `${url.pathname}${url.search}`;
     throw redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
+// The shell loader reads only the session, teams, projects, and pathname-based
+// redirects; it never reads the query string. Skip its server round trip
+// (/api/auth/me + /api/teams + /api/projects) when only the search params
+// change, e.g. filters and date ranges. Pathname changes, same-URL navigations,
+// explicit revalidate() calls, and submissions keep React Router's default so
+// auth expiry and setup/self-hosted redirects still run on navigation.
+export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
+    if (formMethod) return defaultShouldRevalidate;
+    if (currentUrl.pathname !== nextUrl.pathname) return defaultShouldRevalidate;
+    if (currentUrl.search === nextUrl.search) return defaultShouldRevalidate;
+    return false;
 }
 
 // Protected route wrapper - redirects to login if not authenticated

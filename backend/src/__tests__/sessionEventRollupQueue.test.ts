@@ -181,6 +181,20 @@ describe('sessionEventRollupQueue', () => {
         expect(processEventsArtifactMock).not.toHaveBeenCalled();
     });
 
+    it('inlines the partial-index predicate values so generic plans still match the pending index', async () => {
+        const { and, eq } = await import('drizzle-orm');
+        selectResults.push([]);
+        await processSessionEventRollupBatch('session-1');
+
+        const predicateArgs = (and as any).mock.calls.at(-1) as unknown[];
+        expect(predicateArgs).toContain(" = 'events'");
+        expect(predicateArgs).toContain(" = 'ready'");
+        const eqValues = (eq as any).mock.calls.map((call: unknown[]) => call[1]);
+        expect(eqValues).not.toContain('events');
+        expect(eqValues).not.toContain('ready');
+        expect(eqValues).toContain('session-1');
+    });
+
     it('builds one coalesced job id per session', () => {
         expect(buildSessionEventRollupJobId('session-1', 100_000, 2_000))
             .toBe('session-event-rollup-session-1');

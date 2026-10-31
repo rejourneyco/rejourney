@@ -45,7 +45,7 @@ import {
     cancelSubscription,
     type StripePlan,
 } from '../services/stripeProducts.js';
-import { getTeamSessionUsage } from '../services/quotaCheck.js';
+import { getTeamSessionUsage, invalidateSessionCache } from '../services/quotaCheck.js';
 import {
     completeHostedCheckoutForTeam,
     createHostedCheckoutForTeam,
@@ -655,17 +655,12 @@ router.get(
         // Get team's subscription from Stripe
         const subscription = await getTeamSubscription(teamId);
 
-        // Invalidate session cache to ensure fresh plan data
-        try {
-            const { invalidateSessionCache } = await import('../services/quotaCheck.js');
-            await invalidateSessionCache(teamId);
-        } catch (err) {
-            // Don't fail if cache invalidation fails
-            logger.warn({ err, teamId }, 'Failed to invalidate session cache');
-        }
-
-        // Get current replay quota usage
-        const usage = await getTeamSessionUsage(teamId);
+        // Get current replay quota usage. getTeamSessionUsage always reads the
+        // database (it never used the ingest replay-limit cache), so this read
+        // no longer wipes that cache; plan writes (executePlanChange, Stripe
+        // webhooks, stripeSync, cancel below) invalidate it instead. Reuse the
+        // subscription above rather than resolving it a second time.
+        const usage = await getTeamSessionUsage(teamId, { subscription });
 
         // Avoid stale responses (browser 304/ETag caching)
         res.setHeader('Cache-Control', 'no-store');
@@ -846,6 +841,15 @@ router.delete(
         const previousSubscription = await getTeamSubscription(teamId);
 
         await cancelSubscription(teamId, immediate === true);
+
+        // An immediate cancel drops the replay limit. GET /plan used to clear
+        // the ingest replay-limit cache on every read; clear it here, where the
+        // plan actually changes, so ingest picks up the new limit right away.
+        try {
+            await invalidateSessionCache(teamId);
+        } catch (err) {
+            logger.warn({ err, teamId }, 'Failed to invalidate session cache after cancel');
+        }
 
         logger.info({ teamId, immediate }, 'Subscription canceled');
 

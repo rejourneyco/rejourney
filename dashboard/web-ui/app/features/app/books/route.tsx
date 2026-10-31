@@ -53,7 +53,7 @@ export const BooksPage: React.FC = () => {
     const pathPrefix = usePathPrefix();
     const [searchParams, setSearchParams] = useSearchParams();
     const projectId = selectedProject?.id ?? null;
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(projectId ?? undefined);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(projectId ?? undefined);
     const [exportingKey, setExportingKey] = useState<string | null>(null);
     const [exportError, setExportError] = useState<string | null>(null);
 
@@ -72,6 +72,7 @@ export const BooksPage: React.FC = () => {
         teamId: currentTeam?.id ?? null,
         isDemoMode,
         timeRange,
+        lensReady: timeRangeReady,
     };
 
     const handleExport = useCallback(async (key: string, build: () => Promise<string>) => {
@@ -141,6 +142,7 @@ export const BooksPage: React.FC = () => {
                                     projectName={projectName}
                                     isDemoMode={isDemoMode}
                                     timeRange={timeRange}
+                                    lensReady={timeRangeReady}
                                     pathPrefix={pathPrefix}
                                     {...exportProps}
                                 />

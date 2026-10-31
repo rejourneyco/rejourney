@@ -2,9 +2,30 @@ import { User, Project, RecordingSession, SessionEvent, ApiCall, Platform, TimeR
 import { isUuid } from '~/shared/lib/ids';
 import { isPublicRoutePath } from '~/shared/lib/publicRoutePaths';
 import { canOpenReplayFromSession } from '~/shared/lib/replayAvailability';
-import * as demoApiData from '~/shared/data/demoApiData';
 import { demoProjects, demoSessions } from '~/shared/data/demoData';
-import { buildDemoHeatmapOverview, getDemoWebAttentionHeatmap } from '~/shared/data/demoHeatmapData';
+
+// Demo fixtures are only needed on /demo routes, so they load on first use
+// instead of shipping in the API client chunk for every dashboard visit.
+type DemoApiDataModule = typeof import('~/shared/data/demoApiData');
+type DemoHeatmapDataModule = typeof import('~/shared/data/demoHeatmapData');
+let demoApiDataPromise: Promise<DemoApiDataModule> | null = null;
+let demoHeatmapDataPromise: Promise<DemoHeatmapDataModule> | null = null;
+
+function loadDemoApiData(): Promise<DemoApiDataModule> {
+    demoApiDataPromise ??= import('~/shared/data/demoApiData').catch((error) => {
+        demoApiDataPromise = null;
+        throw error;
+    });
+    return demoApiDataPromise;
+}
+
+function loadDemoHeatmapData(): Promise<DemoHeatmapDataModule> {
+    demoHeatmapDataPromise ??= import('~/shared/data/demoHeatmapData').catch((error) => {
+        demoHeatmapDataPromise = null;
+        throw error;
+    });
+    return demoHeatmapDataPromise;
+}
 
 // Re-export types for consumers
 export type { IssueSession };
@@ -259,7 +280,15 @@ async function fetchJsonWithTransientRetry<T>(endpoint: string, options: Request
 
 // Cache for API responses
 const cache = new Map<string, { data: any; timestamp: number }>();
-const inFlightGetRequests = new Map<string, Promise<any>>();
+interface SharedGetRequest {
+    promise: Promise<any>;
+    controller: AbortController;
+    /** Callers with an AbortSignal that are still waiting on this request. */
+    abortableWaiters: number;
+    /** A caller without a signal is waiting, so the request must run to completion. */
+    pinned: boolean;
+}
+const inFlightGetRequests = new Map<string, SharedGetRequest>();
 const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
 const PROJECTS_CACHE_TTL = 30000;
 const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
@@ -282,29 +311,92 @@ async function fetchWithCache<T>(endpoint: string, options: RequestInit = {}, ca
     }
 
     const method = (options.method ?? 'GET').toUpperCase();
-    const canShareInFlight = (method === 'GET' || method === 'HEAD') && !options.signal;
-    if (canShareInFlight) {
-        const inFlight = inFlightGetRequests.get(key);
-        if (inFlight) {
-            return inFlight as Promise<T>;
-        }
-    }
-
-    const requestPromise = method === 'GET' || method === 'HEAD' ? fetchJsonWithTransientRetry<T>(endpoint, options) : fetchJson<T>(endpoint, options);
-
-    if (canShareInFlight) {
-        inFlightGetRequests.set(key, requestPromise);
-    }
-
-    try {
-        const data = await requestPromise;
+    if (method !== 'GET' && method !== 'HEAD') {
+        const data = await fetchJson<T>(endpoint, options);
         cache.set(key, { data, timestamp: Date.now() });
-        return data as T;
-    } finally {
-        if (canShareInFlight) {
-            inFlightGetRequests.delete(key);
-        }
+        return data;
     }
+
+    const signal = options.signal ?? null;
+    if (signal?.aborted) {
+        throw getAbortReason(signal);
+    }
+
+    let entry = inFlightGetRequests.get(key);
+    if (!entry) {
+        // One request per key is shared by every concurrent caller. It runs on its
+        // own controller and is aborted only once every caller that can abort has
+        // done so (and no caller without a signal is waiting).
+        const controller = new AbortController();
+        const created: SharedGetRequest = {
+            promise: Promise.resolve(),
+            controller,
+            abortableWaiters: 0,
+            pinned: false,
+        };
+        created.promise = fetchJsonWithTransientRetry<T>(endpoint, { ...options, signal: controller.signal })
+            .then((data) => {
+                cache.set(key, { data, timestamp: Date.now() });
+                return data;
+            })
+            .finally(() => {
+                if (inFlightGetRequests.get(key) === created) {
+                    inFlightGetRequests.delete(key);
+                }
+            });
+        // Rejections are delivered to each caller below; this keeps a request that
+        // every caller abandoned from surfacing as an unhandled rejection.
+        created.promise.catch(() => undefined);
+        inFlightGetRequests.set(key, created);
+        entry = created;
+    }
+
+    if (!signal) {
+        entry.pinned = true;
+        return entry.promise as Promise<T>;
+    }
+
+    return joinAbortableSharedRequest<T>(key, entry, signal);
+}
+
+function getAbortReason(signal: AbortSignal): unknown {
+    return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function joinAbortableSharedRequest<T>(key: string, entry: SharedGetRequest, signal: AbortSignal): Promise<T> {
+    entry.abortableWaiters += 1;
+    return new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const leave = () => {
+            settled = true;
+            entry.abortableWaiters -= 1;
+            signal.removeEventListener('abort', onAbort);
+        };
+        const onAbort = () => {
+            if (settled) return;
+            leave();
+            reject(getAbortReason(signal));
+            if (entry.abortableWaiters === 0 && !entry.pinned) {
+                if (inFlightGetRequests.get(key) === entry) {
+                    inFlightGetRequests.delete(key);
+                }
+                entry.controller.abort();
+            }
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        entry.promise.then(
+            (data) => {
+                if (settled) return;
+                leave();
+                resolve(data as T);
+            },
+            (error) => {
+                if (settled) return;
+                leave();
+                reject(error);
+            },
+        );
+    });
 }
 
 /**
@@ -550,6 +642,7 @@ export async function getSessions(): Promise<ApiSessionSummary[]> {
 export async function getSession(sessionId: string): Promise<ApiSession> {
     // Demo mode: check for mock session
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
     }
     return fetchWithCache<ApiSession>(`/api/session/${sessionId}`);
@@ -639,6 +732,7 @@ export async function getSessionCore(
     options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; includeReplay?: boolean; signal?: AbortSignal },
 ): Promise<ApiSession> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
     }
     const params = new URLSearchParams();
@@ -684,6 +778,7 @@ export async function getSessionFrames(
     options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; signal?: AbortSignal },
 ): Promise<ApiSessionFrames> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const demo = demoApiData.getDemoFullSession(sessionId) as any;
         return {
             screenshotFrames: demo.screenshotFrames || [],
@@ -718,6 +813,7 @@ export async function getSessionReplayManifest(
     options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; signal?: AbortSignal },
 ): Promise<ApiSessionReplayManifest> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const demo = demoApiData.getDemoFullSession(sessionId) as any;
         return {
             hasRecording: Boolean(demo.hasRecording),
@@ -851,6 +947,7 @@ export async function revokeReplayShareLink(sessionId: string, shareId: string):
  * Load real hierarchy data for demo session
  */
 async function getDemoSessionWithRealHierarchy(sessionId: string): Promise<any> {
+    const demoApiData = await loadDemoApiData();
     const basePath = `/demo/${sessionId}/hierarchy`;
     const hierarchyFiles = ['1769127030030.json', '1769127030034.json'];
 
@@ -903,6 +1000,7 @@ export async function getSessionEvents(sessionId: string): Promise<any[]> {
 export async function getDashboardStats(projectId?: string, timeRange?: string): Promise<DashboardStats> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoDashboardStatsApi;
     }
 
@@ -1866,6 +1964,7 @@ export interface TeamBillingDashboard {
  */
 export async function getTeamPlan(teamId: string): Promise<TeamPlanInfo | null> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return {
             planName: 'pro',
             displayName: 'Pro',
@@ -2060,6 +2159,7 @@ export async function getTeamBillingUsage(teamId: string): Promise<{
 }> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return {
             period: '2024-12',
             usage: demoApiData.demoTeamUsage,
@@ -2342,6 +2442,8 @@ export interface RevenueOverview {
         grossChangePercent: number | null;
     };
     daily: RevenueDailyRow[];
+    /** True while a background import of recent purchases is still running; refetch shortly for the final numbers. */
+    importPending?: boolean;
 }
 
 export interface RevenueExclusionSummary {
@@ -2878,6 +2980,7 @@ export interface CrashReport {
  */
 export async function getCrashes(projectId: string, page: number = 1, limit: number = 20): Promise<{ crashes: CrashMetadata[]; totalPages: number }> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const crashes = (demoApiData.demoCrashReports as CrashReport[]).map((crash) => ({
             id: crash.id,
             sessionId: crash.sessionId,
@@ -2900,6 +3003,7 @@ export async function getCrashes(projectId: string, page: number = 1, limit: num
  */
 export async function getCrash(projectId: string, crashId: string): Promise<CrashReport> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const crash = (demoApiData.demoCrashReports as CrashReport[]).find((crash) => crash.id === crashId) || (demoApiData.demoCrashReports[0] as CrashReport);
         return {
             ...crash,
@@ -2917,6 +3021,7 @@ export async function getANRs(
     options?: { limit?: number; offset?: number; timeRange?: string; platform?: string },
 ): Promise<{ anrs: ANRRecord[]; totalGroups?: number; totalEvents?: number }> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoANRsResponse;
     }
     const params = new URLSearchParams();
@@ -2932,6 +3037,7 @@ export async function getANRs(
  */
 export async function getANR(projectId: string, anrId: string): Promise<ANRDetailRecord> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const anr = demoApiData.demoANRsResponse.anrs.find((a: any) => a.id === anrId) || demoApiData.demoANRsResponse.anrs[0];
         return {
             ...anr,
@@ -3401,6 +3507,7 @@ export async function getStabilityIssueOccurrences(
     } = {},
 ): Promise<StabilityOccurrencesResponse> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const allOccurrences = demoApiData.getDemoStabilityOccurrences(issueId)
             .filter((occurrence: StabilityOccurrence) => (
                 !options.platform ||
@@ -3466,6 +3573,7 @@ export interface FrictionHeatmap {
  */
 export async function getFrictionHeatmap(projectId?: string, timeRange?: string): Promise<FrictionHeatmap> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoFrictionHeatmap;
     }
 
@@ -3509,6 +3617,7 @@ export interface ApiLatencyByLocationResponse {
 export async function getApiLatencyByLocation(projectId?: string, timeRange?: string, platform?: string): Promise<ApiLatencyByLocationResponse> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoApiLatencyByLocation;
     }
 
@@ -3528,6 +3637,7 @@ export async function getApiLatencyByLocation(projectId?: string, timeRange?: st
 export async function getInsightsTrends(projectId?: string, timeRange?: string, platform?: string): Promise<InsightsTrends> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoInsightsTrends;
     }
 
@@ -3716,12 +3826,13 @@ export async function getJourneysOverview(
     if (mode === 'full') {
         const journeyRange = timeRange === 'all' ? undefined : timeRange;
         const trendsRange = timeRange === '24h' ? '7d' : timeRange === '7d' ? '30d' : timeRange === '30d' ? '90d' : timeRange || '30d';
-        const [journey, userEngagement, trends] = await Promise.all([
+        // The journeys page (the only 'full' caller) never reads userEngagement,
+        // so skip that request here.
+        const [journey, trends] = await Promise.all([
             getJourneyObservability(projectId, journeyRange, 'full', normalizedPlatform, normalizedAppVersion),
-            getUserEngagementTrends(projectId, journeyRange, normalizedPlatform),
             getInsightsTrends(projectId, trendsRange, normalizedPlatform),
         ]);
-        return { journey, userEngagement, trends, failedSections: [] };
+        return { journey, userEngagement: null, trends, failedSections: [] };
     }
 
     const params = new URLSearchParams({ projectId });
@@ -3736,6 +3847,7 @@ export async function getJourneysOverview(
 export async function getHeatmapsOverview(projectId: string, timeRange?: string, platform?: string, includePreviews = true): Promise<HeatmapOverviewResponse> {
     const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
     if (isDemoMode()) {
+        const { buildDemoHeatmapOverview } = await loadDemoHeatmapData();
         return buildDemoHeatmapOverview();
     }
 
@@ -3781,6 +3893,7 @@ export async function getWebAttentionHeatmap(
     const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
     const normalizedAppVersion = appVersion && appVersion !== 'all' ? appVersion : undefined;
     if (isDemoMode()) {
+        const { getDemoWebAttentionHeatmap } = await loadDemoHeatmapData();
         return getDemoWebAttentionHeatmap(screenName);
     }
 
@@ -3893,6 +4006,7 @@ export async function getErrorsOverview(projectId: string, timeRange?: string, p
 export async function getCrashesOverview(projectId: string, timeRange?: string, platform?: string): Promise<CrashesOverviewResponse> {
     const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const groups = (demoApiData.demoCrashesOverview.groups || []).filter(
             (group: any) => !normalizedPlatform || matchesPlatformFilter(group.platform, normalizedPlatform),
         );
@@ -3985,7 +4099,7 @@ export interface ApiErrorSpikesResponse {
 }
 
 export async function getApiErrorSpikes(projectId: string, timeRange?: string): Promise<ApiErrorSpikesResponse> {
-    if (isDemoMode()) return demoApiData.demoApiErrorSpikesResponse;
+    if (isDemoMode()) return (await loadDemoApiData()).demoApiErrorSpikesResponse;
     const params = new URLSearchParams({ projectId });
     if (timeRange) params.set('timeRange', timeRange);
     const endpoint = `/api/overview/api-error-spikes?${params.toString()}`;
@@ -4027,6 +4141,7 @@ export async function updateProjectAlertSettings(
 
 export async function getRetentionCohorts(projectId?: string, timeRange?: string, platform?: string): Promise<RetentionCohortsResponse> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoRetentionCohorts;
     }
 
@@ -4049,6 +4164,7 @@ export async function getIssues(
     issueType?: string,
 ): Promise<{ issues: Issue[]; stats: any; total: number }> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoIssuesResponse;
     }
 
@@ -4095,6 +4211,7 @@ export interface IssueDetail extends Issue {
 
 export async function getIssue(issueId: string): Promise<IssueDetail> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         // Return a mock issue detail from demo data
         const issue = demoApiData.demoIssuesResponse.issues.find((i) => i.id === issueId) || demoApiData.demoIssuesResponse.issues[0];
         return {
@@ -4114,6 +4231,7 @@ export async function getIssue(issueId: string): Promise<IssueDetail> {
  */
 export async function getIssueSessions(issueId: string, limit: number = 6): Promise<{ sessions: IssueSession[] }> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return { sessions: demoApiData.demoIssueSessions };
     }
 
@@ -4378,6 +4496,7 @@ export async function getLeaks(params: {
     type?: string;
 }): Promise<LeaksResponse> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoLeaksResponse as LeaksResponse;
     }
 
@@ -4405,6 +4524,7 @@ export async function getLeakRunHistory(projectId: string, limit = 12): Promise<
 
 export async function getLeak(leakId: string, options: { view?: 'stored' } = {}): Promise<LeakDetail> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const detail = demoApiData.demoLeakDetails.find((leak: any) => leak.id === leakId) || demoApiData.demoLeakDetails[0];
         return detail as LeakDetail;
     }
@@ -4932,6 +5052,7 @@ export interface GeoRegionalValue {
 export async function getGeoSummary(projectId?: string, timeRange?: string): Promise<GeoSummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoGeoSummary;
     }
 
@@ -4949,6 +5070,7 @@ export async function getGeoSummary(projectId?: string, timeRange?: string): Pro
  */
 export async function getGeoValueByRegion(projectId?: string, timeRange?: string): Promise<GeoRegionalValue> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoGeoRegionalValue;
     }
 
@@ -5016,6 +5138,7 @@ export interface GeoIssuesSummary {
 export async function getGeoIssues(projectId?: string, timeRange?: string, platform?: string): Promise<GeoIssuesSummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoGeoIssues;
     }
 
@@ -5054,6 +5177,7 @@ export interface RegionPerformance {
 export async function getRegionPerformance(projectId: string, timeRange?: string, platform?: string): Promise<RegionPerformance> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoRegionPerformance;
     }
 
@@ -5105,6 +5229,7 @@ export interface ApiEndpointStats {
 export async function getApiEndpointStats(projectId: string, timeRange?: string, platform?: string): Promise<ApiEndpointStats> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoApiEndpointStats;
     }
 
@@ -5144,6 +5269,7 @@ export interface DeviceSummary {
 export async function getDeviceSummary(projectId?: string, timeRange?: string, platform?: string): Promise<DeviceSummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoDeviceSummary;
     }
 
@@ -5171,6 +5297,7 @@ export interface DeviceIssueMatrix {
 export async function getDeviceIssueMatrix(projectId?: string, timeRange?: string, platform?: string): Promise<DeviceIssueMatrix> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoDeviceIssueMatrix;
     }
 
@@ -5197,6 +5324,7 @@ export interface JourneySummary {
 export async function getJourneySummary(projectId?: string, timeRange?: string): Promise<JourneySummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoJourneySummary;
     }
 
@@ -5341,6 +5469,7 @@ export async function getJourneyObservability(
 ): Promise<ObservabilityJourneySummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoJourneyObservability;
     }
 
@@ -5419,6 +5548,7 @@ export async function getGrowthObservability(
 ): Promise<GrowthObservability> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoGrowthObservability;
     }
 
@@ -5517,6 +5647,7 @@ export async function getObservabilityDeepMetrics(
     platform?: string,
 ): Promise<ObservabilityDeepMetrics> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoObservabilityDeepMetrics;
     }
 
@@ -5559,6 +5690,7 @@ export async function getUserEngagementTrends(
 ): Promise<UserEngagementTrends> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoUserEngagementTrends;
     }
 
@@ -5590,6 +5722,7 @@ export interface UserSegmentsSummary {
 export async function getAnalyticsUserSegments(projectId?: string, timeRange?: string): Promise<UserSegmentsSummary> {
     // Demo mode: return mock data
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoUserSegmentsSummary;
     }
 
@@ -5658,6 +5791,7 @@ export async function getErrors(
     },
 ): Promise<ErrorsResponse> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         return demoApiData.demoErrorsResponse;
     }
     const params = new URLSearchParams({ projectId });
@@ -5674,6 +5808,7 @@ export async function getErrors(
  */
 export async function getError(projectId: string, errorId: string): Promise<any> {
     if (isDemoMode()) {
+        const demoApiData = await loadDemoApiData();
         const error = demoApiData.demoErrorsResponse.errors.find((e: any) => e.id === errorId) || demoApiData.demoErrorsResponse.errors[0];
         return {
             ...error,

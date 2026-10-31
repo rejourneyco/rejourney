@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Platform } from '~/shared/types';
+import { useIsClientRendered } from '~/shared/hooks/useSharedRejourneyTimeRange';
 
 export type PlatformLens = 'all' | 'mobile' | 'web';
 
@@ -40,6 +41,14 @@ export function getDefaultPlatformLens(platforms?: readonly Platform[] | null): 
     return DEFAULT_PLATFORM_LENS;
 }
 
+function readStoredPlatformLens(storageKey: string, legacyStorageKey: string): string | null {
+    try {
+        return window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
+    } catch {
+        return null;
+    }
+}
+
 export function platformLensToSessionPlatform(lens: PlatformLens): string | undefined {
     if (lens === 'all') return undefined;
     return lens;
@@ -56,28 +65,28 @@ export function useSharedPlatformLens(projectId?: string | null, platforms?: rea
     );
     const availablePlatformLenses = useMemo(() => getAvailablePlatformLenses(platforms), [platforms]);
     const defaultLens = useMemo(() => getDefaultPlatformLens(platforms), [platforms]);
-    const [platformLens, setPlatformLensState] = useState<PlatformLens>(defaultLens);
+    const isClient = useIsClientRendered();
+    // Keyed by storage key so the first client render (and a project switch)
+    // already reflects the stored lens instead of the default.
+    const [state, setState] = useState<{ key: string; value: PlatformLens } | null>(null);
 
     const normalizeLens = useCallback((value: string | null): PlatformLens => {
         if (isPlatformLens(value) && availablePlatformLenses.includes(value)) return value;
         return defaultLens;
     }, [availablePlatformLenses, defaultLens]);
 
-    useEffect(() => {
-        if (typeof window === 'undefined') {
-            setPlatformLensState(defaultLens);
-            return;
-        }
-        const stored = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
-        const normalized = normalizeLens(stored);
-        setPlatformLensState(normalized);
-        window.localStorage.setItem(storageKey, normalized);
-        window.localStorage.removeItem(legacyStorageKey);
-    }, [defaultLens, legacyStorageKey, normalizeLens, storageKey]);
+    const platformLens: PlatformLens = !isClient
+        ? defaultLens
+        : normalizeLens(state?.key === storageKey ? state.value : readStoredPlatformLens(storageKey, legacyStorageKey));
 
     useEffect(() => {
-        setPlatformLensState((current) => normalizeLens(current));
-    }, [normalizeLens]);
+        if (!isClient) return;
+        const stored = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
+        const normalized = normalizeLens(stored);
+        setState({ key: storageKey, value: normalized });
+        window.localStorage.setItem(storageKey, normalized);
+        window.localStorage.removeItem(legacyStorageKey);
+    }, [isClient, legacyStorageKey, normalizeLens, storageKey]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
@@ -85,12 +94,12 @@ export function useSharedPlatformLens(projectId?: string | null, platforms?: rea
         const onPlatformLensChanged = (event: Event) => {
             const detail = (event as CustomEvent<{ storageKey?: string; value?: string }>).detail;
             if (detail?.storageKey !== storageKey) return;
-            setPlatformLensState(normalizeLens(detail.value ?? null));
+            setState({ key: storageKey, value: normalizeLens(detail.value ?? null) });
         };
 
         const onStorage = (event: StorageEvent) => {
             if (event.key !== storageKey) return;
-            setPlatformLensState(normalizeLens(event.newValue));
+            setState({ key: storageKey, value: normalizeLens(event.newValue) });
         };
 
         window.addEventListener(PLATFORM_LENS_CHANGED_EVENT, onPlatformLensChanged);
@@ -103,7 +112,7 @@ export function useSharedPlatformLens(projectId?: string | null, platforms?: rea
 
     const setPlatformLens = useCallback((next: PlatformLens) => {
         const normalized = normalizeLens(next);
-        setPlatformLensState(normalized);
+        setState({ key: storageKey, value: normalized });
         if (typeof window !== 'undefined') {
             window.localStorage.setItem(storageKey, normalized);
             window.dispatchEvent(new CustomEvent(PLATFORM_LENS_CHANGED_EVENT, {
@@ -112,5 +121,5 @@ export function useSharedPlatformLens(projectId?: string | null, platforms?: rea
         }
     }, [normalizeLens, storageKey]);
 
-    return { platformLens, setPlatformLens, availablePlatformLenses };
+    return { platformLens, setPlatformLens, availablePlatformLenses, ready: isClient };
 }

@@ -5,7 +5,7 @@
  * Uses Better Auth for passwordless email OTP authentication.
  */
 
-import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getFingerprint } from '~/shared/lib/fingerprint';
 
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
@@ -202,6 +202,16 @@ export interface User {
   isSelfHosted: boolean;
   billingPeriodStart: string | null;
   createdAt: string;
+}
+
+function isSameUser(left: User | null, right: User | null): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeAuthUser(userData: Record<string, any>): User {
@@ -407,8 +417,11 @@ export function AuthProvider({
   useEffect(() => {
     if (!initialHydrated) return;
     startTransition(() => {
-      setUser(initialUser);
-      userRef.current = initialUser;
+      // Shell loader revalidation returns a new user object with the same data;
+      // keep the existing reference so useAuth consumers do not re-run effects.
+      const nextUser = isSameUser(userRef.current, initialUser) ? userRef.current : initialUser;
+      setUser(nextUser);
+      userRef.current = nextUser;
       setHasSessionHint(false);
       setError(initialError);
       setAuthServiceUnavailable(initialAuthServiceUnavailable);
@@ -551,10 +564,11 @@ export function AuthProvider({
     window.location.href = '/api/auth/github';
   }, []);
 
-  const value: AuthContextValue = {
+  const isAuthenticated = !!user || hasSessionHint;
+  const value = useMemo<AuthContextValue>(() => ({
     user,
     isLoading,
-    isAuthenticated: !!user || hasSessionHint,
+    isAuthenticated,
     authServiceUnavailable,
     error,
     login,
@@ -562,7 +576,7 @@ export function AuthProvider({
     logout,
     refreshUser,
     sendOtp,
-  };
+  }), [user, isLoading, isAuthenticated, authServiceUnavailable, error, login, loginWithGitHub, logout, refreshUser, sendOtp]);
 
   return (
     <AuthContext.Provider value={value}>

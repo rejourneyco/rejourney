@@ -39,8 +39,9 @@ import {
 } from '../services/productRollupsClickHouse.js';
 import { canOpenReplayFromSessionFields } from '../services/replayAvailability.js';
 import { buildPositionedJourneyGraph } from '../services/positionedJourneyGraph.js';
-import { gradeEngagementByDay } from '../services/engagementSegments.js';
+import { gradeEngagementByCountry, gradeEngagementByDay } from '../services/engagementSegments.js';
 import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
+import { resolveRequestedProjectScope } from '../utils/projectScope.js';
 
 const router = Router();
 const redis = getRedis();
@@ -50,6 +51,21 @@ const CACHE_TTL = 300; // 5 minutes
 const UNKNOWN_STATUS_CODE_KEY = 'unknown';
 const GEO_ISSUE_LOCATION_RESPONSE_LIMIT = 1200;
 const GEO_LATENCY_LOCATION_RESPONSE_LIMIT = 1600;
+const ERRORS_PAGE_DEFAULT_LIMIT = 50;
+const ERRORS_PAGE_MAX_LIMIT = 200;
+const ERRORS_PAGE_MAX_OFFSET = 100_000;
+
+function clampErrorsPageLimit(value: unknown): number {
+    const parsed = parseInt(String(value ?? ''), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return ERRORS_PAGE_DEFAULT_LIMIT;
+    return Math.min(parsed, ERRORS_PAGE_MAX_LIMIT);
+}
+
+function clampErrorsPageOffset(value: unknown): number {
+    const parsed = parseInt(String(value ?? ''), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    return Math.min(parsed, ERRORS_PAGE_MAX_OFFSET);
+}
 
 type ErrorCodeBreakdown = Record<string, number>;
 
@@ -605,6 +621,13 @@ router.get(
 
         if (!project) throw ApiError.notFound('Project not found');
 
+        const [projectMembership] = await db
+            .select({ id: teamMembers.id })
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, req.user!.id)))
+            .limit(1);
+        if (!projectMembership) throw ApiError.forbidden('Access denied');
+
         // Check cache
         const cacheKey = `analytics:dashboard:${productRollupSourceKey()}:${projectId}:${timeRange || 'all'}`;
         const cached = await redis.get(cacheKey);
@@ -738,7 +761,8 @@ router.get(
 
         const accessibleProjects = await db.select({ id: projects.id }).from(projects).where(inArray(projects.teamId, teamIds));
 
-        const projectIds = projectId ? [projectId as string] : accessibleProjects.map((p) => p.id);
+        const projectIds = resolveRequestedProjectScope(projectId, accessibleProjects.map((p) => p.id));
+        if (!projectIds) throw ApiError.forbidden('Access denied');
 
         if (projectIds.length === 0) {
             res.json({ countries: [], totalWithGeo: 0 });
@@ -934,14 +958,15 @@ router.get(
 
         const accessibleProjects = await db.select({ id: projects.id }).from(projects).where(inArray(projects.teamId, teamIds));
 
-        const projectIds = projectId ? [projectId as string] : accessibleProjects.map((p) => p.id);
+        const projectIds = resolveRequestedProjectScope(projectId, accessibleProjects.map((p) => p.id));
+        if (!projectIds) throw ApiError.forbidden('Access denied');
 
         if (projectIds.length === 0) {
             res.json(emptyResult);
             return;
         }
 
-        const cacheKey = `analytics:geo-value:${projectIds.sort().join(',')}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v2`;
+        const cacheKey = `analytics:geo-value:${projectIds.sort().join(',')}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v3`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -976,26 +1001,30 @@ router.get(
                 sessionsCount: sql<number>`count(*)`,
                 avgDurationSeconds: sql<number>`round(avg(${durationSql})::numeric, 1)`,
                 avgUxScore: sql<number>`round(avg(coalesce(${sessionMetrics.uxScore}, 0))::numeric, 1)`,
-                bouncers: sql<number>`sum(case when ${durationSql} < 10 and ${screensVisitedSql} <= 3 then 1 else 0 end)`,
-                casuals: sql<number>`sum(case when ${durationSql} >= 10 and ${durationSql} <= 60 and ${screensVisitedSql} <= 3 then 1 else 0 end)`,
-                explorers: sql<number>`sum(case when ${durationSql} <= 180 and (${durationSql} > 60 or ${screensVisitedSql} > 3) then 1 else 0 end)`,
-                loyalists: sql<number>`sum(case when ${durationSql} > 180 then 1 else 0 end)`,
+                // Sessions longer than a minute or deeper than three screens.
+                valueSessions: sql<number>`sum(case when ${durationSql} > 60 or ${screensVisitedSql} > 3 then 1 else 0 end)`,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...conditions))
             .groupBy(sessions.geoCountry);
+        // Users per country graded by retention, as in the engagement mix.
+        const segmentsByCountry = await gradeEngagementByCountry({
+            projectIds,
+            fromDate: (startedAfter ?? new Date(Date.now() - ANALYTICS_LONG_WINDOW_DAYS * 24 * 60 * 60 * 1000)).toISOString().split('T')[0],
+            sessionFilter: normalizedPlatform === 'mobile'
+                ? sql`${sessions.platform} IN ('ios', 'android')`
+                : normalizedPlatform
+                  ? sql`${sessions.platform} = ${normalizedPlatform}`
+                  : undefined,
+        });
 
         const regions = regionalRows
             .filter((row) => Boolean(row.country))
             .map((row) => {
                 const country = row.country as string;
                 const sessionsCount = Number(row.sessionsCount || 0);
-                const bouncers = Number(row.bouncers || 0);
-                const casuals = Number(row.casuals || 0);
-                const explorers = Number(row.explorers || 0);
-                const loyalists = Number(row.loyalists || 0);
-                const valueSessions = explorers + loyalists;
+                const valueSessions = Number(row.valueSessions || 0);
                 const valueShare = toPercent(valueSessions, Math.max(1, sessionsCount), 2);
 
                 return {
@@ -1005,12 +1034,7 @@ router.get(
                     valueShare,
                     avgUxScore: Number(row.avgUxScore || 0),
                     avgDurationSeconds: Number(row.avgDurationSeconds || 0),
-                    engagementSegments: {
-                        bouncers,
-                        casuals,
-                        explorers,
-                        loyalists,
-                    },
+                    engagementSegments: segmentsByCountry.get(country) ?? { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 },
                 };
             })
             .filter((row) => row.sessions > 0)
@@ -1083,7 +1107,8 @@ router.get(
 
         const accessibleProjects = await db.select({ id: projects.id }).from(projects).where(inArray(projects.teamId, teamIds));
 
-        const projectIds = projectId ? [projectId as string] : accessibleProjects.map((p) => p.id);
+        const projectIds = resolveRequestedProjectScope(projectId, accessibleProjects.map((p) => p.id));
+        if (!projectIds) throw ApiError.forbidden('Access denied');
 
         if (projectIds.length === 0) {
             res.json({
@@ -1346,7 +1371,8 @@ router.get(
 
         const accessibleProjects = await db.select({ id: projects.id }).from(projects).where(inArray(projects.teamId, teamIds));
 
-        const projectIds = projectId ? [projectId as string] : accessibleProjects.map((p) => p.id);
+        const projectIds = resolveRequestedProjectScope(projectId, accessibleProjects.map((p) => p.id));
+        if (!projectIds) throw ApiError.forbidden('Access denied');
 
         if (projectIds.length === 0) {
             res.json({ regions: [], summary: { avgLatency: 0, totalRequests: 0 } });
@@ -2589,9 +2615,12 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
+        const pageLimit = clampErrorsPageLimit(limit);
+        const pageOffset = clampErrorsPageOffset(offset);
+
         // Redis caching - only when no search (search is filtered in-memory)
         // Cache for 2 minutes since errors data changes less frequently than sessions
-        const cacheKey = !search ? `analytics:errors:${projectId}:${timeRange || 'all'}:${status || 'all'}:${limit}:${offset}` : null;
+        const cacheKey = !search ? `analytics:errors:${projectId}:${timeRange || 'all'}:${status || 'all'}:${pageLimit}:${pageOffset}` : null;
         if (cacheKey) {
             const cached = await redis.get(cacheKey);
             if (cached) {
@@ -2648,8 +2677,8 @@ router.get(
             .from(errors)
             .where(and(...conditions))
             .orderBy(desc(errors.timestamp))
-            .limit(parseInt(limit as string) || 50)
-            .offset(parseInt(offset as string) || 0);
+            .limit(pageLimit)
+            .offset(pageOffset);
 
         const errorsList = await errorsQuery;
 
@@ -2699,8 +2728,8 @@ router.get(
                 unhandledExceptions: filteredErrors.filter((e) => e.errorType === 'unhandled_exception').length,
             },
             pagination: {
-                offset: parseInt(offset as string) || 0,
-                limit: parseInt(limit as string) || 50,
+                offset: pageOffset,
+                limit: pageLimit,
                 total: totalCount,
             },
         };

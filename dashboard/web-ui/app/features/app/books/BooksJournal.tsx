@@ -65,6 +65,8 @@ import {
 } from './BooksUi';
 
 const PAGE_SIZE = 50;
+/** Delay before reloading while a background purchase import is still running. */
+const REVENUE_IMPORT_PENDING_REFETCH_MS = 3000;
 const EXPORT_PAGE_SIZE = 100;
 const EXPORT_MAX_ROWS = 20_000;
 
@@ -147,10 +149,12 @@ export const BooksJournal: React.FC<{
     projectName: string;
     isDemoMode: boolean;
     timeRange: string;
+    /** False until the stored time range is known; the journal waits so it loads once. */
+    lensReady?: boolean;
     pathPrefix: string;
     onExport: (key: string, build: () => Promise<string>) => Promise<void>;
     exportingKey: string | null;
-}> = ({ projectId, projectName, isDemoMode, timeRange, pathPrefix, onExport, exportingKey }) => {
+}> = ({ projectId, projectName, isDemoMode, timeRange, lensReady = true, pathPrefix, onExport, exportingKey }) => {
     const [currency, setCurrency] = useState<string | null>(REVENUE_USD_TOTAL);
     const [overview, setOverview] = useState<RevenueOverview | null>(null);
     const [ledger, setLedger] = useState<RevenueLedgerEntry[]>([]);
@@ -170,11 +174,15 @@ export const BooksJournal: React.FC<{
     const loadSeqRef = useRef(0);
     const serverFilter = typeFilter === 'excluded' ? 'excluded' : 'all';
 
-    useEffect(() => {
+    const [scopedProjectId, setScopedProjectId] = useState(projectId);
+    // Reset per-project state in the same render as a project switch, so the
+    // journal is not loaded once with the previous project's currency.
+    if (scopedProjectId !== projectId) {
+        setScopedProjectId(projectId);
         setCurrency(REVENUE_USD_TOTAL);
         setDrawer(null);
         setSaveState({ status: 'idle' });
-    }, [projectId]);
+    }
 
     const loadLedgerPage = useCallback(async (selectedCurrency: string | null, options: { append?: boolean; limit?: number; isCurrent?: () => boolean } = {}) => {
         if (!projectId || isDemoMode) return;
@@ -194,15 +202,15 @@ export const BooksJournal: React.FC<{
         setLedgerMeta({ totalCount: page.totalCount, excludedCount: page.excludedCount, hasMore: page.hasMore });
     }, [isDemoMode, projectId, serverFilter, timeRange]);
 
-    const loadBooks = useCallback(async (options: { silent?: boolean } = {}) => {
-        if (!projectId || isDemoMode) return;
+    const loadBooks = useCallback(async (options: { silent?: boolean } = {}): Promise<RevenueOverview | null> => {
+        if (!projectId || isDemoMode) return null;
         const seq = ++loadSeqRef.current;
         const isCurrent = () => seq === loadSeqRef.current;
         if (!options.silent) setIsLoading(true);
         setLoadError(null);
         try {
             const data = await getRevenueOverview(projectId, timeRange, currency);
-            if (!isCurrent()) return;
+            if (!isCurrent()) return null;
             setOverview(data);
             if (data.connection.canManage) {
                 // The USD view lists every currency, each row in its own currency.
@@ -214,8 +222,10 @@ export const BooksJournal: React.FC<{
                 setLedger([]);
                 setLedgerMeta({ totalCount: 0, excludedCount: 0, hasMore: false });
             }
+            return isCurrent() ? data : null;
         } catch (error) {
             if (isCurrent()) setLoadError(errorMessage(error, 'Unable to load the revenue journal.'));
+            return null;
         } finally {
             if (isCurrent()) setIsLoading(false);
         }
@@ -223,9 +233,24 @@ export const BooksJournal: React.FC<{
     }, [currency, isDemoMode, loadLedgerPage, manualRefreshVersion, projectId, timeRange]);
 
     useEffect(() => {
+        if (!lensReady) return undefined;
+        let cancelled = false;
+        let importRefetchTimer: number | null = null;
         loadedCountRef.current = PAGE_SIZE;
-        void loadBooks();
-    }, [loadBooks]);
+        void loadBooks().then((data) => {
+            if (cancelled || !data?.importPending) return;
+            // Recent purchases are still importing in the background: reload the
+            // journal once shortly so its totals and rows include them.
+            importRefetchTimer = window.setTimeout(() => {
+                importRefetchTimer = null;
+                if (!cancelled) void loadBooks({ silent: true });
+            }, REVENUE_IMPORT_PENDING_REFETCH_MS);
+        });
+        return () => {
+            cancelled = true;
+            if (importRefetchTimer !== null) window.clearTimeout(importRefetchTimer);
+        };
+    }, [lensReady, loadBooks]);
 
     const books = isDemoMode ? demoBooks.overview : overview;
     const ledgerRows = isDemoMode

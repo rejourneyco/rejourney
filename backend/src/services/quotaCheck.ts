@@ -36,7 +36,7 @@ import {
     getBillingPeriodCache,
     setBillingPeriodCache,
 } from '../db/redis.js';
-import { getTeamSubscription } from './stripeProducts.js';
+import { getTeamSubscription, type TeamSubscriptionInfo } from './stripeProducts.js';
 import { sendBillingWarningEmail } from './email.js';
 import {
     FREE_TIER_SESSIONS,
@@ -188,7 +188,8 @@ export async function calculateOwnerFreeTierUsage(ownerUserId: string): Promise<
  */
 async function fetchTeamSessionData(
     teamId: string,
-    periodOverride?: string
+    periodOverride?: string,
+    preloadedSubscription?: TeamSubscriptionInfo
 ): Promise<TeamSessionData> {
     // Get team's plan info and billing cycle anchor
     const [team] = await db
@@ -209,7 +210,7 @@ async function fetchTeamSessionData(
         throw new Error('Team not found');
     }
 
-    const subscription = await getTeamSubscription(teamId);
+    const subscription = preloadedSubscription ?? await getTeamSubscription(teamId);
 
     // Use Stripe period boundaries when available (handles calendar-month subscriptions
     // where 30-day anchor math would roll the period a day early in 31-day months).
@@ -372,11 +373,16 @@ export async function checkAndEnforceSessionLimit(
 /**
  * Get replay quota and captured-session usage for a team without enforcing limits
  * Uses team's billing cycle anchor for period calculation
+ *
+ * Pass `subscription` when the caller already resolved getTeamSubscription for
+ * this team in the same request, to avoid a second lookup (which can reach
+ * Stripe for states that are not cached).
  */
 export async function getTeamSessionUsage(
-    teamId: string
+    teamId: string,
+    options: { subscription?: TeamSubscriptionInfo } = {}
 ): Promise<SessionLimitCheckResult> {
-    const sessionData = await fetchTeamSessionData(teamId);
+    const sessionData = await fetchTeamSessionData(teamId, undefined, options.subscription);
 
     const {
         sessionsUsed,

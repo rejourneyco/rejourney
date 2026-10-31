@@ -8,13 +8,12 @@ import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
 import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { CountryFlag } from '~/shared/ui/core/CountryFlag';
 import { formatCountryDisplayName } from '~/shared/lib/geoDisplay';
-import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
+import { useIsClientRendered, useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { getGeoOverview, getSessionsPaginated, type ApiLatencyByLocationResponse, type GeoIssuesSummary } from '~/shared/api/client';
 import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { DashboardGhostLoader, useInitialDashboardLoad } from '~/shared/ui/core/DashboardGhostLoader';
-import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
 import {
     getGeoNavigationStorageKey,
@@ -37,11 +36,18 @@ import {
     type GeoCountryAnalytics,
     type GeoMetric,
 } from './geoAnalyticsModel';
-// @ts-ignore: react-map-gl typing can fail under current tsconfig
-import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+// Mapbox (react-map-gl + mapbox-gl and its CSS) loads in its own chunk, so the
+// page renders and starts its data requests before the map library arrives.
+// Until then the map area shows its background, as it does while the map loads.
+const GeoMapKit = React.lazy(() => import('./components/GeoMapKit'));
 const ENABLE_MAPBOX_IN_DEMO = true;
 const MAPBOX_TOKEN = getMapboxToken();
+
+// Same check as ~/shared/integrations/mapbox, kept local so this route does not
+// import mapbox-gl statically.
+function isMapboxConfigured(): boolean {
+    return Boolean(getMapboxToken());
+}
 const GEO_MAP_STYLE = 'mapbox://styles/mapbox/light-v11';
 const GEO_MAP_CONFIG = {
     basemap: {
@@ -1290,9 +1296,13 @@ export const RedesignedGeo: React.FC = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const pathPrefix = usePathPrefix();
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const lensReady = timeRangeReady && platformLensReady;
+    // The map is client-only (mapbox draws into a canvas after mount); mounting it
+    // after hydration keeps its lazily loaded chunk out of hydration.
+    const isClientRendered = useIsClientRendered();
     const storageKey = getGeoNavigationStorageKey(pathPrefix, selectedProject?.id);
     const initialStateRef = React.useRef<GeoNavigationState | null>(null);
     const routeNavigationState = location.state && typeof location.state === 'object'
@@ -1336,10 +1346,6 @@ export const RedesignedGeo: React.FC = () => {
         }
         setStorageReady(true);
     }, [storageKey, storageReady]);
-
-    useEffect(() => {
-        disableMapboxTelemetry();
-    }, []);
 
     useEffect(() => {
         const host = mapInteractionHostRef.current;
@@ -1406,6 +1412,7 @@ export const RedesignedGeo: React.FC = () => {
     }, [selectedProject?.id]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setIssues(EMPTY_ISSUES);
             setLatency(EMPTY_LATENCY);
@@ -1437,7 +1444,7 @@ export const RedesignedGeo: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [manualRefreshVersion, platform, selectedProject?.id, timeRange]);
+    }, [lensReady, manualRefreshVersion, platform, selectedProject?.id, timeRange]);
 
     const analytics = useMemo(() => buildGeoAnalytics(issues, latency), [issues, latency]);
     const rankedCountries = useMemo(() => sortGeoCountries(analytics.countries, metric), [analytics.countries, metric]);
@@ -1540,6 +1547,10 @@ export const RedesignedGeo: React.FC = () => {
             bearing: 0,
         };
     }, [analytics.countries, initialState.viewport]);
+    // Mapbox reads initialViewState once, when the map is created. The map now
+    // mounts after its chunk loads (often after data arrived), so keep the value
+    // from the first render that reaches the map branch, when the map used to be created.
+    const mapInitialViewStateRef = React.useRef<typeof initialViewState | null>(null);
 
     const focusCountry = React.useCallback((country: GeoCountryAnalytics) => {
         setSelectedCountry(country.country);
@@ -1569,8 +1580,12 @@ export const RedesignedGeo: React.FC = () => {
         : null;
     const geoReturnTo = `${location.pathname}${location.search}${location.hash}`;
     const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+    const showsInitialGhost = shouldShowInitialGhost && Boolean(selectedProject?.id);
+    // The ghost unmounts the map, so the next map branch render recreates it.
+    if (showsInitialGhost) mapInitialViewStateRef.current = null;
+    else if (!mapInitialViewStateRef.current) mapInitialViewStateRef.current = initialViewState;
 
-    if (shouldShowInitialGhost && selectedProject?.id) return <DashboardGhostLoader variant="map" />;
+    if (showsInitialGhost) return <DashboardGhostLoader variant="map" />;
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-[#f8fafd] font-sans text-[#202124]">
@@ -1619,116 +1634,122 @@ export const RedesignedGeo: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <MapGL
-                                        ref={mapRef}
-                                        mapboxAccessToken={MAPBOX_TOKEN}
-                                        reuseMaps
-                                        initialViewState={initialViewState}
-                                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-                                        mapStyle={GEO_MAP_STYLE}
-                                        projection={{ name: 'mercator' }}
-                                        dragPan
-                                        dragRotate={false}
-                                        scrollZoom
-                                        doubleClickZoom
-                                        keyboard
-                                        touchZoomRotate
-                                        cursor={isMapDragging ? 'grabbing' : 'grab'}
-                                        onDragStart={() => setIsMapDragging(true)}
-                                        onDragEnd={() => setIsMapDragging(false)}
-                                        onMoveEnd={(event: any) => {
-                                            const { latitude, longitude, zoom } = event.viewState || {};
-                                            if ([latitude, longitude, zoom].every(Number.isFinite)) setMapViewport({ latitude, longitude, zoom });
-                                        }}
-                                        onLoad={(event: any) => {
-                                            mapRef.current = event.target;
-                                            applyGeoMapConfig(event.target);
-                                            configureGeoMapZoomSensitivity(event.target);
-                                            event.target?.touchZoomRotate?.disableRotation?.();
-                                        }}
-                                    >
-                                        <NavigationControl position="bottom-right" showCompass={false} />
-                                        {!selectedCountryData && analytics.countries.filter((country) => Number.isFinite(country.lat) && Number.isFinite(country.lng)).map((country) => {
-                                            const size = getCountryMarkerSize(country, metric, metric === 'sessions' ? maxMetricValue : maxCountrySessions);
-                                            const active = hoveredCountry === country.id;
-                                            const code = getCountryCodeForName(country.country)?.slice(0, 2) || country.country.slice(0, 2).toUpperCase();
-                                            return (
-                                                <Marker key={country.id} latitude={country.lat} longitude={country.lng} anchor="center" style={{ pointerEvents: 'none' }}>
-                                                    <button
-                                                        type="button"
-                                                        className="grid place-items-center rounded-full border-2 border-white text-[10px] font-semibold text-white shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
-                                                        style={{ width: size, height: size, backgroundColor: getGeoMetricColor(country, metric), pointerEvents: 'auto', transform: active ? 'scale(1.14)' : 'scale(1)' }}
-                                                        aria-label={`${country.country}: ${formatGeoMetricValue(country, metric)}, ${country.sessions.toLocaleString()} sessions`}
-                                                        onClick={() => focusCountry(country)}
-                                                        onMouseEnter={() => setHoveredCountry(country.id)}
-                                                        onMouseLeave={() => setHoveredCountry(null)}
-                                                        onFocus={() => setHoveredCountry(country.id)}
-                                                        onBlur={() => setHoveredCountry(null)}
-                                                    >
-                                                        {code}
-                                                    </button>
-                                                </Marker>
-                                            );
-                                        })}
-                                        {selectedCountryData?.cities.map((city) => {
-                                            const active = normalizeCity(selectedCity || undefined) === normalizeCity(city.city) || hoveredCity === city.id;
-                                            const size = 14 + Math.sqrt(city.sessions / Math.max(selectedCountryData.sessions, 1)) * 20;
-                                            return (
-                                                <Marker key={city.id} latitude={city.lat} longitude={city.lng} anchor="center" style={{ pointerEvents: 'none' }}>
-                                                    <button
-                                                        type="button"
-                                                        className="rounded-full border-2 border-white bg-[#1a73e8] shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
-                                                        style={{ width: size, height: size, pointerEvents: 'auto', backgroundColor: getGeoMetricColor(city, metric), transform: active ? 'scale(1.2)' : 'scale(1)' }}
-                                                        aria-label={`${city.city}: ${city.sessions.toLocaleString()} sessions, ${city.uniqueUsers.toLocaleString()} users, ${city.totalIssues.toLocaleString()} issues, ${city.avgLatencyMs ? `${Math.round(city.avgLatencyMs).toLocaleString()} milliseconds API latency` : 'no API latency data'}`}
-                                                        onClick={() => focusCity(city)}
-                                                        onMouseEnter={() => setHoveredCity(city.id)}
-                                                        onMouseLeave={() => setHoveredCity(null)}
-                                                        onFocus={() => setHoveredCity(city.id)}
-                                                        onBlur={() => setHoveredCity(null)}
-                                                    />
-                                                </Marker>
-                                            );
-                                        })}
-                                        {hoveredCityData && selectedCountryData && (
-                                            <Popup
-                                                longitude={hoveredCityData.lng}
-                                                latitude={hoveredCityData.lat}
-                                                closeButton={false}
-                                                closeOnClick={false}
-                                                anchor="bottom"
-                                                offset={24}
-                                                className="geo-analytics-popup"
-                                                style={{ pointerEvents: 'none' }}
-                                            >
-                                                <div className="min-w-[210px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
-                                                    <div className="font-medium text-[#202124]">{hoveredCityData.city}</div>
-                                                    <div className="mt-0.5 text-[11px] text-[#5f6368]">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</div>
-                                                    <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-[#5f6368]">
-                                                        <dt>{GEO_METRICS.find((item) => item.id === metric)?.label}</dt>
-                                                        <dd className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCityData, metric)}</dd>
-                                                        <dt>Sessions</dt>
-                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.sessions.toLocaleString()}</dd>
-                                                        <dt>Users</dt>
-                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.uniqueUsers.toLocaleString()}</dd>
-                                                        <dt>Issues</dt>
-                                                        <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.totalIssues.toLocaleString()}</dd>
-                                                        <dt>Country traffic</dt>
-                                                        <dd className="font-medium tabular-nums text-[#202124]">{((hoveredCityData.sessions / Math.max(selectedCountryData.sessions, 1)) * 100).toFixed(1)}%</dd>
-                                                    </dl>
-                                                    <div className="mt-2 border-t border-[#e8eaed] pt-2 text-[11px] text-[#80868b]">Click to filter the drawer to this city</div>
-                                                </div>
-                                            </Popup>
-                                        )}
-                                        {hoveredCountryData && !selectedCountryData && (
-                                            <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32} className="geo-analytics-popup">
-                                                <div className="min-w-[180px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
-                                                    <div className="font-medium text-[#202124]">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
-                                                    <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
-                                                    <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>Traffic share</span><strong className="font-medium tabular-nums text-[#202124]">{(hoveredCountryData.trafficShare * 100).toFixed(1)}%</strong></div>
-                                                </div>
-                                            </Popup>
-                                        )}
-                                    </MapGL>
+                                    isClientRendered && <React.Suspense fallback={null}>
+                                        <GeoMapKit>
+                                            {({ MapGL, Marker, NavigationControl, Popup }) => (
+                                                <MapGL
+                                                    ref={mapRef}
+                                                    mapboxAccessToken={MAPBOX_TOKEN}
+                                                    reuseMaps
+                                                    initialViewState={mapInitialViewStateRef.current ?? initialViewState}
+                                                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                                                    mapStyle={GEO_MAP_STYLE}
+                                                    projection={{ name: 'mercator' }}
+                                                    dragPan
+                                                    dragRotate={false}
+                                                    scrollZoom
+                                                    doubleClickZoom
+                                                    keyboard
+                                                    touchZoomRotate
+                                                    cursor={isMapDragging ? 'grabbing' : 'grab'}
+                                                    onDragStart={() => setIsMapDragging(true)}
+                                                    onDragEnd={() => setIsMapDragging(false)}
+                                                    onMoveEnd={(event: any) => {
+                                                        const { latitude, longitude, zoom } = event.viewState || {};
+                                                        if ([latitude, longitude, zoom].every(Number.isFinite)) setMapViewport({ latitude, longitude, zoom });
+                                                    }}
+                                                    onLoad={(event: any) => {
+                                                        mapRef.current = event.target;
+                                                        applyGeoMapConfig(event.target);
+                                                        configureGeoMapZoomSensitivity(event.target);
+                                                        event.target?.touchZoomRotate?.disableRotation?.();
+                                                    }}
+                                                >
+                                                    <NavigationControl position="bottom-right" showCompass={false} />
+                                                    {!selectedCountryData && analytics.countries.filter((country) => Number.isFinite(country.lat) && Number.isFinite(country.lng)).map((country) => {
+                                                        const size = getCountryMarkerSize(country, metric, metric === 'sessions' ? maxMetricValue : maxCountrySessions);
+                                                        const active = hoveredCountry === country.id;
+                                                        const code = getCountryCodeForName(country.country)?.slice(0, 2) || country.country.slice(0, 2).toUpperCase();
+                                                        return (
+                                                            <Marker key={country.id} latitude={country.lat} longitude={country.lng} anchor="center" style={{ pointerEvents: 'none' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    className="grid place-items-center rounded-full border-2 border-white text-[10px] font-semibold text-white shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
+                                                                    style={{ width: size, height: size, backgroundColor: getGeoMetricColor(country, metric), pointerEvents: 'auto', transform: active ? 'scale(1.14)' : 'scale(1)' }}
+                                                                    aria-label={`${country.country}: ${formatGeoMetricValue(country, metric)}, ${country.sessions.toLocaleString()} sessions`}
+                                                                    onClick={() => focusCountry(country)}
+                                                                    onMouseEnter={() => setHoveredCountry(country.id)}
+                                                                    onMouseLeave={() => setHoveredCountry(null)}
+                                                                    onFocus={() => setHoveredCountry(country.id)}
+                                                                    onBlur={() => setHoveredCountry(null)}
+                                                                >
+                                                                    {code}
+                                                                </button>
+                                                            </Marker>
+                                                        );
+                                                    })}
+                                                    {selectedCountryData?.cities.map((city) => {
+                                                        const active = normalizeCity(selectedCity || undefined) === normalizeCity(city.city) || hoveredCity === city.id;
+                                                        const size = 14 + Math.sqrt(city.sessions / Math.max(selectedCountryData.sessions, 1)) * 20;
+                                                        return (
+                                                            <Marker key={city.id} latitude={city.lat} longitude={city.lng} anchor="center" style={{ pointerEvents: 'none' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    className="rounded-full border-2 border-white bg-[#1a73e8] shadow-sm transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]"
+                                                                    style={{ width: size, height: size, pointerEvents: 'auto', backgroundColor: getGeoMetricColor(city, metric), transform: active ? 'scale(1.2)' : 'scale(1)' }}
+                                                                    aria-label={`${city.city}: ${city.sessions.toLocaleString()} sessions, ${city.uniqueUsers.toLocaleString()} users, ${city.totalIssues.toLocaleString()} issues, ${city.avgLatencyMs ? `${Math.round(city.avgLatencyMs).toLocaleString()} milliseconds API latency` : 'no API latency data'}`}
+                                                                    onClick={() => focusCity(city)}
+                                                                    onMouseEnter={() => setHoveredCity(city.id)}
+                                                                    onMouseLeave={() => setHoveredCity(null)}
+                                                                    onFocus={() => setHoveredCity(city.id)}
+                                                                    onBlur={() => setHoveredCity(null)}
+                                                                />
+                                                            </Marker>
+                                                        );
+                                                    })}
+                                                    {hoveredCityData && selectedCountryData && (
+                                                        <Popup
+                                                            longitude={hoveredCityData.lng}
+                                                            latitude={hoveredCityData.lat}
+                                                            closeButton={false}
+                                                            closeOnClick={false}
+                                                            anchor="bottom"
+                                                            offset={24}
+                                                            className="geo-analytics-popup"
+                                                            style={{ pointerEvents: 'none' }}
+                                                        >
+                                                            <div className="min-w-[210px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
+                                                                <div className="font-medium text-[#202124]">{hoveredCityData.city}</div>
+                                                                <div className="mt-0.5 text-[11px] text-[#5f6368]">{formatCountryDisplayName(selectedCountryData.country) || selectedCountryData.country}</div>
+                                                                <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-[#5f6368]">
+                                                                    <dt>{GEO_METRICS.find((item) => item.id === metric)?.label}</dt>
+                                                                    <dd className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCityData, metric)}</dd>
+                                                                    <dt>Sessions</dt>
+                                                                    <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.sessions.toLocaleString()}</dd>
+                                                                    <dt>Users</dt>
+                                                                    <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.uniqueUsers.toLocaleString()}</dd>
+                                                                    <dt>Issues</dt>
+                                                                    <dd className="font-medium tabular-nums text-[#202124]">{hoveredCityData.totalIssues.toLocaleString()}</dd>
+                                                                    <dt>Country traffic</dt>
+                                                                    <dd className="font-medium tabular-nums text-[#202124]">{((hoveredCityData.sessions / Math.max(selectedCountryData.sessions, 1)) * 100).toFixed(1)}%</dd>
+                                                                </dl>
+                                                                <div className="mt-2 border-t border-[#e8eaed] pt-2 text-[11px] text-[#80868b]">Click to filter the drawer to this city</div>
+                                                            </div>
+                                                        </Popup>
+                                                    )}
+                                                    {hoveredCountryData && !selectedCountryData && (
+                                                        <Popup longitude={hoveredCountryData.lng} latitude={hoveredCountryData.lat} closeButton={false} closeOnClick={false} anchor="bottom" offset={32} className="geo-analytics-popup">
+                                                            <div className="min-w-[180px] rounded-none border border-[#dadce0] bg-white p-3 text-xs shadow-[0_2px_6px_rgba(60,64,67,0.15)]">
+                                                                <div className="font-medium text-[#202124]">{formatCountryDisplayName(hoveredCountryData.country) || hoveredCountryData.country}</div>
+                                                                <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>{GEO_METRICS.find((item) => item.id === metric)?.label}</span><strong className="font-medium tabular-nums text-[#202124]">{formatGeoMetricValue(hoveredCountryData, metric)}</strong></div>
+                                                                <div className="mt-1 flex items-center justify-between gap-4 text-[#5f6368]"><span>Traffic share</span><strong className="font-medium tabular-nums text-[#202124]">{(hoveredCountryData.trafficShare * 100).toFixed(1)}%</strong></div>
+                                                            </div>
+                                                        </Popup>
+                                                    )}
+                                                </MapGL>
+                                            )}
+                                        </GeoMapKit>
+                                    </React.Suspense>
                                 )}
                                 {selectedCountryData && (
                                     <button type="button" onClick={clearSelection} className="absolute left-3 top-3 z-20 inline-flex items-center gap-2 rounded-none border border-[#dadce0] bg-white px-3 py-2 text-xs font-medium text-[#3c4043] transition-colors hover:bg-[#f8fafd]">
@@ -1857,7 +1878,7 @@ export const Geo: React.FC = () => {
             : storedState ?? normalizeGeoNavigationState(null);
     }
     const initialGeoNavigationState = initialGeoNavigationStateRef.current;
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
     const mapRef = React.useRef<any>(null);
     const mapWheelHostRef = React.useRef<HTMLElement | null>(null);
@@ -1867,7 +1888,11 @@ export const Geo: React.FC = () => {
         setMapWheelHostElement(node);
     }, []);
 
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const lensReady = timeRangeReady && platformLensReady;
+    // The map is client-only (mapbox draws into a canvas after mount); mounting it
+    // after hydration keeps its lazily loaded chunk out of hydration.
+    const isClientRendered = useIsClientRendered();
     const [issues, setIssues] = useState<GeoIssuesSummary>(EMPTY_ISSUES);
     const [latencyByLocation, setLatencyByLocation] = useState<ApiLatencyByLocationResponse>(EMPTY_LATENCY);
     const [isLoading, setIsLoading] = useState(true);
@@ -2020,10 +2045,6 @@ export const Geo: React.FC = () => {
         },
         [focusMapOnMarker, mapZoom],
     );
-
-    useEffect(() => {
-        disableMapboxTelemetry();
-    }, []);
 
     useEffect(() => {
         window.localStorage.setItem(GEO_SIDEBAR_WIDTH_STORAGE_KEY, String(geoSidebarWidth));
@@ -2190,6 +2211,7 @@ export const Geo: React.FC = () => {
     }, [mapWheelHostElement]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setIssues(EMPTY_ISSUES);
             setLatencyByLocation(EMPTY_LATENCY);
@@ -2223,9 +2245,10 @@ export const Geo: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setRecentSessions([]);
             setRecentSessionsState('idle');
@@ -2260,7 +2283,7 @@ export const Geo: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, platform, selectedProject?.id, timeRange]);
+    }, [lensReady, manualRefreshVersion, platform, selectedProject?.id, timeRange]);
 
     const latencyByCountry = useMemo(() => {
         const countryToLatency = new Map<string, number>();
@@ -2354,6 +2377,10 @@ export const Geo: React.FC = () => {
 	            bearing: 0,
 	        };
 	    }, [initialGeoNavigationState.viewport, markers]);
+    // Mapbox reads initialViewState once, when the map is created. The map now
+    // mounts after its chunk loads (often after data arrived), so keep the value
+    // from the first render that reaches the map branch, when the map used to be created.
+    const mapInitialViewStateRef = React.useRef<typeof initialViewState | null>(null);
 
 	    const focusMapOnOverview = React.useCallback(() => {
 	        const map = getMapInstance(mapRef);
@@ -2739,8 +2766,12 @@ export const Geo: React.FC = () => {
     });
 
     const shouldShowInitialGhost = useInitialDashboardLoad(isLoading);
+    const showsInitialGhost = shouldShowInitialGhost && Boolean(selectedProject?.id);
+    // The ghost unmounts the map, so the next map branch render recreates it.
+    if (showsInitialGhost) mapInitialViewStateRef.current = null;
+    else if (!mapInitialViewStateRef.current) mapInitialViewStateRef.current = initialViewState;
 
-    if (shouldShowInitialGhost && selectedProject?.id) {
+    if (showsInitialGhost) {
         return <DashboardGhostLoader variant="map" />;
     }
 
@@ -3034,148 +3065,154 @@ export const Geo: React.FC = () => {
                             className="relative min-h-[340px] flex-1 overflow-hidden bg-[#d5dde1] sm:min-h-[380px] lg:min-h-0"
                             style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
                         >
-                            <MapGL
-                                ref={mapRef}
-                                mapboxAccessToken={MAPBOX_TOKEN}
-                                reuseMaps
-                                initialViewState={initialViewState}
-                                style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    width: '100%',
-                                    height: '100%',
-                                }}
-                                mapStyle={GEO_MAP_STYLE}
-                                projection={{ name: 'mercator' }}
-                                dragPan
-                                dragRotate={false}
-                                scrollZoom
-                                touchZoomRotate={false}
-                                doubleClickZoom
-                                keyboard
-                                cursor="grab"
-                                onMove={(event: any) => scheduleMapZoom(event.viewState.zoom)}
-                                onMoveEnd={(event: any) => {
-                                    const { latitude, longitude, zoom } = event.viewState || {};
-                                    if (Number.isFinite(latitude) && Number.isFinite(longitude) && Number.isFinite(zoom)) {
-                                        setMapViewport({ latitude, longitude, zoom });
-                                    }
-                                }}
-                                onLoad={(event: any) => {
-                                    mapRef.current = event.target;
-                                    applyGeoMapConfig(event.target);
-                                    configureGeoMapZoomSensitivity(event.target);
-                                    setIsMapReady(true);
-                                }}
-                            >
-                                <NavigationControl position="bottom-right" showCompass={false} showZoom />
-
-                                {renderedGeoClusters.map((cluster) => {
-                                    const isSelected = selectedClusterId === cluster.id || selectedMarkerId === cluster.topMarker.id;
-                                    const size = getRelativeGeoMarkerSize(cluster, maxRenderedClusterUsers, renderZoom);
-                                    const hitWidth = size + 30;
-                                    const hitHeight = size + 32;
-
-                                    return (
-                                        <Marker
-                                            key={cluster.id}
-                                            longitude={cluster.lng}
-                                            latitude={cluster.lat}
-                                            anchor="center"
-                                            style={{ pointerEvents: 'none' }}
+                            {isClientRendered && <React.Suspense fallback={null}>
+                                <GeoMapKit>
+                                    {({ MapGL, Marker, NavigationControl, Popup }) => (
+                                        <MapGL
+                                            ref={mapRef}
+                                            mapboxAccessToken={MAPBOX_TOKEN}
+                                            reuseMaps
+                                            initialViewState={mapInitialViewStateRef.current ?? initialViewState}
+                                            style={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                            }}
+                                            mapStyle={GEO_MAP_STYLE}
+                                            projection={{ name: 'mercator' }}
+                                            dragPan
+                                            dragRotate={false}
+                                            scrollZoom
+                                            touchZoomRotate={false}
+                                            doubleClickZoom
+                                            keyboard
+                                            cursor="grab"
+                                            onMove={(event: any) => scheduleMapZoom(event.viewState.zoom)}
+                                            onMoveEnd={(event: any) => {
+                                                const { latitude, longitude, zoom } = event.viewState || {};
+                                                if (Number.isFinite(latitude) && Number.isFinite(longitude) && Number.isFinite(zoom)) {
+                                                    setMapViewport({ latitude, longitude, zoom });
+                                                }
+                                            }}
+                                            onLoad={(event: any) => {
+                                                mapRef.current = event.target;
+                                                applyGeoMapConfig(event.target);
+                                                configureGeoMapZoomSensitivity(event.target);
+                                                setIsMapReady(true);
+                                            }}
                                         >
-                                            <button
-                                                type="button"
-                                                className="grid place-items-center text-center transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                                                style={{
-                                                    width: hitWidth,
-                                                    height: hitHeight,
-                                                    pointerEvents: 'auto',
-                                                    transform: isSelected ? 'scale(1.16)' : 'scale(1)',
-                                                }}
-                                                aria-label={`${cluster.kind === 'cluster' ? `${cluster.markers.length} locations` : `${cluster.topMarker.city}, ${formatCountryDisplayName(cluster.topMarker.country, cluster.topMarker.countryCode) || cluster.topMarker.country}`}: ${cluster.uniqueUsers.toLocaleString()} users, ${cluster.sessions.toLocaleString()} sessions`}
-                                                onPointerDown={(event) => event.stopPropagation()}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    selectCluster(cluster);
-                                                }}
-                                                onMouseEnter={() => showHoveredMarker(cluster.topMarker.id)}
-                                                onMouseLeave={() => clearHoveredMarkerSoon(cluster.topMarker.id)}
-                                            >
-                                                <GeoClusterAnimalMarker
-                                                    cluster={cluster}
-                                                    sessionsByLocation={sessionsByLocation}
-                                                    size={size}
-                                                    active={isSelected}
-                                                    zoom={renderZoom}
-                                                />
-                                            </button>
-                                        </Marker>
-                                    );
-                                })}
+                                            <NavigationControl position="bottom-right" showCompass={false} showZoom />
 
-                                {recentSessionPoints.map(({ session, point }, index) => {
-                                    const animal = getSessionAnimal(session);
-                                    const seed = getSessionIdentitySeed(session);
-                                    const isActive = activeSessionId === session.id;
-                                    const marker = markerByLocation.get(getSessionLocationKey(session));
+                                            {renderedGeoClusters.map((cluster) => {
+                                                const isSelected = selectedClusterId === cluster.id || selectedMarkerId === cluster.topMarker.id;
+                                                const size = getRelativeGeoMarkerSize(cluster, maxRenderedClusterUsers, renderZoom);
+                                                const hitWidth = size + 30;
+                                                const hitHeight = size + 32;
 
-                                    return (
-                                        <Marker
-                                            key={`visitor-${session.id}`}
-                                            longitude={point.longitude}
-                                            latitude={point.latitude}
-                                            anchor="center"
-                                            style={{ pointerEvents: 'none' }}
-                                        >
-                                            <button
-                                                type="button"
-                                                className="rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                                                style={{
-                                                    pointerEvents: 'auto',
-                                                    transform: isActive ? 'scale(1.16)' : 'scale(1)',
-                                                }}
-                                                aria-label={`${getVisitorDisplayName(session)} in ${formatLocation(session)}`}
-                                                onPointerDown={(event) => event.stopPropagation()}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    selectVisitor(session);
-                                                }}
-                                                onMouseEnter={() => marker && showHoveredMarker(marker.id)}
-                                                onMouseLeave={() => marker && clearHoveredMarkerSoon(marker.id)}
-                                            >
-                                                <AnimalAvatar animal={animal} seed={`${seed}:${index}`} size={isActive ? 46 : 40} active={isActive} />
-                                            </button>
-                                        </Marker>
-                                    );
-                                })}
+                                                return (
+                                                    <Marker
+                                                        key={cluster.id}
+                                                        longitude={cluster.lng}
+                                                        latitude={cluster.lat}
+                                                        anchor="center"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            className="grid place-items-center text-center transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                            style={{
+                                                                width: hitWidth,
+                                                                height: hitHeight,
+                                                                pointerEvents: 'auto',
+                                                                transform: isSelected ? 'scale(1.16)' : 'scale(1)',
+                                                            }}
+                                                            aria-label={`${cluster.kind === 'cluster' ? `${cluster.markers.length} locations` : `${cluster.topMarker.city}, ${formatCountryDisplayName(cluster.topMarker.country, cluster.topMarker.countryCode) || cluster.topMarker.country}`}: ${cluster.uniqueUsers.toLocaleString()} users, ${cluster.sessions.toLocaleString()} sessions`}
+                                                            onPointerDown={(event) => event.stopPropagation()}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                selectCluster(cluster);
+                                                            }}
+                                                            onMouseEnter={() => showHoveredMarker(cluster.topMarker.id)}
+                                                            onMouseLeave={() => clearHoveredMarkerSoon(cluster.topMarker.id)}
+                                                        >
+                                                            <GeoClusterAnimalMarker
+                                                                cluster={cluster}
+                                                                sessionsByLocation={sessionsByLocation}
+                                                                size={size}
+                                                                active={isSelected}
+                                                                zoom={renderZoom}
+                                                            />
+                                                        </button>
+                                                    </Marker>
+                                                );
+                                            })}
 
-                                {hoveredMarker && (
-                                    <Popup
-                                        longitude={hoveredMarker.lng}
-                                        latitude={hoveredMarker.lat}
-                                        closeButton={false}
-                                        closeOnClick={false}
-                                        anchor="bottom"
-                                        offset={14}
-                                        className="geo-hover-popup"
-                                        style={{ pointerEvents: 'none' }}
-                                    >
-                                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 shadow-lg">
-                                            <div className="mb-0.5 font-semibold text-slate-900">
-                                                {hoveredMarker.city}, {formatCountryDisplayName(hoveredMarker.country, hoveredMarker.countryCode) || hoveredMarker.country}
-                                            </div>
-                                            <div className="flex items-center gap-2 text-slate-600">
-                                                <span>{hoveredMarker.uniqueUsers.toLocaleString()} users</span>
-                                                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                <span>{hoveredMarker.sessions.toLocaleString()} sessions</span>
-                                                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                <span style={{ color: hoveredMarker.style.solid }}>{formatLatency(hoveredMarker.avgLatencyMs)}</span>
-                                            </div>
-                                        </div>
-                                    </Popup>
-                                )}
-                            </MapGL>
+                                            {recentSessionPoints.map(({ session, point }, index) => {
+                                                const animal = getSessionAnimal(session);
+                                                const seed = getSessionIdentitySeed(session);
+                                                const isActive = activeSessionId === session.id;
+                                                const marker = markerByLocation.get(getSessionLocationKey(session));
+
+                                                return (
+                                                    <Marker
+                                                        key={`visitor-${session.id}`}
+                                                        longitude={point.longitude}
+                                                        latitude={point.latitude}
+                                                        anchor="center"
+                                                        style={{ pointerEvents: 'none' }}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            className="rounded-full transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                                            style={{
+                                                                pointerEvents: 'auto',
+                                                                transform: isActive ? 'scale(1.16)' : 'scale(1)',
+                                                            }}
+                                                            aria-label={`${getVisitorDisplayName(session)} in ${formatLocation(session)}`}
+                                                            onPointerDown={(event) => event.stopPropagation()}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                selectVisitor(session);
+                                                            }}
+                                                            onMouseEnter={() => marker && showHoveredMarker(marker.id)}
+                                                            onMouseLeave={() => marker && clearHoveredMarkerSoon(marker.id)}
+                                                        >
+                                                            <AnimalAvatar animal={animal} seed={`${seed}:${index}`} size={isActive ? 46 : 40} active={isActive} />
+                                                        </button>
+                                                    </Marker>
+                                                );
+                                            })}
+
+                                            {hoveredMarker && (
+                                                <Popup
+                                                    longitude={hoveredMarker.lng}
+                                                    latitude={hoveredMarker.lat}
+                                                    closeButton={false}
+                                                    closeOnClick={false}
+                                                    anchor="bottom"
+                                                    offset={14}
+                                                    className="geo-hover-popup"
+                                                    style={{ pointerEvents: 'none' }}
+                                                >
+                                                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 shadow-lg">
+                                                        <div className="mb-0.5 font-semibold text-slate-900">
+                                                            {hoveredMarker.city}, {formatCountryDisplayName(hoveredMarker.country, hoveredMarker.countryCode) || hoveredMarker.country}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-slate-600">
+                                                            <span>{hoveredMarker.uniqueUsers.toLocaleString()} users</span>
+                                                            <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                                            <span>{hoveredMarker.sessions.toLocaleString()} sessions</span>
+                                                            <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                                            <span style={{ color: hoveredMarker.style.solid }}>{formatLatency(hoveredMarker.avgLatencyMs)}</span>
+                                                        </div>
+                                                    </div>
+                                                </Popup>
+                                            )}
+                                        </MapGL>
+                                    )}
+                                </GeoMapKit>
+                            </React.Suspense>}
 
                             {loadError && (
                                 <div className="absolute left-4 top-4 z-20 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900 shadow-sm">

@@ -494,8 +494,29 @@ router.get(
     asyncHandler(async (req, res) => {
         const projectId = req.query.projectId as string;
 
-        if (!projectId) {
+        if (!projectId || typeof projectId !== 'string') {
             throw ApiError.badRequest('projectId is required');
+        }
+
+        // Verify access to project
+        const [project] = await db
+            .select({ teamId: projects.teamId })
+            .from(projects)
+            .where(eq(projects.id, projectId))
+            .limit(1);
+
+        if (!project) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        const [membership] = await db
+            .select({ id: teamMembers.id })
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, req.user!.id)))
+            .limit(1);
+
+        if (!membership) {
+            throw ApiError.forbidden('Access denied');
         }
 
         const environments = await db

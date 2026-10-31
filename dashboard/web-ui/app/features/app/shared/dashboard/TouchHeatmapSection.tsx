@@ -42,10 +42,13 @@ import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { dashboardButtonClass } from '~/shared/ui/core/dashboardStyles';
 import { buildDemoHeatmapOverview } from '~/shared/data/demoHeatmapData';
-import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { getAvailableHeatmapModes, getDefaultHeatmapMode } from './heatmapMode';
+
+// The DOM replay player is only needed once a web page preview has replay
+// events, so it loads on demand instead of with the heatmaps page.
+const WebReplayPlayer = React.lazy(() => import('~/shared/ui/core/WebReplayPlayer'));
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 const BASE_FRAME_PAGE_SIZE = 36;
@@ -730,18 +733,20 @@ const RrwebHeatmapPreview: React.FC<{
         };
     }, [events]);
 
-    if (loadState === 'loading' || (loadState === 'ready' && eventsLoading && events.length === 0)) {
-        return (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#f8fafd]/95 p-6 text-center">
-                <div>
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#1a73e8]" />
-                    <p className="mt-3 text-xs font-medium text-[#202124]">Reconstructing this page</p>
-                    <p className="mt-1 text-[11px] text-[#5f6368]">
-                        {progress.total > 0 ? `${progress.loaded} of ${progress.total} replay segments` : 'Loading DOM replay evidence'}
-                    </p>
-                </div>
+    const reconstructingPlaceholder = (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#f8fafd]/95 p-6 text-center">
+            <div>
+                <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#1a73e8]" />
+                <p className="mt-3 text-xs font-medium text-[#202124]">Reconstructing this page</p>
+                <p className="mt-1 text-[11px] text-[#5f6368]">
+                    {progress.total > 0 ? `${progress.loaded} of ${progress.total} replay segments` : 'Loading DOM replay evidence'}
+                </p>
             </div>
-        );
+        </div>
+    );
+
+    if (loadState === 'loading' || (loadState === 'ready' && eventsLoading && events.length === 0)) {
+        return reconstructingPlaceholder;
     }
 
     if (loadState === 'failed' || !replayTiming || events.length === 0) {
@@ -768,16 +773,18 @@ const RrwebHeatmapPreview: React.FC<{
         <div
             className="pointer-events-none absolute inset-0 overflow-hidden bg-white"
         >
-            <WebReplayPlayer
-                events={events}
-                currentTime={currentTime}
-                isPlaying={false}
-                playbackRate={1}
-                durationSeconds={durationSeconds}
-                fitMode="document-width"
-                documentWidth={frameDimensions.pageWidth}
-                documentHeight={frameDimensions.pageHeight}
-            />
+            <React.Suspense fallback={reconstructingPlaceholder}>
+                <WebReplayPlayer
+                    events={events}
+                    currentTime={currentTime}
+                    isPlaying={false}
+                    playbackRate={1}
+                    durationSeconds={durationSeconds}
+                    fitMode="document-width"
+                    documentWidth={frameDimensions.pageWidth}
+                    documentHeight={frameDimensions.pageHeight}
+                />
+            </React.Suspense>
         </div>
     );
 };
@@ -1526,6 +1533,8 @@ interface TouchHeatmapSectionProps {
     platform?: string;
     compact?: boolean;
     className?: string;
+    /** False until the stored time range and platform are known; the section waits so it loads once. */
+    lensReady?: boolean;
 }
 
 const HeatmapIndexingLoader: React.FC<{ progress: number }> = ({ progress }) => {
@@ -1553,6 +1562,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     platform,
     compact = false,
     className = '',
+    lensReady = true,
 }) => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
@@ -1593,6 +1603,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     }, [isLoading]);
 
     useEffect(() => {
+        if (!lensReady) return;
         setAttentionByScreen({});
         setAttentionErrors({});
         setAttentionLoadingFor(null);
@@ -1698,7 +1709,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [selectedProject?.id, timeRange, platform, isDemoMode, manualRefreshVersion, dataRefreshVersion]);
+    }, [selectedProject?.id, timeRange, platform, isDemoMode, lensReady, manualRefreshVersion, dataRefreshVersion]);
 
     const sortedScreens = useMemo(() => (
         [...screens].sort((a, b) => {

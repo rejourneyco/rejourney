@@ -27,19 +27,33 @@ interface DemoModeContextValue {
 
 const DemoModeContext = createContext<DemoModeContextValue | null>(null);
 
+// Stable defaults: a fresh object per call would change every consumer's
+// effect/memo dependencies on each render.
+const NON_DEMO_CONTEXT: DemoModeContextValue = {
+    isDemoMode: false,
+    demoProjects: [],
+    demoSessions: [],
+    demoReplaySessions: [],
+    demoDashboardStats: { totalSessions: 0, avgDuration: 0, errorRate: 0 },
+    demoDailyStats: [],
+    featuredSessionId: ''
+};
+
+const DEMO_CONTEXT: DemoModeContextValue = {
+    isDemoMode: true,
+    demoProjects,
+    demoSessions,
+    demoReplaySessions,
+    demoDashboardStats,
+    demoDailyStats,
+    featuredSessionId: DEMO_FEATURED_SESSION_ID
+};
+
 export function useDemoMode(): DemoModeContextValue {
     const context = useContext(DemoModeContext);
     if (!context) {
         // Return a default non-demo context when not wrapped
-        return {
-            isDemoMode: false,
-            demoProjects: [],
-            demoSessions: [],
-            demoReplaySessions: [],
-            demoDashboardStats: { totalSessions: 0, avgDuration: 0, errorRate: 0 },
-            demoDailyStats: [],
-            featuredSessionId: ''
-        };
+        return NON_DEMO_CONTEXT;
     }
     return context;
 }
@@ -49,18 +63,8 @@ interface DemoModeProviderProps {
 }
 
 export function DemoModeProvider({ children }: DemoModeProviderProps) {
-    const value: DemoModeContextValue = {
-        isDemoMode: true,
-        demoProjects,
-        demoSessions,
-        demoReplaySessions,
-        demoDashboardStats,
-        demoDailyStats,
-        featuredSessionId: DEMO_FEATURED_SESSION_ID
-    };
-
     return (
-        <DemoModeContext.Provider value={value}>
+        <DemoModeContext.Provider value={DEMO_CONTEXT}>
             {children}
         </DemoModeContext.Provider>
     );
@@ -80,32 +84,33 @@ interface DemoTeamContextValue {
     refreshMembers: () => Promise<void>;
 }
 
+const DEMO_TEAM_VALUE: ApiTeam = DEMO_TEAM;
+
+const DEMO_MEMBER: ApiTeamMember = {
+    id: 'demo-member-1',
+    userId: 'demo-user',
+    teamId: DEMO_TEAM.id,
+    role: 'owner',
+    email: 'demo@shopflow.com',
+    displayName: 'Demo User',
+    createdAt: DEMO_NOW_ISO,
+};
+
+// Static demo data, so one shared value keeps consumers' effects from re-running.
+const DEMO_TEAM_CONTEXT: DemoTeamContextValue = {
+    teams: [DEMO_TEAM_VALUE],
+    currentTeam: DEMO_TEAM_VALUE,
+    teamMembers: [DEMO_MEMBER],
+    isLoading: false,
+    error: null,
+    setCurrentTeam: () => { },
+    refreshTeams: async () => [DEMO_TEAM_VALUE],
+    refreshMembers: async () => { },
+};
+
 export function DemoTeamProvider({ children }: { children: ReactNode }) {
-    const demoTeam: ApiTeam = DEMO_TEAM;
-
-    const demoMember: ApiTeamMember = {
-        id: 'demo-member-1',
-        userId: 'demo-user',
-        teamId: DEMO_TEAM.id,
-        role: 'owner',
-        email: 'demo@shopflow.com',
-        displayName: 'Demo User',
-        createdAt: DEMO_NOW_ISO,
-    };
-
-    const value: DemoTeamContextValue = {
-        teams: [demoTeam],
-        currentTeam: demoTeam,
-        teamMembers: [demoMember],
-        isLoading: false,
-        error: null,
-        setCurrentTeam: () => { },
-        refreshTeams: async () => [demoTeam],
-        refreshMembers: async () => { },
-    };
-
     return (
-        <DemoTeamContext.Provider value={value}>
+        <DemoTeamContext.Provider value={DEMO_TEAM_CONTEXT}>
             {children}
         </DemoTeamContext.Provider>
     );

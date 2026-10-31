@@ -50,13 +50,15 @@ export const ANRsList: React.FC = () => {
   const [anrs, setAnrs] = useState<ANRRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedAnr, setExpandedAnr] = useState<string | null>(null);
-  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(currentProject?.id);
+  const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(currentProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
-  const { platformLens } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const { platformLens, ready: platformLensReady } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const lensReady = timeRangeReady && platformLensReady;
   const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
+    if (!lensReady) return;
     const fetchAnrs = async () => {
       if (!isDemoMode && !currentProject?.id) {
         setAnrs([]);
@@ -77,7 +79,7 @@ export const ANRsList: React.FC = () => {
     };
 
     fetchAnrs();
-  }, [currentProject?.id, manualRefreshVersion, timeRange, isDemoMode, platform]);
+  }, [currentProject?.id, lensReady, manualRefreshVersion, timeRange, isDemoMode, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

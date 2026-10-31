@@ -19,6 +19,7 @@ import {
     useLocation,
     useMatches,
 } from "react-router";
+import type { ShouldRevalidateFunctionArgs } from "react-router";
 import type { Route } from "./+types/root";
 
 import "./styles/index.css";
@@ -51,6 +52,16 @@ export function loader({ request }: Route.LoaderArgs): PublicSessionHintData {
         __publicSessionHint: true,
         hasSessionCookie: Boolean(readCookieValue(request.headers.get("cookie"), "session")),
     };
+}
+
+// The root loader only reads the session cookie, which a query-string-only
+// navigation cannot change. Keep the default for pathname changes, same-URL
+// navigations, explicit revalidate() calls, and submissions.
+export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
+    if (formMethod) return defaultShouldRevalidate;
+    if (currentUrl.pathname !== nextUrl.pathname) return defaultShouldRevalidate;
+    if (currentUrl.search === nextUrl.search) return defaultShouldRevalidate;
+    return false;
 }
 
 export const links: Route.LinksFunction = () => [

@@ -722,9 +722,9 @@ type RevenueCustomEventOption = {
 };
 
 const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; color: string }> = [
-    { key: 'bouncers', label: 'Bouncers', color: '#ea4335' },
-    { key: 'casuals', label: 'Casuals', color: '#f9ab00' },
-    { key: 'explorers', label: 'Explorers', color: '#1a73e8' },
+    { key: 'bouncers', label: 'Bounced', color: '#ea4335' },
+    { key: 'casuals', label: 'One-time', color: '#f9ab00' },
+    { key: 'explorers', label: 'Returning', color: '#1a73e8' },
     { key: 'loyalists', label: 'Loyalists', color: '#34a853' },
 ];
 
@@ -736,6 +736,8 @@ const DIRECT_REFERRAL_LABEL = 'Direct / none';
 const NO_UTM_LABEL = 'No UTM tag';
 const CUSTOM_EVENT_SELECTION_STORAGE_PREFIX = 'rejourney.general.customEventSelection';
 const REVENUE_IMPACT_COLLAPSED_STORAGE_PREFIX = 'rejourney.general.revenueImpactCollapsed';
+/** Delay before re-reading the revenue overview while a background purchase import is still running. */
+const REVENUE_IMPORT_PENDING_REFETCH_MS = 3000;
 const MAX_VERSION_RELEASE_MARKERS = 6;
 
 const REVENUE_PROVIDER_META: Record<RevenueProvider, {
@@ -1522,7 +1524,7 @@ function RevenueEventSelectField({
     );
 }
 
-const RevenueImpactSection: React.FC<{
+const RevenueImpactSectionView: React.FC<{
     revenue: RevenueOverview | null;
     isLoading: boolean;
     error: string | null;
@@ -2592,14 +2594,21 @@ const RevenueImpactSection: React.FC<{
     );
 };
 
+// Its props are memoized in GeneralOverview, so skip re-rendering this large
+// section when unrelated cards update.
+const RevenueImpactSection = React.memo(RevenueImpactSectionView);
+
 export const GeneralOverview: React.FC = () => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const pathPrefix = usePathPrefix();
     const navigate = useNavigate();
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    // Stored lenses are read after hydration; wait for them so the first
+    // request set already uses the saved time range and platform.
+    const lensReady = timeRangeReady && platformLensReady;
     const platform = platformLensToSessionPlatform(platformLens);
     const customEventSelectionStorageKey = useMemo(
         () => selectedProject?.id ? `${CUSTOM_EVENT_SELECTION_STORAGE_PREFIX}:${selectedProject.id}:${platformLens}` : null,
@@ -2644,10 +2653,15 @@ export const GeneralOverview: React.FC = () => {
     const sessionDataScopeRef = useRef<string | null>(null);
     const topUsersDataScopeRef = useRef<string | null>(null);
     const referralDataScopeRef = useRef<string | null>(null);
+    const revenueProjectScopeRef = useRef<string | null>(null);
+    const [revenueCurrencyProjectId, setRevenueCurrencyProjectId] = useState<string | null>(selectedProject?.id ?? null);
 
-    useEffect(() => {
+    // Reset the currency in the same render as a project switch so the revenue
+    // request is not sent once with the previous project's currency.
+    if (revenueCurrencyProjectId !== (selectedProject?.id ?? null)) {
+        setRevenueCurrencyProjectId(selectedProject?.id ?? null);
         setRevenueCurrency(REVENUE_USD_TOTAL);
-    }, [selectedProject?.id]);
+    }
 
     const loadRevenue = useCallback(async (options: { showLoading?: boolean } = {}) => {
         const showLoading = options.showLoading ?? true;
@@ -2673,21 +2687,46 @@ export const GeneralOverview: React.FC = () => {
 
     useEffect(() => {
         let isCancelled = false;
+        let importRefetchTimer: number | null = null;
+
+        if (!lensReady) return;
 
         if (!selectedProject?.id || isDemoMode) {
+            revenueProjectScopeRef.current = null;
             setRevenue(null);
             setRevenueError(null);
             setIsRevenueLoading(false);
             return;
         }
 
+        const projectId = selectedProject.id;
+        if (revenueProjectScopeRef.current !== projectId) {
+            // Never show another project's revenue while this one loads.
+            if (revenueProjectScopeRef.current !== null) setRevenue(null);
+            revenueProjectScopeRef.current = projectId;
+        }
+
         setIsRevenueLoading(true);
         setRevenueError(null);
 
-        getRevenueOverview(selectedProject.id, timeRange, revenueOverviewCurrency)
+        getRevenueOverview(projectId, timeRange, revenueOverviewCurrency)
             .then((data) => {
                 if (isCancelled) return;
                 setRevenue(data);
+                if (data?.importPending) {
+                    // Recent purchases are still importing in the background:
+                    // refetch once shortly so the totals include them.
+                    importRefetchTimer = window.setTimeout(() => {
+                        importRefetchTimer = null;
+                        getRevenueOverview(projectId, timeRange, revenueOverviewCurrency)
+                            .then((next) => {
+                                if (!isCancelled) setRevenue(next);
+                            })
+                            .catch(() => {
+                                // Keep the overview already shown.
+                            });
+                    }, REVENUE_IMPORT_PENDING_REFETCH_MS);
+                }
             })
             .catch((error) => {
                 if (isCancelled) return;
@@ -2702,8 +2741,9 @@ export const GeneralOverview: React.FC = () => {
 
         return () => {
             isCancelled = true;
+            if (importRefetchTimer !== null) window.clearTimeout(importRefetchTimer);
         };
-    }, [isDemoMode, manualRefreshVersion, selectedProject?.id, timeRange, revenueOverviewCurrency]);
+    }, [isDemoMode, lensReady, manualRefreshVersion, selectedProject?.id, timeRange, revenueOverviewCurrency]);
 
     useEffect(() => {
         if (!selectedProject?.id || isDemoMode || revenueOverview?.connection.status !== 'syncing') return;
@@ -2719,6 +2759,7 @@ export const GeneralOverview: React.FC = () => {
     }, [isDemoMode, loadRevenue, revenueOverview?.connection.status, selectedProject?.id]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             overviewDataScopeRef.current = null;
             setSectionStatus(buildGeneralSectionStatuses('idle'));
@@ -2736,7 +2777,9 @@ export const GeneralOverview: React.FC = () => {
         const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
         const observabilityRange = timeRange === 'all' ? undefined : timeRange;
         const observabilityMode = normalizedPlatform ? 'full' : 'summary';
-        const dataScope = `${selectedProject.id}:${timeRange}:${normalizedPlatform ?? 'all'}`;
+        // Keep the previous cards (with their per-section loading state) while a
+        // new time range or platform loads; only a project switch clears them.
+        const dataScope = selectedProject.id;
         const shouldClearCurrentData = overviewDataScopeRef.current !== dataScope;
         overviewDataScopeRef.current = dataScope;
 
@@ -2835,9 +2878,10 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             sessionDataScopeRef.current = null;
             setSessions([]);
@@ -2846,7 +2890,7 @@ export const GeneralOverview: React.FC = () => {
         }
 
         let isCancelled = false;
-        const dataScope = `${selectedProject.id}:${timeRange}:${platform ?? 'all'}`;
+        const dataScope = selectedProject.id;
         const shouldClearCurrentData = sessionDataScopeRef.current !== dataScope;
         sessionDataScopeRef.current = dataScope;
         setIsSessionsLoading(true);
@@ -2872,9 +2916,10 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id || isDemoMode) {
             topUsersDataScopeRef.current = null;
             setTopUsersFromBackend([]);
@@ -2883,7 +2928,7 @@ export const GeneralOverview: React.FC = () => {
         }
 
         let isCancelled = false;
-        const dataScope = `${selectedProject.id}:${timeRange}:${platform ?? 'all'}`;
+        const dataScope = selectedProject.id;
         const shouldClearCurrentData = topUsersDataScopeRef.current !== dataScope;
         topUsersDataScopeRef.current = dataScope;
         setIsTopUsersLoading(true);
@@ -2909,9 +2954,10 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [isDemoMode, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [isDemoMode, lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             referralDataScopeRef.current = null;
             setIsReferralLoading(false);
@@ -2960,7 +3006,7 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     const trendChartData = useMemo<TrendChartRow[]>(() => {
         if (!trends?.daily?.length) return [];
@@ -4034,7 +4080,7 @@ export const GeneralOverview: React.FC = () => {
                                         </div>
                                     </div>
                                     <div>
-                                        <span className="dashboard-label">Bouncers</span>
+                                        <span className="dashboard-label">Bounced</span>
                                         <div className="dashboard-value-md">
                                             {latestEngagementMix ? formatCompact(latestEngagementMix.bouncers) : '0'}
                                         </div>

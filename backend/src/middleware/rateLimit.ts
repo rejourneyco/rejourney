@@ -355,10 +355,18 @@ export const ingestSegmentDeviceRateLimiter = rateLimit({
     message: 'Ingest segment rate limit exceeded for this device.',
 });
 
+/**
+ * Per-email OTP buckets must not be dodged by changing case or padding the
+ * address, so the key uses the same normalized form the auth routes store.
+ */
+export function normalizeOtpRateLimitEmail(email: unknown): string {
+    return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
 // OTP send rate limiter
 export const otpSendRateLimiter = rateLimit({
     ...rateLimits.auth.otpSend,
-    keyGenerator: (req) => `rate:otp:send:${req.body?.email || rateLimitClientIp(req)}`,
+    keyGenerator: (req) => `rate:otp:send:${normalizeOtpRateLimitEmail(req.body?.email) || rateLimitClientIp(req)}`,
     failOpen: false,
     redisUnavailableFallback: true,
     message: 'Too many OTP requests. Please wait before requesting another code.',
@@ -377,7 +385,7 @@ export const otpSendIpRateLimiter = rateLimit({
 // OTP verify rate limiter
 export const otpVerifyRateLimiter = rateLimit({
     ...rateLimits.auth.otpVerify,
-    keyGenerator: (req) => `rate:otp:verify:${req.body?.email || rateLimitClientIp(req)}`,
+    keyGenerator: (req) => `rate:otp:verify:${normalizeOtpRateLimitEmail(req.body?.email) || rateLimitClientIp(req)}`,
     failOpen: false,
     redisUnavailableFallback: true,
     message: 'Too many verification attempts. Please try again later.',

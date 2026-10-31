@@ -381,16 +381,18 @@ const CohortTable: React.FC<{
 export const Devices: React.FC = () => {
     const { selectedProject } = useSessionData();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
-    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange, ready: timeRangeReady } = useSharedRejourneyTimeRange(selectedProject?.id);
     const [data, setData] = useState<DeviceSummary | null>(null);
     const [matrixData, setMatrixData] = useState<DeviceIssueMatrix | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const { platformLens, ready: platformLensReady } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
     const platform = platformLensToSessionPlatform(platformLens);
+    const lensReady = timeRangeReady && platformLensReady;
 
     useEffect(() => {
+        if (!lensReady) return;
         if (!selectedProject?.id) {
             setData(null);
             setMatrixData(null);
@@ -424,7 +426,7 @@ export const Devices: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [manualRefreshVersion, selectedProject?.id, timeRange, platform]);
+    }, [lensReady, manualRefreshVersion, selectedProject?.id, timeRange, platform]);
 
     const hasData = Boolean(data && data.totalSessions > 0);
 

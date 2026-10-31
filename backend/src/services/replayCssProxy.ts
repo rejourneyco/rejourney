@@ -14,10 +14,18 @@
  * Because this fetches arbitrary recorded URLs server-side, everything here is
  * SSRF-guarded: https only, no credentials in the URL, no IP-literal hosts, every
  * DNS answer must be public unicast, and redirects are re-validated hop by hop.
+ * The socket itself resolves through a validating lookup, so the address that is
+ * connected to is always one that passed the same check (no DNS rebinding
+ * between validation and connect).
  */
 
+import { lookup as lookupCallback, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
+import { request as httpsRequest } from 'node:https';
+import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
+import { Readable, pipeline } from 'node:stream';
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { logger } from '../logger.js';
 
 export const REPLAY_CSS_MAX_BYTES = 5 * 1024 * 1024;
@@ -46,21 +54,52 @@ function isPrivateIpv4(ip: string): boolean {
     );
 }
 
+/** Expand an IPv6 address (already accepted by isIP) into its eight 16-bit groups. */
+function parseIpv6Groups(ip: string): number[] | null {
+    let addr = ip.toLowerCase();
+    const zone = addr.indexOf('%');
+    if (zone >= 0) addr = addr.slice(0, zone);
+
+    // Rewrite an embedded dotted IPv4 tail (::ffff:1.2.3.4) as two hex groups.
+    const lastColon = addr.lastIndexOf(':');
+    const tail = addr.slice(lastColon + 1);
+    if (tail.includes('.')) {
+        const parts = tail.split('.').map(Number);
+        if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return null;
+        addr = `${addr.slice(0, lastColon + 1)}${((parts[0] << 8) | parts[1]).toString(16)}:${((parts[2] << 8) | parts[3]).toString(16)}`;
+    }
+
+    const halves = addr.split('::');
+    if (halves.length > 2) return null;
+    const head = halves[0] ? halves[0].split(':') : [];
+    const rest = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+    const missing = 8 - head.length - rest.length;
+    if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+    const groups = [...head, ...new Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...rest];
+    if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+    return groups.map((g) => parseInt(g, 16));
+}
+
 function isPrivateIpv6(ip: string): boolean {
-    const lower = ip.toLowerCase();
-    // IPv4-mapped addresses carry the embedded IPv4 semantics.
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateIpv4(mapped[1]);
+    const g = parseIpv6Groups(ip);
+    if (!g) return true;
+    const embeddedIpv4 = `${g[6] >> 8}.${g[6] & 0xff}.${g[7] >> 8}.${g[7] & 0xff}`;
+    const firstFiveZero = g.slice(0, 5).every((v) => v === 0);
+
+    // IPv4-mapped addresses (::ffff:a.b.c.d, any notation) carry the IPv4 semantics.
+    if (firstFiveZero && g[5] === 0xffff) return isPrivateIpv4(embeddedIpv4);
+    // ::, ::1 and the deprecated IPv4-compatible ::a.b.c.d range.
+    if (firstFiveZero && g[5] === 0) return true;
     return (
-        lower === '::'
-        || lower === '::1' // loopback
-        || lower.startsWith('fc') // fc00::/7 unique local
-        || lower.startsWith('fd')
-        || lower.startsWith('fe8') // fe80::/10 link-local
-        || lower.startsWith('fe9')
-        || lower.startsWith('fea')
-        || lower.startsWith('feb')
-        || lower.startsWith('ff') // multicast
+        (g[0] === 0x64 && g[1] === 0xff9b) // 64:ff9b::/96 NAT64 and 64:ff9b:1::/48 local NAT64
+        || g[0] === 0x2002 // 2002::/16 6to4 (embeds an IPv4 address)
+        || (g[0] === 0x2001 && g[1] === 0) // 2001::/32 Teredo (embeds an IPv4 address)
+        || (g[0] === 0x2001 && g[1] === 0xdb8) // 2001:db8::/32 documentation
+        || (g[0] === 0x100 && g[1] === 0 && g[2] === 0 && g[3] === 0) // 100::/64 discard
+        || (g[0] & 0xfe00) === 0xfc00 // fc00::/7 unique local
+        || (g[0] & 0xffc0) === 0xfe80 // fe80::/10 link-local
+        || (g[0] & 0xffc0) === 0xfec0 // fec0::/10 deprecated site-local
+        || (g[0] & 0xff00) === 0xff00 // ff00::/8 multicast
     );
 }
 
@@ -110,6 +149,114 @@ export type StylesheetFetchResult =
     | { ok: true; body: Buffer }
     | { ok: false; reason: string; status?: number };
 
+/** fetch-shaped transport; redirects are never followed by the transport itself. */
+export type StylesheetTransport = (
+    url: string,
+    init: { signal: AbortSignal; headers: Record<string, string> },
+) => Promise<Response>;
+
+type LookupCallback = (
+    err: NodeJS.ErrnoException | null,
+    address: string | LookupAddress[],
+    family?: number,
+) => void;
+
+type LookupResolver = (
+    hostname: string,
+    options: LookupOptions & { all: true },
+    callback: (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void,
+) => void;
+
+/**
+ * A socket `lookup` that refuses the connection unless every DNS answer is
+ * public unicast, then hands the socket only those validated answers. Because
+ * the socket connects to what this returns, a record that changes between
+ * validateExternalStylesheetUrl() and connect cannot redirect it internally.
+ */
+export function createValidatingLookup(resolver: LookupResolver = lookupCallback as unknown as LookupResolver) {
+    return (hostname: string, options: LookupOptions | number | undefined, callback: LookupCallback): void => {
+        const opts: LookupOptions = typeof options === 'number' ? { family: options } : options ?? {};
+        resolver(hostname, { ...opts, all: true, verbatim: true }, (err, addresses) => {
+            if (err) {
+                callback(err, []);
+                return;
+            }
+            const list = Array.isArray(addresses) ? addresses : [];
+            if (list.length === 0 || list.some((entry) => isPrivateAddress(entry.address))) {
+                const blocked: NodeJS.ErrnoException = new Error(`Refusing to connect to ${hostname}: resolves to a non-public address`);
+                blocked.code = 'ERR_REPLAY_CSS_PRIVATE_ADDRESS';
+                callback(blocked, []);
+                return;
+            }
+            if (opts.all) {
+                callback(null, list);
+                return;
+            }
+            callback(null, list[0].address, list[0].family);
+        });
+    };
+}
+
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+function decodedBodyStream(response: IncomingMessage): Readable {
+    const encoding = String(response.headers['content-encoding'] || '').trim().toLowerCase();
+    const decoder = encoding === 'gzip' || encoding === 'x-gzip'
+        ? createGunzip()
+        : encoding === 'br'
+            ? createBrotliDecompress()
+            : encoding === 'deflate'
+                ? createInflate()
+                : null;
+    if (!decoder) return response;
+    // pipeline (unlike pipe) destroys the decoder when the response is aborted or
+    // reset mid-body, so the body read rejects instead of waiting forever.
+    pipeline(response, decoder, () => undefined);
+    return decoder;
+}
+
+/** Wraps an upstream response as a fetch Response with its body decoded. */
+export function responseFromIncomingMessage(incoming: IncomingMessage): Response {
+    const status = incoming.statusCode ?? 0;
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(incoming.headers)) {
+        if (value === undefined) continue;
+        for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+    }
+    if (NULL_BODY_STATUSES.has(status) || status < 200 || status > 599) {
+        incoming.resume();
+        return new Response(null, { status: status >= 200 && status <= 599 ? status : 502, headers });
+    }
+    const stream = decodedBodyStream(incoming);
+    stream.on('error', () => undefined);
+    headers.delete('content-encoding');
+    headers.delete('content-length');
+    return new Response(Readable.toWeb(stream) as unknown as ConstructorParameters<typeof Response>[0], { status, headers });
+}
+
+/**
+ * Default transport: a single https request whose socket resolves through
+ * createValidatingLookup(), so the connected address is always validated.
+ */
+export const pinnedHttpsTransport: StylesheetTransport = (url, init) => new Promise<Response>((resolve, reject) => {
+    const req = httpsRequest(url, {
+        method: 'GET',
+        agent: false,
+        lookup: createValidatingLookup() as never,
+        signal: init.signal,
+        headers: { ...init.headers, 'accept-encoding': 'gzip, deflate, br' },
+    }, (incoming) => {
+        try {
+            resolve(responseFromIncomingMessage(incoming));
+        } catch (err) {
+            incoming.destroy();
+            reject(err);
+        }
+    });
+    req.on('error', reject);
+    req.end();
+});
+
 async function readBodyWithCap(response: Response, maxBytes: number): Promise<Buffer | null> {
     if (!response.body) return Buffer.alloc(0);
     const chunks: Uint8Array[] = [];
@@ -134,10 +281,11 @@ async function readBodyWithCap(response: Response, maxBytes: number): Promise<Bu
  */
 export async function fetchExternalStylesheet(
     initialUrl: URL,
-    options: { maxBytes?: number; timeoutMs?: number } = {},
+    options: { maxBytes?: number; timeoutMs?: number; transport?: StylesheetTransport } = {},
 ): Promise<StylesheetFetchResult> {
     const maxBytes = options.maxBytes ?? REPLAY_CSS_MAX_BYTES;
     const timeoutMs = options.timeoutMs ?? REPLAY_CSS_FETCH_TIMEOUT_MS;
+    const transport = options.transport ?? pinnedHttpsTransport;
     const deadline = Date.now() + timeoutMs;
 
     let current = initialUrl;
@@ -151,17 +299,19 @@ export async function fetchExternalStylesheet(
         const timer = setTimeout(() => abort.abort(), remainingMs);
         let response: Response;
         try {
-            response = await fetch(current.toString(), {
-                redirect: 'manual',
+            response = await transport(current.toString(), {
                 signal: abort.signal,
                 headers: { accept: 'text/css,*/*;q=0.1' },
             });
         } catch (err) {
-            const name = (err as Error | undefined)?.name;
-            return { ok: false, reason: name === 'AbortError' || name === 'TimeoutError' ? 'timeout' : 'fetch_failed' };
-        } finally {
             clearTimeout(timer);
+            const name = (err as Error | undefined)?.name;
+            const code = (err as NodeJS.ErrnoException | undefined)?.code;
+            if (code === 'ERR_REPLAY_CSS_PRIVATE_ADDRESS') return { ok: false, reason: 'resolves_to_private_address' };
+            return { ok: false, reason: name === 'AbortError' || name === 'TimeoutError' ? 'timeout' : 'fetch_failed' };
         }
+
+        if (response.status !== 200) clearTimeout(timer);
 
         if (response.status >= 300 && response.status < 400) {
             await response.body?.cancel().catch(() => undefined);
@@ -184,7 +334,15 @@ export async function fetchExternalStylesheet(
             return { ok: false, reason: 'upstream_status', status: response.status };
         }
 
-        const body = await readBodyWithCap(response, maxBytes);
+        // The hop deadline also covers the body, so a slow-drip upstream cannot hold the request open.
+        let body: Buffer | null;
+        try {
+            body = await readBodyWithCap(response, maxBytes);
+        } catch {
+            return { ok: false, reason: abort.signal.aborted ? 'timeout' : 'fetch_failed' };
+        } finally {
+            clearTimeout(timer);
+        }
         if (body === null) return { ok: false, reason: 'too_large' };
 
         // An auth wall or error page serialised as HTML must not be injected as CSS.
@@ -203,7 +361,10 @@ export async function fetchExternalStylesheet(
  * Full pipeline used by the proxy routes: validate, fetch, and report one
  * outcome object the route can translate into an HTTP response.
  */
-export async function resolveReplayStylesheet(rawUrl: string): Promise<StylesheetFetchResult> {
+export async function resolveReplayStylesheet(
+    rawUrl: string,
+    options: { transport?: StylesheetTransport } = {},
+): Promise<StylesheetFetchResult> {
     const validation = await validateExternalStylesheetUrl(rawUrl);
     if (!validation.ok) {
         logger.warn(
@@ -212,5 +373,5 @@ export async function resolveReplayStylesheet(rawUrl: string): Promise<Styleshee
         );
         return { ok: false, reason: validation.reason };
     }
-    return fetchExternalStylesheet(validation.url);
+    return fetchExternalStylesheet(validation.url, options);
 }
