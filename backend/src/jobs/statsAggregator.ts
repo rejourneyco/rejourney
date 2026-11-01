@@ -18,7 +18,10 @@ import {
 } from '../services/productRollupsClickHouse.js';
 import { gradeEngagementByDay, type EngagementSegmentCounts } from '../services/engagementSegments.js';
 import { regradeEngagementRollups } from '../services/engagementRollupRegrade.js';
+import { regradeActivityIdentity } from '../services/activityIdentityRegrade.js';
+import { regradeIssueIdentity } from '../services/issueIdentityRegrade.js';
 import { protectUniqueUserCountAfterIdentityScrub } from '../services/rollupIdentityProtection.js';
+import { createPersonResolver } from '../services/personIdentity.js';
 import {
     acquireRedisLease,
     releaseRedisLease,
@@ -219,6 +222,10 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 appVersion: sessions.appVersion,
                 geoCountry: sessions.geoCountry,
                 deviceId: sessions.deviceId,
+                userDisplayId: sessions.userDisplayId,
+                anonymousHash: sessions.anonymousHash,
+                anonymousDisplayId: sessions.anonymousDisplayId,
+                startedAt: sessions.startedAt,
                 identityScrubbedAt: sessions.identityScrubbedAt,
                 interactionScore: sessionMetrics.interactionScore,
                 uxScore: sessionMetrics.uxScore,
@@ -269,6 +276,10 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         const customEventBreakdown: Record<string, number> = {};
         const uniqueUserSet = new Set<string>();
         let identityScrubbedSessionCount = 0;
+        // One user per person (see personIdentity), resolved over the day's sessions, so
+        // pre-sign-in sessions join their user and web sessions without a device count.
+        // Scrubbed sessions carry no identity and stay uncounted.
+        const resolvePerson = createPersonResolver(daySessions);
 
         for (const s of daySessions) {
             const screens = s.screensVisited || [];
@@ -306,8 +317,9 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             }
 
             // Unique users tracking
-            if (s.deviceId) {
-                uniqueUserSet.add(s.deviceId);
+            const person = resolvePerson({ ...s, sessionId: s.identityScrubbedAt ? null : s.id });
+            if (person) {
+                uniqueUserSet.add(person);
             }
 
             // Screen visit breakdowns
@@ -674,6 +686,8 @@ export async function runStatsAggregation(): Promise<void> {
         const rolledUpThrough = await redis.get('stats:daily_rollup:last_rolled_up_date');
         if (rolledUpThrough) {
             await regradeEngagementRollups({ signal: leaseGuard.renewal.signal, throughDate: rolledUpThrough });
+            await regradeActivityIdentity({ signal: leaseGuard.renewal.signal, throughDate: rolledUpThrough });
+            await regradeIssueIdentity({ signal: leaseGuard.renewal.signal });
         }
 
         const duration = Date.now() - startTime;

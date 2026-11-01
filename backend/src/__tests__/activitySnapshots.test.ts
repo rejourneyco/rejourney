@@ -22,7 +22,7 @@ describe('historical activity snapshots', () => {
     });
     it('takes a consistent database snapshot and releases its transaction on failure', async () => {
         mocks.query.mockImplementation(async (query: string) => {
-            if (query.includes('WITH base AS')) throw new Error('snapshot failure');
+            if (query.includes('WITH window_sessions AS') && query.includes('INSERT INTO activity_snapshots')) throw new Error('snapshot failure');
             return { rows: [] };
         });
         await expect(snapshotActivityDay('project', '2026-01-01')).rejects.toThrow('snapshot failure');

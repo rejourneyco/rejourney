@@ -22,6 +22,7 @@ import {
     type StabilityIssue,
     type StabilityIssueType,
 } from '../services/stabilityAnalytics.js';
+import { deviceUserCteSql, deviceUserJoinSql, personKeySql, sessionPersonColumns } from '../services/personIdentity.js';
 
 const router = Router();
 
@@ -93,7 +94,9 @@ const sessionProjection = {
     sdkVersion: sessions.sdkVersion,
     userDisplayId: sessions.userDisplayId,
     anonymousHash: sessions.anonymousHash,
+    anonymousDisplayId: sessions.anonymousDisplayId,
     deviceId: sessions.deviceId,
+    sessionStartedAt: sessions.startedAt,
     replayAvailable: sessions.replayAvailable,
     replayRetentionState: sessions.replayRetentionState,
     recordingDeleted: sessions.recordingDeleted,
@@ -112,7 +115,9 @@ function sessionFromRow(row: Record<string, unknown>): LegacyStabilityRow['sessi
         sdkVersion: row.sdkVersion as string | null,
         userDisplayId: row.userDisplayId as string | null,
         anonymousHash: row.anonymousHash as string | null,
+        anonymousDisplayId: row.anonymousDisplayId as string | null,
         deviceId: row.deviceId as string | null,
+        startedAt: row.sessionStartedAt as Date | null,
         replayAvailable: row.replayAvailable as boolean | null,
         replayRetentionState: row.replayRetentionState as string | null,
         recordingDeleted: row.recordingDeleted as boolean | null,
@@ -336,7 +341,7 @@ async function loadIssuesForRequest(
         status: query.status ?? '',
         q: query.q ?? '',
     });
-    const cacheKey = `stability:issues:v1:${createHash('sha256').update(cacheInput).digest('hex')}`;
+    const cacheKey = `stability:issues:v2-person:${createHash('sha256').update(cacheInput).digest('hex')}`;
 
     try {
         const cached = await redis.get(cacheKey);
@@ -384,17 +389,18 @@ async function loadSessionHealth(
     const platformCondition = buildPlatformCondition(query.platform);
     if (platformCondition) conditions.push(platformCondition);
 
+    // One user per person (see personIdentity), resolved over the same project and window.
+    const personColumns = sessionPersonColumns('sessions');
+    const deviceUserScope: SQL[] = [sql`dus.project_id = ${projectId}`];
+    if (cutoff) deviceUserScope.push(sql`dus.started_at >= ${cutoff.toISOString()}`);
+
     const [row] = await dbRead
         .select({
             totalSessions: sql<number>`count(distinct ${sessions.id})`,
-            totalUsers: sql<number>`count(distinct coalesce(
-                ${sessions.userDisplayId},
-                ${sessions.anonymousHash},
-                ${sessions.deviceId},
-                ${sessions.id}
-            ))`,
+            totalUsers: sql<number>`count(distinct ${personKeySql(personColumns, sql`du.user_id`)})`,
         })
         .from(sessions)
+        .leftJoin(sql`(${deviceUserCteSql(and(...deviceUserScope)!)}) du`, deviceUserJoinSql(personColumns))
         .where(and(...conditions));
 
     return {

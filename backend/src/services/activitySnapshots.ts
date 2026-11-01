@@ -5,20 +5,43 @@ import { pool } from '../db/client.js';
 
 type QueryClient = Pick<PoolClient, 'query'>;
 
+/**
+ * One person per key (the rule in personIdentity.ts): a session's own user id, else
+ * the user id most recently seen on its device in the window, else its anonymous id
+ * or device. Apps often
+ * start recording before sign-in, so keying on the user id alone counted a person
+ * twice (their pre-sign-in sessions under the device, the rest under the user id).
+ * Expects a `window_sessions` CTE with user_id, device, anonymous_id, id and
+ * identity_scrubbed_at, and the `device_user du` join.
+ */
+const DEVICE_USER_CTE = `device_user AS MATERIALIZED (
+    SELECT DISTINCT ON (device) device, user_id FROM window_sessions
+    WHERE device IS NOT NULL AND user_id IS NOT NULL
+    ORDER BY device, started_at DESC
+)`;
+const PERSON_KEY_SQL = `coalesce(w.user_id, du.user_id, w.anonymous_id, w.device,
+            CASE WHEN w.identity_scrubbed_at IS NULL THEN w.id::text END)`;
+
 // A 30-day window includes the target day and the preceding 29 UTC days.
 // Completeness is independent for DAU and MAU: a recent day can have intact
 // identities even when part of its monthly window has already expired.
 export const ACTIVITY_SNAPSHOT_SQL = `
-WITH base AS MATERIALIZED (
-    SELECT s.started_at::date AS day, s.platform, pv.id AS visitor_id,
-        coalesce(nullif(trim(user_display_id), ''), nullif(trim(anonymous_hash), ''),
-            nullif(trim(anonymous_display_id), ''), nullif(trim(device_id), ''),
-            CASE WHEN identity_scrubbed_at IS NULL THEN s.id END) AS user_key,
-        identity_scrubbed_at IS NOT NULL AS scrubbed,
-        coalesce(nullif(app_version, ''), 'Unknown') AS version, geo_country AS country
-    FROM sessions s LEFT JOIN project_visitors pv ON pv.project_id = s.project_id AND pv.visitor_key = s.visitor_key AND pv.expires_at > now()
-    WHERE s.project_id = $1 AND started_at >= $2::date - interval '29 days'
-      AND started_at < $2::date + interval '1 day'
+WITH window_sessions AS MATERIALIZED (
+    SELECT s.id, s.started_at, s.platform, s.visitor_key, s.identity_scrubbed_at, s.app_version, s.geo_country,
+        nullif(trim(s.user_display_id), '') AS user_id,
+        nullif(trim(s.device_id), '') AS device,
+        coalesce(nullif(trim(s.anonymous_hash), ''), nullif(trim(s.anonymous_display_id), '')) AS anonymous_id
+    FROM sessions s
+    WHERE s.project_id = $1 AND s.started_at >= $2::date - interval '29 days'
+      AND s.started_at < $2::date + interval '1 day'
+), ${DEVICE_USER_CTE}, base AS MATERIALIZED (
+    SELECT w.started_at::date AS day, w.platform, pv.id AS visitor_id,
+        ${PERSON_KEY_SQL} AS user_key,
+        w.identity_scrubbed_at IS NOT NULL AS scrubbed,
+        coalesce(nullif(w.app_version, ''), 'Unknown') AS version, w.geo_country AS country
+    FROM window_sessions w
+    LEFT JOIN device_user du ON du.device = w.device
+    LEFT JOIN project_visitors pv ON pv.project_id = $1 AND pv.visitor_key = w.visitor_key AND pv.expires_at > now()
 ), scopes AS (
     SELECT unnest(ARRAY['all', 'mobile', 'ios', 'android', 'web']) AS platform
 ), scoped AS MATERIALIZED (
@@ -85,13 +108,22 @@ async function captureActivityDay(projectId: string, date: string, client: Query
     // Older days can be counted directly while raw identities still exist, but
     // must not resurrect expired participation during a historic backfill.
     if (Date.parse(`${date}T00:00:00Z`) < Date.now() - 31 * 86_400_000) return;
+    // Same person key as the counts, resolved over the same 30-day window.
     const { rows } = await client.query<{ visitor_id: string; identity: string; platform: string }>(`
-        SELECT DISTINCT pv.id AS visitor_id, coalesce(nullif(trim(s.user_display_id), ''),
-            nullif(trim(s.anonymous_hash), ''), nullif(trim(s.anonymous_display_id), ''),
-            nullif(trim(s.device_id), ''), s.id) AS identity, coalesce(s.platform, 'unknown') AS platform
-        FROM sessions s JOIN project_visitors pv ON pv.project_id = s.project_id AND pv.visitor_key = s.visitor_key
-        WHERE s.project_id = $1 AND s.started_at >= $2::date AND s.started_at < $2::date + interval '1 day'
-          AND s.identity_scrubbed_at IS NULL AND pv.expires_at > now()
+        WITH window_sessions AS MATERIALIZED (
+            SELECT s.id, s.started_at, s.platform, s.visitor_key, s.identity_scrubbed_at,
+                nullif(trim(s.user_display_id), '') AS user_id,
+                nullif(trim(s.device_id), '') AS device,
+                coalesce(nullif(trim(s.anonymous_hash), ''), nullif(trim(s.anonymous_display_id), '')) AS anonymous_id
+            FROM sessions s
+            WHERE s.project_id = $1 AND s.started_at >= $2::date - interval '29 days'
+              AND s.started_at < $2::date + interval '1 day'
+        ), ${DEVICE_USER_CTE}
+        SELECT DISTINCT pv.id AS visitor_id, ${PERSON_KEY_SQL} AS identity, coalesce(w.platform, 'unknown') AS platform
+        FROM window_sessions w
+        LEFT JOIN device_user du ON du.device = w.device
+        JOIN project_visitors pv ON pv.project_id = $1 AND pv.visitor_key = w.visitor_key
+        WHERE w.started_at >= $2::date AND w.identity_scrubbed_at IS NULL AND pv.expires_at > now()
     `, [projectId, date]);
     for (let offset = 0; offset < rows.length; offset += 1000) {
         const values = rows.slice(offset, offset + 1000).map(row => ({

@@ -38,6 +38,7 @@ vi.mock('../db/client.js', () => {
 });
 vi.mock('../db/s3.js', () => ({ downloadFromS3ForArtifact: vi.fn(async () => null) }));
 vi.mock('../services/issueTracker.js', () => ({
+    resolveIssueUserId: vi.fn(async (_projectId: string, session: Record<string, any>) => session?.userDisplayId || session?.anonymousHash || session?.deviceId || undefined),
     trackANRAsIssue: vi.fn(async () => undefined),
     trackErrorAsIssue: vi.fn(async (params: Record<string, any>) => { issues.push(params); }),
 }));

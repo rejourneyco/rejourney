@@ -5,8 +5,8 @@
  * This ensures the Issues Feed stays up-to-date without requiring manual sync.
  */
 
-import { eq, and, sql } from 'drizzle-orm';
-import { db, issues, issueEvents, projects } from '../db/client.js';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { db, issues, issueEvents, projects, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { generateANRFingerprintFromStackTrace } from './anrStack.js';
 
@@ -62,6 +62,152 @@ export function generateFingerprint(type: string, name: string, message: string)
  */
 export function generateANRFingerprint(threadState: string): string {
     return generateANRFingerprintFromStackTrace(threadState);
+}
+
+/** Identity columns of the session an issue event came from. */
+export interface IssueIdentitySession {
+    userDisplayId?: string | null;
+    deviceId?: string | null;
+    anonymousHash?: string | null;
+    anonymousDisplayId?: string | null;
+}
+
+const DEVICE_USER_CACHE_TTL_MS = 30_000;
+const DEVICE_USER_CACHE_MAX_ENTRIES = 5_000;
+const deviceUserCache = new Map<string, { userId: string | null; expiresAt: number }>();
+
+/** Test hook: forgets cached device → user lookups. */
+export function clearIssueDeviceUserCache(): void {
+    deviceUserCache.clear();
+}
+
+function cleanIdentity(value: string | null | undefined): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+
+/** The user id most recently seen on the device in this project (sessions_project_device_started_idx). */
+async function latestDeviceUserId(projectId: string, deviceId: string): Promise<string | null> {
+    const cacheKey = `${projectId}:${deviceId}`;
+    const now = Date.now();
+    const cached = deviceUserCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.userId;
+
+    const [row] = await db
+        .select({ userId: sessions.userDisplayId })
+        .from(sessions)
+        .where(and(
+            eq(sessions.projectId, projectId),
+            eq(sessions.deviceId, deviceId),
+            sql`nullif(trim(${sessions.userDisplayId}), '') IS NOT NULL`,
+        ))
+        .orderBy(desc(sessions.startedAt))
+        .limit(1);
+    const userId = cleanIdentity(row?.userId);
+
+    if (deviceUserCache.size >= DEVICE_USER_CACHE_MAX_ENTRIES) {
+        for (const [key, entry] of deviceUserCache) {
+            if (entry.expiresAt <= now) deviceUserCache.delete(key);
+        }
+        if (deviceUserCache.size >= DEVICE_USER_CACHE_MAX_ENTRIES) deviceUserCache.clear();
+    }
+    deviceUserCache.set(cacheKey, { userId, expiresAt: now + DEVICE_USER_CACHE_TTL_MS });
+    return userId;
+}
+
+/**
+ * The issue event's user id: the session's person key (services/personIdentity),
+ * so a person's crashes before and after sign-in count once. That is the session's
+ * own user id, else the user id most recently seen on its device, else its
+ * anonymous id, else its device id. Undefined when the session carries no identity
+ * (trackIssue then falls back to the session id).
+ */
+export async function resolveIssueUserId(
+    projectId: string,
+    session: IssueIdentitySession | null | undefined,
+): Promise<string | undefined> {
+    if (!session) return undefined;
+    if (cleanIdentity(session.userDisplayId)) return issueUserIdFromIdentity(session, null);
+
+    const deviceId = cleanIdentity(session.deviceId);
+    let deviceUserId: string | null = null;
+    if (deviceId) {
+        try {
+            deviceUserId = await latestDeviceUserId(projectId, deviceId);
+        } catch (error) {
+            logger.warn({ error, projectId }, 'Failed to look up the device user for an issue event');
+        }
+    }
+    return issueUserIdFromIdentity(session, deviceUserId);
+}
+
+/** The person key for a session whose device's latest user id is already known. */
+export function issueUserIdFromIdentity(
+    session: IssueIdentitySession,
+    deviceUserId: string | null | undefined,
+): string | undefined {
+    return cleanIdentity(session.userDisplayId)
+        ?? cleanIdentity(deviceUserId)
+        ?? cleanIdentity(session.anonymousHash)
+        ?? cleanIdentity(session.anonymousDisplayId)
+        ?? cleanIdentity(session.deviceId)
+        ?? undefined;
+}
+
+const SESSION_LOOKUP_CHUNK = 1_000;
+
+/**
+ * Issue user ids (as resolveIssueUserId) for many sessions of one project at once.
+ * Sessions that are missing or carry no identity are left out of the map.
+ */
+export async function resolveIssueUserIdsForSessions(
+    projectId: string,
+    sessionIds: Iterable<string>,
+): Promise<Map<string, string>> {
+    const ids = [...new Set([...sessionIds].filter((id) => typeof id === 'string' && id.length > 0))];
+    const identities: Array<IssueIdentitySession & { id: string }> = [];
+    for (let i = 0; i < ids.length; i += SESSION_LOOKUP_CHUNK) {
+        identities.push(...await db
+            .select({
+                id: sessions.id,
+                userDisplayId: sessions.userDisplayId,
+                deviceId: sessions.deviceId,
+                anonymousHash: sessions.anonymousHash,
+                anonymousDisplayId: sessions.anonymousDisplayId,
+            })
+            .from(sessions)
+            .where(and(eq(sessions.projectId, projectId), inArray(sessions.id, ids.slice(i, i + SESSION_LOOKUP_CHUNK)))));
+    }
+
+    const devices = [...new Set(identities
+        .filter((session) => !cleanIdentity(session.userDisplayId))
+        .map((session) => cleanIdentity(session.deviceId))
+        .filter((device): device is string => device !== null))];
+    const deviceUsers = new Map<string, string>();
+    for (let i = 0; i < devices.length; i += SESSION_LOOKUP_CHUNK) {
+        const rows = await db
+            .selectDistinctOn([sessions.deviceId], { device: sessions.deviceId, userId: sessions.userDisplayId })
+            .from(sessions)
+            .where(and(
+                eq(sessions.projectId, projectId),
+                inArray(sessions.deviceId, devices.slice(i, i + SESSION_LOOKUP_CHUNK)),
+                sql`nullif(trim(${sessions.userDisplayId}), '') IS NOT NULL`,
+            ))
+            .orderBy(sessions.deviceId, desc(sessions.startedAt));
+        for (const row of rows) {
+            const userId = cleanIdentity(row.userId);
+            if (row.device && userId) deviceUsers.set(row.device, userId);
+        }
+    }
+
+    const result = new Map<string, string>();
+    for (const session of identities) {
+        const device = cleanIdentity(session.deviceId);
+        const userId = issueUserIdFromIdentity(session, device ? deviceUsers.get(device) : null);
+        if (userId) result.set(session.id, userId);
+    }
+    return result;
 }
 
 /**

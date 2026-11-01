@@ -233,6 +233,29 @@ describe('stability analytics canonicalization', () => {
 
         expect(issues[0].title).toBe('PlatformException');
     });
+
+    it('counts a pre-sign-in occurrence toward the user later signed in on that device', () => {
+        const crash = (id: string, sessionId: string, hour: number, session: LegacyStabilityRow['session']) => row({
+            id,
+            type: 'crash',
+            sessionId,
+            name: 'NSInternalInconsistencyException',
+            message: 'boom',
+            fingerprint: 'crash-fingerprint',
+            timestamp: new Date(`2026-07-27T0${hour}:00:00.000Z`),
+            session,
+        });
+        const issues = buildStabilityIssues([
+            crash('before', 'session-1', 1, { deviceId: 'dev-a', startedAt: new Date('2026-07-27T01:00:00.000Z') }),
+            crash('after', 'session-2', 2, { deviceId: 'dev-a', userDisplayId: 'alice', startedAt: new Date('2026-07-27T02:00:00.000Z') }),
+            crash('other', 'session-3', 3, { deviceId: 'dev-b' }),
+            crash('unknown', 'session-4', 4, {}),
+        ]);
+
+        expect(issues).toHaveLength(1);
+        expect(issues[0].userCount).toBe(3);
+        expect(issues[0].occurrences.map((occurrence) => occurrence.userId)).toEqual([null, 'dev-b', 'alice', 'alice']);
+    });
 });
 
 describe('stability cursor', () => {

@@ -57,6 +57,7 @@ import {
 import { getSessionScreenshotFrames } from '../services/screenshotFrames.js';
 import { getThumbnailAtTimestamp } from '../services/sessionThumbnail.js';
 import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
+import { createPersonResolver, deviceUserCteSql, deviceUserJoinSql, personKeySql, sessionPersonColumns } from '../services/personIdentity.js';
 
 const router = Router();
 const redis = getRedis();
@@ -121,6 +122,16 @@ function buildStartedAfter(timeRange?: string): Date | undefined {
     const startedAfter = new Date();
     startedAfter.setDate(startedAfter.getDate() - days);
     return startedAfter;
+}
+
+/**
+ * device_user subquery (aliased `du`, see personIdentity) over the same project and
+ * time scope as the sessions query it joins, so counts do not depend on other data.
+ */
+function deviceUserScopeSql(projectIds: string[], startedAfter?: Date): SQL {
+    const where: SQL[] = [inArray(sql.raw('dus.project_id'), projectIds)];
+    if (startedAfter) where.push(sql`dus.started_at >= ${startedAfter.toISOString()}`);
+    return sql`(${deviceUserCteSql(and(...where)!)}) du`;
 }
 
 function buildSessionPlatformCondition(platform?: string): SQL | undefined {
@@ -216,8 +227,33 @@ async function respondWithOverviewCache<T>({
     res.json(JSON.parse(serializedPayload));
 }
 
-function buildIdentityKey(row: { userDisplayId?: string | null; anonymousHash?: string | null; deviceId?: string | null; fallbackId: string }): string {
-    return row.userDisplayId || row.anonymousHash || row.deviceId || row.fallbackId;
+type OccurrenceIdentityRow = {
+    id: string;
+    sessionId: string | null;
+    sessionStartedAt: Date | null;
+    sessionProjectId: string | null;
+    userDisplayId: string | null;
+    anonymousHash: string | null;
+    anonymousDisplayId: string | null;
+    deviceId: string | null;
+};
+
+/**
+ * Person key (see personIdentity) for issue occurrences joined to their sessions,
+ * resolved over the loaded rows so a pre-sign-in occurrence joins its signed-in user.
+ */
+function createOccurrencePersonKey(rows: OccurrenceIdentityRow[]): (row: OccurrenceIdentityRow) => string {
+    const toIdentity = (row: OccurrenceIdentityRow) => ({
+        projectId: row.sessionProjectId,
+        userDisplayId: row.userDisplayId,
+        anonymousHash: row.anonymousHash,
+        anonymousDisplayId: row.anonymousDisplayId,
+        deviceId: row.deviceId,
+        startedAt: row.sessionStartedAt,
+        sessionId: row.sessionId || row.id,
+    });
+    const resolve = createPersonResolver(rows.map(toIdentity));
+    return (row) => resolve(toIdentity(row)) ?? row.id;
 }
 
 function normalizeIssueCount(value: number | null | undefined): number {
@@ -319,7 +355,7 @@ async function loadRetentionPreview(
         return { rows: [] };
     }
 
-    const cacheKey = `overview:retention-preview:${projectIds.slice().sort().join(',')}:${timeRange || 'all'}:${platform || 'all'}:v2`;
+    const cacheKey = `overview:retention-preview:${projectIds.slice().sort().join(',')}:${timeRange || 'all'}:${platform || 'all'}:v3-person`;
     const cached = await redis.get(cacheKey);
     if (cached) {
         return JSON.parse(cached);
@@ -329,6 +365,8 @@ async function loadRetentionPreview(
     const previewDays = Math.min(boundedTimeRangeToDays(timeRange || '') ?? 90, 90);
     const startedAfter = new Date(Date.now() - previewDays * 24 * 60 * 60 * 1000);
 
+    // Sessions with no identity at all stay out; the rest are keyed by person, so
+    // pre-sign-in sessions join the user later signed in on the same device.
     const rawIdentitySql = sql<string>`
         coalesce(
             nullif(trim(${sessions.userDisplayId}), ''),
@@ -337,10 +375,11 @@ async function loadRetentionPreview(
             nullif(trim(${sessions.deviceId}), '')
         )
     `;
+    const personColumns = sessionPersonColumns('sessions');
     const scopedIdentitySql = sql<string>`
         case
             when ${rawIdentitySql} is null then null
-            else ${sessions.projectId} || ':' || ${rawIdentitySql}
+            else ${sessions.projectId} || ':' || ${personKeySql(personColumns, sql`du.user_id`)}
         end
     `;
     const weekStartKeySql = sql<string>`
@@ -379,6 +418,7 @@ async function loadRetentionPreview(
             firstWeekStartKey: ledgerFirstWeekKeySql,
         })
         .from(sessions)
+        .leftJoin(deviceUserScopeSql(projectIds, startedAfter), deviceUserJoinSql(personColumns))
         .leftJoin(projectVisitors, and(
             eq(projectVisitors.projectId, sessions.projectId),
             eq(projectVisitors.visitorKey, sessions.visitorKey),
@@ -398,22 +438,61 @@ async function loadRetentionPreview(
     return response;
 }
 
-async function loadUserFirstSeenMap(
-    projectIds: string[],
-    sessionRows: Array<{
-        userDisplayId: string | null;
-        anonymousDisplayId: string | null;
-        anonymousHash: string | null;
-        deviceId: string | null;
-    }>,
-): Promise<Map<string, Date>> {
-    const resultMap = new Map<string, Date>();
+type FirstSeenRow = {
+    userDisplayId: string | null;
+    anonymousDisplayId: string | null;
+    anonymousHash: string | null;
+    deviceId: string | null;
+};
 
-    const userIds = [...new Set(sessionRows.filter((s) => s.userDisplayId).map((s) => s.userDisplayId!))];
-    const anonDisplayIds = [...new Set(sessionRows.filter((s) => !s.userDisplayId && s.anonymousDisplayId).map((s) => s.anonymousDisplayId!))];
-    const anonHashes = [...new Set(sessionRows.filter((s) => !s.userDisplayId && !s.anonymousDisplayId && s.anonymousHash).map((s) => s.anonymousHash!))];
+function cleanIdentity(value: string | null | undefined): string | null {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    return trimmed || null;
+}
+
+/**
+ * Returns each row's "first appeared" time, per person (see personIdentity): a row
+ * without a user id belongs to the user most recently signed in on its device, and a
+ * user's first appearance includes the pre-sign-in sessions on their devices.
+ */
+async function loadUserFirstSeenLookup(
+    projectIds: string[],
+    sessionRows: FirstSeenRow[],
+): Promise<(row: FirstSeenRow) => Date | undefined> {
+    const resultMap = new Map<string, Date>();
+    const deviceUsers = new Map<string, string>();
+
+    const unsignedDevices = [...new Set(sessionRows
+        .filter((s) => !cleanIdentity(s.userDisplayId) && cleanIdentity(s.deviceId))
+        .map((s) => cleanIdentity(s.deviceId)!))];
+    if (unsignedDevices.length > 0) {
+        const mapped = await dbRead.execute<{ device: string; user_id: string }>(deviceUserCteSql(and(
+            inArray(sql.raw('dus.project_id'), projectIds),
+            inArray(sql.raw('dus.device_id'), unsignedDevices),
+        )!));
+        const mappedRows: Array<{ device: string; user_id: string }> = Array.isArray(mapped) ? mapped : ((mapped as any).rows ?? []);
+        for (const row of mappedRows) deviceUsers.set(row.device, row.user_id);
+    }
+
+    const personUserId = (row: FirstSeenRow): string | null => {
+        const device = cleanIdentity(row.deviceId);
+        return cleanIdentity(row.userDisplayId) ?? (device ? deviceUsers.get(device) ?? null : null);
+    };
+    const keyOf = (row: FirstSeenRow): string | null => {
+        const userId = personUserId(row);
+        if (userId) return `user:${userId}`;
+        if (row.anonymousDisplayId) return `anon:${row.anonymousDisplayId}`;
+        if (row.anonymousHash) return `hash:${row.anonymousHash}`;
+        if (row.deviceId) return `device:${row.deviceId}`;
+        return null;
+    };
+
+    const anonymousRows = sessionRows.filter((s) => !personUserId(s));
+    const userIds = [...new Set(sessionRows.map(personUserId).filter((id): id is string => Boolean(id)))];
+    const anonDisplayIds = [...new Set(anonymousRows.filter((s) => s.anonymousDisplayId).map((s) => s.anonymousDisplayId!))];
+    const anonHashes = [...new Set(anonymousRows.filter((s) => !s.anonymousDisplayId && s.anonymousHash).map((s) => s.anonymousHash!))];
     const deviceIds = [
-        ...new Set(sessionRows.filter((s) => !s.userDisplayId && !s.anonymousDisplayId && !s.anonymousHash && s.deviceId).map((s) => s.deviceId!)),
+        ...new Set(anonymousRows.filter((s) => !s.anonymousDisplayId && !s.anonymousHash && s.deviceId).map((s) => s.deviceId!)),
     ];
 
     const legs: ReturnType<typeof sql>[] = [];
@@ -428,12 +507,24 @@ async function loadUserFirstSeenMap(
 
     if (userIds.length > 0) {
         legs.push(sql`
-            SELECT 'user' AS kind, ${sessions.userDisplayId} AS key, ${firstSeenSql}
+            SELECT 'user' AS kind, nullif(trim(${sessions.userDisplayId}), '') AS key, ${firstSeenSql}
             FROM ${sessions}${ledgerJoinSql}
             WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.userDisplayId, userIds)}
-            GROUP BY ${sessions.userDisplayId}
+            GROUP BY nullif(trim(${sessions.userDisplayId}), '')
+        `);
+        // Pre-sign-in sessions on devices whose latest signed-in user is one of these.
+        const userDevicesSql = sql`
+            SELECT ud.device_id FROM ${sessions} ud
+            WHERE ${inArray(sql.raw('ud.project_id'), projectIds)} AND ${inArray(sql.raw('ud.user_display_id'), userIds)}`;
+        legs.push(sql`
+            SELECT 'user' AS kind, du.user_id AS key, ${firstSeenSql}
+            FROM (${deviceUserCteSql(and(inArray(sql.raw('dus.project_id'), projectIds), sql`dus.device_id IN (${userDevicesSql})`)!)}) du
+            JOIN ${sessions} ON ${sessions.deviceId} = du.device AND ${sessions.projectId} = du.project_id${ledgerJoinSql}
+            WHERE ${inArray(sql`du.user_id`, userIds)} AND nullif(trim(${sessions.userDisplayId}), '') IS NULL
+            GROUP BY du.user_id
         `);
     }
+
     if (anonDisplayIds.length > 0) {
         legs.push(sql`
             SELECT 'anon' AS kind, ${sessions.anonymousDisplayId} AS key, ${firstSeenSql}
@@ -459,20 +550,26 @@ async function loadUserFirstSeenMap(
         `);
     }
 
-    if (legs.length === 0) return resultMap;
+    if (legs.length === 0) return () => undefined;
 
     const unionQuery = legs.reduce((acc, leg, i) => (i === 0 ? leg : sql`${acc} UNION ALL ${leg}`));
     const result = await dbRead.execute<{ kind: string; key: string; first_seen: Date }>(unionQuery);
     const rows: Array<{ kind: string; key: string; first_seen: Date }> = Array.isArray(result) ? result : ((result as any).rows ?? []);
 
     for (const row of rows) {
-        if (row.key) {
-            resultMap.set(`${row.kind}:${row.key}`, new Date(row.first_seen));
-        }
+        if (!row.key) continue;
+        const key = `${row.kind}:${row.key}`;
+        const firstSeen = new Date(row.first_seen);
+        const existing = resultMap.get(key);
+        if (!existing || firstSeen < existing) resultMap.set(key, firstSeen);
     }
 
-    return resultMap;
+    return (row) => {
+        const key = keyOf(row);
+        return key ? resultMap.get(key) : undefined;
+    };
 }
+
 
 async function loadSessionPreview(projectIds: string[], timeRange?: string, platform?: string) {
     if (projectIds.length === 0) {
@@ -571,22 +668,13 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string, plat
         .orderBy(desc(sessions.startedAt))
         .limit(SESSION_PREVIEW_LIMIT);
 
-    const firstSeenMap = await loadUserFirstSeenMap(
+    const firstSeenAt = await loadUserFirstSeenLookup(
         projectIds,
         rows.map((r) => r.session),
     );
 
     return rows.map(({ session, metrics }) => {
-        const identityKey = session.userDisplayId
-            ? `user:${session.userDisplayId}`
-            : session.anonymousDisplayId
-              ? `anon:${session.anonymousDisplayId}`
-              : session.anonymousHash
-                ? `hash:${session.anonymousHash}`
-                : session.deviceId
-                  ? `device:${session.deviceId}`
-                  : null;
-        const userFirstSeenAt = identityKey ? firstSeenMap.get(identityKey) : undefined;
+        const userFirstSeenAt = firstSeenAt(session);
         return {
             id: session.id,
             projectId: session.projectId,
@@ -743,14 +831,19 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string, pla
                 ${sessions.isReplayExpired},
                 ${sessions.replayAvailable},
                 ${sessions.replayRetentionState},
+                coalesce(nullif(trim(${sessions.userDisplayId}), ''), du.user_id) AS person_user_id,
+                -- One row per person: pre-sign-in sessions join the user later signed
+                -- in on the same device (see personIdentity).
                 CASE
-                    WHEN nullif(trim(${sessions.userDisplayId}), '') IS NOT NULL THEN 'user:' || nullif(trim(${sessions.userDisplayId}), '')
+                    WHEN coalesce(nullif(trim(${sessions.userDisplayId}), ''), du.user_id) IS NOT NULL
+                        THEN 'user:' || coalesce(nullif(trim(${sessions.userDisplayId}), ''), du.user_id)
                     WHEN nullif(trim(${sessions.anonymousDisplayId}), '') IS NOT NULL THEN 'anon:' || nullif(trim(${sessions.anonymousDisplayId}), '')
                     WHEN nullif(trim(${sessions.anonymousHash}), '') IS NOT NULL THEN 'hash:' || nullif(trim(${sessions.anonymousHash}), '')
                     WHEN nullif(trim(${sessions.deviceId}), '') IS NOT NULL THEN 'device:' || nullif(trim(${sessions.deviceId}), '')
                     ELSE NULL
                 END AS user_key
             FROM ${sessions}
+            LEFT JOIN ${deviceUserScopeSql(projectIds, startedAfter)} ON ${deviceUserJoinSql(sessionPersonColumns('sessions'))}
             WHERE ${inArray(sessions.projectId, projectIds)}
               ${startedAfterClause}
               ${platformClause}
@@ -812,7 +905,8 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string, pla
             latest.retention_tier,
             latest.is_replay_expired,
             latest.replay_available,
-            latest.replay_retention_state
+            latest.replay_retention_state,
+            latest.person_user_id
         FROM ranked
         JOIN latest ON latest.user_key = ranked.user_key
         ORDER BY ranked.session_count DESC, ranked.latest_started_at DESC
@@ -854,29 +948,23 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string, pla
         is_replay_expired: boolean;
         replay_available: boolean | null;
         replay_retention_state: string | null;
+        person_user_id: string | null;
     }> = Array.isArray(topRows) ? topRows : ((topRows as any).rows ?? []);
 
     if (topResult.length === 0) return [];
 
-    const firstSeenMap = await loadUserFirstSeenMap(
-        projectIds,
-        topResult.map((r) => ({
-            userDisplayId: r.user_display_id,
-            anonymousDisplayId: r.anonymous_display_id,
-            anonymousHash: r.anonymous_hash,
-            deviceId: r.device_id,
-        })),
-    );
+    // A person's latest session may predate their sign-in; label it with the user id
+    // the person resolved to.
+    const personRow = (r: (typeof topResult)[number]) => ({
+        userDisplayId: r.person_user_id ?? r.user_display_id,
+        anonymousDisplayId: r.anonymous_display_id,
+        anonymousHash: r.anonymous_hash,
+        deviceId: r.device_id,
+    });
+    const firstSeenAt = await loadUserFirstSeenLookup(projectIds, topResult.map(personRow));
 
     return topResult.map((latest) => {
-        const identityKey = latest.user_display_id
-            ? `user:${latest.user_display_id}`
-            : latest.anonymous_display_id
-              ? `anon:${latest.anonymous_display_id}`
-              : latest.anonymous_hash
-                ? `hash:${latest.anonymous_hash}`
-                : `device:${latest.device_id}`;
-        const userFirstSeenAt = firstSeenMap.get(identityKey);
+        const userFirstSeenAt = firstSeenAt(personRow(latest));
         const canOpenReplay = canOpenReplayFromSessionFields({
             replayAvailable: latest.replay_available,
             replayRetentionState: latest.replay_retention_state,
@@ -902,7 +990,7 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string, pla
                 webReferral: latest.web_referral ?? undefined,
                 webLandingRoute: latest.web_landing_route ?? undefined,
                 metadata: latest.metadata ?? undefined,
-                userId: latest.user_display_id ?? undefined,
+                userId: latest.user_display_id ?? latest.person_user_id ?? undefined,
                 anonymousId: latest.anonymous_display_id || latest.anonymous_hash || undefined,
                 anonymousDisplayName: latest.device_id ? generateAnonymousName(latest.device_id) : undefined,
                 deviceId: latest.device_id ?? undefined,
@@ -2300,7 +2388,10 @@ async function loadErrorsOverview(projectIds: string[], timeRange?: string, plat
             isReplayExpired: sessions.isReplayExpired,
             userDisplayId: sessions.userDisplayId,
             anonymousHash: sessions.anonymousHash,
+            anonymousDisplayId: sessions.anonymousDisplayId,
             deviceId: sessions.deviceId,
+            sessionStartedAt: sessions.startedAt,
+            sessionProjectId: sessions.projectId,
         })
         .from(jsErrors)
         .leftJoin(sessions, eq(jsErrors.sessionId, sessions.id))
@@ -2328,14 +2419,10 @@ async function loadErrorsOverview(projectIds: string[], timeRange?: string, plat
 
     const detailMap = new Map<string, ErrorDetail>();
     const impactedUsers = new Set<string>();
+    const personKey = createOccurrencePersonKey(detailRows);
 
     for (const row of detailRows) {
-        const identity = buildIdentityKey({
-            userDisplayId: row.userDisplayId,
-            anonymousHash: row.anonymousHash,
-            deviceId: row.deviceId,
-            fallbackId: row.sessionId || row.id,
-        });
+        const identity = personKey(row);
         impactedUsers.add(identity);
         const canOpenReplay = canOpenReplayFromSessionFields(row);
 
@@ -2454,7 +2541,10 @@ async function loadCrashesOverview(projectIds: string[], timeRange?: string, pla
             isReplayExpired: sessions.isReplayExpired,
             userDisplayId: sessions.userDisplayId,
             anonymousHash: sessions.anonymousHash,
+            anonymousDisplayId: sessions.anonymousDisplayId,
             deviceId: sessions.deviceId,
+            sessionStartedAt: sessions.startedAt,
+            sessionProjectId: sessions.projectId,
         })
         .from(appCrashes)
         .leftJoin(sessions, eq(appCrashes.sessionId, sessions.id))
@@ -2474,16 +2564,12 @@ async function loadCrashesOverview(projectIds: string[], timeRange?: string, pla
 
     const detailMap = new Map<string, CrashDetail>();
     const impactedUsers = new Set<string>();
+    const personKey = createOccurrencePersonKey(detailRows);
 
     for (const row of detailRows) {
         if (!row.sessionId) continue;
         const canOpenReplay = canOpenReplayFromSessionFields(row);
-        const identity = buildIdentityKey({
-            userDisplayId: row.userDisplayId,
-            anonymousHash: row.anonymousHash,
-            deviceId: row.deviceId,
-            fallbackId: row.sessionId || row.id,
-        });
+        const identity = personKey(row);
         impactedUsers.add(identity);
 
         const deviceMetadata = (row.deviceMetadata || {}) as { model?: string; deviceModel?: string; appVersion?: string };
@@ -2620,7 +2706,7 @@ router.get(
                 'general',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined,
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2-person` : 'v2-person',
             ),
             routeName: 'general',
             res,
@@ -2708,7 +2794,7 @@ router.get(
                 requestedSection ? `general:heavy:${requestedSection}` : 'general:heavy',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined,
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2-person` : 'v2-person',
             ),
             routeName: requestedSection ? `general:heavy:${requestedSection}` : 'general:heavy',
             req,
@@ -3235,7 +3321,7 @@ router.get(
                 'errors',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2` : 'v2',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v3-person` : 'v3-person',
             ),
             routeName: 'errors',
             res,
@@ -3258,7 +3344,7 @@ router.get(
                 'crashes',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2` : 'v2',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v3-person` : 'v3-person',
             ),
             routeName: 'crashes',
             res,
@@ -3281,7 +3367,7 @@ router.get(
                 'anrs',
                 scope.scopedProjectIds,
                 scope.normalizedTimeRange,
-                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2` : 'v2',
+                scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v3-person` : 'v3-person',
             ),
             routeName: 'anrs',
             res,
@@ -3292,7 +3378,7 @@ router.get(
             build: async () => {
                 const params = new URLSearchParams({ timeRange: scope.normalizedTimeRange || '30d', limit: '100' });
                 if (scope.normalizedPlatform) params.set('platform', scope.normalizedPlatform);
-                const response = await fetchOverviewSection<{ anrs: unknown[]; totalGroups?: number; totalEvents?: number }>(
+                const response = await fetchOverviewSection<{ anrs: unknown[]; totalGroups?: number; totalEvents?: number; totalUsers?: number }>(
                     scope.cookieHeader,
                     `/api/projects/${scope.normalizedProjectId}/anrs?${params.toString()}`,
                 );
@@ -3303,7 +3389,8 @@ router.get(
                     summary: {
                         issues: response.totalGroups ?? anrRows.length,
                         events: response.totalEvents ?? anrRows.reduce((sum, row) => sum + Number(row.occurrenceCount || 0), 0),
-                        users: anrRows.reduce((sum, row) => sum + Number(row.userCount || 0), 0),
+                        // Distinct people across all groups, not a sum of per-group counts.
+                        users: response.totalUsers ?? anrRows.reduce((sum, row) => sum + Number(row.userCount || 0), 0),
                     },
                 };
             },

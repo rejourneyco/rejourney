@@ -3,7 +3,7 @@ import { gunzipSync } from 'zlib';
 import { and, eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, errors, recordingArtifacts } from '../db/client.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
-import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
+import { resolveIssueUserId, trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
 import { normalizeStabilityIncidentId } from './stabilityAnalytics.js';
 import { persistAnrOccurrence } from './stabilityIngest.js';
 import { normalizeIngestAppVersion, normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
@@ -1146,7 +1146,7 @@ export async function processEventsArtifact(
                 osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
                 appVersion: deviceInfo?.appVersion,
                 fingerprint,
-                userId: session.userDisplayId || session.anonymousHash || session.deviceId || undefined,
+                userId: await resolveIssueUserId(projectId, session),
             }).catch(() => { }); // Fire and forget
         }
         log.debug({ errorCount: errorEvents.length }, 'Error events saved to errors table');
@@ -1188,7 +1188,7 @@ export async function processEventsArtifact(
                 deviceModel: deviceInfo?.model,
                 osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
                 appVersion: deviceInfo?.appVersion,
-                userId: session.userDisplayId || session.anonymousHash || session.deviceId || undefined,
+                userId: await resolveIssueUserId(projectId, session),
             }).catch(() => { }); // Fire and forget
         }
 

@@ -10,7 +10,7 @@ import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes,
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { generateANRFingerprintFromStackTrace, resolveAnrStackTrace } from '../services/anrStack.js';
-import { generateFingerprint, insertIssueWithShortId } from '../services/issueTracker.js';
+import { generateFingerprint, insertIssueWithShortId, resolveIssueUserIdsForSessions } from '../services/issueTracker.js';
 import { querySlowApiEndpointsFromClickHouse } from '../services/apiEndpointStatsClickHouse.js';
 import { queryScreenTouchHeatmapsFromClickHouse } from '../services/productRollupsClickHouse.js';
 
@@ -711,6 +711,25 @@ router.post(
             })
             .from(errors)
             .where(eq(errors.projectId, projectId));
+        const crashList = await db
+            .select()
+            .from(crashes)
+            .where(eq(crashes.projectId, projectId));
+        const anrList = await db
+            .select()
+            .from(anrs)
+            .where(eq(anrs.projectId, projectId));
+
+        // Affected users are counted by person, as ingest does (resolveIssueUserId):
+        // a person's events before and after sign-in count once, and events whose
+        // session carries no identity count by session.
+        const personIds = await resolveIssueUserIdsForSessions(projectId, [
+            ...errorsList.map((row) => row.sessionId),
+            ...crashList.map((row) => row.sessionId),
+            ...anrList.map((row) => row.sessionId),
+        ].filter((id): id is string => Boolean(id)));
+        const personFor = (sessionId: string | null) =>
+            sessionId ? personIds.get(sessionId) ?? sessionId : undefined;
 
         for (const error of errorsList) {
             const fingerprint = error.fingerprint || generateFingerprint('error', error.errorName, error.message);
@@ -725,6 +744,7 @@ router.post(
                 isHandled: error.errorType !== 'unhandled_exception',
                 timestamp: error.timestamp,
                 sessionId: error.sessionId || undefined,
+                userId: personFor(error.sessionId),
                 stackTrace: error.stack || undefined,
                 deviceModel: error.deviceModel || undefined,
                 osVersion: error.osVersion || undefined,
@@ -733,11 +753,6 @@ router.post(
         }
 
         // Process all crashes
-        const crashList = await db
-            .select()
-            .from(crashes)
-            .where(eq(crashes.projectId, projectId));
-
         for (const crash of crashList) {
             const fingerprint = generateFingerprint('crash', crash.exceptionName, crash.reason || '');
 
@@ -754,6 +769,7 @@ router.post(
                 isHandled: false,
                 timestamp: crash.timestamp,
                 sessionId: crash.sessionId || undefined,
+                userId: personFor(crash.sessionId),
                 deviceModel,
                 osVersion,
                 appVersion,
@@ -761,11 +777,6 @@ router.post(
         }
 
         // Process all ANRs
-        const anrList = await db
-            .select()
-            .from(anrs)
-            .where(eq(anrs.projectId, projectId));
-
         for (const anr of anrList) {
             const stackTrace = resolveAnrStackTrace({
                 threadState: anr.threadState,
@@ -789,6 +800,7 @@ router.post(
                 isHandled: false,
                 timestamp: anr.timestamp,
                 sessionId: anr.sessionId || undefined,
+                userId: personFor(anr.sessionId),
                 stackTrace: stackTrace || undefined,
                 deviceModel,
                 osVersion,

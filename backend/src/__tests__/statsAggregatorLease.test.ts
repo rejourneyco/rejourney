@@ -1,6 +1,8 @@
 vi.mock('../services/activitySnapshots.js', () => ({ snapshotActivityDay: vi.fn(async () => undefined) }));
 vi.mock('../services/engagementSegments.js', () => ({ gradeEngagementByDay: vi.fn(async () => []) }));
 vi.mock('../services/engagementRollupRegrade.js', () => ({ regradeEngagementRollups: vi.fn(async () => true) }));
+vi.mock('../services/activityIdentityRegrade.js', () => ({ regradeActivityIdentity: vi.fn(async () => true) }));
+vi.mock('../services/issueIdentityRegrade.js', () => ({ regradeIssueIdentity: vi.fn(async () => true) }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {

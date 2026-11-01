@@ -1,10 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics } from '../db/client.js';
-import { trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
+import { resolveIssueUserId, trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { persistAnrOccurrence, persistCrashOccurrence } from './stabilityIngest.js';
 
 const faultSessionSelection = {
+    anonymousDisplayId: sessions.anonymousDisplayId,
     anonymousHash: sessions.anonymousHash,
     appVersion: sessions.appVersion,
     deviceId: sessions.deviceId,
@@ -111,7 +112,7 @@ export async function processCrashesArtifact(
             deviceModel,
             osVersion,
             appVersion,
-            userId: crashSession?.userDisplayId || crashSession?.anonymousHash || crashSession?.deviceId,
+            userId: await resolveIssueUserId(projectId, crashSession),
         }).catch(() => { }); // Fire and forget
     }
 
@@ -218,7 +219,7 @@ export async function processAnrsArtifact(
             deviceModel,
             osVersion,
             appVersion,
-            userId: anrSession?.userDisplayId || anrSession?.anonymousHash || anrSession?.deviceId,
+            userId: await resolveIssueUserId(projectId, anrSession),
         }).catch(() => { }); // Fire and forget
     }
 

@@ -42,6 +42,7 @@ import { buildPositionedJourneyGraph } from '../services/positionedJourneyGraph.
 import { gradeEngagementByCountry, gradeEngagementByDay } from '../services/engagementSegments.js';
 import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
 import { resolveRequestedProjectScope } from '../utils/projectScope.js';
+import { deviceUserCteSql, deviceUserJoinSql, personKeySql, sessionPersonColumns } from '../services/personIdentity.js';
 
 const router = Router();
 const redis = getRedis();
@@ -1075,13 +1076,11 @@ router.get(
     asyncHandler(async (req, res) => {
         const { timeRange, projectId, issueType, platform } = req.query;
         const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
-        const sessionIdentity = sql<string>`coalesce(
-            nullif(${sessions.userDisplayId}, ''),
-            nullif(${sessions.anonymousHash}, ''),
-            nullif(${sessions.anonymousDisplayId}, ''),
-            nullif(${sessions.deviceId}, ''),
-            CASE WHEN ${sessions.identityScrubbedAt} IS NULL THEN ${sessions.id} ELSE NULL END
-        )`;
+        // One user per person (see personIdentity); scrubbed sessions carry no identity
+        // and stay uncounted.
+        const personColumns = sessionPersonColumns('sessions');
+        const sessionIdentity = sql<string>`CASE WHEN ${sessions.identityScrubbedAt} IS NULL
+            THEN ${personKeySql(personColumns, sql`du.user_id`)} END`;
 
         // Get accessible projects for user
         const membership = await db.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.userId, req.user!.id));
@@ -1129,7 +1128,7 @@ router.get(
         }
 
         // Build cache key
-        const cacheKey = `analytics:geo-issues:${projectIds.sort().join(',')}:${timeRange || 'all'}:${issueType || 'all'}:${normalizedPlatform || 'all'}:v3-gdpr-identity-${GEO_ISSUE_LOCATION_RESPONSE_LIMIT}`;
+        const cacheKey = `analytics:geo-issues:${projectIds.sort().join(',')}:${timeRange || 'all'}:${issueType || 'all'}:${normalizedPlatform || 'all'}:v4-person-${GEO_ISSUE_LOCATION_RESPONSE_LIMIT}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1157,6 +1156,9 @@ router.get(
             conditions.push(eq(sessions.platform, normalizedPlatform));
         }
 
+        const deviceUserScope = [inArray(sql.raw('dus.project_id'), projectIds)];
+        if (startedAfter) deviceUserScope.push(sql`dus.started_at >= ${startedAfter.toISOString()}`);
+
         // Get sessions with geo data and aggregated issue counts directly in SQL
         // This avoids loading 100k+ records into RAM
         const geoIssuesAgg = await db
@@ -1174,6 +1176,7 @@ router.get(
                 apiErrorCount: sql<number>`sum(${sessionMetrics.apiErrorCount})`,
             })
             .from(sessions)
+            .leftJoin(sql`(${deviceUserCteSql(and(...deviceUserScope)!)}) du`, deviceUserJoinSql(personColumns))
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...conditions))
             .groupBy(sessions.geoCountry, sessions.geoCity);

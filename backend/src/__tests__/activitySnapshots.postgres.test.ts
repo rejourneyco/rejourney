@@ -91,4 +91,36 @@ describe.skipIf(!url)('activity snapshots PostgreSQL regression', () => {
             await client.end();
         }
     });
+
+    it('counts a person once across sessions from before and after sign-in', async () => {
+        const client = new pg.Client({ connectionString: url });
+        await client.connect();
+        try {
+            await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+            await client.query('CREATE SCHEMA activity_person_test');
+            await client.query('SET LOCAL search_path TO activity_person_test');
+            await client.query(`
+                CREATE TABLE projects (id uuid PRIMARY KEY);
+                CREATE TABLE project_visitors (id uuid PRIMARY KEY, project_id uuid REFERENCES projects(id) ON DELETE CASCADE, visitor_key varchar, expires_at timestamp);
+                CREATE TABLE sessions (visitor_key varchar, id varchar PRIMARY KEY, project_id uuid, started_at timestamp,
+                    platform varchar, user_display_id varchar, anonymous_hash varchar,
+                    anonymous_display_id varchar, device_id varchar, identity_scrubbed_at timestamp,
+                    app_version varchar, geo_country varchar);
+                INSERT INTO projects VALUES ('00000000-0000-0000-0000-000000000001');
+                INSERT INTO sessions (id,project_id,started_at,platform,user_display_id,device_id,app_version,geo_country) VALUES
+                    ('pre','00000000-0000-0000-0000-000000000001','2026-09-02 08:00','ios',NULL,'phone-a','v1','US'),
+                    ('post','00000000-0000-0000-0000-000000000001','2026-09-02 08:05','ios','alice','phone-a','v1','US'),
+                    ('tablet','00000000-0000-0000-0000-000000000001','2026-09-02 09:00','ios','alice','tablet-a','v1','US'),
+                    ('guest','00000000-0000-0000-0000-000000000001','2026-09-02 10:00','ios',NULL,'phone-b','v1','US');
+            `);
+            await client.query(readFileSync(new URL('../../drizzle/20260930120000_activity_snapshots/migration.sql', import.meta.url), 'utf8'));
+            await snapshotActivityDay('00000000-0000-0000-0000-000000000001', '2026-09-02', client);
+            // alice (pre-sign-in phone session, signed-in phone and tablet) and one guest device.
+            expect((await client.query("SELECT dau, mau, version_dau FROM activity_snapshots WHERE platform='ios' AND date='2026-09-02'")).rows[0])
+                .toEqual({ dau: 2, mau: 2, version_dau: { v1: 2 } });
+        } finally {
+            await client.query('ROLLBACK');
+            await client.end();
+        }
+    });
 });

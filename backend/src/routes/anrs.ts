@@ -12,6 +12,7 @@ import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { generateANRFingerprint } from '../services/issueTracker.js';
 import { canOpenReplayFromSessionFields } from '../services/replayAvailability.js';
 import { resolveAnrStackTrace } from '../services/anrStack.js';
+import { createPersonResolver } from '../services/personIdentity.js';
 
 const router = Router();
 
@@ -101,7 +102,9 @@ router.get(
                 anr: anrs,
                 userDisplayId: sessions.userDisplayId,
                 anonymousHash: sessions.anonymousHash,
+                anonymousDisplayId: sessions.anonymousDisplayId,
                 deviceId: sessions.deviceId,
+                startedAt: sessions.startedAt,
                 replayAvailable: sessions.replayAvailable,
                 replayRetentionState: sessions.replayRetentionState,
                 recordingDeleted: sessions.recordingDeleted,
@@ -129,6 +132,11 @@ router.get(
         };
 
         const groups = new Map<string, Group>();
+        // Users are people (see personIdentity): a pre-sign-in ANR counts toward the user
+        // later signed in on that device, within the loaded ANRs.
+        const personRow = (row: (typeof rows)[number]) => ({ ...row, sessionId: row.anr.sessionId || row.anr.id });
+        const resolvePerson = createPersonResolver(rows.map(personRow));
+        const allUsers = new Set<string>();
 
         for (const row of rows) {
             const anr = row.anr;
@@ -171,8 +179,9 @@ router.get(
                 group.status = 'open';
             }
 
-            const identity = row.userDisplayId || row.anonymousHash || row.deviceId || anr.sessionId || anr.id;
+            const identity = resolvePerson(personRow(row)) ?? anr.id;
             group.userSet.add(identity);
+            allUsers.add(identity);
         }
 
         const grouped = Array.from(groups.values())
@@ -197,6 +206,8 @@ router.get(
             anrs: paged,
             totalGroups: grouped.length,
             totalEvents: rows.length,
+            // Distinct across groups; summing userCount counts a person once per ANR group.
+            totalUsers: allUsers.size,
         });
     })
 );

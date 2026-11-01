@@ -33,6 +33,7 @@ import {
 import { normalizeHeatmapScreenName, normalizeHeatmapScreenPath } from '../utils/heatmapScreens.js';
 import { parseMaybeGzippedJson } from '../utils/gzipJson.js';
 import { readRefreshableCache } from '../services/dashboardRefreshCache.js';
+import { createPersonResolver, deviceUserCteSql, deviceUserJoinSql, personKeySql, sessionPersonColumns } from '../services/personIdentity.js';
 
 const router = Router();
 const redis = getRedis();
@@ -413,7 +414,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v9:${req.query.previews === 'false' ? 'metrics' : 'previews'}`;
+        const cacheKey = `insights:friction:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v10:${req.query.previews === 'false' ? 'metrics' : 'previews'}`;
 
         // For realtime, use shorter cache TTL
         if (!isRealtime) {
@@ -441,10 +442,12 @@ router.get(
         const sessionData = await db
             .select({
                 id: sessions.id,
+                projectId: sessions.projectId,
                 deviceId: sessions.deviceId,
                 anonymousHash: sessions.anonymousHash,
                 anonymousDisplayId: sessions.anonymousDisplayId,
                 userDisplayId: sessions.userDisplayId,
+                startedAt: sessions.startedAt,
                 screensVisited: sessionMetrics.screensVisited,
                 rageTapCount: sessionMetrics.rageTapCount,
                 errorCount: sessionMetrics.errorCount,
@@ -469,10 +472,12 @@ router.get(
             visitorKeys: Set<string>;
         }> = {};
 
+        // One visitor per person, so pre-sign-in sessions join their signed-in user.
+        const resolvePerson = createPersonResolver(sessionData.map((s) => ({ ...s, sessionId: s.id })));
         for (const s of sessionData) {
             const screensVisited = normalizeHeatmapScreenPath(s.screensVisited || []);
             const lastScreen = screensVisited[screensVisited.length - 1];
-            const visitorKey = s.userDisplayId || s.anonymousHash || s.anonymousDisplayId || s.deviceId || s.id;
+            const visitorKey = resolvePerson({ ...s, sessionId: s.id }) ?? s.id;
 
             for (const screen of screensVisited) {
                 if (!screenStats[screen]) {
@@ -1173,7 +1178,7 @@ router.get(
 
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
         const normalizedPlatform = typeof platform === 'string' && platform !== 'all' ? platform : undefined;
-        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v4-calendar-weeks`;
+        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v5-person`;
         const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1185,6 +1190,8 @@ router.get(
             ? new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
             : undefined;
 
+        // Sessions with no identity at all stay out; the rest are keyed by person, so
+        // pre-sign-in sessions join the user later signed in on the same device.
         const rawIdentitySql = sql<string>`
             coalesce(
                 nullif(trim(${sessions.userDisplayId}), ''),
@@ -1193,10 +1200,11 @@ router.get(
                 nullif(trim(${sessions.deviceId}), '')
             )
         `;
+        const personColumns = sessionPersonColumns('sessions');
         const scopedIdentitySql = sql<string>`
             case
                 when ${rawIdentitySql} is null then null
-                else ${sessions.projectId} || ':' || ${rawIdentitySql}
+                else ${sessions.projectId} || ':' || ${personKeySql(personColumns, sql`du.user_id`)}
             end
         `;
         const weekStartKeySql = sql<string>`
@@ -1234,6 +1242,9 @@ router.get(
             end
         `;
 
+        const deviceUserScope = [inArray(sql.raw('dus.project_id'), projectIds)];
+        if (startedAfter) deviceUserScope.push(sql`dus.started_at >= ${startedAfter.toISOString()}`);
+
         const activityRows = await db
             .select({
                 userKey: scopedIdentitySql,
@@ -1241,6 +1252,7 @@ router.get(
                 firstWeekStartKey: ledgerFirstWeekKeySql,
             })
             .from(sessions)
+            .leftJoin(sql`(${deviceUserCteSql(and(...deviceUserScope)!)}) du`, deviceUserJoinSql(personColumns))
             .leftJoin(projectVisitors, and(
                 eq(projectVisitors.projectId, sessions.projectId),
                 eq(projectVisitors.visitorKey, sessions.visitorKey),
@@ -1291,7 +1303,7 @@ router.get(
             : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v8-activity-snapshots:through:${await getLastRolledUpDate()}`;
+        const cacheKey = `insights:trends:${productRollupSourceKey()}:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v9-person:through:${await getLastRolledUpDate()}`;
         const cached = await readRefreshableCache(req, cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1360,13 +1372,11 @@ router.get(
             };
 
             const sessionDate = sql<string>`(${sessions.startedAt}::date)::text`;
-            const identitySql = sql<string>`coalesce(
-                nullif(trim(${sessions.userDisplayId}), ''),
-                nullif(trim(${sessions.anonymousHash}), ''),
-                nullif(trim(${sessions.anonymousDisplayId}), ''),
-                nullif(trim(${sessions.deviceId}), ''),
-                CASE WHEN ${sessions.identityScrubbedAt} IS NULL THEN ${sessions.id} ELSE NULL END
-            )`;
+            // One user per person (see personIdentity), resolved over the loaded window.
+            // Scrubbed sessions carry no identity and stay uncounted, as in the snapshots.
+            const personColumns = sessionPersonColumns('sessions');
+            const identitySql = sql<string>`CASE WHEN ${sessions.identityScrubbedAt} IS NULL
+                THEN ${personKeySql(personColumns, sql`du.user_id`)} END`;
             const platformCondition = buildSessionPlatformCondition(normalizedPlatform);
             const rawConditions: SQL[] = [
                 inArray(sessions.projectId, projectIds),
@@ -1374,6 +1384,12 @@ router.get(
             ];
             if (startStr) rawConditions.push(sql`${sessions.startedAt} >= ${startStr}::date`);
             if (platformCondition) rawConditions.push(platformCondition);
+            const deviceUserScope: SQL[] = [
+                inArray(sql.raw('dus.project_id'), projectIds),
+                sql`dus.started_at < ${lastRolledUpDate}::date + interval '1 day'`,
+            ];
+            if (startStr) deviceUserScope.push(sql`dus.started_at >= ${startStr}::date`);
+            const deviceUserJoin = sql`(${deviceUserCteSql(and(...deviceUserScope)!)}) du`;
 
             const rawDailyQuery = db
                 .select({
@@ -1404,6 +1420,7 @@ router.get(
                     uniqueUsers: sql<number>`count(distinct ${identitySql})::int`,
                 })
                 .from(sessions)
+                .leftJoin(deviceUserJoin, deviceUserJoinSql(personColumns))
                 .where(and(...rawConditions))
                 .groupBy(sessionDate, normalizedVersion);
 
@@ -1415,6 +1432,7 @@ router.get(
                     uniqueUsers: sql<number>`count(distinct ${identitySql})::int`,
                 })
                 .from(sessions)
+                .leftJoin(deviceUserJoin, deviceUserJoinSql(personColumns))
                 .where(and(...rawConditions, sql`${sessions.geoCountry} IS NOT NULL`))
                 .groupBy(sessionDate, normalizedCountry);
 
@@ -1424,6 +1442,7 @@ router.get(
                     userKey: identitySql,
                 })
                 .from(sessions)
+                .leftJoin(deviceUserJoin, deviceUserJoinSql(personColumns))
                 .where(and(...rawConditions, sql`${identitySql} IS NOT NULL`))
                 .groupBy(sessionDate, identitySql);
 

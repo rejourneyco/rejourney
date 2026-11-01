@@ -5,7 +5,7 @@ import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import { ingestFaultProjectRateLimiter } from '../middleware/rateLimit.js';
 import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
-import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
+import { resolveIssueUserId, trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
 import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from '../services/anrStack.js';
 import { normalizeClientEpochMsForSession } from '../services/sessionClock.js';
@@ -103,7 +103,7 @@ router.post(
                 deviceModel: faultSession.deviceModel || undefined,
                 osVersion: faultSession.osVersion || undefined,
                 appVersion: faultSession.appVersion || undefined,
-                userId: faultSession.userDisplayId || faultSession.anonymousHash || faultSession.deviceId || undefined,
+                userId: await resolveIssueUserId(projectId, faultSession),
             }).catch(() => {});
 
             logger.info({ projectId, sessionId, category: normalizedCategory, durationMs }, 'Fault report ingested');
@@ -147,7 +147,7 @@ router.post(
                 deviceModel: faultSession.deviceModel || undefined,
                 osVersion: faultSession.osVersion || undefined,
                 appVersion: faultSession.appVersion || undefined,
-                userId: faultSession.userDisplayId || faultSession.anonymousHash || faultSession.deviceId || undefined,
+                userId: await resolveIssueUserId(projectId, faultSession),
             }).catch(() => {});
 
             logger.info({ projectId, sessionId, category: normalizedCategory, identifier: incident.identifier }, 'Fault report ingested');

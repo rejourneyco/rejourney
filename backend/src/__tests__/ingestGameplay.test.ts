@@ -35,7 +35,7 @@ vi.mock('../db/client.js', () => {
     };
 });
 vi.mock('../db/s3.js', () => ({ downloadFromS3ForArtifact: vi.fn(async () => null) }));
-vi.mock('../services/issueTracker.js', () => ({ trackANRAsIssue: vi.fn(async () => undefined), trackErrorAsIssue: vi.fn(async () => undefined) }));
+vi.mock('../services/issueTracker.js', () => ({ resolveIssueUserId: vi.fn(async () => undefined), trackANRAsIssue: vi.fn(async () => undefined), trackErrorAsIssue: vi.fn(async () => undefined) }));
 vi.mock('../services/stabilityIngest.js', () => ({ persistAnrOccurrence: vi.fn(async () => ({ inserted: false })) }));
 vi.mock('../services/visitorLedger.js', () => ({ assignSessionVisitorById: vi.fn(async () => undefined) }));
 vi.mock('../services/clickhouseApiStatsSink.js', () => ({

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { generateANRFingerprintFromStackTrace } from './anrStack.js';
+import { createPersonResolver, type PersonIdentityRow } from './personIdentity.js';
 
 export type StabilityIssueType = 'crash' | 'error' | 'anr';
 export type StabilityDiagnosticState = 'complete' | 'partial' | 'incomplete';
@@ -31,7 +32,9 @@ export type LegacyStabilityRow = {
         sdkVersion?: string | null;
         userDisplayId?: string | null;
         anonymousHash?: string | null;
+        anonymousDisplayId?: string | null;
         deviceId?: string | null;
+        startedAt?: Date | null;
         replayAvailable?: boolean | null;
         replayRetentionState?: string | null;
         recordingDeleted?: boolean | null;
@@ -279,7 +282,23 @@ function issueIdFor(type: StabilityIssueType, fingerprint: string): string {
     return `${type}_${digest}`;
 }
 
-function buildCanonicalOccurrence(row: LegacyStabilityRow): StabilityOccurrence {
+/** Person-key input for a row; no session-id fallback, so userId stays null when nothing identifies it. */
+function personIdentityOf(row: LegacyStabilityRow): PersonIdentityRow {
+    const session = row.session || {};
+    return {
+        projectId: row.projectId,
+        userDisplayId: session.userDisplayId,
+        anonymousHash: session.anonymousHash,
+        anonymousDisplayId: session.anonymousDisplayId,
+        deviceId: session.deviceId,
+        startedAt: session.startedAt ?? row.timestamp,
+    };
+}
+
+function buildCanonicalOccurrence(
+    row: LegacyStabilityRow,
+    resolvePerson: (row: PersonIdentityRow) => string | null,
+): StabilityOccurrence {
     const eventMetadata = (
         row.eventMetadata && typeof row.eventMetadata === 'object'
             ? row.eventMetadata
@@ -301,7 +320,7 @@ function buildCanonicalOccurrence(row: LegacyStabilityRow): StabilityOccurrence 
     const osVersion = readMetadataString(deviceMetadata, ['osVersion', 'systemVersion', 'os']) || cleanString(session.osVersion);
     const appVersion = readMetadataString(deviceMetadata, ['appVersion', 'version', 'buildVersion']) || cleanString(session.appVersion);
     const sdkVersion = readMetadataString(deviceMetadata, ['sdkVersion']) || cleanString(session.sdkVersion);
-    const userId = cleanString(session.userDisplayId) || cleanString(session.anonymousHash) || cleanString(session.deviceId);
+    const userId = resolvePerson(personIdentityOf(row));
     const stackTrace = normalizeStabilityStack(row.stackTrace);
     const replay = buildReplayState(row);
     const fingerprint = fingerprintStabilityOccurrence({
@@ -437,8 +456,11 @@ function mergeOccurrences(
 }
 
 export function canonicalizeStabilityOccurrences(rows: LegacyStabilityRow[]): StabilityOccurrence[] {
+    // userId is the person (see personIdentity), resolved over the loaded rows, so an
+    // occurrence before sign-in counts toward the user later signed in on that device.
+    const resolvePerson = createPersonResolver(rows.map(personIdentityOf));
     const occurrences = rows
-        .map(buildCanonicalOccurrence)
+        .map((row) => buildCanonicalOccurrence(row, resolvePerson))
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const deduplicated: StabilityOccurrence[] = [];
