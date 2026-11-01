@@ -181,6 +181,31 @@ export async function calculateOwnerFreeTierUsage(ownerUserId: string): Promise<
     return usage.sessionReplaysUsed;
 }
 
+/** Bonus sessions active now across every free team the account owner owns. */
+async function calculateOwnerFreeTierBonus(ownerUserId: string): Promise<number> {
+    const ownedFreeTeams = await db
+        .select({
+            bonusSessions: teams.bonusSessions,
+            bonusSessionsBillingPeriod: teams.bonusSessionsBillingPeriod,
+            billingCycleAnchor: teams.billingCycleAnchor,
+        })
+        .from(teams)
+        .where(and(
+            eq(teams.ownerUserId, ownerUserId),
+            isNull(teams.stripeSubscriptionId)
+        ));
+    return ownedFreeTeams.reduce(
+        (sum, t) =>
+            sum +
+            effectiveBonusSessions(
+                t.bonusSessions ?? 0,
+                t.bonusSessionsBillingPeriod,
+                t.billingCycleAnchor ?? null
+            ),
+        0
+    );
+}
+
 /**
  * Fetch session data from database for a team
  * Uses team's billing cycle anchor for period calculation
@@ -254,12 +279,17 @@ async function fetchTeamSessionData(
         sessionsCaptured = ownerUsage.sessionsCaptured;
     }
 
-    const effectiveBonus = effectiveBonusSessions(
-        team.bonusSessions ?? 0,
-        team.bonusSessionsBillingPeriod,
-        team.billingCycleAnchor ?? null,
-        period
-    );
+    // Free teams share one pool, so the limit pools every free team's bonus too
+    // (as checkUserFreeTier does); otherwise a sibling team's usage could exhaust
+    // a team whose own bonus has lapsed.
+    const effectiveBonus = team.stripeSubscriptionId
+        ? effectiveBonusSessions(
+            team.bonusSessions ?? 0,
+            team.bonusSessionsBillingPeriod,
+            team.billingCycleAnchor ?? null,
+            period
+        )
+        : await calculateOwnerFreeTierBonus(team.ownerUserId);
 
     const planSessionLimit = subscription.sessionLimit;
 
@@ -493,28 +523,7 @@ export async function checkUserFreeTier(userId: string): Promise<{
     const ownerUsage = await calculateOwnerFreeTierUsageDetails(userId);
     const sessionsUsed = ownerUsage.sessionReplaysUsed;
 
-    // Sum bonus sessions from all free teams owned by this user
-    const ownedFreeTeams = await db
-        .select({
-            bonusSessions: teams.bonusSessions,
-            bonusSessionsBillingPeriod: teams.bonusSessionsBillingPeriod,
-            billingCycleAnchor: teams.billingCycleAnchor,
-        })
-        .from(teams)
-        .where(and(
-            eq(teams.ownerUserId, userId),
-            isNull(teams.stripeSubscriptionId)
-        ));
-    const totalBonus = ownedFreeTeams.reduce(
-        (sum, t) =>
-            sum +
-            effectiveBonusSessions(
-                t.bonusSessions ?? 0,
-                t.bonusSessionsBillingPeriod,
-                t.billingCycleAnchor ?? null
-            ),
-        0
-    );
+    const totalBonus = await calculateOwnerFreeTierBonus(userId);
     const effectiveLimit = FREE_TIER_SESSIONS + totalBonus;
 
     const isExhausted = sessionsUsed >= effectiveLimit;

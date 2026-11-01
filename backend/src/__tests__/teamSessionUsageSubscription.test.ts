@@ -111,3 +111,37 @@ describe('getTeamSessionUsage subscription reuse', () => {
         expect(usage.sessionsRemaining).toBe(49880);
     });
 });
+
+describe('free-tier pooled limit', () => {
+    it("pools every free team's active bonus, so a lapsed team is not exhausted by a sibling's usage", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-01T12:00:00Z'));
+        try {
+            mocks.getTeamSubscription.mockResolvedValue({ ...subscription(5000), planName: 'free', subscriptionId: null });
+            const lapsed = { ...paidTeam, stripeSubscriptionId: null, bonusSessions: 100000, bonusSessionsBillingPeriod: '2026-11' };
+            const anchor = new Date('2026-04-11T12:00:00Z');
+            mocks.select
+                // team row
+                .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: async () => [lapsed] }) }) })
+                // owner's teams, their projects, the sibling's usage this cycle
+                .mockReturnValueOnce({ from: () => ({ where: async () => [
+                    { id: 'team-1', stripeSubscriptionId: null, billingCycleAnchor: null },
+                    { id: 'team-2', stripeSubscriptionId: null, billingCycleAnchor: anchor },
+                ] }) })
+                .mockReturnValueOnce({ from: () => ({ where: async () => [{ id: 'p2', teamId: 'team-2' }] }) })
+                .mockReturnValueOnce({ from: () => ({ where: async () => [{ totalSessionReplays: 93378, totalSessionsCaptured: 106505 }] }) })
+                // free teams' bonuses: this team's November bonus and the sibling's active cycle bonus
+                .mockReturnValueOnce({ from: () => ({ where: async () => [
+                    { bonusSessions: 100000, bonusSessionsBillingPeriod: '2026-11', billingCycleAnchor: null },
+                    { bonusSessions: 310000, bonusSessionsBillingPeriod: '2026-10-08', billingCycleAnchor: anchor },
+                ] }) });
+
+            const usage = await getTeamSessionUsage('team-1');
+            expect(usage.sessionReplaysUsed).toBe(93378);
+            expect(usage.bonusSessionsActive).toBe(410000);
+            expect(usage.sessionReplayLimit).toBe(415000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
