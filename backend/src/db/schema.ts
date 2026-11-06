@@ -379,6 +379,17 @@ export const revenueTransactionExclusions = pgTable(
     ]
 );
 
+// One set of USD exchange rates per day, written once. Revenue converted at a day's
+// rate keeps its USD value forever. `ratesDate` is the day the rates were published
+// for, earlier than `date` when that day's file was late or missing.
+export const fxRatesDaily = pgTable('fx_rates_daily', {
+    date: date('date').primaryKey(),
+    rates: jsonb('rates').$type<Record<string, number>>().notNull(),
+    ratesDate: date('rates_date').notNull(),
+    source: varchar('source', { length: 32 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // =============================================================================
 // Audit Logging (Security & Compliance)
 // =============================================================================

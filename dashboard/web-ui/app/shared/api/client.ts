@@ -2425,7 +2425,7 @@ export interface RevenueOverview {
     currencies: RevenueCurrencySummary[];
     selectedCurrency: string | null;
     /** Set when every currency was converted into one USD total (`currency=all`). */
-    usdConversion?: { ratesAsOf: string; unconvertedCurrencies: string[] } | null;
+    usdConversion?: { ratesAsOf: string | null; unconvertedCurrencies: string[] } | null;
     summary: {
         grossAmountCents: number;
         refundAmountCents: number;

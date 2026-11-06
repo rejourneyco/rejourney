@@ -2428,9 +2428,9 @@ const RevenueImpactSectionView: React.FC<{
                                         {usdConversion && (
                                             <div
                                                 className="mt-1 text-xs text-[#5f6368]"
-                                                title={`Rates as of ${new Date(usdConversion.ratesAsOf).toLocaleString()}`}
+                                                title="Each day's revenue is converted at that day's exchange rate, so past totals don't change."
                                             >
-                                                Converted to USD at latest rates
+                                                Converted to USD at each day's rate
                                                 {usdConversion.unconvertedCurrencies.length > 0
                                                     && ` · excludes ${usdConversion.unconvertedCurrencies.map((code) => code.toUpperCase()).join(', ')}`}
                                             </div>
