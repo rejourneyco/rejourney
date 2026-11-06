@@ -115,11 +115,24 @@ describe('issue proxy reads', () => {
         })));
         const slow = callIssueDetection(list);
         await vi.advanceTimersByTimeAsync(STALE_WAIT_MS);
-        await expect(slow).resolves.toEqual({ version: 1 });
+        await expect(slow).resolves.toEqual({ version: 1, stale: true });
 
         release();
         await vi.advanceTimersByTimeAsync(0);
         await expect(callIssueDetection(list)).resolves.toEqual({ version: 2 });
+    });
+
+    it('still serves a copy from days ago while the upstream wakes up', async () => {
+        const list = { pathWithQuery: '/v1/projects/long-gap/leaks?view=inbox' };
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ version: 1 }))));
+        await callIssueDetection(list);
+
+        vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+        vi.setSystemTime(Date.now() + 3 * 24 * 60 * 60 * 1000);
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)));
+        const waking = callIssueDetection(list);
+        await vi.advanceTimersByTimeAsync(STALE_WAIT_MS);
+        await expect(waking).resolves.toEqual({ version: 1, stale: true });
     });
 
     it('serves the last good detail when the upstream fails', async () => {
@@ -129,6 +142,6 @@ describe('issue proxy reads', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(Date.now() + FRESH_MS + 11_000);
         vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
-        await expect(callIssueDetection(detail)).resolves.toEqual({ id: 'stale-detail' });
+        await expect(callIssueDetection(detail)).resolves.toEqual({ id: 'stale-detail', stale: true });
     });
 });

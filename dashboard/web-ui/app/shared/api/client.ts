@@ -4349,6 +4349,8 @@ export interface LeakDetail extends LeakSummary {
 
 export interface LeaksResponse {
     leaks: LeakSummary[];
+    /** A saved copy, served while the detection service is slow or waking up. */
+    stale?: boolean;
     stats: {
         total: number;
         ready: number;

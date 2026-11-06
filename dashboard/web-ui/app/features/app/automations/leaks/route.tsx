@@ -516,6 +516,8 @@ async function writeClipboardText(text: string): Promise<boolean> {
     }
 }
 
+const STALE_INBOX_RELOAD_MS = 15_000;
+
 function filterLeaks(leaks: LeakSummary[], search: string): LeakSummary[] {
     const normalizedSearch = search.trim().toLowerCase();
     return leaks.filter((leak) => {
@@ -1387,6 +1389,7 @@ export const Leaks: React.FC = () => {
         }
 
         let cancelled = false;
+        let staleReloadTimer: ReturnType<typeof setTimeout> | undefined;
         // A refresh of the inbox already on screen keeps it there while it reloads;
         // another project starts empty so its old rows can't be opened meanwhile.
         const refreshingShownInbox = inboxScopeRef.current === projectId && inboxShownRef.current;
@@ -1403,6 +1406,8 @@ export const Leaks: React.FC = () => {
                 if (cancelled) return;
                 inboxShownRef.current = true;
                 setLeaks(response.leaks || []);
+                // A saved copy while the detection service wakes up: reload once it can answer.
+                if (response.stale) staleReloadTimer = setTimeout(() => setInboxReload((value) => value + 1), STALE_INBOX_RELOAD_MS);
                 // Empty inboxes need history to distinguish setup from a clean scan.
                 // Start it only after the list returns, without delaying the inbox.
                 if (!response.leaks?.length) void loadRunHistory();
@@ -1421,6 +1426,7 @@ export const Leaks: React.FC = () => {
 
         return () => {
             cancelled = true;
+            clearTimeout(staleReloadTimer);
         };
     }, [inboxReload, loadRunHistory, manualRefreshVersion, projectId]);
 
