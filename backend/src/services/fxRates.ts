@@ -75,21 +75,28 @@ async function fetchRateFile(version: string): Promise<UsdRates | null> {
     throw lastError;
 }
 
+function todayKey(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
+/** First writer wins, so the servers agree and a stored day never changes. */
+async function storeRates(date: string, rates: UsdRates): Promise<void> {
+    await pool.query(
+        `INSERT INTO fx_rates_daily (date, rates, rates_date, source)
+         VALUES ($1::date, $2::jsonb, $3::date, $4)
+         ON CONFLICT (date) DO NOTHING`,
+        [date, JSON.stringify(rates.rates), rates.asOf, RATES_SOURCE],
+    );
+}
+
 async function fetchAndStoreRates(date: string): Promise<void> {
-    const today = new Date().toISOString().slice(0, 10);
-    const newest = date < EARLIEST_RATES_DATE ? EARLIEST_RATES_DATE : earlier(date, today);
+    const newest = date < EARLIEST_RATES_DATE ? EARLIEST_RATES_DATE : earlier(date, todayKey());
     for (let back = 0; back <= MAX_DAYS_BACK; back += 1) {
         const version = addDays(newest, -back);
         if (version < EARLIEST_RATES_DATE) break;
         const file = await fetchRateFile(version);
         if (!file) continue;
-        // First writer wins, so the servers agree and a stored day never changes.
-        await pool.query(
-            `INSERT INTO fx_rates_daily (date, rates, rates_date, source)
-             VALUES ($1::date, $2::jsonb, $3::date, $4)
-             ON CONFLICT (date) DO NOTHING`,
-            [date, JSON.stringify(file.rates), file.asOf, RATES_SOURCE],
-        );
+        await storeRates(date, file);
         return;
     }
     logger.warn({ date }, 'No exchange rate file found for date');
@@ -148,9 +155,19 @@ function closestRates(date: string, found: Map<string, UsdRates>): UsdRates | nu
 }
 
 /**
+ * A stand-in is kept for good when it is one the day's own fetch could also have
+ * stored: an earlier file no more than MAX_DAYS_BACK old.
+ */
+function keepsStandIn(date: string, standIn: UsdRates): boolean {
+    const newest = earlier(date, todayKey());
+    return standIn.asOf <= newest && standIn.asOf >= addDays(newest, -MAX_DAYS_BACK);
+}
+
+/**
  * Rates for each date (YYYY-MM-DD). A date not stored yet is fetched and stored for
- * good. Until that succeeds it borrows the closest stored rates for this response
- * only. Null when no rates are available at all.
+ * good. When the provider cannot supply it in time, the closest stored rates stand
+ * in and, when recent enough, are stored as that day's rates, so a day's USD value
+ * never changes after it is first shown. Null when no rates are available at all.
  */
 export async function getUsdRatesByDate(dates: Iterable<string>): Promise<Map<string, UsdRates> | null> {
     const wanted = [...new Set(dates)];
@@ -183,9 +200,21 @@ export async function getUsdRatesByDate(dates: Iterable<string>): Promise<Map<st
         if (rows[0]) stored.set(rows[0].date, { rates: rows[0].rates, asOf: rows[0].rates_date });
     }
     if (stored.size === 0) return null;
+    const kept: string[] = [];
     for (const date of unresolved) {
         const standIn = closestRates(date, stored);
-        if (standIn) found.set(date, standIn);
+        if (!standIn) continue;
+        found.set(date, standIn);
+        if (keepsStandIn(date, standIn)) kept.push(date);
+    }
+    if (kept.length > 0) {
+        try {
+            await Promise.all(kept.map((date) => storeRates(date, found.get(date)!)));
+            // A fetch or another server may have stored the day first; show what is stored.
+            await loadStoredRates(kept, found);
+        } catch (error) {
+            logger.warn({ err: error, dates: kept }, 'Stand-in exchange rates not stored');
+        }
     }
     return found;
 }

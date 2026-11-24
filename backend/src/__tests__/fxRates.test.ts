@@ -113,28 +113,68 @@ describe('getUsdRatesByDate', () => {
         expect(result?.get('2023-06-01')?.rates.gbp).toBe(0.79);
     });
 
-    it('borrows stored rates for this response only when the provider is down', async () => {
+    it('stores the closest earlier rates as the day\'s own when the provider is down', async () => {
         published['2026-10-27'] = { usd: 1, eur: 0.9 };
         await getUsdRatesByDate(['2026-10-27']);
         fetchMock.mockRejectedValue(new Error('network down'));
 
         const result = await getUsdRatesByDate(['2026-10-27', '2026-10-28']);
 
+        expect(result?.get('2026-10-28')).toEqual({ rates: { usd: 1, eur: 0.9 }, asOf: '2026-10-27' });
+        expect(stored.get('2026-10-28')).toEqual({ date: '2026-10-28', rates: { usd: 1, eur: 0.9 }, rates_date: '2026-10-27' });
+    });
+
+    it('keeps the first rates shown for a day after the provider recovers', async () => {
+        published['2026-10-27'] = { usd: 1, eur: 0.9 };
+        await getUsdRatesByDate(['2026-10-27']);
+        fetchMock.mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down'));
+        const first = await getUsdRatesByDate(['2026-10-28']);
+        resetUsdRatesForTests();
+        published['2026-10-28'] = { usd: 1, eur: 0.8 };
+
+        const second = await getUsdRatesByDate(['2026-10-28']);
+
+        expect(first?.get('2026-10-28')?.rates.eur).toBe(0.9);
+        expect(second?.get('2026-10-28')?.rates.eur).toBe(0.9);
+    });
+
+    it('shows the rates another server stored first instead of its own stand-in', async () => {
+        published['2026-10-27'] = { usd: 1, eur: 0.9 };
+        await getUsdRatesByDate(['2026-10-27']);
+        fetchMock.mockRejectedValue(new Error('network down'));
+        const query = mocks.query.getMockImplementation()!;
+        mocks.query.mockImplementation(async (text: string, params?: unknown[]) => {
+            if (text.includes('INSERT INTO fx_rates_daily') && (params as string[])[0] === '2026-10-28' && !stored.has('2026-10-28')) {
+                stored.set('2026-10-28', { date: '2026-10-28', rates: { usd: 1, eur: 0.8 }, rates_date: '2026-10-28' });
+            }
+            return query(text, params);
+        });
+
+        const result = await getUsdRatesByDate(['2026-10-27', '2026-10-28']);
+
+        expect(result?.get('2026-10-28')).toEqual({ rates: { usd: 1, eur: 0.8 }, asOf: '2026-10-28' });
+    });
+
+    it('does not store stand-ins older than the provider fallback allows', async () => {
+        published['2026-10-01'] = { usd: 1, eur: 0.9 };
+        await getUsdRatesByDate(['2026-10-01']);
+        fetchMock.mockRejectedValue(new Error('network down'));
+
+        const result = await getUsdRatesByDate(['2026-10-01', '2026-10-28']);
+
         expect(result?.get('2026-10-28')?.rates.eur).toBe(0.9);
         expect(stored.has('2026-10-28')).toBe(false);
     });
 
-    it('stores the real rates once the provider recovers', async () => {
+    it('does not store a later day\'s rates for an earlier day', async () => {
         published['2026-10-27'] = { usd: 1, eur: 0.9 };
         await getUsdRatesByDate(['2026-10-27']);
-        fetchMock.mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down'));
-        await getUsdRatesByDate(['2026-10-28']);
-        resetUsdRatesForTests();
-        published['2026-10-28'] = { usd: 1, eur: 0.8 };
+        fetchMock.mockRejectedValue(new Error('network down'));
 
-        const result = await getUsdRatesByDate(['2026-10-28']);
+        const result = await getUsdRatesByDate(['2026-10-20', '2026-10-27']);
 
-        expect(result?.get('2026-10-28')?.rates.eur).toBe(0.8);
+        expect(result?.get('2026-10-20')?.rates.eur).toBe(0.9);
+        expect(stored.has('2026-10-20')).toBe(false);
     });
 
     it('returns null when no rates exist at all', async () => {
