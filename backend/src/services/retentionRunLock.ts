@@ -1,7 +1,14 @@
 import os from 'os';
 import { pool } from '../db/client.js';
 
-const DEFAULT_STALE_SECONDS = 15 * 60;
+/**
+ * How long a lock may go without a heartbeat before another run takes it over.
+ * The holder refreshes every 30 seconds, so three minutes is six missed
+ * heartbeats. A run that dies without releasing (an out-of-memory abort skips
+ * every finally block) used to hold the lock for 15 minutes, which made the
+ * next two or three 5-minute schedules exit with "lock held".
+ */
+export const DEFAULT_STALE_SECONDS = 3 * 60;
 export const RETENTION_RUN_LOCK_NAME = 'retention-worker';
 
 export function buildRetentionRunOwnerId(): string {

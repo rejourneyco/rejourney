@@ -2,6 +2,11 @@ export interface BoundedConcurrentBatchOptions {
     concurrency: number;
     deadlineAtMs?: number;
     now?: () => number;
+    /**
+     * Checked together with the deadline before each item is claimed. Returning
+     * true stops new claims; items already in flight finish.
+     */
+    shouldStop?: () => boolean;
 }
 
 export interface BoundedConcurrentBatchResult {
@@ -12,8 +17,8 @@ export interface BoundedConcurrentBatchResult {
 
 /**
  * Runs a finite batch with bounded concurrency and stops claiming new items
- * once the deadline is reached. Items that were not claimed remain eligible
- * for the next retention cycle.
+ * once the deadline is reached or shouldStop reports true. Items that were not
+ * claimed remain eligible for the next retention cycle.
  */
 export async function runBoundedConcurrentBatch<T>(
     items: readonly T[],
@@ -28,7 +33,7 @@ export async function runBoundedConcurrentBatch<T>(
 
     const worker = async (): Promise<void> => {
         while (nextIndex < items.length) {
-            if (now() >= deadlineAtMs) {
+            if (now() >= deadlineAtMs || options.shouldStop?.() === true) {
                 return;
             }
 

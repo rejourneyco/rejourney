@@ -34,6 +34,7 @@ import {
     interleaveBatches,
     runBoundedConcurrentBatch,
 } from '../services/retentionBatch.js';
+import { createHeapPressureGuard } from '../services/heapPressure.js';
 
 const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = Math.max(1, Math.trunc(config.RETENTION_BATCH_SIZE));
@@ -41,6 +42,16 @@ const REPAIR_BATCH_SIZE = Math.max(1, Math.trunc(config.RETENTION_REPAIR_BATCH_S
 const MAX_RUNTIME_MS = Math.max(30_000, Math.trunc(config.RETENTION_MAX_RUNTIME_MS));
 const SESSION_CONCURRENCY = Math.max(1, Math.trunc(config.RETENTION_SESSION_CONCURRENCY));
 const LOCK_HEARTBEAT_INTERVAL_MS = 30 * 1000;
+/**
+ * Share of the runtime still left at the start of a round that the expired
+ * purge and the repair pass may use. The rest is kept for the identity scrub,
+ * the visitor ledger expiry and deleted projects, which used to get whatever
+ * the purge left over: a full purge batch followed by one slow scrub batch
+ * filled a whole cycle, so identities were scrubbed 100 per run.
+ */
+const PURGE_BUDGET_SHARE = 0.6;
+/** Most identity-scrub batches one round will run before moving on. */
+const MAX_SCRUB_BATCHES_PER_ROUND = 10;
 const CACHE_SCAN_COUNT = 5_000;
 
 let isRunning = true;
@@ -65,6 +76,10 @@ type RetentionRunSummary = {
     purgedSessionsPerMinute: number;
     skippedReason?: string;
     error?: string;
+    /** Set when the heap guard ended purge and repair work early this cycle. */
+    stoppedForHeapPressure?: boolean;
+    /** Purge or repair phases that threw; the cycle is then recorded as failed. */
+    failedPhases?: string[];
 };
 
 function parseFlag(name: string): boolean {
@@ -189,18 +204,39 @@ async function collectExpiredSessionsReadyForPurge(
     };
 }
 
-async function processExpiredSessions(
-    runId: string,
-    trigger: string,
-    deadlineAtMs = Number.POSITIVE_INFINITY,
-): Promise<{
+type ExpiredSessionsResult = {
     processedCount: number;
     attemptedCount: number;
     failedCount: number;
     deletedObjectCount: number;
     deletedBytes: number;
     reachedProcessingCap: boolean;
-}> {
+};
+
+const NO_EXPIRED_SESSIONS_RESULT: ExpiredSessionsResult = {
+    processedCount: 0,
+    attemptedCount: 0,
+    failedCount: 0,
+    deletedObjectCount: 0,
+    deletedBytes: 0,
+    reachedProcessingCap: false,
+};
+
+const NO_REPAIR_RESULT = {
+    attempted: 0,
+    repaired: 0,
+    failed: 0,
+    deletedObjectCount: 0,
+    deletedBytes: 0,
+    reachedProcessingCap: false,
+};
+
+async function processExpiredSessions(
+    runId: string,
+    trigger: string,
+    deadlineAtMs = Number.POSITIVE_INFINITY,
+    shouldStop?: () => boolean,
+): Promise<ExpiredSessionsResult> {
     let processedCount = 0;
     let attemptedCount = 0;
     let failedCount = 0;
@@ -237,6 +273,7 @@ async function processExpiredSessions(
         {
             concurrency: SESSION_CONCURRENCY,
             deadlineAtMs,
+            shouldStop,
         },
         async (session) => {
             try {
@@ -303,6 +340,41 @@ async function processExpiredSessions(
         deletedBytes,
         reachedProcessingCap,
     };
+}
+
+/**
+ * Scrubs expired session identities batch after batch while the last batch was
+ * full, the cycle deadline has not passed and the per-round cap is not reached.
+ * reachedProcessingCap is true when it stopped with work possibly left,
+ * including when the deadline had already passed before the first batch.
+ */
+async function scrubExpiredIdentitiesForRound(
+    runId: string,
+    trigger: string,
+    deadlineAtMs: number,
+): Promise<{
+    scrubbed: number;
+    linkedRowsScrubbed: number;
+    reachedProcessingCap: boolean;
+    batches: number;
+}> {
+    let scrubbed = 0;
+    let linkedRowsScrubbed = 0;
+    let reachedProcessingCap = true;
+    let batches = 0;
+
+    while (batches < MAX_SCRUB_BATCHES_PER_ROUND && Date.now() < deadlineAtMs) {
+        const batchResult = await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE, { runId, trigger });
+        batches += 1;
+        scrubbed += batchResult.scrubbed;
+        linkedRowsScrubbed += batchResult.linkedRowsScrubbed;
+        reachedProcessingCap = batchResult.reachedProcessingCap;
+        if (!batchResult.reachedProcessingCap) {
+            break;
+        }
+    }
+
+    return { scrubbed, linkedRowsScrubbed, reachedProcessingCap, batches };
 }
 
 async function processDeletedProjects(): Promise<number> {
@@ -402,11 +474,39 @@ async function runRetentionCycle(options: {
     };
     const startedAtMs = Date.now();
 
+    // Backstop against running out of memory. An out-of-memory abort skips
+    // every finally block, so the run lock stays held and the phases after the
+    // purge never run. Stopping early instead lets the cycle end normally and
+    // leaves the unclaimed sessions for the next scheduled run.
+    const heapGuard = createHeapPressureGuard({
+        onPressure: (reading) => {
+            logger.warn({
+                runId: options.runId,
+                ...reading,
+            }, 'Retention cycle is close to the heap limit; finishing in-flight sessions and skipping further purge and repair work this cycle');
+        },
+    });
+
+    // The identity scrub, visitor ledger expiry and deleted-project processing
+    // must run even when purge or repair throws, so those two phases are caught
+    // here and the cycle is failed after the end-of-cycle bookkeeping instead.
+    const failedPhases: string[] = [];
+    const runIsolatedPhase = async <T>(phase: string, fallback: T, run: () => Promise<T>): Promise<T> => {
+        try {
+            return await run();
+        } catch (err) {
+            failedPhases.push(phase);
+            logger.error({ err, runId: options.runId, phase }, 'Retention phase failed; continuing with the remaining phases');
+            return fallback;
+        }
+    };
+
     try {
         await pruneExpiredActivityDays();
         const deadlineAtMs = startedAtMs + MAX_RUNTIME_MS;
         while (true) {
-            const runtimeMs = Date.now() - startedAtMs;
+            const roundStartedAtMs = Date.now();
+            const runtimeMs = roundStartedAtMs - startedAtMs;
             if (runtimeMs >= MAX_RUNTIME_MS) {
                 logger.warn({ runId: options.runId, runtimeMs, maxRuntimeMs: MAX_RUNTIME_MS }, 'Retention cycle reached runtime cap');
                 break;
@@ -414,8 +514,19 @@ async function runRetentionCycle(options: {
 
             const expiryTrigger = buildTriggerName(options.trigger, 'retention_expiry');
             const repairTrigger = buildTriggerName(options.trigger, 'retention_repair');
+            // Purge and repair stop claiming sessions at their share of what is
+            // left of the cycle; sessions already in flight still finish. The
+            // share is taken from the time remaining now, so a later round of
+            // a backlog drain purges again instead of finding the share spent.
+            const purgeDeadlineAtMs = roundStartedAtMs + PURGE_BUDGET_SHARE * (deadlineAtMs - roundStartedAtMs);
 
-            const expiredResult = await processExpiredSessions(options.runId, expiryTrigger, deadlineAtMs);
+            const expiredResult = heapGuard.shouldStop()
+                ? NO_EXPIRED_SESSIONS_RESULT
+                : await runIsolatedPhase(
+                    'expired_purge',
+                    NO_EXPIRED_SESSIONS_RESULT,
+                    () => processExpiredSessions(options.runId, expiryTrigger, purgeDeadlineAtMs, heapGuard.shouldStop),
+                );
             // The repair query is a legacy consistency backstop, not the normal
             // retention path. Run it once per cycle; repeating the same mostly-empty
             // scan on every backlog-drain round multiplies database work without
@@ -423,35 +534,28 @@ async function runRetentionCycle(options: {
             // loops until all repair candidates are exhausted.
             const shouldRunRepairPass = (
                 options.trigger === 'manual_backfill' || summary.rounds === 0
-            ) && Date.now() < deadlineAtMs;
+            ) && Date.now() < purgeDeadlineAtMs && !heapGuard.shouldStop();
             const repairResult = shouldRunRepairPass
-                ? await repairExpiredSessionArtifactsBatch(
-                    options.runId,
-                    REPAIR_BATCH_SIZE,
-                    repairTrigger,
-                    {
-                        concurrency: SESSION_CONCURRENCY,
-                        deadlineAtMs,
-                    },
+                ? await runIsolatedPhase(
+                    'expired_repair',
+                    NO_REPAIR_RESULT,
+                    () => repairExpiredSessionArtifactsBatch(
+                        options.runId,
+                        REPAIR_BATCH_SIZE,
+                        repairTrigger,
+                        {
+                            concurrency: SESSION_CONCURRENCY,
+                            deadlineAtMs: purgeDeadlineAtMs,
+                            shouldStop: heapGuard.shouldStop,
+                        },
+                    ),
                 )
-                : {
-                    attempted: 0,
-                    repaired: 0,
-                    failed: 0,
-                    deletedObjectCount: 0,
-                    deletedBytes: 0,
-                    reachedProcessingCap: false,
-                };
-            const identityScrubResult = Date.now() < deadlineAtMs
-                ? await scrubExpiredSessionIdentitiesBatch(BATCH_SIZE, {
-                    runId: options.runId,
-                    trigger: buildTriggerName(options.trigger, 'identity_scrub'),
-                })
-                : {
-                    scrubbed: 0,
-                    linkedRowsScrubbed: 0,
-                    reachedProcessingCap: true,
-                };
+                : NO_REPAIR_RESULT;
+            const identityScrubResult = await scrubExpiredIdentitiesForRound(
+                options.runId,
+                buildTriggerName(options.trigger, 'identity_scrub'),
+                deadlineAtMs,
+            );
             // Visitor ledger rows expire on their own sliding window, which is never
             // shorter than the session retention, so this always runs after the scrub.
             const ledgerResult = Date.now() < deadlineAtMs
@@ -498,6 +602,12 @@ async function runRetentionCycle(options: {
                 break;
             }
 
+            if (failedPhases.length > 0 || heapGuard.tripped) {
+                // The rest of this round has already run. Another round would
+                // only repeat a failing phase or add to a nearly full heap.
+                break;
+            }
+
             if (!options.drainBacklog || !madeProgress || !maybeMoreWork) {
                 break;
             }
@@ -512,6 +622,15 @@ async function runRetentionCycle(options: {
         summary.purgedSessionsPerMinute = summary.durationMs > 0
             ? Math.round((totalPurgedSessions / summary.durationMs) * 60_000 * 100) / 100
             : 0;
+        if (heapGuard.tripped) {
+            summary.stoppedForHeapPressure = true;
+        }
+        if (failedPhases.length > 0) {
+            // Handled by the catch below: heartbeat records "failed", the
+            // worker pings down, and the process exits non-zero.
+            summary.failedPhases = [...failedPhases];
+            throw new Error(`Retention phases failed: ${failedPhases.join(', ')}`);
+        }
         await writeRetentionHeartbeat(summary);
         const extraMetrics: WorkerMetric[] = [
             {

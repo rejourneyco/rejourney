@@ -1,19 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    and: vi.fn((...conditions: unknown[]) => ({ and: conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
     exists: vi.fn((query) => ({ exists: query })),
+    inArray: vi.fn((column, values) => ({ column, values })),
     sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => strings.reduce(
         (acc, chunk, index) => acc + chunk + (index < values.length ? String(values[index]) : ''),
         '',
     )),
     db: {
         select: vi.fn(),
+        execute: vi.fn(),
         transaction: vi.fn(),
     },
     recordingArtifacts: {
         id: 'recording_artifacts.id',
         sessionId: 'recording_artifacts.session_id',
+        kind: 'recording_artifacts.kind',
+        s3ObjectKey: 'recording_artifacts.s3_object_key',
+        endpointId: 'recording_artifacts.endpoint_id',
+        sizeBytes: 'recording_artifacts.size_bytes',
+        declaredSizeBytes: 'recording_artifacts.declared_size_bytes',
+        toString: () => 'recording_artifacts',
     } as any,
     sessionMetrics: { sessionId: 'session_metrics.session_id' } as any,
     sessions: { id: 'sessions.id' } as any,
@@ -36,8 +45,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
+    and: mocks.and,
     eq: mocks.eq,
     exists: mocks.exists,
+    inArray: mocks.inArray,
     sql: mocks.sql,
 }));
 
@@ -93,12 +104,80 @@ function createSessionSelectResult(sessionResult: any) {
     };
 }
 
-function createSimpleSelectResult(rows: any[]) {
+const CANONICAL_PREFIX = 'tenant/team_1/project/project_1/sessions/session_1/';
+
+type ArtifactFixture = {
+    id: string;
+    kind: string;
+    s3ObjectKey: string;
+    endpointId: string | null;
+    sizeBytes: number | null;
+    declaredSizeBytes: number | null;
+};
+
+/**
+ * The aggregate the purge reads instead of the artifact rows: one row holding
+ * the count, the byte total, the distinct endpoint ids and how many keys sit
+ * outside the canonical prefix. Numbers are strings because that is how
+ * node-postgres returns bigint.
+ */
+function createArtifactTotalsSelectResult(artifacts: ArtifactFixture[]) {
+    const endpointIds = Array.from(new Set(artifacts.map((artifact) => artifact.endpointId)));
     return {
         from: vi.fn(() => ({
-            where: vi.fn(async () => rows),
+            where: vi.fn(async () => [{
+                artifactCount: String(artifacts.length),
+                artifactBytes: String(artifacts.reduce(
+                    (total, artifact) => total + (artifact.sizeBytes ?? artifact.declaredSizeBytes ?? 0),
+                    0,
+                )),
+                endpointIds: artifacts.length > 0 ? endpointIds : null,
+                misplacedArtifactCount: String(artifacts
+                    .filter((artifact) => !artifact.s3ObjectKey.startsWith(CANONICAL_PREFIX)).length),
+            }]),
         })),
     };
+}
+
+/** The bounded read of misplaced artifacts; only issued when the aggregate counted some. */
+function createInvalidArtifactSelectResult(artifacts: ArtifactFixture[]) {
+    return {
+        from: vi.fn(() => ({
+            where: vi.fn(() => ({
+                limit: vi.fn(async (limit: number) => artifacts
+                    .filter((artifact) => !artifact.s3ObjectKey.startsWith(CANONICAL_PREFIX))
+                    .slice(0, limit)
+                    .map((artifact) => ({
+                        artifactId: artifact.id,
+                        kind: artifact.kind,
+                        s3ObjectKey: artifact.s3ObjectKey,
+                        endpointId: artifact.endpointId,
+                    }))),
+            })),
+        })),
+    };
+}
+
+function mockArtifactQueries(sessionResult: any, artifacts: ArtifactFixture[]) {
+    mocks.db.select
+        .mockReset()
+        .mockImplementationOnce(() => createSessionSelectResult(sessionResult))
+        .mockImplementationOnce(() => createArtifactTotalsSelectResult(artifacts))
+        .mockImplementationOnce(() => createInvalidArtifactSelectResult(artifacts));
+
+    // Batched row delete: each statement removes at most its LIMIT and reports
+    // how many rows went, never the rows themselves.
+    let remainingRows = artifacts.length;
+    mocks.db.execute.mockReset().mockImplementation(async (statement: unknown) => {
+        const text = String(statement);
+        const limit = Number(/LIMIT (\d+)/.exec(text)?.[1]);
+        if (!text.includes('DELETE FROM recording_artifacts') || !Number.isInteger(limit)) {
+            throw new Error(`Unexpected statement: ${text}`);
+        }
+        const deleted = Math.min(remainingRows, limit);
+        remainingRows -= deleted;
+        return { rows: [{ deleted }] };
+    });
 }
 
 describe('sessionArtifactPurge', () => {
@@ -144,9 +223,7 @@ describe('sessionArtifactPurge', () => {
             },
         ];
 
-        mocks.db.select
-            .mockImplementationOnce(() => createSessionSelectResult(sessionResult))
-            .mockImplementationOnce(() => createSimpleSelectResult(artifacts));
+        mockArtifactQueries(sessionResult, artifacts);
 
         mocks.db.transaction.mockImplementation(async (callback: (client: any) => Promise<void>) => callback(tx));
 
@@ -155,16 +232,9 @@ describe('sessionArtifactPurge', () => {
         const executedStatements: unknown[] = [];
 
         tx = {
-            delete: vi.fn((table: unknown) => {
-                if (table === mocks.recordingArtifacts) {
-                    return {
-                        where: vi.fn(() => ({
-                            returning: vi.fn(async () => artifacts),
-                        })),
-                    };
-                }
-
-                throw new Error('Unexpected delete table');
+            // Artifact rows are no longer deleted inside the flag transaction.
+            delete: vi.fn(() => {
+                throw new Error('Unexpected delete inside the flag transaction');
             }),
             update: vi.fn((table: unknown) => {
                 if (table === mocks.sessionMetrics) {
@@ -283,6 +353,21 @@ describe('sessionArtifactPurge', () => {
             storageMissing: false,
         });
 
+        // Session row plus one aggregate; with no misplaced keys there is no
+        // second pass over the session's artifacts.
+        expect(mocks.db.select).toHaveBeenCalledTimes(2);
+        // One batch removes the three rows, the next finds none and ends the loop.
+        expect(mocks.db.execute).toHaveBeenCalledTimes(2);
+        expect(String(mocks.db.execute.mock.calls[0][0])).toContain('LIMIT 5000');
+        expect(String(mocks.db.execute.mock.calls[0][0])).toContain('recording_artifacts.session_id = session_1');
+        expect(tx.delete).not.toHaveBeenCalled();
+        // Storage first, then rows, then the session flags.
+        const lastStorageCall = Math.max(...mocks.deletePrefixFromStorageEndpoints.mock.invocationCallOrder);
+        const rowDeleteCalls = mocks.db.execute.mock.invocationCallOrder;
+        const flagTransactionCall = mocks.db.transaction.mock.invocationCallOrder[0];
+        expect(lastStorageCall).toBeLessThan(Math.min(...rowDeleteCalls));
+        expect(Math.max(...rowDeleteCalls)).toBeLessThan(flagTransactionCall);
+
         expect(mocks.resolveRetentionDeletionEndpoints).toHaveBeenCalledTimes(1);
         expect(mocks.resolveRetentionDeletionEndpoints).toHaveBeenCalledWith(
             'project_1',
@@ -328,6 +413,13 @@ describe('sessionArtifactPurge', () => {
         expect(mocks.mockRedis.scan).not.toHaveBeenCalled();
 
         expect(mocks.beginRetentionDeletionLog).toHaveBeenCalledTimes(1);
+        expect(mocks.beginRetentionDeletionLog).toHaveBeenCalledWith(expect.objectContaining({
+            scope: 'session_purge',
+            sessionId: 'session_1',
+            storagePrefix: CANONICAL_PREFIX,
+            plannedArtifactRowCount: 3,
+            plannedArtifactBytes: 505,
+        }));
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
@@ -337,6 +429,8 @@ describe('sessionArtifactPurge', () => {
                 deletedObjectCount: 5,
                 deletedBytes: 1140,
                 details: expect.objectContaining({
+                    invalidArtifacts: [],
+                    invalidArtifactsTruncated: false,
                     derivedStoragePrefix: 'sessions/session_1/',
                     derivedDeletedObjectCount: 2,
                     derivedDeletedBytes: 240,
@@ -360,7 +454,9 @@ describe('sessionArtifactPurge', () => {
         });
 
         expect(result.storageMissing).toBe(true);
-        expect(tx.delete).toHaveBeenCalledTimes(1);
+        expect(result.deletedArtifactCount).toBe(3);
+        expect(mocks.db.execute).toHaveBeenCalledTimes(2);
+        expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
@@ -384,7 +480,9 @@ describe('sessionArtifactPurge', () => {
             failOnMissingStorage: true,
         })).rejects.toThrow('Canonical storage missing for session session_1');
 
-        expect(tx.delete).not.toHaveBeenCalled();
+        // Failing closed leaves the rows and the session flags untouched.
+        expect(mocks.db.execute).not.toHaveBeenCalled();
+        expect(mocks.db.transaction).not.toHaveBeenCalled();
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
@@ -409,7 +507,9 @@ describe('sessionArtifactPurge', () => {
         });
 
         expect(result.storageMissing).toBe(true);
-        expect(tx.delete).toHaveBeenCalledTimes(1);
+        expect(result.deletedArtifactCount).toBe(3);
+        expect(mocks.db.execute).toHaveBeenCalledTimes(2);
+        expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
@@ -429,19 +529,15 @@ describe('sessionArtifactPurge', () => {
             declaredSizeBytes: null,
         };
 
-        mocks.db.select
-            .mockReset()
-            .mockImplementationOnce(() => createSessionSelectResult({
-                sessionId: 'session_1',
-                projectId: 'project_1',
-                teamId: 'team_1',
-                retentionTier: 2,
-                retentionDays: 30,
-                recordingDeleted: false,
-                isReplayExpired: false,
-            }))
-            .mockImplementationOnce(() => createSimpleSelectResult([nonCanonicalArtifact]))
-            .mockImplementationOnce(() => createSimpleSelectResult([{ id: 'job_1' }]));
+        mockArtifactQueries({
+            sessionId: 'session_1',
+            projectId: 'project_1',
+            teamId: 'team_1',
+            retentionTier: 2,
+            retentionDays: 30,
+            recordingDeleted: false,
+            isReplayExpired: false,
+        }, [nonCanonicalArtifact]);
 
         mocks.deletePrefixFromStorageEndpoints.mockResolvedValueOnce({
             prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
@@ -473,6 +569,10 @@ describe('sessionArtifactPurge', () => {
 
         expect(result.deletedObjectCount).toBe(3);
         expect(result.deletedBytes).toBe(295);
+        expect(result.deletedArtifactCount).toBe(1);
+        // The aggregate counted a misplaced key, so the page query ran too.
+        expect(mocks.db.select).toHaveBeenCalledTimes(3);
+        expect(mocks.resolveRetentionDeletionEndpoints).toHaveBeenCalledWith('project_1', ['endpoint_9']);
         expect(mocks.deleteObjectsFromStorageEndpoints).toHaveBeenCalledWith(
             ['tenant/team_1/project/project_1/misplaced/session_1/events.json.gz'],
             expect.any(Array),
@@ -482,6 +582,13 @@ describe('sessionArtifactPurge', () => {
             expect.objectContaining({
                 status: 'completed',
                 details: expect.objectContaining({
+                    invalidArtifacts: [{
+                        artifactId: 'artifact_rogue',
+                        kind: 'events',
+                        s3ObjectKey: 'tenant/team_1/project/project_1/misplaced/session_1/events.json.gz',
+                        endpointId: 'endpoint_9',
+                    }],
+                    invalidArtifactsTruncated: false,
                     invalidArtifactDeletedObjectCount: 1,
                 }),
             }),
