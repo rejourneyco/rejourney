@@ -68,6 +68,53 @@ namespace RejourneySDK
 #elif UNITY_ANDROID && !UNITY_EDITOR
         AndroidJavaClass bridge;
         AndroidJavaObject activity;
+        // AndroidJavaClass.CallStatic builds the signature and looks the method up through
+        // Java reflection on every call, boxes its arguments, and logs two warnings for each
+        // byte[] it is given, which here means every frame. The three bridge methods are
+        // resolved once and called through JNI directly.
+        IntPtr bridgeClass, requestMethod, pollMethod, frameMethod;
+        readonly jvalue[] requestArguments = new jvalue[2], frameArguments = new jvalue[3], noArguments = new jvalue[0];
+        bool direct;
+        static IntPtr Method(IntPtr type, string name, string signature)
+        {
+            IntPtr method = IntPtr.Zero;
+            try { method = AndroidJNI.GetStaticMethodID(type, name, signature); } catch { }
+            ClearJavaException();
+            return method;
+        }
+        static bool ClearJavaException()
+        {
+            IntPtr pending = AndroidJNI.ExceptionOccurred();
+            if (pending == IntPtr.Zero) return false;
+            AndroidJNI.ExceptionClear(); AndroidJNI.DeleteLocalRef(pending);
+            return true;
+        }
+        void SendRequest(string json)
+        {
+            if (!direct) { bridge.CallStatic("request", activity, json); return; }
+            IntPtr text = AndroidJNI.NewString(json);
+            try {
+                requestArguments[0].l = activity.GetRawObject(); requestArguments[1].l = text;
+                AndroidJNI.CallStaticVoidMethod(bridgeClass, requestMethod, requestArguments);
+                if (ClearJavaException()) throw new InvalidOperationException("Rejourney native request failed.");
+            } finally { AndroidJNI.DeleteLocalRef(text); }
+        }
+        string ReceiveResponse()
+        {
+            if (!direct) return bridge.CallStatic<string>("poll");
+            string json = AndroidJNI.CallStaticStringMethod(bridgeClass, pollMethod, noArguments);
+            return ClearJavaException() ? null : json;
+        }
+        void SendFrame(byte[] bytes, string session, long timestamp)
+        {
+            if (!direct) { bridge.CallStatic("frame", bytes, session, timestamp); return; }
+            IntPtr array = AndroidJNI.ToByteArray(bytes), text = AndroidJNI.NewString(session);
+            try {
+                frameArguments[0].l = array; frameArguments[1].l = text; frameArguments[2].j = timestamp;
+                AndroidJNI.CallStaticVoidMethod(bridgeClass, frameMethod, frameArguments);
+                ClearJavaException();
+            } finally { AndroidJNI.DeleteLocalRef(array); AndroidJNI.DeleteLocalRef(text); }
+        }
 #endif
         internal NativeBridge()
         {
@@ -75,6 +122,11 @@ namespace RejourneySDK
             bridge = new AndroidJavaClass("com.rejourney.RejourneyUnity");
             using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            bridgeClass = bridge.GetRawClass();
+            requestMethod = Method(bridgeClass, "request", "(Landroid/app/Activity;Ljava/lang/String;)V");
+            pollMethod = Method(bridgeClass, "poll", "()Ljava/lang/String;");
+            frameMethod = Method(bridgeClass, "frame", "([BLjava/lang/String;J)V");
+            direct = requestMethod != IntPtr.Zero && pollMethod != IntPtr.Zero && frameMethod != IntPtr.Zero;
 #endif
         }
         public Task<JObject> Request(string command, object payload = null)
@@ -95,8 +147,11 @@ namespace RejourneySDK
                 return source.Completion.Task;
             }
         }
+        // Commands without a payload (the status poll, once a second) and pre-serialized
+        // payloads are written directly; only real payload objects go through the serializer.
         internal static string Serialize(int id, string command, object payload) => payload is RawJson raw
             ? "{\"id\":" + id + ",\"command\":" + JsonConvert.ToString(command) + ",\"payload\":" + raw.Json + "}"
+            : payload == null ? "{\"id\":" + id + ",\"command\":" + JsonConvert.ToString(command) + ",\"payload\":null}"
             : SdkJson.Serialize(new { id, command, payload });
         public void Poll()
         {
@@ -111,7 +166,7 @@ namespace RejourneySDK
 #if UNITY_IOS && !UNITY_EDITOR
                     rj_unity_request(request.Item2);
 #elif UNITY_ANDROID && !UNITY_EDITOR
-                    bridge.CallStatic("request", activity, request.Item2);
+                    SendRequest(request.Item2);
 #endif
                 } catch (Exception error) { lock (gate) { if (pending.TryGetValue(request.Item1, out var item)) { pending.Remove(request.Item1); item.Completion.TrySetException(error); } } }
             }
@@ -121,7 +176,7 @@ namespace RejourneySDK
                 var ptr = rj_unity_poll();
                 if (ptr != IntPtr.Zero) { try { json = Marshal.PtrToStringAnsi(ptr); } finally { rj_unity_free(ptr); } }
 #elif UNITY_ANDROID && !UNITY_EDITOR
-                json = bridge.CallStatic<string>("poll");
+                json = ReceiveResponse();
 #endif
                 if (string.IsNullOrEmpty(json)) break;
                 try {
@@ -146,7 +201,7 @@ namespace RejourneySDK
 #if UNITY_IOS && !UNITY_EDITOR
             rj_unity_frame(bytes, bytes.Length, session, timestamp);
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            bridge.CallStatic("frame", bytes, session, timestamp);
+            SendFrame(bytes, session, timestamp);
 #endif
         }
         public void Dispose()

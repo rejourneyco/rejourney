@@ -13,8 +13,10 @@ namespace RejourneySDK
     internal interface IRejourneyFrameSource
     {
         string Name { get; }
-        /// <summary>True when the active render pipeline is the one this source drives.</summary>
+        /// <summary>True when the active render pipeline is the one this source drives and it can capture.</summary>
         bool Available { get; }
+        /// <summary>Why the source cannot capture in this project's configuration; null when it can.</summary>
+        string Unavailable { get; }
         /// <summary>Arms one capture into <paramref name="target"/> during the next rendered frame.</summary>
         bool Request(RenderTexture target);
         /// <summary>Ready once the frame that filled the target has been submitted.</summary>
@@ -48,6 +50,12 @@ namespace RejourneySDK
     internal static class FrameSources
     {
         internal static IRejourneyFrameSource Current { get; private set; }
-        internal static void Register(IRejourneyFrameSource source) => Current = source;
+        // A source registers on every play-mode entry. With domain reload off the previous
+        // one is still subscribed to the render pipeline, so it is released first.
+        internal static void Register(IRejourneyFrameSource source)
+        {
+            if (!ReferenceEquals(Current, source)) (Current as System.IDisposable)?.Dispose();
+            Current = source;
+        }
     }
 }

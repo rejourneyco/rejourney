@@ -56,7 +56,14 @@ object RejourneyUnity {
                         TelemetryPipeline.shared?.setExternalRuntimeMetadata(payload.optJSONObject("runtime")?.asMap() ?: emptyMap())
                         reply(id, mapOf("success" to true))
                     }
-                    "start" -> native.start { if (it["success"] == true && StabilityMonitor.shared?.isMonitoring == true) UnityCrashMarker.bind(it["sessionId"] as? String); reply(id, status() + it) }
+                    "start" -> {
+                        val begin = { native.start { if (it["success"] == true && StabilityMonitor.shared?.isMonitoring == true) UnityCrashMarker.bind(it["sessionId"] as? String); reply(id, status() + it) } }
+                        // A session the orchestrator ended by itself (the project's recording-time
+                        // limit) leaves the controller holding its id, and start would hand that
+                        // ended session back. Clear it first so a new session really starts.
+                        val stale = native.currentSessionId()
+                        if (stale != null && stale != ReplayOrchestrator.shared?.replayId) native.stop { begin() } else begin()
+                    }
                     "status" -> reply(id, status())
                     "stop" -> afterPendingFrames { native.stop { result ->
                         UnityCrashMarker.bind(null)
@@ -98,8 +105,14 @@ object RejourneyUnity {
             } catch (error: Exception) { reply(id, mapOf("success" to false, "error" to error.javaClass.simpleName)) }
         }
     }
+    /**
+     * The session the orchestrator is running right now. The controller keeps the id of a
+     * session that ended by itself, and events and frames sent to it are discarded, so
+     * only a session the orchestrator still owns counts as live.
+     */
+    private fun liveSessionId(): String? = controller?.currentSessionId()?.takeIf { it == ReplayOrchestrator.shared?.replayId }
     private fun status(): Map<String, Any?> = mapOf(
-        "success" to (controller?.currentSessionId() != null), "sessionId" to controller?.currentSessionId(),
+        "success" to (liveSessionId() != null), "sessionId" to liveSessionId(),
         "telemetryOnly" to (ReplayOrchestrator.shared?.visualCaptureEnabled != true),
         "fps" to (1.0 / (VisualCapture.shared?.snapshotInterval ?: 1.0)).toInt().coerceIn(1, 3),
         "maskTextInputs" to (ReplayOrchestrator.shared?.maskTextInputsByDefault ?: true),

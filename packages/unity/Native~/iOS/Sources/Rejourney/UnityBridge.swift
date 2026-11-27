@@ -60,6 +60,12 @@ public func rjUnityRequest(_ pointer: UnsafePointer<CChar>?) {
             TelemetryPipeline.shared.setExternalRuntimeMetadata(payload["runtime"] as? [String: Any] ?? [:])
             reply(id, ["success": true])
         case "start":
+            // A session the orchestrator ended by itself (the project's recording-time
+            // limit) leaves the controller holding its id, and start would hand that
+            // ended session back. Clear it first so a new session really starts.
+            if let stale = Rejourney.currentSessionId, !stale.isEmpty, ReplayOrchestrator.shared.replayId != stale {
+                _ = await Rejourney.stop()
+            }
             let result = await Rejourney.start()
             var status = unityStatus(); status["success"] = result.success; status["error"] = result.error
             reply(id, status)
@@ -114,8 +120,16 @@ public func rjUnityRequest(_ pointer: UnsafePointer<CChar>?) {
         }
     }
 }
+/// The session the orchestrator is running right now. The controller keeps the id of a
+/// session that ended by itself, and events and frames sent to it are discarded, so
+/// only a session the orchestrator still owns counts as live.
+@MainActor private func liveSessionId() -> String? {
+    guard let id = Rejourney.currentSessionId, !id.isEmpty, ReplayOrchestrator.shared.replayId == id else { return nil }
+    return id
+}
 @MainActor private func unityStatus() -> [String: Any] {
-    ["success": Rejourney.currentSessionId != nil, "sessionId": Rejourney.currentSessionId ?? "",
+    let session = liveSessionId()
+    return ["success": session != nil, "sessionId": session ?? "",
      "telemetryOnly": !ReplayOrchestrator.shared.visualCaptureEnabled,
      "fps": max(1, min(3, Int((1 / max(0.01, VisualCapture.shared.snapshotInterval)).rounded()))),
      "maskTextInputs": ReplayOrchestrator.shared.maskTextInputsByDefault,

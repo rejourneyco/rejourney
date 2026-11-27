@@ -2,7 +2,7 @@
 
 ## Install and configure
 
-Install `co.rejourney.unity-0.1.2.tgz` through UPM. The archive includes an iOS
+Install `co.rejourney.unity-0.1.3.tgz` through UPM. The archive includes an iOS
 XCFramework and Android AAR. UPM resolves Newtonsoft JSON and Mono.Cecil. Keep
 `Rejourney.Runtime` in assemblies that call the public API. Optional uGUI and
 Input System assemblies activate through package version defines; remove their
@@ -54,7 +54,14 @@ loop resumes, with the full stall duration and the screen. Native crashes are
 recorded by the native layer's async-signal-safe marker, uploaded to
 `/api/ingest/fault` when the next session starts, and the crashed session is closed
 at its last activity. Errors, hangs and crashes are timestamped with the wall clock
-like every other event.
+like every other event. On iOS the fatal-signal handler calls the previously installed
+handler directly, with the original signal information, so another crash reporter
+(Crashlytics, for example) records the same crash it would record alone.
+
+When the project's recording-time limit ends a session while the game runs on, the
+native bridge reports that no session is live and the SDK starts the next one
+(`ContinueAfterSessionLimit`, on by default; `SdkHealth.SessionsContinued`). Without
+it nothing more is reported until `StartAsync` is called again.
 
 Mark gameplay with `StartGameplay(name, properties)` and
 `EndGameplay(outcome, properties)`, or `using (Rejourney.Gameplay(name))`, which
@@ -117,6 +124,16 @@ registered targets. They omit arbitrary scene text. GPU and encode queues have
 one job in flight; native frame and hierarchy delivery each have one pending
 job. Backpressure drops are separate from capture failures. A synchronous
 readback fallback is limited to 480 pixels and reported as degraded.
+
+Frames normally come from the screen (`ScreenCapture`). An iOS build with Player
+Settings > iOS > "Metal Write-Only Backbuffer" cannot read the screen, so a URP
+project is captured inside the render pipeline instead: the camera image after
+post-processing plus the Screen Space - Overlay UI (uGUI and UI Toolkit). `OnGUI`
+drawing is not part of that capture. A Tile-Only URP renderer and the built-in
+pipeline have no readable source with that setting, so their frames are skipped;
+`Rejourney.Health.CaptureSource` is then `unreadable`, `CaptureUnavailableReason`
+says why, and the rest of the session (events, errors, hangs, crashes) is still
+collected. Turn the setting off to capture those projects from the screen.
 
 Pause around system keyboards, payment/ad/native plugin overlays, and other
 surfaces outside Unity's rendered frame. XR and arbitrary native overlays are

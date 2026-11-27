@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "ios": {
-    "sourceSha256": "318ee970fbd82ef815011d7eec55b51494bb8f5616c398242744a55ec45a33b2",
-    "artifactSha256": "d4b9ed54e5c7cc0b3a801a2231598bdb06083d5b3cae21e0452d376d9100a3cd"
+    "sourceSha256": "3fcb91ffb2854a3f9e658d1c11c2da7246fe563dc57dbf86eb39d202cea63fab",
+    "artifactSha256": "72ddf6fc51c94db6db16120a92114fc6029d194e92c379eaefa3a68cb83383ca"
   },
   "android": {
-    "sourceSha256": "5fbccd3ff98e168de936da50a8aba944d64706f56623aa868a57083b814f4e66",
-    "artifactSha256": "dde3f5af7278e3d6ecefcb7069ea47674f60d7475a482910dde3e4292d79ad6a"
+    "sourceSha256": "69fbeb7d4542a9c8331d4dc31e222375293676c869845310f8e9c5e3e9e79405",
+    "artifactSha256": "9d5a27a718752f71370ac924679b59f72d6e486fe41b4e2dd737ecdaa3b64a85"
   }
 }

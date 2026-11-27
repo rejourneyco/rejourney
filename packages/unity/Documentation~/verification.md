@@ -2,6 +2,90 @@
 
 What was tested for each release, and what each run showed.
 
+## 0.1.3: capture matrix, recording-time limit, crash-reporter coexistence
+
+Unity 6000.6.10f1, URP 17.6. The lab is `examples/unity-capture-matrix`; its scripts are
+in `scripts/test-matrix/unity-capture`.
+
+### What production showed
+
+| Check | Observed |
+|---|---|
+| Frames of about 1,000 stored sessions of one URP game, sampled across 12 app versions and both platforms, each tested for orientation | Upside down only on iOS in the one app version that turned MSAA on at runtime: 24 of 28 sessions of that version, none of 301 iOS sessions on the two later versions (MSAA off again), none of 360 Android (Vulkan, pre-rotation) sessions. iOS builds of that game use "Metal Write-Only Backbuffer", so they capture inside URP |
+| Sessions that reached the 600-second recording-time limit | 3,944 of 156,982 for the same game, although it restarts its session every 540 seconds itself |
+| Crashes stored for Unity projects | None for games in production; the largest had `CaptureCrashes` off because it also runs Crashlytics |
+
+### Capture matrix
+
+Each configuration renders fixed markers (camera-rendered quads, overlay UI, a masked
+box, an overlay camera's box) and checks one captured frame for orientation, masking,
+scale and position (samples just either side of every boundary) and completeness. While a capture runs, the real back buffer is read at the end of every
+frame, as a game's own screenshot would be, and must show the same picture.
+
+| Lane | 0.1.2 | 0.1.3 |
+|---|---|---|
+| macOS player, Metal, Linear: 316 configurations (default renderer run before the fix: 76) | `ScreenCapture` path 38/38. In-pipeline path 0/38: camera image upside down in every configuration, and with MSAA 4, no HDR, no post-processing the UI and its masks were upside down too, leaving the masked box readable. Tile-Only renderer: a render graph exception at every capture | 316/316 |
+| macOS player, Metal, Gamma | not run | 316/316 |
+| iOS 26.5 simulator, Metal, IL2CPP high stripping, real native bridge, all four orientations: 358 configurations | not run | 358/358 |
+| Same run in the cloud: every stored frame downloaded and checked | not run | 246 frames, all upright and masked |
+| Android 17 emulator, Vulkan, IL2CPP ARM64, GameActivity, real native bridge: 358 configurations | not run (the emulator crashed in earlier releases) | 358/358, and all 279 stored frames upright and masked |
+| Android emulator, Vulkan with pre-rotation (`vulkanEnablePreTransform`) | not run | 358/358 |
+| Android emulator, GLES3 (software renderer: ANGLE, OpenGL ES 3.1), default renderer, both capture paths, four orientations | not run | Every frame upright and masked. Only these 21 configurations were run there; the renderer draws about one frame a second. On a rotation that changes the screen's dimensions the engine logs two render-pass errors, with the SDK paused as well |
+| EditMode suite | 63/63 | 68/68 |
+
+The matrix covers: both capture paths; URP default, intermediate-texture-always,
+Tile-Only and 2D renderers and the built-in pipeline; MSAA 1/2/4; HDR; render scale 1 and
+0.8; post-processing with and without FXAA; camera stacking; depth and opaque textures;
+dynamic resolution; on-demand rendering every fourth iteration. A write-only back buffer
+with the built-in pipeline or a Tile-Only renderer has no readable source: those
+configurations pass when their frames are skipped with a reason and nothing is logged.
+
+Not covered: physical devices (the frames above come from a simulator and an emulator;
+the production game draws its menus entirely as overlay UI, so its stored frames show
+the UI's orientation on phones but not the camera image's),
+HDR display output, XR and AR camera backgrounds, split-screen with several base cameras,
+and `OnGUI` drawing in the in-pipeline path, which is not captured.
+
+### Sessions, errors and crashes (iOS 26.5 simulator, cloud)
+
+| Check | Observed |
+|---|---|
+| `abort` and a write to address 16, while recording | Stored as SIGABRT and SIGSEGV crashes on the crashed session when the next session started |
+| `abort` while paused, and after `StopAsync` then `StartAsync` | Stored on the paused session and on the second session |
+| Unhandled exception on a managed thread | The player survives; stored as an unhandled error |
+| Stand-in crash reporter installed before Rejourney, then a write to address 16 | The reporter received signal 11, code 2, address 0x10 on the main thread, and Rejourney stored the crash. Installed after Rejourney: the same. With `abort`: signal 6 on the main thread |
+| Recording-time limit, 0.1.2 | At 600 seconds the session ended in the cloud while `State` stayed `Recording`. An error logged and an `abort` 50 seconds later were not stored |
+| Recording-time limit, 0.1.3 | A new session started 6 seconds after the limit and `State` never left `Recording`. The error and the `abort` 45 seconds later are stored on the new session |
+| Recording-time limit while paused | The new session started paused (`SessionsContinued` 1, `State` `Paused` throughout), `ResumeAsync` returned it to `Recording`, and the later error and crash were stored |
+
+### Sessions, errors and crashes (Android 17 emulator, cloud)
+
+| Check | Observed |
+|---|---|
+| `abort` and a write to address 16, while recording, while paused, and after `StopAsync` then `StartAsync` | Each stored as a crash on the crashed session when the next session started, from the system's exit record (`REASON_CRASH_NATIVE`, no stack) |
+| Exception thrown in a callback on the Android main thread, and on a managed thread | The player survives; stored as unhandled errors |
+| Recording-time limit | New session 7 seconds after the limit, `SessionsContinued` 1, `State` `Recording` throughout. An error and an `abort` a minute later are stored on the new session |
+| Warnings per frame handed to Java | 0.1.2 development build: two `AndroidJNIHelper` warnings for every frame. 0.1.3: none |
+
+### Performance and memory
+
+The lab's `--perf` mode runs one scene (400 moving quads, 24 UI labels, the markers) for
+15 seconds per case and compares each case with the same scene without a session.
+Simulator and emulator figures are relative; the device figures come from production.
+
+| Check | Observed |
+|---|---|
+| Phones in production (0.1.2, one URP game, 1 FPS replay): 119,000 five-second frame-time samples from device models seen both with replay and telemetry-only (163 Android, 44 iOS) | No difference. Android: median 59.6 FPS and p95 16.72 ms with replay, 59.5 FPS and 16.73 ms without. iOS: 59.4 FPS and 17.28 ms with, 59.6 FPS and 17.24 ms without. Long frames per sample 1.08 and 1.03 with replay, 1.15 and 1.39 without |
+| Frame times, macOS player and iOS 26.5 simulator, every case | p50, p95 and p99 within noise of the SDK-off run (16.67 / 17.6 ms at 60 FPS) |
+| SDK time on the main thread, macOS player (Mono) | Telemetry only 1.1-1.4 ms per second; replay 1.4 (1 FPS) and 2.1 (3 FPS) from the screen, 1.8 and 2.8 inside URP |
+| The same, iOS simulator (IL2CPP debug configuration), loopback and native bridge | 2.5 telemetry only; 3.1-4.6 with replay; 3.6-4.6 through the native bridge |
+| Managed allocations, macOS development player, over the SDK-off scene | Telemetry only 6 KB/s. Replay adds the JPEG handed to native for each frame (24 KB here) plus about 2 KB: 32 KB/s at 1 FPS, 83 KB/s at 3 FPS |
+| 60 logs and 10 events a second, replay at 3 FPS | Before: 7.5 ms/s on the main thread and 700 KB/s of allocations beyond the same calls made without a session. After coalescing hand-overs to native: 3.8 ms/s and 165 KB/s. Native bridge on the simulator: 18 ms/s |
+| Memory while recording | macOS at 1280 x 720: 5.5 MB of textures and 2.7 MB managed. iOS simulator at 1206 x 2622: 13.6 MB of textures from the screen; inside URP up to 44 MB while the pipeline's intermediate and depth textures for the capture frame are pooled |
+| Memory after capture stops | Textures and the readback buffer released within five seconds; graphics memory back at the SDK-off figure |
+| Android emulator | At 1 FPS within noise of SDK-off. At 3 FPS the emulated GPU stalls on every readback and the frame rate collapses; phones in production show no such effect at 1 FPS, and 3 FPS on a phone has not been measured |
+
+
 ## 0.1.1: write-only Metal back buffer
 
 | Gate | Observed result |

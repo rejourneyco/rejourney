@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "co.rejourney.unity": "file:../../../packages/unity",
+    "com.unity.ugui": "2.6.0",
+    "com.unity.inputsystem": "1.20.1",
+    "com.unity.render-pipelines.universal": "17.6.0",
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.modules.androidjni": "1.0.0",
+    "com.unity.modules.screencapture": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0"
+  }
+}

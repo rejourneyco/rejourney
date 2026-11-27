@@ -4,3 +4,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Rejourney.URP")]
 [assembly: InternalsVisibleTo("Rejourney.Editor")]
 [assembly: InternalsVisibleTo("Rejourney.Tests")]
+[assembly: InternalsVisibleTo("Rejourney.Lab")]

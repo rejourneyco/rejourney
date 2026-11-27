@@ -37,15 +37,40 @@ namespace RejourneySDK
         int sentWidth, sentHeight;
         double sentHierarchyAt = double.NegativeInfinity;
         const double HierarchyInterval = 2.0;
+        internal static double IdleReleaseSeconds = 5.0;
+        const int StableFramesBeforeCapture = 4;
+        int seenWidth, seenHeight, seenRenderingWidth, seenRenderingHeight, sizeChangedFrame;
+        ScreenOrientation seenOrientation;
         public FrameCapture(RejourneyBehaviour host) { this.host = host; }
         public void ForceNext() => next = Math.Min(next, lastAttempt + 1.0 / host.Settings.FramesPerSecond);
         internal IEnumerator Run()
         {
             var end = new WaitForEndOfFrame();
             while (!disposed) {
+                // A rotation or resolution change reaches Screen, the display and the back buffer
+                // on different frames. A capture in between copies between surfaces of different
+                // sizes, which the graphics API logs as an error, so wait until all of them have
+                // held still for a few frames.
+                int renderingWidth = Display.main.renderingWidth, renderingHeight = Display.main.renderingHeight;
+                if (Screen.width != seenWidth || Screen.height != seenHeight || Screen.orientation != seenOrientation || renderingWidth != seenRenderingWidth || renderingHeight != seenRenderingHeight) {
+                    seenWidth = Screen.width; seenHeight = Screen.height; seenOrientation = Screen.orientation;
+                    seenRenderingWidth = renderingWidth; seenRenderingHeight = renderingHeight;
+                    sizeChangedFrame = Time.frameCount;
+                }
                 // Wait for the end of frame only when a capture is due or a render-pipeline
                 // capture is in flight.
-                if (!awaitingSource && (!host.Recording || clock.Elapsed.TotalSeconds < next)) { yield return null; continue; }
+                if (!awaitingSource && (!host.Recording || clock.Elapsed.TotalSeconds < next)) {
+                    // Not capturing (paused, telemetry only, stopped, in the background): after a
+                    // few idle seconds give back the textures and the readback buffer, which on a
+                    // large phone are about 18 MB. The next capture allocates them again.
+                    if (full && !busy && !host.Recording && clock.Elapsed.TotalSeconds - lastAttempt > IdleReleaseSeconds) { Release(); pixels = null; }
+                    yield return null; continue;
+                }
+                // With on-demand rendering (OnDemandRendering.renderFrameInterval above 1) most
+                // loop iterations draw nothing: the back buffer holds no new frame and no
+                // pipeline pass runs. Capture only on iterations that render.
+                if (!OnDemandRendering.willCurrentFrameRender) { yield return null; continue; }
+                if (!awaitingSource && Time.frameCount - sizeChangedFrame < StableFramesBeforeCapture) { yield return null; continue; }
                 yield return end;
                 if (awaitingSource) {
                     long resumed = Stopwatch.GetTimestamp();
@@ -79,15 +104,17 @@ namespace RejourneySDK
             int generation = host.Generation;
             double began = clock.Elapsed.TotalMilliseconds;
             try {
+                bool pipeline = CaptureEnvironment.BackbufferWriteOnly;
                 if (!full || width != Screen.width || height != Screen.height) Allocate();
                 if (!redact) throw new InvalidOperationException("Rejourney redaction shader missing.");
-                if (CaptureEnvironment.BackbufferWriteOnly) {
+                if (pipeline) {
                     // The back buffer cannot be read, so ScreenCapture would return black.
                     // A render-pipeline source fills `full` from inside the pipeline instead.
                     // Readable back buffers keep the ScreenCapture path below.
                     var source = FrameSources.Current;
                     if (source == null || !source.Available) {
                         host.Health.CaptureSource = "unreadable";
+                        host.Health.CaptureUnavailableReason = source?.Unavailable ?? "no_render_pipeline_source";
                         host.Health.FramesSkippedUnreadable++;
                         Complete(false); return;
                     }
@@ -98,6 +125,7 @@ namespace RejourneySDK
                     return;
                 }
                 host.Health.CaptureSource = "screen";
+                host.Health.CaptureUnavailableReason = null;
                 // Verified on device replays: Metal/Vulkan captures arrive upside down,
                 // GLES captures upright. Uncorrected, masks land on the wrong rows.
                 ScreenCapture.CaptureScreenshotIntoRenderTexture(full);
@@ -110,7 +138,17 @@ namespace RejourneySDK
             var status = source != null ? source.Poll() : FrameSourceStatus.Failed;
             if (status == FrameSourceStatus.Pending) return;
             awaitingSource = false;
-            if (status != FrameSourceStatus.Ready) { Complete(true); return; }
+            if (status != FrameSourceStatus.Ready) {
+                // A source that cannot capture in the active configuration is a skipped
+                // frame with a reason, not a capture failure.
+                string reason = source?.Unavailable;
+                if (reason == null) { Complete(true); return; }
+                host.Health.CaptureSource = "unreadable";
+                host.Health.CaptureUnavailableReason = reason;
+                host.Health.FramesSkippedUnreadable++;
+                Complete(false); return;
+            }
+            host.Health.CaptureUnavailableReason = null;
             try {
                 if (!Valid(sourceGeneration, sourceSession, width, height)) { Complete(false); return; }
                 // Masks must describe the frame the pipeline just rendered, not the one
@@ -118,10 +156,10 @@ namespace RejourneySDK
                 if (host.Settings.MaskImagesAndVideos || !PrivacyRegistry.Collect(masks, host.Settings.MaskTextInputs)) {
                     host.Health.FramesSkippedPrivacy++; Complete(false); return;
                 }
-                // URP's camera color has the API's native row order, like the back buffer:
-                // verified on an iPhone (Metal) replay, frames and masks arrived upside down
-                // without the flip.
-                Finish(SystemInfo.graphicsUVStartsAtTop, sourceTimestamp, sourceSession, sourceGeneration, sourceBegan);
+                // A render-pipeline source delivers the texture in Unity's texture convention
+                // on every graphics API, so there is nothing to flip. Only ScreenCapture
+                // hands over the back buffer's native row order.
+                Finish(false, sourceTimestamp, sourceSession, sourceGeneration, sourceBegan);
             } catch { Complete(true); }
         }
         void Finish(bool flipSource, long timestamp, string session, int generation, double began)
@@ -132,7 +170,12 @@ namespace RejourneySDK
             redact.SetInt("_MaskCount", masks.Count);
             redact.SetVectorArray("_Masks", shaderMasks);
             redact.SetFloat("_FlipSource", flipSource ? 1f : 0f);
+            // Graphics.Blit leaves its destination as the active render target. A game that
+            // reads the screen at the end of the same frame (its own screenshot, ReadPixels)
+            // would read this texture instead, so the previous target is put back.
+            var active = RenderTexture.active;
             Graphics.Blit(full, small, redact);
+            RenderTexture.active = active;
             int frameWidth = small.width, frameHeight = small.height;
             int viewportWidth = width, viewportHeight = height;
             var hierarchy = Snapshot(timestamp, session, viewportWidth, viewportHeight);
@@ -230,8 +273,12 @@ namespace RejourneySDK
             if (width <= 0 || height <= 0) throw new InvalidOperationException("Invalid viewport.");
             int max = SystemInfo.supportsAsyncGPUReadback ? host.Options.MaximumDimension : Math.Min(480, host.Options.MaximumDimension);
             float scale = Math.Min(1f, max / (float)Math.Max(width, height));
+            int smallWidth = Math.Max(1, Mathf.RoundToInt(width * scale)), smallHeight = Math.Max(1, Mathf.RoundToInt(height * scale));
+            // Both sources need the full-size texture. ScreenCapture requires the size of the
+            // back buffer, and a render-pipeline source redraws the overlay UI, which Unity
+            // lays out in target pixels: into a smaller texture it would arrive zoomed.
             full = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-            small = new RenderTexture(Math.Max(1, Mathf.RoundToInt(width * scale)), Math.Max(1, Mathf.RoundToInt(height * scale)), 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            small = new RenderTexture(smallWidth, smallHeight, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             full.Create(); small.Create();
             var shader = Resources.Load<Shader>("RejourneyRedact");
             if (shader) redact = new Material(shader);

@@ -56,6 +56,14 @@ namespace RejourneySDK
         // arrives within the grace period.
         internal static double NativeSessionGapGraceSeconds = 10;
         double sessionGapSince = -1;
+        // Native also ends a session on its own when the project's recording-time limit is
+        // reached, and then starts no other. Away from a return to the foreground a missing
+        // session is that case: it is confirmed quickly and a new session is started, so a
+        // long play session keeps reporting errors, hangs and crashes.
+        internal static double NativeSessionEndGraceSeconds = 1.5;
+        double foregroundSince = double.NegativeInfinity, lastContinuation = double.NegativeInfinity;
+        bool continuing;
+        int quickContinuations;
         // StartInternal records the screen and gameplay itself after applying the start result.
         bool applyingStart;
         // The gameplay segment whose start this session received and whose end it has not.
@@ -66,6 +74,7 @@ namespace RejourneySDK
         internal void SyncGameplay() => GameplayTracker.Sync(this);
         bool statusPending, debugger;
         readonly float[] frameTimes = new float[1024];
+        float[] sortedFrameTimes;
         int frameCount, longFrames;
         float frameTotal, frameMax;
         int previousGc;
@@ -362,6 +371,7 @@ namespace RejourneySDK
                 data["type"] = type; data["timestamp"] = timestamp ?? Timestamp;
                 data["sessionId"] = context?.Session ?? SessionId;
                 Commit(data.ToString(Formatting.None));
+                if (type == "error" || type == "anr") Volatile.Write(ref urgent, 1);
             } catch { Reject(); }
         }
         internal async Task DrainEvents()
@@ -379,9 +389,11 @@ namespace RejourneySDK
                 if (events.IsEmpty) await Task.Yield();
             }
         }
+        // One drain runs at a time (drainTask), so its batches share one builder.
+        readonly System.Text.StringBuilder batchText = new System.Text.StringBuilder(4096);
         async Task DrainInternal()
         {
-            var batch = new System.Text.StringBuilder(4096); int count = 0;
+            var batch = batchText.Clear(); int count = 0;
             while (events.TryDequeue(out var item)) {
                 Interlocked.Decrement(ref queued);
                 batch.Append(count == 0 ? '[' : ',').Append(item);
@@ -397,9 +409,20 @@ namespace RejourneySDK
             } catch { Interlocked.Add(ref Health.EventsDropped, count); throw; }
         }
         bool draining;
-        async void DrainInBackground()
+        // Set when an error or hang is queued: those go to native at once, because whatever
+        // is still on this side of the bridge is lost if the process dies.
+        int urgent;
+        double lastDrain = double.NegativeInfinity;
+        // Routine events (logs, touches, custom events, samples) are handed over a few times
+        // a second rather than every frame: each hand-over is a bridge request with its own
+        // reply, which under steady logging used to mean one per frame.
+        internal static double DrainIntervalSeconds = 0.2;
+        async void DrainInBackground(bool now = false)
         {
             if (draining || events.IsEmpty) return;
+            double time = clock.Elapsed.TotalSeconds;
+            if (!now && Volatile.Read(ref urgent) == 0 && Volatile.Read(ref queued) < 16 && time - lastDrain < DrainIntervalSeconds) return;
+            lastDrain = time; Volatile.Write(ref urgent, 0);
             draining = true;
             try { await DrainEvents(); } catch (Exception e) { Health.NativeStatus = e.Message; }
             finally { draining = false; }
@@ -422,7 +445,9 @@ namespace RejourneySDK
                 if (clock.Elapsed.TotalSeconds >= nextMetrics) { nextMetrics = clock.Elapsed.TotalSeconds + 5; EmitPerformance(); }
                 if (Options.CaptureTouches) InputObserver.Collect(this);
             }
-            if (clock.Elapsed.TotalSeconds >= nextStatus && !statusPending && SessionId != null) {
+            // While a continuation is starting the next session, its own result applies the
+            // new session (and re-applies an explicit pause); a status poll must not adopt it first.
+            if (clock.Elapsed.TotalSeconds >= nextStatus && !statusPending && !continuing && SessionId != null) {
                 nextStatus = clock.Elapsed.TotalSeconds + 1; _ = RefreshStatus();
             }
             AddMainThreadTicks(started);
@@ -432,7 +457,9 @@ namespace RejourneySDK
         {
             int count = Math.Min(frameCount, frameTimes.Length);
             if (count == 0) return;
-            var sorted = new float[count]; Array.Copy(frameTimes, sorted, count); Array.Sort(sorted);
+            // One scratch buffer for the lifetime of the host, sorted over the samples in use.
+            var sorted = sortedFrameTimes ?? (sortedFrameTimes = new float[frameTimes.Length]);
+            Array.Copy(frameTimes, sorted, count); Array.Sort(sorted, 0, count);
             int gc = GC.CollectionCount(0);
             Event("custom", new { name = "unity_performance", properties = new {
                 fps = frameTotal > 0 ? frameCount * 1000f / frameTotal : 0,
@@ -473,11 +500,13 @@ namespace RejourneySDK
             } else {
                 bool gapExpired = string.IsNullOrEmpty(error) && SessionId != null && !applyingStart;
                 sessionGapSince = -1;
+                // The session is gone for good: carry on in a new one rather than stop collecting.
+                if (gapExpired && Options.ContinueAfterSessionLimit && !Backgrounded && TryContinue()) return;
                 SetState(error == "disabled" || error == "sampled_out" || error == "billing_blocked" ? CaptureState.Disabled :
                     (error?.StartsWith("access_denied", StringComparison.Ordinal) ?? false) || error == "authentication_failed" ? CaptureState.AuthenticationFailed : CaptureState.Error,
                     gapExpired ? "native_session_unavailable" : error);
             }
-            Health.NativeStatus = result.ToString(Formatting.None);
+            Health.NativeStatusToken = result;
             Health.NativeFramesAccepted = result.Value<long?>("nativeFramesAccepted") ?? 0;
             Health.NativeFramesSkippedBackpressure = result.Value<long?>("nativeFramesSkippedBackpressure") ?? 0;
         }
@@ -485,7 +514,46 @@ namespace RejourneySDK
         {
             double now = clock.Elapsed.TotalSeconds;
             if (sessionGapSince < 0) sessionGapSince = now;
-            return now - sessionGapSince < NativeSessionGapGraceSeconds;
+            // Native replaces a session only after a return to the foreground. At any other
+            // time the session ended by itself and waiting longer gains nothing.
+            bool rollover = !Options.ContinueAfterSessionLimit || now - foregroundSince < NativeSessionGapGraceSeconds + 5;
+            return now - sessionGapSince < (rollover ? NativeSessionGapGraceSeconds : Math.Min(NativeSessionGapGraceSeconds, NativeSessionEndGraceSeconds));
+        }
+        bool TryContinue()
+        {
+            if (continuing) return true;
+            // A session that keeps vanishing right after it starts is a fault, not a limit.
+            double now = clock.Elapsed.TotalSeconds;
+            quickContinuations = now - lastContinuation < 60 ? quickContinuations + 1 : 0;
+            lastContinuation = now;
+            if (quickContinuations >= 3) return false;
+            ContinueSession();
+            return true;
+        }
+        async void ContinueSession()
+        {
+            continuing = true;
+            bool paused = State == CaptureState.Paused;
+            var generation = ++Generation;
+            try {
+                var result = await Bridge.Request("start");
+                // Stopped, paused, backgrounded or reconfigured meanwhile: that path owns the state now.
+                if (generation != Generation) return;
+                applyingStart = true;
+                try { ApplyStatus(result); } finally { applyingStart = false; }
+                if (!string.IsNullOrEmpty(SessionId) && (Collecting || State == CaptureState.Paused)) Health.SessionsContinued++;
+                if (Collecting) {
+                    TrackScreen(screenName ?? SceneManager.GetActiveScene().name);
+                    SyncGameplay();
+                } else if (paused && State == CaptureState.Paused) {
+                    // The game paused capture; the new native session starts running.
+                    var pausedGeneration = Generation;
+                    var response = await Bridge.Request("pause");
+                    if (pausedGeneration == Generation && !response.Value<bool>("success")) SetState(CaptureState.Error, "pause_failed");
+                }
+            } catch (Exception e) {
+                if (generation == Generation) SetState(CaptureState.Error, e.Message);
+            } finally { continuing = false; }
         }
         void SetState(CaptureState state, string error = null)
         {
@@ -501,8 +569,9 @@ namespace RejourneySDK
             Volatile.Write(ref accepting, Collecting ? 1 : 0);
             Volatile.Write(ref watchdogEnabled, 0);
             heartbeat = clock.ElapsedMilliseconds;
-            if (paused) { DrainInBackground(); return; }
+            if (paused) { DrainInBackground(true); return; }
             nextStatus = 0;
+            foregroundSince = clock.Elapsed.TotalSeconds;
             // Markers the game wrote while the SDK was backgrounded (for example from its own
             // pause handler) are written now. After a rollover, the status poll re-tells the new
             // session once its id arrives.
@@ -611,18 +680,30 @@ namespace RejourneySDK
         async Task Watchdog(CancellationToken token)
         {
             try { await Task.Run(async () => {
+                // The heartbeat this thread last saw, and how long it has watched it stand still.
+                long observed = -1, watched = 0;
                 while (!token.IsCancellationRequested) {
+                    long before = clock.ElapsedMilliseconds;
                     await Task.Delay(1000, token).ConfigureAwait(false);
                     long now = clock.ElapsedMilliseconds, last = Interlocked.Read(ref heartbeat);
-                    // The loop is running again: report the stall with its full length. Events
-                    // reach native only through the main thread, so an earlier report would
-                    // arrive no sooner, only shorter.
-                    if (hangStarted != 0 && last != hangStarted) {
-                        Event("anr", new { durationMs = last - hangStarted, source = "unity_game_loop", threadState = "unity_game_loop_stalled", stackAvailable = false, screen = screenName, incidentId = Guid.NewGuid().ToString() }, Timestamp - (now - hangStarted));
-                        hangStarted = 0;
-                    }
-                    if (Volatile.Read(ref watchdogEnabled) == 0 || Debugger.IsAttached) { hangStarted = 0; continue; }
-                    if (hangStarted == 0 && now - last >= Options.HangThresholdSeconds * 1000L) hangStarted = last;
+                    // A process the OS suspended or froze wakes with a jump on every clock, and
+                    // this thread can run before the game loop does. Only time this thread saw
+                    // pass counts as a stall, so a wait adds little more than its own length.
+                    long step = Math.Min(Math.Max(0, now - before), 2500);
+                    if (last != observed) {
+                        // The loop is running again: report the stall with its full length. Events
+                        // reach native only through the main thread, so an earlier report would
+                        // arrive no sooner, only shorter.
+                        if (hangStarted != 0) {
+                            long duration = Math.Min(last - hangStarted, watched + step);
+                            if (duration >= Options.HangThresholdSeconds * 1000L)
+                                Event("anr", new { durationMs = duration, source = "unity_game_loop", threadState = "unity_game_loop_stalled", stackAvailable = false, screen = screenName, incidentId = Guid.NewGuid().ToString() }, Timestamp - (now - last) - duration);
+                            hangStarted = 0;
+                        }
+                        observed = last; watched = Math.Min(Math.Max(0, now - last), step);
+                    } else watched += step;
+                    if (Volatile.Read(ref watchdogEnabled) == 0 || Debugger.IsAttached) { hangStarted = 0; watched = 0; continue; }
+                    if (hangStarted == 0 && watched >= Options.HangThresholdSeconds * 1000L) hangStarted = last;
                 }
             }, token); } catch (OperationCanceledException) { }
         }

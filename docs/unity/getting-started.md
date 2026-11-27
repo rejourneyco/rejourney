@@ -22,13 +22,13 @@ Rejourney for Unity records what players saw and what the game did:
 
 ## Install and configure
 
-Download `co.rejourney.unity-0.1.2.tgz` from the
-[Unity SDK v0.1.2 release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.2)
+Download `co.rejourney.unity-0.1.3.tgz` from the
+[Unity SDK v0.1.3 release](https://github.com/rejourneyco/rejourney/releases/tag/unity-v0.1.3)
 and install it with **Window → Package Manager → + → Install package from tarball**.
 To follow the release through Git instead, add this line to `Packages/manifest.json`:
 
 ```json
-"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.2"
+"co.rejourney.unity": "https://github.com/rejourneyco/rejourney.git?path=/packages/unity#unity-v0.1.3"
 ```
 
 The archive includes an iOS XCFramework and Android AAR. UPM resolves Newtonsoft JSON and Mono.Cecil. Keep
@@ -406,7 +406,8 @@ real devices.
 - **Game-loop hangs.** When the Unity main thread stops producing frames for
   `HangThresholdSeconds` (default 5, minimum 2), the SDK records a hang incident
   once the loop resumes, with the stall's full duration and the screen it froze
-  on. It is reported separately from Android's UI-thread ANRs. Detection skips the first 10 seconds after `Init` and any time a debugger
+  on. Time during which the operating system had suspended the whole process does
+  not count. It is reported separately from Android's UI-thread ANRs. Detection skips the first 10 seconds after `Init` and any time a debugger
   is attached. `CaptureHangs = false` turns off both this detector and Android's
   native ANR capture.
 - **Scene loads.** Wrap a load in `using (Rejourney.BeginSceneLoad("Shop")) { ... }`
@@ -446,9 +447,22 @@ type and message.
   session is closed at its last activity. `CaptureCrashes = false` turns this off.
   On iOS devices, MetricKit adds the system's crash report when iOS delivers it.
 
-Capture follows the recording session: after `StopAsync`, or once the project's
-maximum recording length has ended the session, errors and crashes are recorded
-again only when the next session starts.
+Capture follows the recording session: after `StopAsync`, errors and crashes are
+recorded again only when the next session starts.
+
+A project records each session for a limited time (10 minutes unless the project
+says otherwise). When that limit ends a session while the game is still running, the
+SDK starts the next session at once, so errors, hangs and crashes later in a long
+play session are still reported. `CurrentSessionId` changes, `State` does not, an
+explicit pause carries over, and `Rejourney.Health.SessionsContinued` counts these
+sessions. Each one counts as a session and is sampled like any other. To stop at the
+limit instead, set `ContinueAfterSessionLimit = false`: `State` then becomes `Error`
+and nothing is reported until you call `StartAsync` again.
+
+Rejourney can run next to another crash reporter such as Firebase Crashlytics. On
+iOS its fatal-signal handler records a marker and then calls the handler that was
+installed before it, on the crashing thread and with the original signal
+information, so the other reporter sees the same crash it would see alone.
 
 ## Privacy and capture
 
@@ -469,6 +483,16 @@ registered targets. They omit arbitrary scene text. GPU and encode queues have
 one job in flight; native frame and hierarchy delivery each have one pending
 job. Backpressure drops are separate from capture failures. A synchronous
 readback fallback is limited to 480 pixels and reported as degraded.
+
+Frames normally come from the screen (`ScreenCapture`). An iOS build with Player
+Settings > iOS > "Metal Write-Only Backbuffer" cannot read the screen, so a URP
+project is captured inside the render pipeline instead: the camera image after
+post-processing plus the Screen Space - Overlay UI (uGUI and UI Toolkit). `OnGUI`
+drawing is not part of that capture. A Tile-Only URP renderer and the built-in
+pipeline have no readable source with that setting, so their frames are skipped;
+`Rejourney.Health.CaptureSource` is then `unreadable`, `CaptureUnavailableReason`
+says why, and the rest of the session (events, errors, hangs, crashes) is still
+collected. Turn the setting off to capture those projects from the screen.
 
 Pause around system keyboards, payment/ad/native plugin overlays, and other
 surfaces outside Unity's rendered frame. XR and arbitrary native overlays are

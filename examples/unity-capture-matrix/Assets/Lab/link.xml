@@ -1,0 +1,4 @@
+<linker>
+  <assembly fullname="UnityEngine.PhysicsModule"><type fullname="UnityEngine.MeshCollider" preserve="all"/></assembly>
+  <assembly fullname="Rejourney.Lab" preserve="all"/>
+</linker>

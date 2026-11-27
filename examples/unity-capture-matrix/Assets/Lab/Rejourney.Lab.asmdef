@@ -1,0 +1,10 @@
+{
+  "name": "Rejourney.Lab",
+  "rootNamespace": "RejourneyLab",
+  "references": ["Rejourney.Runtime", "Unity.RenderPipelines.Universal.Runtime", "Unity.RenderPipelines.Core.Runtime", "UnityEngine.UI"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true
+}
