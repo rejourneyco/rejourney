@@ -27,10 +27,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
-import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
-import { shouldShowIssueDetectionUi } from '~/shared/config/issueDetectionAccess';
-import { useDemoMode } from '~/shared/providers/DemoModeContext';
-import { useAuth } from '~/shared/providers/AuthContext';
 import {
   getAvailablePlatformLenses,
   getDefaultPlatformLens,
@@ -255,13 +251,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Resize only on desktop — a full-height strip on mobile steals touches and breaks the drawer.
   const showResizeHandle = isDesktop && !collapsed;
-  const { isDemoMode } = useDemoMode();
-  const { user } = useAuth();
-  const showIssueDetectionUi = shouldShowIssueDetectionUi({
-    featureEnabled: isIssueDetectionUiEnabled(),
-    isDemoMode,
-    isSelfHosted: Boolean(user?.isSelfHosted),
-  });
   const showSetupNavItem = !currentTeam || shouldSurfaceSetup(projects, currentProject);
   const setupRequired = !currentTeam || shouldRedirectToSetup(projects);
 
@@ -348,15 +337,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     accent: string;
     items: SidebarNavItem[];
   }>>(() => [
-    ...(showIssueDetectionUi ? [{
+    {
       id: 'automations',
       section: 'Automations',
       icon: Workflow,
       accent: '#0891b2',
       items: [
-        createSidebarNavItem(p('/leaks'), 'leaks'),
+        createSidebarNavItem(p('/mcp'), 'mcp'),
       ],
-    }] : []),
+    },
     {
       id: 'growth',
       section: 'Growth',
@@ -412,7 +401,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         createSidebarNavItem(p('/account'), 'account'),
       ],
     },
-  ], [currentProject, pathPrefix, projects, setupPath, showIssueDetectionUi, showSetupNavItem]);
+  ], [currentProject, pathPrefix, projects, setupPath, showSetupNavItem]);
 
   // isActive needs to check if path matches, accounting for demo prefix
   const isActive = (path: string) => location.pathname === path;

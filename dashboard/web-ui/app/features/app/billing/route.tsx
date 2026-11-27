@@ -78,11 +78,18 @@ import {
   dashboardSectionTitleClass,
 } from '~/shared/ui/core/dashboardStyles';
 import { dashboardPageHeaderProps } from '~/shell/navigation/dashboardPageMeta';
+import { planMcpCredits } from '~/shared/lib/mcpPlanCredits';
+import { McpCreditsUsage } from '~/features/app/billing/McpCreditsUsage';
+
+const formatPlanMcpCredits = (plan: { name: string; mcpCreditLimit?: number | null }) => {
+  const credits = planMcpCredits(plan);
+  return credits === null ? 'Custom' : credits.toLocaleString('en-US');
+};
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: 'Validate the funnel before traffic ramps',
-  starter: 'Find the first leaks in real traffic',
-  growth: 'Rank conversion leaks as traffic scales',
+  starter: 'Find the first drop-offs in real traffic',
+  growth: 'Rank conversion drop-offs as traffic scales',
   pro: 'For high-volume product and checkout flows',
   scale: 'High-scale funnels with high-intent capture',
   enterprise: 'Custom captured-session volume & dedicated hardware',
@@ -96,23 +103,6 @@ const PLAN_STEPS = [
   { name: 'scale', label: '1M', sessions: 1_000_000 },
   { name: 'enterprise', label: '1M+', sessions: 10_000_000 },
 ] as const;
-
-const getRevenueLeakPredictionLabel = (planName: string) => {
-  switch (planName) {
-    case 'free':
-      return <><strong>5,000 sessions</strong> of Revenue Leak Prediction</>;
-    case 'starter':
-      return <><strong>5x more</strong> Revenue Leak Prediction than Free</>;
-    case 'growth':
-      return <><strong>20x more</strong> Revenue Leak Prediction than Free</>;
-    case 'pro':
-      return <><strong>70x more</strong> Revenue Leak Prediction than Free</>;
-    case 'scale':
-      return <><strong>200x more</strong> Revenue Leak Prediction than Free</>;
-    default:
-      return <><strong>Custom</strong> Revenue Leak Prediction coverage</>;
-  }
-};
 
 const PlanCheck: React.FC<{ children: React.ReactNode; tone?: 'check' | 'minus' | 'warning' }> = ({ children, tone = 'check' }) => (
   <div className={`flex gap-2.5 text-xs leading-5 [&_strong]:font-medium [&_strong]:text-[#202124] ${tone === 'minus' ? 'text-[#5f6368]' : 'text-[#3c4043]'}`}>
@@ -881,6 +871,13 @@ export const BillingSettings: React.FC = () => {
                 {sessionsCapturedDisplay.toLocaleString()}
               </div>
             </div>
+
+            <McpCreditsUsage
+              teamId={currentTeam.id}
+              isDemoMode={isDemoMode}
+              mcpHref={`${pathPrefix}/mcp`}
+              refreshKey={manualRefreshVersion}
+            />
           </div>
 
           {(isAtLimit || isNearLimit) && (
@@ -888,8 +885,8 @@ export const BillingSettings: React.FC = () => {
               {isAtLimit ? <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0 text-[#d93025]" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
               <span className="text-sm">
                 {isAtLimit
-                  ? 'Captured-session limit reached. Fresh AI leak packets, heatmaps, journey drill-downs, crash context, and replay evidence pause until the next billing cycle or upgrade. General analytics still counts every session.'
-                  : 'Approaching captured-session limit. Consider upgrading to keep revenue-leak evidence flowing.'}
+                  ? 'Captured-session limit reached. New replays, heatmaps, journey drill-downs and crash context pause until the next billing cycle or upgrade. General analytics still counts every session.'
+                  : 'Approaching captured-session limit. Consider upgrading to keep capturing replays.'}
               </span>
             </div>
           )}
@@ -1075,7 +1072,7 @@ export const BillingSettings: React.FC = () => {
               ? [
                   { key: 'sessions', content: <><strong>{plan.sessionLimit.toLocaleString()}</strong> session replays / mo</>, active: true },
                   { key: 'retention', content: <><strong>7 days</strong> evidence retention</>, active: true },
-                  { key: 'prediction', content: getRevenueLeakPredictionLabel('free'), active: true },
+                  { key: 'mcp', content: <><strong>{formatPlanMcpCredits(plan)}</strong> MCP credits / month</>, active: true },
                   { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
                   { key: 'funnels', content: 'Standard funnel and cohort trends', active: true },
                   { key: 'controls', content: 'Standard session recording controls', active: true },
@@ -1086,7 +1083,7 @@ export const BillingSettings: React.FC = () => {
                 ? [
                     { key: 'sessions', content: <><strong>Custom volume</strong> of monthly sessions</>, active: true },
                     { key: 'retention', content: <><strong>Custom</strong> evidence retention history</>, active: true },
-                    { key: 'prediction', content: getRevenueLeakPredictionLabel('enterprise'), active: true },
+                    { key: 'mcp', content: <><strong>Custom</strong> MCP credits / month</>, active: true },
                     { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
                     { key: 'funnels', content: 'Full suite of custom funnels & analytics', active: true },
                     { key: 'hardware', content: 'Dedicated hardware & custom storage bucket', active: true },
@@ -1095,7 +1092,7 @@ export const BillingSettings: React.FC = () => {
                 : [
                     { key: 'sessions', content: <><strong>{plan.sessionLimit.toLocaleString()}</strong> session replays / mo</>, active: true },
                     { key: 'retention', content: <><strong>{plan.videoRetentionLabel}</strong> evidence retention</>, active: true },
-                    { key: 'prediction', content: getRevenueLeakPredictionLabel(plan.name), active: true },
+                    { key: 'mcp', content: <><strong>{formatPlanMcpCredits(plan)}</strong> MCP credits / month</>, active: true },
                     { key: 'events', content: 'Unlimited events, DAU, and MAU', active: true },
                     { key: 'funnels', content: 'Checkout, onboarding, & paywall drill-downs', active: true },
                     { key: 'diagnostics', content: 'Crash, API, and ANR diagnostic tools', active: true },
@@ -1178,10 +1175,9 @@ export const BillingSettings: React.FC = () => {
           })}
         </div>
 
-        <div className="mt-5 grid gap-3 border border-[#e8eaed] bg-[#f8fafd] p-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-5 grid gap-3 border border-[#e8eaed] bg-[#f8fafd] p-4 sm:grid-cols-3">
           {[
             'Web and mobile replay',
-            'AI Leak Detection',
             'Heatmaps and journeys',
             'Crash and API context',
           ].map(feature => (

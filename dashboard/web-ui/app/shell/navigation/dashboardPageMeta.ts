@@ -4,11 +4,11 @@ import {
   AlertTriangle,
   BookOpen,
   CreditCard,
-  Droplets,
   Flame,
   Globe,
   LayoutDashboard,
   Mail,
+  Plug,
   Rocket,
   Route,
   Settings,
@@ -27,7 +27,7 @@ export type DashboardPageKey =
   | 'stability'
   | 'api'
   | 'devices'
-  | 'leaks'
+  | 'mcp'
   | 'emails'
   | 'setup'
   | 'project'
@@ -110,10 +110,10 @@ export const DASHBOARD_PAGE_META: Record<DashboardPageKey, DashboardPageMeta> = 
     activeBg: '#f5f3ff',
     iconBgClass: 'bg-[#f5f3ff]',
   },
-  leaks: {
-    sidebarLabel: 'Leaks',
-    tabTitle: 'Leaks',
-    icon: Droplets,
+  mcp: {
+    sidebarLabel: 'MCP',
+    tabTitle: 'MCP',
+    icon: Plug,
     accent: '#0891b2',
     activeBg: '#ecfeff',
     iconBgClass: 'bg-[#ecfeff]',

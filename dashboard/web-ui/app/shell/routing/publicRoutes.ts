@@ -47,6 +47,7 @@ export const publicRoutes = [
   route("feed.xml", "features/public/feed/route.tsx", { id: "public-feed" }),
   route("sitemap.xml", "features/public/sitemap/route.tsx", { id: "public-sitemap" }),
   route("login", "features/public/auth/login/route.tsx", { id: "public-login" }),
+  route("oauth/consent", "features/public/oauth/consent/route.tsx", { id: "public-oauth-consent" }),
   route("invite/accept/:token", "features/public/invite/accept/route.tsx", { id: "public-invite-accept" }),
   ...MARKETING_LOCALE_SLUGS.map((locale) =>
     route(`${locale}/*`, "features/public/home/redirect.tsx", { id: `public-locale-${locale}-catchall-redirect` })

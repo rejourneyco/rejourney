@@ -27,6 +27,8 @@ import routes from './routes/index.js';
 import { csrfProtection, originValidation, errorHandler, notFoundHandler } from './middleware/index.js';
 import { startStatsAggregationJob, stopStatsAggregationJob } from './jobs/statsAggregator.js';
 import stripeWebhooksRoutes from './routes/stripeWebhooks.js';
+import { mountMcpOAuth } from './routes/mcp.js';
+import { startMcpHousekeeping, stopMcpHousekeeping } from './services/mcpHousekeeping.js';
 import { isOriginAllowedByList, splitOriginList } from './utils/domain.js';
 import { CORS_ALLOWED_HEADERS } from './config/cors.js';
 import { configuredSecretMatches } from './utils/secureCompare.js';
@@ -135,6 +137,12 @@ app.use(pinoHttp({
 
 app.use(originValidation);
 app.use(csrfProtection);
+
+// MCP sign-in (OAuth authorization server) at /oauth, only when MCP_ENABLED=true.
+// Its paths are exempt from the browser CSRF and origin checks above: AI
+// clients call the token endpoint directly, and the consent step is protected
+// by the provider's own interaction cookie plus the dashboard session.
+if (config.RJ_API_ROLE !== 'ingest') mountMcpOAuth(app);
 
 // =============================================================================
 // Health Check Endpoints
@@ -459,6 +467,7 @@ async function shutdown(signal: string) {
 
     try {
         stopStatsAggregationJob();
+        stopMcpHousekeeping();
         clearInterval(apiHeartbeatInterval);
         clearTimeout(initialApiHeartbeatTimeout);
         if (server) {
@@ -515,6 +524,7 @@ server = app.listen(PORT, () => {
     // dashboard job. Dashboard replicas still coordinate through the Redis lease.
     if (config.RJ_API_ROLE !== 'ingest') {
         startStatsAggregationJob();
+        startMcpHousekeeping();
     }
 });
 

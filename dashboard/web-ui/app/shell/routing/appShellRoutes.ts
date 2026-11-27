@@ -10,7 +10,7 @@ const SHARED_APP_ROUTE_MODULES = [
   { key: "analytics-geo", path: "geo", file: "features/app/analytics/geo/route.tsx" },
   { key: "analytics-journeys", path: "journeys", file: "features/app/analytics/journeys/route.tsx" },
   { key: "analytics-heatmaps", path: "heatmaps", file: "features/app/analytics/heatmaps/route.tsx" },
-  { key: "leaks", path: "leaks", file: "features/app/automations/leaks/route.tsx" },
+  { key: "mcp", path: "mcp", file: "features/app/mcp/route.tsx" },
   { key: "alerts-emails", path: "alerts/emails", file: "features/app/alerts/email/route.tsx" },
   { key: "setup", path: "setup", file: "features/app/setup/route.tsx" },
   { key: "stability", path: "stability", file: "features/app/stability/index/route.tsx" },
@@ -26,7 +26,6 @@ const SHARED_APP_ROUTE_MODULES = [
   { key: "billing-return", path: "billing/return", file: "features/app/billing/return/route.tsx" },
   { key: "account", path: "account", file: "features/app/account/route.tsx" },
   { key: "project-settings", path: "settings/:projectId", file: "features/app/settings/project/route.tsx" },
-  { key: "github-setup", path: "settings/:projectId/github", file: "features/app/settings/github/route.tsx" },
   { key: "search", path: "search", file: "features/app/search/route.tsx" },
 ] as const;
 
@@ -39,6 +38,8 @@ function buildAppShellChildRoutes(mode: AppShellMode) {
     route("issues/:issueId", "shell/routing/redirects/IssueDetailRedirect.tsx", { id: `${mode}-issue-detail-redirect` }),
     route("analytics", "shell/routing/redirects/AnalyticsRedirect.tsx", { id: `${mode}-analytics-redirect` }),
     route("analytics/*", "shell/routing/redirects/AnalyticsRedirect.tsx", { id: `${mode}-analytics-splat-redirect` }),
+    // The Leaks page became the MCP page; both of its old addresses land there.
+    route("leaks", "shell/routing/redirects/AutomationsLeaksRedirect.tsx", { id: `${mode}-leaks-redirect` }),
     route("automations/leaks", "shell/routing/redirects/AutomationsLeaksRedirect.tsx", { id: `${mode}-automations-leaks-redirect` }),
     ...SHARED_APP_ROUTE_MODULES.map(({ key, path, file }) =>
       route(path, file, { id: `${mode}-${key}` }),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useLocation } from 'react-router';
 import { ArrowRight, Check, Copy, Github, Minus, Plus } from 'lucide-react';
 import { api, type BillingPlan } from '~/shared/api/client';
+import { planMcpCredits } from '~/shared/lib/mcpPlanCredits';
 import { useToast } from '~/shared/providers/ToastContext';
 import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
 import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
@@ -32,8 +33,8 @@ const PLAN_STEPS = [
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
     free: 'For validating your funnel before traffic ramps.',
-    starter: 'For finding the first leaks in real traffic.',
-    growth: 'For ranking conversion leaks as traffic scales.',
+    starter: 'For finding the first drop-offs in real traffic.',
+    growth: 'For ranking conversion drop-offs as traffic scales.',
     pro: 'Deep insights for high-volume product and checkout flows.',
     scale: 'High-scale funnels that need high-intent capture control.',
     enterprise: 'Custom captured-session volume & dedicated hardware.',
@@ -43,6 +44,11 @@ const normalizePlanName = (plan: Pick<PricingPlan, 'name' | 'displayName'>) =>
     (plan.name || plan.displayName).toLowerCase().trim();
 
 const formatInteger = (value: number, languageTag = 'en-US') => new Intl.NumberFormat(languageTag).format(value);
+
+const formatMcpCredits = (plan: PricingPlan) => {
+    const credits = planMcpCredits(plan);
+    return credits === null ? 'Custom' : formatInteger(credits);
+};
 
 const formatPlanPrice = (priceCents: number) => {
     if (priceCents < 0) return 'Custom';
@@ -178,11 +184,11 @@ export const PricingTable: React.FC = () => {
     const faqs = [
         {
             question: 'Are analytics unlimited?',
-            answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. The paid meter is captured session volume because those sessions are what let Rejourney explain revenue leaks, not just count traffic.',
+            answer: 'Yes. DAU, MAU, and analytics events are unlimited on every plan. The paid meter is captured session volume because those sessions are what let Rejourney show why users drop off, not just count traffic.',
         },
         {
             question: 'What happens when I use all included captured sessions?',
-            answer: 'New revenue evidence stops saving until the next billing cycle or until you upgrade. Rejourney still accepts analytics events for high-level charts, but fresh AI leak packets, heatmaps, journey drill-downs, crash context, replay search, and fix evidence need captured sessions to stay useful.',
+            answer: 'New session captures stop saving until the next billing cycle or until you upgrade. Rejourney still accepts analytics events for high-level charts, but new replays, heatmaps, journey drill-downs, crash context and replay search need captured sessions to stay useful.',
         },
         {
             question: 'How is Rejourney different from usage-based replay pricing?',
@@ -240,6 +246,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>7 days</strong> evidence retention</span>, active: true },
+                { key: 'mcp', content: <span><strong>{formatMcpCredits(plan)}</strong> MCP credits / month</span>, active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Standard funnel and cohort trends</span>, active: true },
                 { key: 'controls', content: <span>Standard session recording controls</span>, active: true },
@@ -250,6 +257,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>{formatInteger(plan.sessionLimit)}</strong> session replays / mo</span>, active: true },
                 { key: 'retention', content: <span><strong>{plan.videoRetentionLabel}</strong> evidence retention</span>, active: true },
+                { key: 'mcp', content: <span><strong>{formatMcpCredits(plan)}</strong> MCP credits / month</span>, active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Checkout, onboarding, & paywall drill-downs</span>, active: true },
                 { key: 'diagnostics', content: <span>Crash, API, and ANR diagnostic tools</span>, active: true },
@@ -260,6 +268,7 @@ export const PricingTable: React.FC = () => {
             cardFeatures = [
                 { key: 'sessions', content: <span><strong>Custom volume</strong> of monthly session replays</span>, active: true },
                 { key: 'retention', content: <span><strong>Custom</strong> evidence retention history</span>, active: true },
+                { key: 'mcp', content: <span><strong>Custom</strong> MCP credits / month</span>, active: true },
                 { key: 'events', content: <span>Unlimited events, DAU, and MAU</span>, active: true },
                 { key: 'funnels', content: <span>Full suite of custom funnels & analytics</span>, active: true },
                 { key: 'hardware', content: <span>Dedicated hardware & custom storage bucket</span>, active: true },

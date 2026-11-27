@@ -19,7 +19,6 @@ import {
     Smartphone,
     ShoppingBag,
     ExternalLink,
-    Workflow,
 } from 'lucide-react';
 import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
 
@@ -52,7 +51,6 @@ const STABILITY_IMAGE = landingImage('/images/anr-issues.webp');
 const GEO_IMAGE = landingImage('/images/geo-analytics.webp');
 const HEATMAPS_IMAGE = landingImage('/images/engineering/heatmaps-attention-docs.webp');
 const API_INSIGHTS_IMAGE = landingImage('/images/engineering/api-error-rate-spike.webp');
-const LEAK_AUTOMATIONS_IMAGE = landingImage('/images/issues-feed.webp');
 const MOUNTAIN_CARD_IMAGE = landingImage('/images/mountain_app_card.webp');
 const BEACH_CARD_IMAGE = landingImage('/images/beach_app_card.webp');
 
@@ -466,7 +464,7 @@ export const AiLeakHomepage: React.FC = () => {
     const [copied, setCopied] = useState(false);
     const [catHasBeenPet, setCatHasBeenPet] = useState(false);
 
-    const [activeFeatureTab, setActiveFeatureTab] = useState<'replay' | 'heatmaps' | 'api' | 'stability' | 'geo' | 'leaks'>('replay');
+    const [activeFeatureTab, setActiveFeatureTab] = useState<'replay' | 'heatmaps' | 'api' | 'stability' | 'geo'>('replay');
     const [activeSuccessStory, setActiveSuccessStory] = useState<'burst' | 'merch'>('burst');
 
     const [chartInView, setChartInView] = useState(false);
@@ -662,15 +660,6 @@ export const AiLeakHomepage: React.FC = () => {
                                         icon: Globe,
                                         image: GEO_IMAGE,
                                         imageAlt: 'Geographic recovery map'
-                                    },
-                                    {
-                                        id: 'leaks',
-                                        title: 'Leak Automations',
-                                        description: 'Automatically detect conversion leaks and anomalous drops in user success, routing them to the right team immediately.',
-                                        href: '/leak-automations',
-                                        icon: Workflow,
-                                        image: LEAK_AUTOMATIONS_IMAGE,
-                                        imageAlt: 'Leak detection automation'
                                     }
                                 ].map((tab) => {
                                     const isActive = activeFeatureTab === tab.id;
@@ -679,7 +668,7 @@ export const AiLeakHomepage: React.FC = () => {
                                     return (
                                         <button
                                             key={tab.id}
-                                            onClick={() => setActiveFeatureTab(tab.id as 'replay' | 'heatmaps' | 'api' | 'stability' | 'geo' | 'leaks')}
+                                            onClick={() => setActiveFeatureTab(tab.id as 'replay' | 'heatmaps' | 'api' | 'stability' | 'geo')}
                                             className={`flex w-full flex-col items-start gap-2.5 border-l-2 px-4 py-3.5 text-left transition-colors duration-200 ${
                                                 isActive
                                                     ? 'border-l-[#1a73e8] bg-[#f8fafd] text-[#202124]'
@@ -722,8 +711,7 @@ export const AiLeakHomepage: React.FC = () => {
                                 { id: 'heatmaps', image: HEATMAPS_IMAGE, alt: 'Heatmaps attention mapping' },
                                 { id: 'api', image: API_INSIGHTS_IMAGE, alt: 'API endpoint insights' },
                                 { id: 'stability', image: STABILITY_IMAGE, alt: 'Stability monitoring' },
-                                { id: 'geo', image: GEO_IMAGE, alt: 'Geographic recovery map' },
-                                { id: 'leaks', image: LEAK_AUTOMATIONS_IMAGE, alt: 'Leak detection automation' }
+                                { id: 'geo', image: GEO_IMAGE, alt: 'Geographic recovery map' }
                             ].map((item) => {
                                 const isActive = activeFeatureTab === item.id;
                                 if (!isActive) return null;

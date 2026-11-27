@@ -11,6 +11,7 @@ import { useAuth } from "~/shared/providers/AuthContext";
 import { AuthServiceUnavailable } from "~/shared/ui/core/AuthServiceUnavailable";
 type AccountActivationMethod = "otp" | "github";
 import { getFingerprint } from "~/shared/lib/fingerprint";
+import { safeReturnPath } from "~/shared/lib/returnPath";
 import { loadAuthBootstrap } from "~/shell/server/dashboardBootstrap";
 import { SankeyPanel } from "~/features/public/home/components/AiLeakHomepage";
 
@@ -24,17 +25,17 @@ function readAccountActivationMethod(value: string | null): AccountActivationMet
     return value === "github" || value === "otp" ? value : null;
 }
 
-function safeReturnPath(value: string | null): string | null {
-    return value?.startsWith("/") && !value.startsWith("//") ? value : null;
-}
-
 export async function loader({ request }: Route.LoaderArgs) {
     const url = new URL(request.url);
     const authBootstrap = await loadAuthBootstrap(request);
     const activationMethod = readAccountActivationMethod(url.searchParams.get(ACCOUNT_ACTIVATED_PARAM));
+    const returnTo = safeReturnPath(url.searchParams.get("returnTo"));
 
-    if (authBootstrap.user && !activationMethod) {
-        throw redirect(safeReturnPath(url.searchParams.get("returnTo")) ?? "/dashboard");
+    // Signed in with an explicit return target: go there on the server. Without
+    // one (e.g. back from the GitHub callback, which lands on a bare /login), let
+    // the page read the saved localStorage returnUrl and fall back to /dashboard.
+    if (authBootstrap.user && !activationMethod && returnTo) {
+        throw redirect(returnTo);
     }
 
     return authBootstrap;

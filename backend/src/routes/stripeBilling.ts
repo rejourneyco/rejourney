@@ -626,6 +626,7 @@ router.get(
                 interval: plan.interval,
                 isCustom: plan.isCustom,
                 smartCaptureEnabled: plan.smartCaptureEnabled,
+                mcpCreditLimit: plan.mcpCreditLimit,
             })),
         });
     })
@@ -680,6 +681,7 @@ router.get(
                 videoRetentionLabel: subscription.videoRetentionLabel,
                 isCustom: subscription.isCustom,
                 smartCaptureEnabled: subscription.smartCaptureEnabled,
+                mcpCreditLimit: subscription.mcpCreditLimit,
                 subscriptionId: subscription.subscriptionId,
                 subscriptionStatus: subscription.subscriptionStatus,
                 cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,

@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, it, vi } from 'vitest';
 import {
-    sendLeakScanEmail,
     sendOtpEmail,
     sendBillingWarningEmail,
     sendDeveloperSetupEmail,
@@ -171,46 +170,6 @@ describe('Email Previews', () => {
                     growthPercent: 300,
                     occurrences: 28,
                     affectedSessions: 41,
-                },
-            ],
-        });
-    });
-
-    it('generates Leak Scan email', async () => {
-        await sendLeakScanEmail(['product@example.com'], {
-            projectId: 'p_123',
-            projectName: 'Mobile App',
-            dashboardUrl: 'http://localhost:5173/dashboard/leaks',
-            completedAt: new Date(),
-            admittedSessions: 32,
-            issues: [
-                {
-                    id: '00000000-0000-0000-0000-000000000001',
-                    shortId: 'LEAK-101',
-                    title: 'Product image zoom does not respond',
-                    issueType: 'ux_friction',
-                    severity: 'high',
-                    status: 'ready',
-                    whyItMatters: 'Pinch gestures leave the product image unchanged, preventing a closer view of product details.',
-                    estimatedAffectedUsers: 15,
-                    affectedSessions: 22,
-                    firstSeen: new Date('2026-06-18T06:00:00.000Z'),
-                    lastSeen: new Date(),
-                    contextStatus: 'ready',
-                    topSignals: ['session_replay', 'dead_tap', 'abandonment'],
-                },
-                {
-                    id: '00000000-0000-0000-0000-000000000002',
-                    shortId: 'LEAK-102',
-                    title: 'Onboarding tour waits for missing element',
-                    issueType: 'dead_tap',
-                    severity: 'medium',
-                    status: 'ready',
-                    whyItMatters: 'New users repeatedly tap the disabled next step and leave before activation.',
-                    estimatedAffectedUsers: 8,
-                    affectedSessions: 11,
-                    lastSeen: new Date(),
-                    topSignals: ['dead_tap', 'abandonment'],
                 },
             ],
         });

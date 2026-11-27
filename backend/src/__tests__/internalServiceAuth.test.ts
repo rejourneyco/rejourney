@@ -30,7 +30,7 @@ function toRequest(input: {
         body: input.body,
         headers: input.headers ?? {},
         method: input.method ?? 'GET',
-        originalUrl: input.originalUrl ?? '/api/internal/issue-detection/projects',
+        originalUrl: input.originalUrl ?? '/api/analytics/rollup',
     } as Request;
 }
 
@@ -59,13 +59,13 @@ describe('internal service auth helpers', () => {
             body: { projectId: 'project_1' },
             method: 'post',
             nonce: 'nonce-1',
-            pathWithQuery: '/api/internal/issue-detection/projects?limit=1',
+            pathWithQuery: '/api/analytics/rollup?limit=1',
             timestamp: '2026-06-13T12:00:00.000Z',
         });
 
         expect(payload).toBe([
             'POST',
-            '/api/internal/issue-detection/projects?limit=1',
+            '/api/analytics/rollup?limit=1',
             '2026-06-13T12:00:00.000Z',
             'nonce-1',
             sha256Hex(JSON.stringify({ projectId: 'project_1' })),
@@ -77,7 +77,7 @@ describe('internal service auth helpers', () => {
             body: '',
             method: 'GET',
             nonce: 'nonce-2',
-            pathWithQuery: '/v1/leaks/leak_1',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
             service: 'rejourney',
             timestamp: '2026-06-13T12:00:00.000Z',
@@ -86,7 +86,7 @@ describe('internal service auth helpers', () => {
             body: '',
             method: 'GET',
             nonce: 'nonce-2',
-            pathWithQuery: '/v1/leaks/leak_1',
+            pathWithQuery: '/api/analytics/rollup',
             timestamp: '2026-06-13T12:00:00.000Z',
         });
 
@@ -103,14 +103,14 @@ describe('internal service auth helpers', () => {
             body: { projectId: 'project_1' },
             method: 'POST',
             nonce,
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({
                 body: { projectId: 'project_1' },
                 headers,
@@ -118,9 +118,9 @@ describe('internal service auth helpers', () => {
             }),
         });
 
-        expect(result).toEqual({ ok: true, service: 'issue-detection' });
+        expect(result).toEqual({ ok: true, service: 'analytics-rollup' });
         expect(mocks.redisSet).toHaveBeenCalledWith(
-            'internal-service-auth:issue-detection:nonce-valid',
+            'internal-service-auth:analytics-rollup:nonce-valid',
             '1',
             'EX',
             301,
@@ -135,19 +135,19 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-future-boundary',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         await expect(verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
-        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+        })).resolves.toEqual({ ok: true, service: 'analytics-rollup' });
 
         expect(mocks.redisSet).toHaveBeenCalledWith(
-            'internal-service-auth:issue-detection:nonce-future-boundary',
+            'internal-service-auth:analytics-rollup:nonce-future-boundary',
             '1',
             'EX',
             601,
@@ -162,18 +162,18 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-current-boundary',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         await expect(verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
-        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+        })).resolves.toEqual({ ok: true, service: 'analytics-rollup' });
         expect(mocks.redisSet).toHaveBeenLastCalledWith(
-            'internal-service-auth:issue-detection:nonce-current-boundary',
+            'internal-service-auth:analytics-rollup:nonce-current-boundary',
             '1',
             'EX',
             301,
@@ -186,7 +186,7 @@ describe('internal service auth helpers', () => {
         mocks.redisSet.mockResolvedValueOnce(null);
         vi.setSystemTime(new Date('2026-06-13T12:05:00.000Z'));
         await expect(verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
         })).resolves.toEqual({ ok: false, reason: 'replayed_internal_nonce' });
     });
@@ -198,20 +198,20 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-short-explicit-ttl',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         await expect(verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             nonceTtlSeconds: 1,
             req: toRequest({ headers }),
-        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+        })).resolves.toEqual({ ok: true, service: 'analytics-rollup' });
 
         expect(mocks.redisSet).toHaveBeenCalledWith(
-            'internal-service-auth:issue-detection:nonce-short-explicit-ttl',
+            'internal-service-auth:analytics-rollup:nonce-short-explicit-ttl',
             '1',
             'EX',
             601,
@@ -226,20 +226,20 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-long-explicit-ttl',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         await expect(verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             nonceTtlSeconds: 900,
             req: toRequest({ headers }),
-        })).resolves.toEqual({ ok: true, service: 'issue-detection' });
+        })).resolves.toEqual({ ok: true, service: 'analytics-rollup' });
 
         expect(mocks.redisSet).toHaveBeenCalledWith(
-            'internal-service-auth:issue-detection:nonce-long-explicit-ttl',
+            'internal-service-auth:analytics-rollup:nonce-long-explicit-ttl',
             '1',
             'EX',
             900,
@@ -249,10 +249,10 @@ describe('internal service auth helpers', () => {
 
     it('rejects missing signatures', async () => {
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({
                 headers: {
-                    [INTERNAL_SERVICE_HEADERS.service]: 'issue-detection',
+                    [INTERNAL_SERVICE_HEADERS.service]: 'analytics-rollup',
                     [INTERNAL_SERVICE_HEADERS.timestamp]: new Date().toISOString(),
                     [INTERNAL_SERVICE_HEADERS.nonce]: 'nonce-missing-signature',
                 },
@@ -267,15 +267,15 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-bad-signature',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp: new Date().toISOString(),
         }));
         headers[INTERNAL_SERVICE_HEADERS.signature] = '0'.repeat(64);
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
         });
 
@@ -288,14 +288,14 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-stale',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp,
         }));
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             maxSkewMs: 1,
             req: toRequest({ headers }),
         });
@@ -309,14 +309,14 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-replayed',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp: new Date().toISOString(),
         }));
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
         });
 
@@ -328,14 +328,14 @@ describe('internal service auth helpers', () => {
             body: { projectId: 'project_1' },
             method: 'POST',
             nonce: 'nonce-body-changed',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
-            service: 'issue-detection',
+            service: 'analytics-rollup',
             timestamp: new Date().toISOString(),
         }));
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({
                 body: { projectId: 'project_2' },
                 headers,
@@ -350,14 +350,14 @@ describe('internal service auth helpers', () => {
         const headers = lowerCaseHeaders(signInternalServiceRequest({
             method: 'GET',
             nonce: 'nonce-unknown',
-            pathWithQuery: '/api/internal/issue-detection/projects',
+            pathWithQuery: '/api/analytics/rollup',
             secret: 'secret',
             service: 'unknown-service',
             timestamp: new Date().toISOString(),
         }));
 
         const result = await verifyInternalServiceRequest({
-            allowedServices: { 'issue-detection': 'secret' },
+            allowedServices: { 'analytics-rollup': 'secret' },
             req: toRequest({ headers }),
         });
 

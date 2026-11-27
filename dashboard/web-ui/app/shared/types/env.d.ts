@@ -6,7 +6,7 @@ declare global {
             VITE_STRIPE_PUBLISHABLE_KEY?: string;
             VITE_MAPBOX_TOKEN?: string;
             VITE_TURNSTILE_SITE_KEY?: string;
-            SHOW_ISSUE_DETECTION_UI?: string;
+            MCP_SERVER_URL?: string;
         };
     }
 }

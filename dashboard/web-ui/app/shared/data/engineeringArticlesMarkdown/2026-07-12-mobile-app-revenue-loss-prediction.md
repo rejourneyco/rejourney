@@ -6,8 +6,8 @@ slug: "mobile-app-revenue-loss-prediction"
 date: "2026-07-12"
 dateModified: "2026-07-12"
 readTime: "10 min read"
-image: "/images/issues-feed.png"
-imageAlt: "Rejourney issue feed showing ranked app revenue leak signals with replay evidence"
+image: "/images/anr-issues.png"
+imageAlt: "Rejourney stability view showing app crashes and ANRs with affected users"
 authorName: "Mohammad Rashid"
 authorUrl: "https://www.linkedin.com/in/mohammad-rashid7337/"
 authorGithub: "https://github.com/Mohammad-R-Rashid"
@@ -38,7 +38,7 @@ Aggregate revenue reacts after those sessions accumulate.
 
 Revenue loss prediction for mobile apps means ranking leading product and runtime evidence that threatens activation, trial, purchase, subscription, or renewal—then attaching enough session context for the team to verify the risk before calling it a leak.
 
-![Rejourney issue feed showing ranked app revenue leak signals](/images/issues-feed.png)
+![Rejourney stability view showing app crashes and ANRs with affected users](/images/anr-issues.png)
 
 ## Predict a failed business state, not “revenue” in the abstract
 
@@ -143,6 +143,6 @@ Recovered revenue is a healthy outcome that actually occurred, not the estimated
 
 ## Review the sessions behind an app revenue warning
 
-A revenue warning in Rejourney includes the affected app transition and sessions from the concentrated cohort. Product and engineering can compare failed and healthy journeys from the same release while checking store, entitlement, request, crash, and ANR evidence.
+In Rejourney, an app transition that is losing revenue opens into the sessions from the concentrated cohort. Product and engineering can compare failed and healthy journeys from the same release while checking store, entitlement, request, crash, and ANR evidence.
 
 The underlying measurement is described in [mobile app conversion funnels](/guides/2026-07-12/mobile-app-conversion-funnel) and the general [revenue leak detection guide](/guides/2026-07-12/revenue-leak-detection).

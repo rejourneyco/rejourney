@@ -43,7 +43,7 @@ describe('subscription quota resolution', () => {
         expect(mocks.cacheSet).not.toHaveBeenCalled();
     });
     it('uses a verified shared paid subscription without calling Stripe', async () => {
-        mocks.cached.mockResolvedValue({ cacheVersion: 3, sessionLimit: 20000,
+        mocks.cached.mockResolvedValue({ cacheVersion: 4, sessionLimit: 20000,
             subscriptionId: 'sub_test', subscriptionStatus: 'active', currentPeriodStart: null, currentPeriodEnd: null });
         const { getTeamSubscription } = await service();
         expect((await getTeamSubscription('team_test')).sessionLimit).toBe(20000);
@@ -95,6 +95,6 @@ describe('subscription quota resolution', () => {
     it('resolves and caches valid paid limits from Stripe', async () => {
         mocks.config.STRIPE_SECRET_KEY = 'sk_test'; const { getTeamSubscription } = await service();
         expect((await getTeamSubscription('team_test')).sessionLimit).toBe(20000);
-        expect(mocks.cacheSet).toHaveBeenCalledWith('team_test', expect.objectContaining({ cacheVersion: 3, sessionLimit: 20000 }));
+        expect(mocks.cacheSet).toHaveBeenCalledWith('team_test', expect.objectContaining({ cacheVersion: 4, sessionLimit: 20000 }));
     });
 });

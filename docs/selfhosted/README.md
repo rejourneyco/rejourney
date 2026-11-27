@@ -17,9 +17,6 @@ After setup you get:
 - Postgres, Redis, and either built-in MinIO or your own S3-compatible storage.
 - Background workers for ingest, replay processing, retention, lifecycle, and alerts.
 
-> [!NOTE]
-> **Leaks and Automations are not included in the open-source self-hosted stack.** They depend on Rejourney's managed AI services, so the self-hosted dashboard hides those pages and their GitHub automation setup. The public demo may still show them as a product preview.
-
 All commands below assume you are in the repository root, the folder that contains `docker-compose.selfhosted.yml`.
 
 ---

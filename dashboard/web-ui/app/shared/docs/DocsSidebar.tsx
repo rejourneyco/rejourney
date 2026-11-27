@@ -19,6 +19,16 @@ const swiftDocs = markdownDocs.filter(doc => doc.category === 'Swift (iOS)');
 const flutterDocs = markdownDocs.filter(doc => doc.category === 'Flutter');
 const shopifyDocs = markdownDocs.filter(doc => doc.category === 'Shopify');
 const webDocs = markdownDocs.filter(doc => doc.category === 'Web');
+const mcpDocs = markdownDocs.filter(doc => doc.category === 'MCP');
+
+// Sidebar labels for the MCP pages. The category heading already says "MCP".
+const MCP_NAV_LABELS: Record<string, string> = {
+    'mcp/getting-started': 'Getting Started',
+    'mcp/what-you-can-ask': 'What You Can Ask',
+    'mcp/tools': 'Tool Reference',
+    'mcp/limits-and-billing': 'Limits and Billing',
+    'mcp/security-and-privacy': 'Security and Privacy',
+};
 
 const NAVIGATION: NavCategory[] = [
     ...(shopifyDocs.length > 0 ? [{
@@ -131,6 +141,20 @@ const NAVIGATION: NavCategory[] = [
             }
         ]
     }] : []),
+    // MCP pages, in the order they are registered in DOCS_MAP
+    ...(mcpDocs.length > 0 ? [{
+        category: "MCP",
+        sections: [
+            {
+                title: "Documentation",
+                links: mcpDocs.map(doc => ({
+                    label: MCP_NAV_LABELS[doc.path] ?? doc.title,
+                    href: `/docs/${doc.path}`,
+                    isRoute: true,
+                }))
+            }
+        ]
+    }] : []),
     // Add Self-Hosting category if there are selfhosted docs
     ...(selfhostedDocs.length > 0 ? [{
         category: "Self-Hosting",
@@ -179,7 +203,7 @@ export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Unity", "Flutter", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Shopify", "Web", "React Native", "Unity", "Flutter", "Swift (iOS)", "MCP", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
     const navigation = NAVIGATION.map((cat) => {
         if (cat.category !== "Web") {

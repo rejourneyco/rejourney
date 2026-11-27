@@ -3,8 +3,10 @@ export interface RuntimeEnvSnapshot {
   VITE_MAPBOX_TOKEN?: string;
   VITE_TURNSTILE_SITE_KEY?: string;
 
-  SHOW_ISSUE_DETECTION_UI?: string;
+  MCP_SERVER_URL?: string;
 }
+
+export const DEFAULT_MCP_SERVER_URL = "https://mcp.rejourney.co/mcp";
 
 function readRuntimeEnvValue(key: keyof RuntimeEnvSnapshot): string | undefined {
   const fromWindow = typeof window !== "undefined" ? window.ENV?.[key] : undefined;
@@ -20,8 +22,18 @@ export function getRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_MAPBOX_TOKEN: readRuntimeEnvValue("VITE_MAPBOX_TOKEN"),
     VITE_TURNSTILE_SITE_KEY: readRuntimeEnvValue("VITE_TURNSTILE_SITE_KEY"),
 
-    SHOW_ISSUE_DETECTION_UI: readRuntimeEnvValue("SHOW_ISSUE_DETECTION_UI"),
+    MCP_SERVER_URL: readRuntimeEnvValue("MCP_SERVER_URL"),
   };
+}
+
+/** Accepts an http(s) override; anything else falls back to the hosted address. */
+export function resolveMcpServerUrl(value: string | null | undefined): string {
+  const trimmed = (value ?? "").trim();
+  return /^https?:\/\/[^\s/]+\S*$/i.test(trimmed) ? trimmed : DEFAULT_MCP_SERVER_URL;
+}
+
+export function getMcpServerUrl(): string {
+  return resolveMcpServerUrl(getRuntimeEnvSnapshot().MCP_SERVER_URL);
 }
 
 export function getStripePublishableKey(): string {
@@ -32,13 +44,6 @@ export function getMapboxToken(): string {
   return getRuntimeEnvSnapshot().VITE_MAPBOX_TOKEN || "";
 }
 
-export function isIssueDetectionUiEnabled(pathname?: string): boolean {
-  if (pathname && (pathname.startsWith('/demo') || pathname.includes('/demo/'))) {
-    return true;
-  }
-  return getRuntimeEnvSnapshot().SHOW_ISSUE_DETECTION_UI === "true";
-}
-
 export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
   const snapshot = getRuntimeEnvSnapshot();
 
@@ -47,6 +52,6 @@ export function getPublicRuntimeEnvSnapshot(): RuntimeEnvSnapshot {
     VITE_MAPBOX_TOKEN: snapshot.VITE_MAPBOX_TOKEN,
     VITE_TURNSTILE_SITE_KEY: snapshot.VITE_TURNSTILE_SITE_KEY,
 
-    SHOW_ISSUE_DETECTION_UI: snapshot.SHOW_ISSUE_DETECTION_UI === "true" ? "true" : "false",
+    MCP_SERVER_URL: snapshot.MCP_SERVER_URL,
   };
 }

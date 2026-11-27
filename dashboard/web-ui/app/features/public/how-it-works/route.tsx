@@ -9,10 +9,8 @@ const LANDING_IMAGE_VERSION = "20260619";
 const landingImage = (path: string) => `${path}?v=${LANDING_IMAGE_VERSION}`;
 
 const SESSION_REPLAY_IMAGE = landingImage("/images/landing-replay-workbench.webp");
-const ISSUE_FEED_IMAGE = landingImage("/images/issues-feed.webp");
 const REVENUE_IMAGE = landingImage("/images/growth-engines.webp");
 const STABILITY_IMAGE = landingImage("/images/anr-issues.webp");
-const CONTEXT_HANDOFF_IMAGE = landingImage("/images/readme-general-demo.webp");
 const GEO_IMAGE = landingImage("/images/geo-intelligence.webp");
 
 export const meta: Route.MetaFunction = () => {
@@ -57,7 +55,7 @@ export default function HowItWorksPage() {
               How Rejourney Works
             </h1>
             <p className="mt-6 max-w-2xl text-balance text-lg font-medium leading-relaxed text-[#3c4043] sm:text-xl">
-              From lightweight session recordings to AI-assisted code repairs, see the full pipeline that helps heal conversion leaks.
+              From lightweight session recordings to AI review through the MCP server, see how Rejourney connects user signals to the fix.
             </p>
           </div>
         </section>
@@ -83,30 +81,6 @@ export default function HowItWorksPage() {
                 </div>
               </div>
 
-              {/* Section: Issue Detection */}
-              <div className="grid gap-12 lg:grid-cols-[0.42fr_0.58fr] lg:items-center">
-                <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Issue detection</p>
-                  <h3 className="text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
-                    Then, Rejourney creates the ranked "leaks" feed.
-                  </h3>
-                  <p className="text-base font-medium leading-8 text-[#3c4043]">
-                    Rejourney groups repeated checkout failures, rage taps, broken onboarding paths, and abandoned funnels into signals. Marlin reads the same evidence your team sees: affected users, session count, failure cluster, and why the leak matters.
-                  </p>
-                </div>
-                <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
-                  <div className="overflow-hidden rounded-none aspect-[16/10]">
-                    <img 
-                      src={ISSUE_FEED_IMAGE} 
-                      alt="Rejourney issue detection feed showing ranked leaks list" 
-                      loading="lazy"
-                      decoding="async"
-                      className="w-[165%] max-w-none h-full object-cover object-left" 
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Section: Revenue Priority */}
               <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
                 <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm lg:order-first">
@@ -115,10 +89,10 @@ export default function HowItWorksPage() {
                 <div className="space-y-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Revenue priority</p>
                   <h3 className="text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
-                    The issues are ranked by business impact.
+                    See which issues touch revenue.
                   </h3>
                   <p className="text-base font-medium leading-8 text-[#3c4043]">
-                    Marlin can tell the difference between cosmetic noise and a checkout path that blocks revenue. Revenue movement, affected cohorts, and release timing travel into the GitHub suggestion so engineers know why the fix should move now.
+                    Revenue movement, affected cohorts, and release timing sit beside the sessions, so your team can tell cosmetic noise from a checkout path that blocks revenue.
                   </p>
                 </div>
               </div>
@@ -128,10 +102,10 @@ export default function HowItWorksPage() {
                 <div className="space-y-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">Stability evidence</p>
                   <h3 className="text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
-                    Crashes, ANRs, and API spikes become fix paths too.
+                    Crashes, ANRs, and API spikes come with context too.
                   </h3>
                   <p className="text-base font-medium leading-8 text-[#3c4043]">
-                    When the leak is technical, Marlin uses the same issue feed to connect stack traces, device cohorts, endpoint spikes, and replay context to likely files. The result is a focused repair brief instead of a vague stability ticket.
+                    Stack traces, device cohorts, endpoint spikes, and replay context sit side by side, so a crash report comes with the sessions that led to it.
                   </p>
                 </div>
                 <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">
@@ -139,20 +113,18 @@ export default function HowItWorksPage() {
                 </div>
               </div>
 
-              {/* Section: IDE Handoff */}
-              <div className="grid gap-12 lg:grid-cols-[0.58fr_0.42fr] lg:items-center">
-                <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm lg:order-first">
-                  <img src={CONTEXT_HANDOFF_IMAGE} alt="Rejourney Markdown context handoff showing Copy md and Open Cursor options" loading="lazy" decoding="async" className="w-full rounded-none object-cover" />
-                </div>
-                <div className="space-y-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">IDE Handoff</p>
-                  <h3 className="text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
-                    Generate a copyable .MD context file for your coding agent.
-                  </h3>
-                  <p className="text-base font-medium leading-8 text-[#3c4043]">
-                    Once the issue is analyzed, Marlin packs the entire diagnostic context—replay events, affected user sessions, and console stack traces—into an LLM-optimized Markdown payload. Copy it straight to your clipboard to paste into Cursor, Claude, or Copilot for an instant, precise code fix.
-                  </p>
-                </div>
+              {/* Section: AI review through MCP */}
+              <div className="mx-auto max-w-4xl text-center">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5f6368]">AI review</p>
+                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#202124] sm:text-4xl">
+                  Ask your AI client about the sessions.
+                </h3>
+                <p className="mt-4 text-base font-medium leading-8 text-[#3c4043]">
+                  Connect Claude Code, Cursor, or another MCP client to the Rejourney MCP server. It can review the sessions and crashes of the projects you share, so you can ask about a problem without copying context by hand.{" "}
+                  <Link to="/docs/mcp/getting-started" className="font-semibold text-[#1a73e8] hover:underline">
+                    Set up the MCP server
+                  </Link>
+                </p>
               </div>
 
               {/* Section: Conversion Growth */}
@@ -163,7 +135,7 @@ export default function HowItWorksPage() {
                     Watch the conversion and growth impact.
                   </h3>
                   <p className="text-base font-medium leading-8 text-[#3c4043]">
-                    Track conversion recovery, regional cohorts, and revenue movement in real time. Verify that released fixes actually restored conversions and healed the leak.
+                    Track conversion recovery, regional cohorts, and revenue movement in real time. Verify that released fixes actually restored conversions.
                   </p>
                 </div>
                 <div className="overflow-hidden rounded-none border border-[#dadce0] bg-white p-2 shadow-sm">

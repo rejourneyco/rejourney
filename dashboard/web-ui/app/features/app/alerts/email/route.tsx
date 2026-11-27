@@ -16,8 +16,6 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDashboardManualRefreshVersion } from '~/shared/providers/DashboardManualRefreshContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
-    dashboardButtonClass,
-    dashboardCardClass,
     dashboardChipClass,
     dashboardFieldClass,
     dashboardLabelClass,
@@ -31,9 +29,6 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { useAuth } from '~/shared/providers/AuthContext';
-import { isIssueDetectionUiEnabled } from '~/shared/config/runtimeEnv';
-import { shouldShowIssueDetectionUi } from '~/shared/config/issueDetectionAccess';
 
 interface AlertRecipient {
     id: string;
@@ -195,51 +190,13 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
     </section>
 );
 
-function getBrowserTimeZone(): string {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'your local timezone';
-    } catch {
-        return 'your local timezone';
-    }
-}
-
-function getLeakScanLocalTime() {
-    const timeZone = getBrowserTimeZone();
-    const scanReference = new Date();
-    scanReference.setUTCHours(3, 0, 0, 0);
-
-    try {
-        return {
-            timeZone,
-            localScanLabel: new Intl.DateTimeFormat(undefined, {
-                hour: 'numeric',
-                minute: '2-digit',
-                timeZone,
-                timeZoneName: 'short',
-            }).format(scanReference),
-        };
-    } catch {
-        return {
-            timeZone,
-            localScanLabel: scanReference.toLocaleTimeString(),
-        };
-    }
-}
-
 export const AlertEmails: React.FC = () => {
     const { selectedProject } = useSessionData();
-    const { user } = useAuth();
     // Demo projects have no alert endpoints; show an empty, neutral page instead of load errors.
     const { isDemoMode } = useDemoMode();
     const manualRefreshVersion = useDashboardManualRefreshVersion();
     const pathPrefix = usePathPrefix();
     const location = useLocation();
-    const leakScanTiming = useMemo(() => getLeakScanLocalTime(), []);
-    const showIssueDetectionUi = shouldShowIssueDetectionUi({
-        featureEnabled: isIssueDetectionUiEnabled(location.pathname),
-        isDemoMode: pathPrefix === '/demo',
-        isSelfHosted: Boolean(user?.isSelfHosted),
-    });
 
     const navItems = [
         { href: '#recipients', label: 'Email recipients' },
@@ -427,36 +384,11 @@ export const AlertEmails: React.FC = () => {
                         </div>
                     )}
 
-                    {showIssueDetectionUi && <div className={`${dashboardCardClass} overflow-hidden`}>
-                        <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2 text-sm font-medium text-[#1a73e8]">
-                                    <Mail className="h-4 w-4" />
-                                    Looking for leak alerts?
-                                </div>
-                                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#3c4043]">
-                                    Leak Scan Today digests are configured from the Leaks inbox, where Marlin shows the issues that triggered the email.
-                                </p>
-                                <p className="mt-1 max-w-2xl text-xs leading-5 text-[#5f6368]">
-                                    Scans run around 3:00 AM UTC, about {leakScanTiming.localScanLabel} in {leakScanTiming.timeZone}. Issues usually begin appearing a few minutes after the run starts.
-                                </p>
-                            </div>
-                            <Link
-                                to={`${pathPrefix}/leaks?settings=leak-alerts`}
-                                className={dashboardButtonClass('primary', 'md')}
-                            >
-                                Open leak alert settings
-                            </Link>
-                        </div>
-                    </div>}
-
                     {/* SECTION 1: RECIPIENTS */}
                     <SettingsSection
                         id="recipients"
                         title="Email recipients"
-                        description={showIssueDetectionUi
-                            ? "Choose which team members receive rising stability and leak-scan digests."
-                            : "Choose which team members receive rising stability digests."}
+                        description="Choose which team members receive rising stability digests."
                         action={
                             <div className="flex items-center gap-3">
                                 <span className="text-xs tabular-nums text-[#5f6368]">{recipients.length} / 5 members</span>
@@ -541,7 +473,6 @@ export const AlertEmails: React.FC = () => {
                             >
                                 <option value="all">All types</option>
                                 <option value="stability_digest">Stability trends</option>
-                                {showIssueDetectionUi && <option value="leak_scan">Leak scans</option>}
                                 <option value="crash">Historical crashes</option>
                                 <option value="anr">Historical ANRs</option>
                                 <option value="error_spike">Historical error spikes</option>
@@ -573,9 +504,7 @@ export const AlertEmails: React.FC = () => {
                                                 <Mail className="mx-auto mb-3 h-10 w-10 text-[#dadce0]" />
                                                 <p className="text-sm font-medium text-[#3c4043]">No emails sent yet</p>
                                                 <p className="mt-1 text-xs text-[#5f6368]">
-                                                    {showIssueDetectionUi
-                                                        ? 'Stability and leak-scan digests will appear here after delivery.'
-                                                        : 'Stability digests will appear here after delivery.'}
+                                                    Stability digests will appear here after delivery.
                                                 </p>
                                             </td>
                                         </tr>
@@ -671,9 +600,7 @@ export const AlertEmails: React.FC = () => {
             >
                 <div className="space-y-4">
                     <p className="text-sm text-[#5f6368]">
-                        {showIssueDetectionUi
-                            ? 'Choose a team member to receive stability and leak-scan digests.'
-                            : 'Choose a team member to receive stability digests.'}
+                        Choose a team member to receive stability digests.
                     </p>
                     {nonRecipientMembers.length === 0 ? (
                         <div className="py-8 text-center">

@@ -82,9 +82,9 @@ function checkRobotsAndSitemap() {
     ["/session-replay-tools", "/record-user-sessions"],
     ["/session-replay-software", "/record-user-sessions"],
     ["/ai-funnel-leak-detection", "/funnel-replay-evidence"],
-    ["/ai-agent-handoff", "/rejourney-marlin"],
-    ["/autonomous-debugging", "/rejourney-marlin"],
-    ["/self-healing-software", "/rejourney-marlin"],
+    ["/ai-agent-handoff", "/docs/mcp/getting-started"],
+    ["/autonomous-debugging", "/docs/mcp/getting-started"],
+    ["/self-healing-software", "/docs/mcp/getting-started"],
   ]) {
     assertIncludes("server.js", `['${source}', '${destination}']`, `Permanent redirect is missing: ${source} -> ${destination}.`);
   }

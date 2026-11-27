@@ -20,6 +20,7 @@ const freeSubscription: TeamSubscriptionInfo = {
     priceCents: 0,
     isCustom: false,
     smartCaptureEnabled: false,
+    mcpCreditLimit: 300,
     subscriptionId: null,
     subscriptionStatus: null,
     currentPeriodStart: null,
@@ -42,6 +43,7 @@ const starterPlan: StripePlan = {
     interval: 'month',
     isCustom: false,
     smartCaptureEnabled: false,
+    mcpCreditLimit: 2000,
     sortOrder: 1,
 };
 

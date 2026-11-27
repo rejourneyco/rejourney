@@ -27,10 +27,8 @@ import demoRoutes from './demo.js';
 import alertsRoutes from './alerts.js';
 import roadmapRoutes from './roadmap.js';
 import { revenueProjectRouter } from './revenueSources.js';
-import issueDetectionLeaksRoutes from './issueDetectionLeaks.js';
-import issueDetectionGithubRoutes from './issueDetectionGithub.js';
-import internalIssueDetectionRoutes from './internalIssueDetection.js';
 import stabilityRoutes from './stability.js';
+import mcpRoutes from './mcp.js';
 
 const router = Router();
 
@@ -68,11 +66,8 @@ router.use('/overview', dashboardOverviewRoutes);
 // UI workspace state persistence
 router.use('/', workspaceRoutes);
 
-// Private issue-detection integration. Dashboard routes are session-authenticated;
-// internal routes require service-to-service HMAC auth.
-router.use('/automations/github', issueDetectionGithubRoutes);
-router.use('/automations', issueDetectionLeaksRoutes);
-router.use('/internal/issue-detection', internalIssueDetectionRoutes);
+// MCP: consent, usage, connections and team switches for the dashboard
+router.use('/mcp', mcpRoutes);
 
 // API management
 router.use('/', apiKeysRoutes); // /api/projects/:id/api-keys and /api/api-keys/:id

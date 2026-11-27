@@ -118,7 +118,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     [currentTeam?.id, selectedProject?.id],
   );
   const contentScopeKey = isSetupWizardRoute ? 'setup-wizard' : routeScopeKey;
-  const isFullBleedRoute = routeWithoutPrefix.startsWith('/leaks') || routeWithoutPrefix.startsWith('/geo');
+  const isFullBleedRoute = routeWithoutPrefix.startsWith('/mcp') || routeWithoutPrefix.startsWith('/geo');
   const dashboardContentClassName = [
     'dashboard-content dashboard-surface-mix min-h-0 min-w-0 flex-1 overflow-x-hidden',
     (isSetupWizardRoute || isFullBleedRoute) ? 'overflow-y-hidden' : 'overflow-y-auto',
@@ -128,7 +128,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     || routeWithoutPrefix.startsWith('/sessions')
     || routeWithoutPrefix.startsWith('/analytics')
     || routeWithoutPrefix.startsWith('/stability')
-    || routeWithoutPrefix.startsWith('/leaks')
+    || routeWithoutPrefix.startsWith('/mcp')
     || routeWithoutPrefix.startsWith('/automations')
     || routeWithoutPrefix.startsWith('/alerts')
     || routeWithoutPrefix.startsWith('/settings')

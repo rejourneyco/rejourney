@@ -577,7 +577,7 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
     },
     {
       src: "/images/readme-general-demo.png",
-      alt: "Rejourney general dashboard with leak and revenue context",
+      alt: "Rejourney general dashboard with issue and revenue context",
       title: "Issue context",
       copy: "Use issue evidence to explain movement in growth metrics.",
     },
@@ -603,7 +603,7 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
     },
     {
       src: "/images/readme-general-demo.png",
-      alt: "Rejourney issue detection context",
+      alt: "Rejourney issue context",
       title: "Issue context",
       copy: "Preserve the facts another team needs to reopen an issue.",
     },
@@ -789,9 +789,9 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
     },
     {
       src: "/images/readme-general-demo.png",
-      alt: "Rejourney issue detection inbox with ranked leak signals",
-      title: "Issue detection",
-      copy: "Build a workflow around ranked issues, replay evidence, and fix-ready context.",
+      alt: "Rejourney issues dashboard with replay evidence",
+      title: "Issue tracking",
+      copy: "Build a workflow around issues, replay evidence, and the context needed to fix them.",
     },
     {
       src: "/images/engineering/product-tools-live-stability.png",
@@ -814,8 +814,8 @@ const featureImagesByPath: Record<string, FeatureImage[]> = {
       copy: "Events and metrics explain what happened around it.",
     },
     {
-      src: "/images/issues-feed.png",
-      alt: "Rejourney issues feed",
+      src: "/images/anr-issues.png",
+      alt: "Rejourney stability view with crashes and ANRs",
       title: "The issue",
       copy: "Crashes and errors explain when the system shaped the experience.",
     },
@@ -874,9 +874,9 @@ const alternativeQuickScanImages: Record<string, FeatureImage> = {
     copy: "Use a different product view in the TLDR card.",
   },
   "/alternatives/sentry-session-replay": {
-    src: "/images/issues-feed.png",
-    alt: "Rejourney issues feed with replay-backed triage",
-    title: "Issues feed",
+    src: "/images/anr-issues.png",
+    alt: "Rejourney stability issues with replay-backed triage",
+    title: "Stability issues",
     copy: "Show triage context instead of repeating the hero.",
   },
   "/alternatives/datadog-session-replay": {
@@ -899,9 +899,9 @@ const alternativeQuickScanImages: Record<string, FeatureImage> = {
   },
   "/alternatives/pendo-session-replay": {
     src: "/images/readme-general-demo.png",
-    alt: "Rejourney issue detection inbox with ranked leak signals",
-    title: "Issue detection",
-    copy: "Show ranked product and technical issues with the context teams need to act.",
+    alt: "Rejourney issues dashboard with replay evidence",
+    title: "Issue tracking",
+    copy: "Show product and technical issues with the context teams need to act.",
   },
   "/alternatives/fullstory": {
     src: "/images/session-replay-preview.png",

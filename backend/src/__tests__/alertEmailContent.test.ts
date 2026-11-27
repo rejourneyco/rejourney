@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    sendLeakScanEmail,
     sendStabilityDigestEmail,
 } from '../services/email.js';
 
@@ -93,57 +92,5 @@ describe('alert email content', () => {
         expect(sentMails[0].html).toContain('at most three stability digests');
         expect(sentMails[0].html).toContain('Times shown in Asia/Hebron');
         expect(sentMails[1].html).toContain('Times shown in America/New_York');
-    });
-
-    it('sends leak scan digests ordered by estimated affected users', async () => {
-        await sendLeakScanEmail([
-            { email: 'marlin@example.com', timeZone: 'UTC' },
-        ], {
-            projectId: 'p_123',
-            projectName: 'Checkout',
-            dashboardUrl: 'http://localhost:8080/dashboard/leaks',
-            completedAt: new Date('2026-06-18T09:00:00.000Z'),
-            issues: [
-                {
-                    id: '00000000-0000-0000-0000-000000000002',
-                    shortId: 'IDM-2',
-                    title: 'Coupon modal traps users',
-                    issueType: 'sp_confusion',
-                    severity: 'medium',
-                    status: 'ready',
-                    whyItMatters: 'Users rage tap the coupon modal and abandon checkout before payment.',
-                    estimatedAffectedUsers: 3,
-                    affectedSessions: 5,
-                    firstSeen: new Date('2026-06-18T07:00:00.000Z'),
-                    lastSeen: new Date('2026-06-18T08:30:00.000Z'),
-                    topSignals: ['rage_tap', 'abandonment'],
-                },
-                {
-                    id: '00000000-0000-0000-0000-000000000001',
-                    shortId: 'IDM-1',
-                    title: 'Checkout button never enables',
-                    issueType: 'sp_failure',
-                    severity: 'high',
-                    status: 'ready',
-                    whyItMatters: 'Users complete the form but cannot continue to payment.',
-                    estimatedAffectedUsers: 12,
-                    affectedSessions: 14,
-                    firstSeen: new Date('2026-06-18T06:30:00.000Z'),
-                    lastSeen: new Date('2026-06-18T08:45:00.000Z'),
-                    contextStatus: 'ready',
-                    topSignals: ['dead_tap', 'session_replay', 'checkout_abandonment'],
-                },
-            ],
-        });
-
-        expect(sentMails).toHaveLength(1);
-        expect(sentMails[0].subject).toContain('Checkout: 2 leaks affecting');
-        expect(sentMails[0].text).toContain('Checkout leak scan summary');
-        expect(sentMails[0].html).toContain('http://localhost:8080/dashboard/leaks');
-        expect(sentMails[0].html).toContain('Users complete the form but cannot continue to payment.');
-        expect(sentMails[0].html).not.toContain('Revenue risk');
-        expect(sentMails[0].html.indexOf('Checkout button never enables')).toBeLessThan(
-            sentMails[0].html.indexOf('Coupon modal traps users'),
-        );
     });
 });

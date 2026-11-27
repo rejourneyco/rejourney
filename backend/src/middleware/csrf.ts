@@ -24,7 +24,9 @@ const SKIP_CSRF_PATHS = [
     '/api/sdk',
     '/api/devices',
     '/api/auth/otp',
-    '/api/internal/issue-detection',
+    // MCP sign-in: AI clients call /oauth/token and /oauth/revoke directly.
+    '/oauth/',
+    '/.well-known/oauth-authorization-server',
     '/health',
 ];
 

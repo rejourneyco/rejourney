@@ -51,7 +51,7 @@ const productStories = [
         eyebrow: 'Journey funnels',
         title: 'Fix Your Funnel',
         copy: 'Follow the ribbons from launch to checkout, search, or drop-off so teams can see which paths carry users forward and which ones leak.',
-        bullets: ['Ribbon-weighted screen paths', 'Drop-off and leak detection', 'Replay evidence for every flow', 'Select Paths(s) to Query Replays'],
+        bullets: ['Ribbon-weighted screen paths', 'Drop-off and leak paths', 'Replay evidence for every flow', 'Select Paths(s) to Query Replays'],
         image: '/images/readme-user-journeys.webp',
         alt: 'Rejourney user journey funnel ribbon map',
         icon: ClipboardList,

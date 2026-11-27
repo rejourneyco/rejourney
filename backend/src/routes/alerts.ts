@@ -18,11 +18,9 @@ import { z } from 'zod';
 const router = Router();
 
 function getAlertSettingsAuditState(settings?: {
-    leakScanAlertsEnabled?: boolean | null;
     ignoredApiEndpoints?: unknown[] | null;
 } | null): Record<string, unknown> {
     return {
-        leakScanAlertsEnabled: settings?.leakScanAlertsEnabled ?? true,
         ignoredApiEndpoints: normalizeIgnoredApiEndpointPatterns(settings?.ignoredApiEndpoints ?? []),
     };
 }
@@ -36,7 +34,6 @@ const projectIdParamSchema = z.object({
 });
 
 const updateAlertSettingsSchema = z.object({
-    leakScanAlertsEnabled: z.boolean().optional(),
     ignoredApiEndpoints: z.array(z.string().min(1).max(180)).max(50).optional(),
 });
 

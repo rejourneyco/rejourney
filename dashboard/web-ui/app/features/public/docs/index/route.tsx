@@ -286,6 +286,18 @@ export default function DocsIndex() {
 
     return (
         <DocsLayout sidebar={<DocsSidebar />}>
+            {/* MCP pointer, above everything else */}
+            <p className="mb-6 text-sm text-[#5f6368]">
+                Looking for MCP docs?{" "}
+                <Link
+                    to={getLocalizedPublicPath(locale, "/docs/mcp/getting-started")}
+                    className="inline-flex items-center gap-1 font-medium text-[#1a73e8] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8]/40"
+                >
+                    Connect Claude Code to Rejourney
+                    <ArrowRight size={14} aria-hidden="true" />
+                </Link>
+            </p>
+
             {/* Hero */}
             <div className="mb-10">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#1a73e8]">

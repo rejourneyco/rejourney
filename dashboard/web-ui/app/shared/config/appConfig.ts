@@ -1,4 +1,4 @@
-import { getMapboxToken, getStripePublishableKey } from "./runtimeEnv";
+import { getMapboxToken, getMcpServerUrl, getStripePublishableKey } from "./runtimeEnv";
 
 export const config = {
     // Dashboard URL - where the console/dashboard is hosted
@@ -21,6 +21,10 @@ export const config = {
     // Docs URL - always /docs on the same domain
     docsUrl: '/docs',
 };
+
+// Address an AI client connects to. Defaults to https://mcp.rejourney.co/mcp;
+// set MCP_SERVER_URL in the runtime environment to point at another server.
+export const MCP_SERVER_URL = getMcpServerUrl();
 
 // Helper to check if we're in production
 export const isProduction = import.meta.env.PROD;

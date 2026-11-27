@@ -1,5 +1,5 @@
 /**
- * Project email delivery for leak scans and low-frequency stability digests.
+ * Project email delivery for low-frequency stability digests.
  *
  * Stability email is deliberately project-scoped rather than occurrence-scoped:
  * a worker groups rising issue and API signals, this service suppresses signals
@@ -11,7 +11,6 @@ import { and, eq, gte, sql } from 'drizzle-orm';
 import {
     alertHistory,
     alertRecipients,
-    alertSettings,
     db,
     emailLogs,
     projects,
@@ -19,8 +18,6 @@ import {
 } from '../db/client.js';
 import { logger } from '../logger.js';
 import {
-    emailDashboardAppPath,
-    sendLeakScanEmail,
     sendStabilityDigestEmail,
     stabilityDigestSubject,
 } from './email.js';
@@ -35,37 +32,6 @@ type AlertRecipient = {
     name: string | null;
     timeZone: string | null;
 };
-
-export interface LeakScanDigestIssue {
-    id: string;
-    shortId?: string | null;
-    title: string;
-    issueType?: string | null;
-    severity?: string | null;
-    status?: string | null;
-    whyItMatters?: string | null;
-    estimatedAffectedUsers: number;
-    affectedSessions?: number | null;
-    firstSeen?: Date | null;
-    lastSeen?: Date | null;
-    contextStatus?: string | null;
-    topSignals?: string[] | null;
-}
-
-export interface TriggerLeakScanDigestEmailInput {
-    projectId: string;
-    scanRunId: string;
-    completedAt?: Date;
-    admittedSessions?: number;
-    issues: LeakScanDigestIssue[];
-}
-
-export interface TriggerLeakScanDigestEmailResult {
-    sent: boolean;
-    issueCount: number;
-    recipientCount: number;
-    reason?: string;
-}
 
 export interface TriggerStabilityDigestEmailInput {
     projectId: string;
@@ -101,32 +67,6 @@ async function getProjectName(projectId: string): Promise<string> {
     return project?.name || 'Unknown Project';
 }
 
-async function getProjectAlertSettings(projectId: string) {
-    const [settings] = await db
-        .select()
-        .from(alertSettings)
-        .where(eq(alertSettings.projectId, projectId))
-        .limit(1);
-    return settings;
-}
-
-async function hasAlertBeenSent(
-    projectId: string,
-    alertType: string,
-    fingerprint: string,
-): Promise<boolean> {
-    const [existing] = await db
-        .select({ id: alertHistory.id })
-        .from(alertHistory)
-        .where(and(
-            eq(alertHistory.projectId, projectId),
-            eq(alertHistory.alertType, alertType),
-            eq(alertHistory.fingerprint, fingerprint),
-        ))
-        .limit(1);
-    return Boolean(existing);
-}
-
 async function logEmailSends(input: {
     projectId: string;
     recipients: AlertRecipient[];
@@ -152,103 +92,6 @@ async function logEmailSends(input: {
             { error, projectId: input.projectId, alertType: input.alertType },
             'Failed to log email sends',
         );
-    }
-}
-
-export async function triggerLeakScanDigestEmail(
-    input: TriggerLeakScanDigestEmailInput,
-): Promise<TriggerLeakScanDigestEmailResult> {
-    const sortedIssues = input.issues
-        .filter((issue) => issue.title.trim().length > 0)
-        .sort((a, b) =>
-            (b.estimatedAffectedUsers || 0) - (a.estimatedAffectedUsers || 0) ||
-            (b.affectedSessions || 0) - (a.affectedSessions || 0)
-        );
-
-    if (sortedIssues.length === 0) {
-        return { sent: false, issueCount: 0, recipientCount: 0, reason: 'no_issues' };
-    }
-
-    try {
-        const settings = await getProjectAlertSettings(input.projectId);
-        if (settings?.leakScanAlertsEnabled === false) {
-            return {
-                sent: false,
-                issueCount: sortedIssues.length,
-                recipientCount: 0,
-                reason: 'disabled',
-            };
-        }
-
-        if (await hasAlertBeenSent(input.projectId, 'leak_scan', input.scanRunId)) {
-            return {
-                sent: false,
-                issueCount: sortedIssues.length,
-                recipientCount: 0,
-                reason: 'already_sent',
-            };
-        }
-
-        const recipientDetails = await getRecipientDetails(input.projectId);
-        if (recipientDetails.length === 0) {
-            return {
-                sent: false,
-                issueCount: sortedIssues.length,
-                recipientCount: 0,
-                reason: 'no_recipients',
-            };
-        }
-
-        const projectName = await getProjectName(input.projectId);
-        const completedAt = input.completedAt ?? new Date();
-        await sendLeakScanEmail(recipientDetails, {
-            projectId: input.projectId,
-            projectName,
-            dashboardUrl: emailDashboardAppPath('/leaks'),
-            issues: sortedIssues,
-            completedAt,
-            admittedSessions: input.admittedSessions ?? null,
-        });
-
-        await db.insert(alertHistory).values({
-            projectId: input.projectId,
-            alertType: 'leak_scan',
-            fingerprint: input.scanRunId,
-            recipientCount: recipientDetails.length,
-        });
-        await logEmailSends({
-            projectId: input.projectId,
-            recipients: recipientDetails,
-            alertType: 'leak_scan',
-            subject: `Leak scan for ${projectName}: ${sortedIssues.length} ${sortedIssues.length === 1 ? 'issue' : 'issues'}`,
-            issueTitle: `${sortedIssues.length} leak ${sortedIssues.length === 1 ? 'issue' : 'issues'}`,
-        });
-
-        logger.info(
-            {
-                projectId: input.projectId,
-                scanRunId: input.scanRunId,
-                recipients: recipientDetails.length,
-                issueCount: sortedIssues.length,
-            },
-            'Leak scan digest email sent',
-        );
-        return {
-            sent: true,
-            issueCount: sortedIssues.length,
-            recipientCount: recipientDetails.length,
-        };
-    } catch (error) {
-        logger.error(
-            { projectId: input.projectId, scanRunId: input.scanRunId, error },
-            'Failed to send leak scan digest email',
-        );
-        return {
-            sent: false,
-            issueCount: sortedIssues.length,
-            recipientCount: 0,
-            reason: 'send_failed',
-        };
     }
 }
 

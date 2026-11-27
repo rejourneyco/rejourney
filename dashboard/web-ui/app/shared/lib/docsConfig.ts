@@ -58,6 +58,42 @@ export const DOCS_MAP: Record<string, { file: string; title: string; category?: 
         description: 'Add Rejourney to native iOS apps with the Swift SDK for session replay, privacy-safe telemetry, crashes, and mobile product analytics.',
         keywords: ['Swift session replay SDK', 'iOS analytics SDK', 'native iOS observability', 'Swift mobile monitoring', 'iOS crash reporting']
     },
+    // MCP pages. The docs sidebar lists them in this order.
+    'mcp/getting-started': {
+        file: 'mcp/getting-started.md',
+        title: 'MCP Server',
+        category: 'MCP',
+        description: 'Connect Claude Code, Claude, Cursor, or any MCP client to the hosted, read-only Rejourney MCP server, sign in with OAuth, choose the projects to share, and revoke access.',
+        keywords: ['Rejourney MCP server', 'session replay MCP', 'Claude Code MCP session replay', 'Cursor MCP crash analytics', 'remote MCP server OAuth']
+    },
+    'mcp/what-you-can-ask': {
+        file: 'mcp/what-you-can-ask.md',
+        title: 'What You Can Ask the MCP Server',
+        category: 'MCP',
+        description: 'Example questions for the Rejourney MCP server, grouped by job: health checks, crash and ANR investigation, single-session review, friction, and version or platform comparison.',
+        keywords: ['MCP example prompts', 'AI crash triage', 'AI session replay review', 'ANR investigation with AI', 'mobile app friction analysis']
+    },
+    'mcp/tools': {
+        file: 'mcp/tools.md',
+        title: 'MCP Tool Reference',
+        category: 'MCP',
+        description: 'Reference for every Rejourney MCP tool: what it returns, its arguments and credit cost, plus paging and cursors, time ranges, capped counts, and event stream status.',
+        keywords: ['Rejourney MCP tools', 'MCP tool reference', 'session replay API for AI', 'MCP pagination cursors', 'crash context tool']
+    },
+    'mcp/limits-and-billing': {
+        file: 'mcp/limits-and-billing.md',
+        title: 'MCP Limits and Billing',
+        category: 'MCP',
+        description: 'How Rejourney MCP credits work: what a call costs, the response size rule, the monthly allowance on each plan, what happens at the limit, rate limits, and response times.',
+        keywords: ['Rejourney MCP credits', 'MCP pricing', 'MCP rate limits', 'MCP usage allowance', 'MCP response times']
+    },
+    'mcp/security-and-privacy': {
+        file: 'mcp/security-and-privacy.md',
+        title: 'MCP Security and Privacy',
+        category: 'MCP',
+        description: 'What an AI client can and cannot read through the Rejourney MCP server: read-only access, per-team and per-project scoping, short-lived tokens, secret scrubbing, identifier masking, and revocation.',
+        keywords: ['MCP security', 'MCP data privacy', 'read-only MCP server', 'MCP prompt injection', 'OAuth 2.1 PKCE MCP']
+    },
     'community/contributing': {
         file: 'community/contributing.md',
         title: 'Contributing',

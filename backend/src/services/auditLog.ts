@@ -64,9 +64,12 @@ export type AuditAction =
     | 'manual_revenue_updated'
     | 'manual_revenue_deleted'
     | 'revenue_transaction_excluded'
-    | 'revenue_transaction_restored';
+    | 'revenue_transaction_restored'
+    | 'mcp_connection_created'
+    | 'mcp_connection_revoked'
+    | 'mcp_settings_updated';
 
-export type TargetType = 'team' | 'project' | 'session' | 'replay_share' | 'api_key' | 'user' | 'billing' | 'revenue_source';
+export type TargetType = 'team' | 'project' | 'session' | 'replay_share' | 'api_key' | 'user' | 'billing' | 'revenue_source' | 'mcp_connection';
 
 export interface AuditLogEntry {
     userId?: string;

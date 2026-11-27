@@ -599,7 +599,6 @@ Deployment goal:
 - Keep data safe. Never suggest wiping volumes, deleting .env.selfhosted, rotating secrets, or running reset unless I explicitly confirm that data loss is acceptable.
 - Treat SDK routing as a required deployment step. Every app must explicitly set its self-hosted API URL during Rejourney initialization. If apiUrl/apiURL is omitted, the SDK defaults to https://api.rejourney.co and sends recordings to Rejourney Cloud instead of this deployment.
 - Use a project public key created in the self-hosted dashboard. Do not reuse a Rejourney Cloud project key.
-- Expect Leaks, Automations, and their GitHub setup to be hidden. They depend on Rejourney's managed AI services and are not part of the open-source self-hosted stack.
 
 First ask me for any missing values:
 1. Base domain, for example example.com.
@@ -1102,7 +1101,6 @@ Important self-hosting requirements:
 - Confirm PUBLIC_API_URL and PUBLIC_INGEST_URL match the public api.<domain> and ingest.<domain> hosts, and verify DNS and TLS for the dashboard, www redirect, API, and ingest hostnames.
 - For the Web SDK, add every production, staging, and local app host (including local ports) to the project's Web allowed domains.
 - Configure SMTP or GitHub OAuth before the first login attempt.
-- Expect Leaks, Automations, and their GitHub setup to be hidden because they depend on Rejourney's managed AI services and are not included in the open-source self-hosted stack.
 - Keep built-in MinIO private. Do not expose port 9000 or make the bucket public; uploads should use the ingest relay and replay reads should use the authenticated API proxy.
 - Back up .env.selfhosted securely along with Postgres and object storage. Never commit the env file, rotate its secrets casually, delete volumes, or run reset without explicit confirmation that data loss is acceptable.
 - Finish by running the documented health checks, recording a real test session from an SDK configured with the self-hosted API URL, and confirming the session and replay both appear in the self-hosted dashboard.

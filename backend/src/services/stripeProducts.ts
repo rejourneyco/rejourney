@@ -45,6 +45,7 @@ export interface StripePlan {
     interval: 'month' | 'year';
     isCustom: boolean;      // Custom enterprise price
     smartCaptureEnabled: boolean;
+    mcpCreditLimit: number; // MCP credits per month from price metadata mcp_credit_limit
     sortOrder: number;      // For display ordering
 }
 
@@ -61,6 +62,7 @@ export interface TeamSubscriptionInfo {
     priceCents: number;
     isCustom: boolean;
     smartCaptureEnabled: boolean;
+    mcpCreditLimit: number;
     subscriptionId: string | null;
     subscriptionStatus: string | null;  // 'active', 'past_due', 'canceled', etc.
     currentPeriodStart: Date | null;
@@ -113,6 +115,19 @@ interface DerivedPlanChangePreview {
 
 // Free tier session replay limit (for users without a subscription)
 export const FREE_TIER_SESSIONS = 5000;
+
+// Free tier MCP credits per month (no Stripe price)
+export const FREE_TIER_MCP_CREDITS = 300;
+
+// Fallback MCP allowance for paid prices missing a valid mcp_credit_limit key.
+const DEFAULT_PAID_MCP_CREDITS: Record<string, number> = {
+    free: FREE_TIER_MCP_CREDITS,
+    starter: 2000,
+    growth: 6000,
+    pro: 20000,
+    scale: 75000,
+};
+const DEFAULT_CUSTOM_PAID_MCP_CREDITS = 75000;
 
 // Standard plan names for ordering
 const PLAN_ORDER = ['free', 'starter', 'growth', 'pro', 'scale'];
@@ -180,6 +195,28 @@ export function parseSmartCaptureEnabled(
     return isMetadataEnabled(price.metadata?.is_custom)
         || isMetadataEnabled(product?.metadata?.is_custom)
         || (scaleIndex >= 0 && planIndex >= scaleIndex);
+}
+
+/**
+ * MCP credits per month for a paid price. Reads price metadata `mcp_credit_limit`;
+ * a missing or invalid value falls back to the per-plan default table so a plan is
+ * never skipped over this key.
+ */
+export function parseMcpCreditLimit(
+    price: Pick<Stripe.Price, 'id' | 'metadata'>,
+    planName: string,
+): number {
+    const raw = price.metadata?.mcp_credit_limit;
+    const parsed = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+    if (Number.isSafeInteger(parsed) && parsed > 0) {
+        return parsed;
+    }
+    const fallback = DEFAULT_PAID_MCP_CREDITS[planName.toLowerCase().trim()] ?? DEFAULT_CUSTOM_PAID_MCP_CREDITS;
+    logger.warn(
+        { priceId: price.id, planName, rawMcpCreditLimit: raw ?? null, fallback },
+        'Stripe price missing valid mcp_credit_limit metadata; using plan default',
+    );
+    return fallback;
 }
 
 export function isStripeEnabled(): boolean {
@@ -331,6 +368,7 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                 interval: price.recurring?.interval === 'year' ? 'year' : 'month',
                 isCustom: product.metadata?.is_custom === 'true' || price.metadata?.is_custom === 'true',
                 smartCaptureEnabled: parseSmartCaptureEnabled(price, product, planName),
+                mcpCreditLimit: parseMcpCreditLimit(price, planName),
                 sortOrder,
             };
 
@@ -453,6 +491,7 @@ function getFreePlan(): StripePlan {
         interval: 'month',
         isCustom: false,
         smartCaptureEnabled: false,
+        mcpCreditLimit: FREE_TIER_MCP_CREDITS,
         sortOrder: 0,
     };
 }
@@ -545,7 +584,7 @@ export function derivePlanChangePreviewState(
 // Serialization helpers for TeamSubscriptionInfo ↔ Redis (JSON doesn't
 // preserve Date objects, so we store ISO strings and rehydrate on read).
 // ---------------------------------------------------------------------------
-const STRIPE_SUBSCRIPTION_CACHE_VERSION = 3;
+const STRIPE_SUBSCRIPTION_CACHE_VERSION = 4; // 4: added mcpCreditLimit
 
 function serializeSubscriptionForCache(info: TeamSubscriptionInfo): Record<string, unknown> {
     return {
@@ -617,6 +656,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         priceCents: 0,
         isCustom: false,
         smartCaptureEnabled: false,
+        mcpCreditLimit: FREE_TIER_MCP_CREDITS,
         subscriptionId: null,
         subscriptionStatus: null,
         currentPeriodStart: null,
@@ -649,6 +689,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                     result.priceCents = plan.priceCents;
                     result.isCustom = plan.isCustom;
                     result.smartCaptureEnabled = plan.smartCaptureEnabled;
+                    result.mcpCreditLimit = plan.mcpCreditLimit;
                     result.subscriptionId = team.stripeSubscriptionId;
                     result.subscriptionStatus = 'active'; // Assume active if we can't check
                     // Use billing cycle anchor for period dates if available
@@ -757,6 +798,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                         result.priceCents = plan.priceCents;
                         result.isCustom = plan.isCustom;
                         result.smartCaptureEnabled = plan.smartCaptureEnabled;
+                        result.mcpCreditLimit = plan.mcpCreditLimit;
                         result.subscriptionId = team.stripeSubscriptionId;
                         result.subscriptionStatus = subscription.status;
                         if (team.billingCycleAnchor) {
@@ -802,6 +844,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         result.priceCents = price.unit_amount || 0;
         result.isCustom = product.metadata?.is_custom === 'true' || price.metadata?.is_custom === 'true';
         result.smartCaptureEnabled = parseSmartCaptureEnabled(price, product, result.planName);
+        result.mcpCreditLimit = parseMcpCreditLimit(price, result.planName);
         result.subscriptionId = subscription.id;
         result.subscriptionStatus = subscription.status;
         result.currentPeriodStart = new Date((subscription as any).current_period_start * 1000);
@@ -935,6 +978,7 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                     result.priceCents = plan.priceCents;
                     result.isCustom = plan.isCustom;
                     result.smartCaptureEnabled = plan.smartCaptureEnabled;
+                    result.mcpCreditLimit = plan.mcpCreditLimit;
                     result.subscriptionId = team.stripeSubscriptionId;
                     result.subscriptionStatus = 'active'; // Assume active if we can't check
                     // Use billing cycle anchor for period dates if available
@@ -1115,6 +1159,7 @@ export async function previewPlanChange(
             interval: 'month' as const,
             isCustom: currentSub.isCustom,
             smartCaptureEnabled: currentSub.smartCaptureEnabled,
+            mcpCreditLimit: currentSub.mcpCreditLimit,
             sortOrder: PLAN_ORDER.indexOf(currentSub.planName),
         } : getFreePlan(); // Return free plan if no subscription
 

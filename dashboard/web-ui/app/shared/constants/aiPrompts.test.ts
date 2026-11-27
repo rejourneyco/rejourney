@@ -100,7 +100,6 @@ describe('buildProjectAIIntegrationPrompt', () => {
     expect(instruction).toContain('SDK defaults to https://api.rejourney.co');
     expect(instruction).toContain('recordings go to Rejourney Cloud instead of my server');
     expect(instruction).toContain('Use a project public key created in my self-hosted dashboard');
-    expect(instruction).toContain('Leaks, Automations, and their GitHub setup to be hidden');
     expect(instruction).toContain('Keep built-in MinIO private');
     expect(instruction).toContain('recording a real test session');
     expect(instruction.length).toBeLessThan(3000);

@@ -80,13 +80,6 @@ export async function loader() {
             imageTitle: "How Rejourney connects lightweight product analytics to replay-backed fixes",
         },
         {
-            path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/rejourney-marlin"),
-            priority: "0.8",
-            changefreq: "weekly",
-            image: `${baseUrl}/images/rejourney-marlin.png`,
-            imageTitle: "Rejourney Marlin GitHub App",
-        },
-        {
             path: getLocalizedPublicPath(MARKETING_LOCALES.en, "/benchmarks"),
             priority: "0.6",
             changefreq: "monthly",

@@ -60,7 +60,6 @@ type EmailRouteKey =
   | 'invite'
   | 'developer'
   | 'billing'
-  | 'leak_scan'
   | 'stability_digest'
   | 'general';
 
@@ -151,7 +150,7 @@ export function emailDashboardAppPath(path: string): string {
   return `${PRODUCTION_DASHBOARD_BASE}${p}`;
 }
 
-function escapeHtml(value: unknown): string {
+export function escapeHtml(value: unknown): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -255,7 +254,7 @@ function formatEmailDate(date: Date, timeZone?: string | null): string {
 const LABEL_ACRONYMS = new Set(['ux', 'ui', 'api', 'anr', 'sdk', 'ios', 'cpu', 'url', 'id']);
 
 function formatIssueType(value: string | null | undefined): string {
-  if (!value) return 'Leak';
+  if (!value) return '';
   return value
     .split(/[_-]+/)
     .filter(Boolean)
@@ -320,7 +319,7 @@ export interface EmailTableCell {
 // =============================================================================
 
 /** A single reading column, without dashboard chrome or external assets. */
-function generateEmailHtml({
+export function generateEmailHtml({
   title, subtitle, previewText, sections, trailingSections, action,
   secondaryAction, footerText, projectName, projectUrl, status, timestamp, timeZone,
 }: EmailTemplateProps): string {
@@ -794,31 +793,6 @@ export async function sendTeamInviteEmail(
 // Alert Email Functions
 // =============================================================================
 
-export interface LeakScanEmailIssue {
-  id: string;
-  shortId?: string | null;
-  title: string;
-  issueType?: string | null;
-  severity?: string | null;
-  status?: string | null;
-  whyItMatters?: string | null;
-  estimatedAffectedUsers: number;
-  affectedSessions?: number | null;
-  firstSeen?: Date | null;
-  lastSeen?: Date | null;
-  contextStatus?: string | null;
-  topSignals?: string[] | null;
-}
-
-export interface LeakScanEmailData {
-  projectId: string;
-  projectName: string;
-  dashboardUrl: string;
-  issues: LeakScanEmailIssue[];
-  completedAt: Date;
-  admittedSessions?: number | null;
-}
-
 export interface StabilityDigestEmailData {
   projectId: string;
   projectName: string;
@@ -856,76 +830,6 @@ function stabilityTrendPrimaryMetric(trend: StabilityTrend): { value: string; la
     value: Math.max(0, trend.occurrences || trend.currentValue).toLocaleString(),
     label: trend.kind === 'crash' ? 'crashes' : trend.kind === 'anr' ? 'ANRs' : 'errors',
   };
-}
-
-export async function sendLeakScanEmail(
-  recipients: AlertEmailRecipientInput[],
-  data: LeakScanEmailData
-): Promise<void> {
-  if (recipients.length === 0 || data.issues.length === 0) return;
-  const transport = getTransporter();
-  if (!transport) return;
-
-  const recipientGroups = groupAlertRecipientsByTimeZone(recipients);
-  if (recipientGroups.length === 0) return;
-
-  const sortedIssues = data.issues
-    .slice()
-    .sort((a, b) =>
-      (b.estimatedAffectedUsers || 0) - (a.estimatedAffectedUsers || 0) ||
-      (b.affectedSessions || 0) - (a.affectedSessions || 0)
-    );
-  const totalUsers = sortedIssues.reduce((sum, issue) => sum + Math.max(0, Number(issue.estimatedAffectedUsers || 0)), 0);
-  const leakLabel = formatCountWithLabel(sortedIssues.length, 'leak', 'leaks');
-  const subject = truncateForSubject(`${data.projectName}: ${leakLabel} affecting ~${totalUsers.toLocaleString()} ${totalUsers === 1 ? 'user' : 'users'}`);
-  const projectSettingsLink = emailDashboardAppPath(`/settings/${data.projectId}`);
-
-  const sections: EmailSection[] = [
-    { content: 'Your scan found issues to review. Open the dashboard to check the replay evidence before acting.' },
-    { content: sortedIssues.map(issue => {
-      const users = Math.max(0, Number(issue.estimatedAffectedUsers || 0));
-      const details = [issue.shortId, issue.severity ? `${formatIssueType(issue.severity)} severity` : null,
-        `~${users.toLocaleString()} estimated affected ${users === 1 ? 'user' : 'users'}`,
-        issue.affectedSessions ? `${issue.affectedSessions.toLocaleString()} sessions` : null].filter(Boolean).join(' · ');
-      return `<div style="padding: 20px 0; border-top: 1px solid ${BRAND.divider};">
-        <div style="font-size: 16px; line-height: 1.5; font-weight: 700; color: ${BRAND.text};">${escapeHtml(issue.title)}</div>
-        ${issue.whyItMatters ? `<div style="font-size: 14px; line-height: 1.7; margin-top: 8px;">${escapeHtml(issue.whyItMatters)}</div>` : ''}
-        <div style="font-size: 12px; line-height: 1.7; color: ${BRAND.muted}; margin-top: 8px;">${escapeHtml(details)}</div>
-      </div>`;
-    }).join('') },
-  ];
-
-  for (const group of recipientGroups) {
-    const completedAtText = formatEmailDate(data.completedAt, group.timeZone);
-    const textLines = [
-      `${data.projectName} leak scan summary: ${leakLabel}, ~${totalUsers.toLocaleString()} estimated affected users`,
-      '',
-      ...sortedIssues.map((issue, index) =>
-        `${index + 1}. ${issue.title} — ${Math.max(0, Number(issue.estimatedAffectedUsers || 0)).toLocaleString()} estimated affected users${issue.affectedSessions ? `, ${issue.affectedSessions.toLocaleString()} affected sessions` : ''}${issue.severity ? `, ${issue.severity} severity` : ''}${issue.whyItMatters ? `\n   Why it matters: ${issue.whyItMatters}` : ''}`
-      ),
-      '',
-      `Open dashboard: ${data.dashboardUrl}`,
-    ];
-
-    await transport.sendMail({
-      from: config.SMTP_FROM || 'Rejourney Alerts <alerts@rejourney.co>',
-      to: group.recipients.map((recipient) => recipient.email).join(','),
-      subject,
-      text: textLines.join('\n'),
-      html: generateEmailHtml({
-        title: `${formatCountWithLabel(sortedIssues.length, 'issue', 'issues')} to review`,
-        subtitle: `Scan completed ${completedAtText}`,
-        previewText: `Top issue: ${sortedIssues[0]?.title || data.projectName}`,
-        sections,
-        action: { label: 'Review issues', url: data.dashboardUrl },
-        projectName: data.projectName,
-        projectUrl: projectSettingsLink,
-        route: 'leak_scan',
-        timeZone: group.timeZone,
-        footerText: `Sent to alert recipients for ${data.projectName}. Times shown in ${group.timeZone}.`,
-      }),
-    });
-  }
 }
 
 export async function sendStabilityDigestEmail(

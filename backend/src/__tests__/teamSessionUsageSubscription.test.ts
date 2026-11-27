@@ -62,6 +62,7 @@ function subscription(sessionLimit: number) {
         videoRetentionLabel: '30 days',
         isCustom: false,
         smartCaptureEnabled: false,
+        mcpCreditLimit: 6000,
         subscriptionId: 'sub_1',
         subscriptionStatus: 'active',
         currentPeriodStart: null,

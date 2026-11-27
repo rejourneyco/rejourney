@@ -114,6 +114,15 @@ export const teams = pgTable('teams', {
     /** When set, bonus_sessions only applies for this billing period string (see getTeamBillingPeriod). */
     bonusSessionsBillingPeriod: text('bonus_sessions_billing_period'),
     workspaceConfirmedAt: timestamp('workspace_confirmed_at'),
+    // MCP (AI client access). Team admin switches, and the plan's monthly MCP
+    // credit allowance copied here by the API whenever the plan is resolved, so
+    // the MCP server never calls Stripe. A null limit with a non-null synced-at
+    // means unlimited (self-hosted without billing).
+    mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
+    mcpMaskIdentifiers: boolean('mcp_mask_identifiers').default(false).notNull(),
+    mcpCreditLimit: integer('mcp_credit_limit'),
+    mcpPlanName: varchar('mcp_plan_name', { length: 64 }),
+    mcpLimitsSyncedAt: timestamp('mcp_limits_synced_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -1712,3 +1721,82 @@ export const visitorActivityDays = pgTable('visitor_activity_days', {
     index('visitor_activity_days_visitor_idx').on(table.visitorId),
     index('visitor_activity_days_date_idx').on(table.date),
 ]);
+
+// =============================================================================
+// MCP (AI client access over the Model Context Protocol)
+// =============================================================================
+
+/**
+ * Everything the OAuth authorization server persists (codes, tokens, grants,
+ * interactions, sessions, registered clients), one row per record. Bearer
+ * credentials are stored under the SHA-256 of their value, never the value.
+ */
+export const mcpOAuthRecords = pgTable('mcp_oauth_records', {
+    model: varchar('model', { length: 40 }).notNull(),
+    key: varchar('key', { length: 256 }).notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    grantId: varchar('grant_id', { length: 128 }),
+    uid: varchar('uid', { length: 128 }),
+    userCode: varchar('user_code', { length: 128 }),
+    expiresAt: timestamp('expires_at'),
+    consumedAt: timestamp('consumed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+    primaryKey({ columns: [table.model, table.key] }),
+    index('mcp_oauth_records_grant_idx').on(table.grantId).where(sql`${table.grantId} IS NOT NULL`),
+    index('mcp_oauth_records_uid_idx').on(table.model, table.uid).where(sql`${table.uid} IS NOT NULL`),
+    index('mcp_oauth_records_expires_idx').on(table.expiresAt).where(sql`${table.expiresAt} IS NOT NULL`),
+]);
+
+/** What a user approved on the consent screen: one connected app, for one team and a set of its projects. */
+export const mcpGrants = pgTable('mcp_grants', {
+    grantId: varchar('grant_id', { length: 128 }).primaryKey(),
+    clientId: text('client_id').notNull(),
+    clientName: varchar('client_name', { length: 255 }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+    projectIds: uuid('project_ids').array().notNull(),
+    scopes: text('scopes').array().notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    lastUsedAt: timestamp('last_used_at'),
+    revokedAt: timestamp('revoked_at'),
+    revokedByUserId: uuid('revoked_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+}, (table) => [
+    index('mcp_grants_team_idx').on(table.teamId, table.createdAt),
+    index('mcp_grants_user_idx').on(table.userId),
+]);
+
+/** One row per MCP tool call: sizes and ids, never arguments or results. Pruned after 90 days. */
+export const mcpCallLog = pgTable('mcp_call_log', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+    grantId: varchar('grant_id', { length: 128 }),
+    userId: uuid('user_id'),
+    tool: varchar('tool', { length: 64 }).notNull(),
+    credits: integer('credits').default(0).notNull(),
+    bytes: integer('bytes').default(0).notNull(),
+    outcome: varchar('outcome', { length: 32 }).notNull(),
+    durationMs: integer('duration_ms').default(0).notNull(),
+    period: varchar('period', { length: 10 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+    index('mcp_call_log_team_created_idx').on(table.teamId, table.createdAt),
+    index('mcp_call_log_grant_period_idx').on(table.grantId, table.period),
+    index('mcp_call_log_created_idx').on(table.createdAt),
+]);
+
+/**
+ * Credits used per allowance scope and billing period: the durable copy of the
+ * Redis counter, which is rebuilt from here if Redis loses it. The scope is
+ * "team:<id>" for paid teams and "owner:<user id>" for free teams, whose
+ * allowance is pooled per owner as the replay allowance is.
+ */
+export const mcpUsagePeriods = pgTable('mcp_usage_periods', {
+    scopeKey: varchar('scope_key', { length: 80 }).notNull(),
+    period: varchar('period', { length: 10 }).notNull(),
+    credits: integer('credits').default(0).notNull(),
+    calls: integer('calls').default(0).notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).default(0).notNull(),
+    alertedPercent: integer('alerted_percent').default(0).notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.scopeKey, table.period] })]);

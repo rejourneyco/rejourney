@@ -32,7 +32,7 @@ const FEATURE_GROUPS = [
       { label: "How Rejourney Works", href: "/how-it-works", desc: "See how lightweight analytics connects product signals to session evidence" },
       { label: "Website Analytics", href: "/website-analytics", desc: "Understand website traffic, funnels, errors, and the sessions behind drop-offs" },
       { label: "App Analytics", href: "/app-analytics", desc: "Measure mobile engagement, retention, crashes, and the sessions behind every signal" },
-      { label: "Rejourney Marlin", href: "/rejourney-marlin", desc: "Turn replay-backed product evidence into suggested GitHub fixes" },
+      { label: "MCP Server", href: "/docs/mcp/getting-started", desc: "Let AI clients review sessions and crashes through the Rejourney MCP server" },
     ]
   },
   {

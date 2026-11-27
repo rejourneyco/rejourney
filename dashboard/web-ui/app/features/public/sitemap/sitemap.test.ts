@@ -35,7 +35,6 @@ describe("Dynamic Sitemap generation", () => {
             "https://rejourney.co/engineering",
             "https://rejourney.co/guides",
             "https://rejourney.co/how-it-works",
-            "https://rejourney.co/rejourney-marlin",
             "https://rejourney.co/benchmarks",
             "https://rejourney.co/terms-of-service",
             "https://rejourney.co/privacy-policy",

@@ -44,30 +44,6 @@ function createResponse() {
 }
 
 describe('CSRF middleware', () => {
-    it('skips CSRF for issue-detection metrics batch POSTs', () => {
-        const req = createRequest({ path: '/api/internal/issue-detection/metrics:batch' });
-        const res = createResponse();
-        const next = vi.fn() as unknown as NextFunction;
-
-        csrfProtection(req, res, next);
-
-        expect(next).toHaveBeenCalledTimes(1);
-        expect(res.status).not.toHaveBeenCalled();
-        expect(res.json).not.toHaveBeenCalled();
-    });
-
-    it('skips CSRF for issue-detection digest batch POSTs', () => {
-        const req = createRequest({ path: '/api/internal/issue-detection/digest:batch' });
-        const res = createResponse();
-        const next = vi.fn() as unknown as NextFunction;
-
-        csrfProtection(req, res, next);
-
-        expect(next).toHaveBeenCalledTimes(1);
-        expect(res.status).not.toHaveBeenCalled();
-        expect(res.json).not.toHaveBeenCalled();
-    });
-
     it('skips browser CSRF only for the exact HMAC-protected analytics rollup path', () => {
         for (const path of ['/api/analytics/rollup', '/api/analytics/rollup/']) {
             const req = createRequest({ path });
@@ -127,21 +103,6 @@ describe('CSRF middleware', () => {
             error: 'Forbidden',
             message: 'Invalid CSRF token',
         });
-    });
-
-    it('skips origin validation for issue-detection internal POSTs', () => {
-        const req = createRequest({
-            headers: { origin: 'https://not-dashboard.example.com' },
-            path: '/api/internal/issue-detection/metrics:batch',
-        });
-        const res = createResponse();
-        const next = vi.fn() as unknown as NextFunction;
-
-        originValidation(req, res, next);
-
-        expect(next).toHaveBeenCalledTimes(1);
-        expect(res.status).not.toHaveBeenCalled();
-        expect(res.json).not.toHaveBeenCalled();
     });
 
     it('skips origin validation only for the exact HMAC-protected analytics rollup path', () => {

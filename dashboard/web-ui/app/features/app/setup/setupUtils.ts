@@ -111,11 +111,7 @@ export function isSetupWizardRoute(pathname: string): boolean {
 }
 
 export function isSetupSupportRoute(pathname: string): boolean {
-  const routeWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
-  return (
-    isSetupWizardRoute(pathname) ||
-    /^\/settings\/[^/]+\/github\/?$/.test(routeWithoutPrefix)
-  );
+  return isSetupWizardRoute(pathname);
 }
 
 export function buildDeveloperSetupInstructions({

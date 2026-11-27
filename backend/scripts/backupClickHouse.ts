@@ -1,4 +1,6 @@
+import { pathToFileURL } from 'node:url';
 import { createClient } from '@clickhouse/client';
+import { BACKUP_ARCHIVE_SUFFIX, backupGroupFromKey, backupStartedAtFromId, trimSlashes } from '../src/services/clickhouseBackupNames.js';
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client, type _Object } from '@aws-sdk/client-s3';
 
 function requireEnv(name: string): string {
@@ -24,10 +26,6 @@ function quoteIdentifier(value: string): string {
     return `\`${value}\``;
 }
 
-function trimSlashes(value: string): string {
-    return value.replace(/^\/+|\/+$/g, '');
-}
-
 function optionalPositiveIntegerEnv(name: string, fallback: number): number {
     const raw = process.env[name]?.trim();
     if (!raw) return fallback;
@@ -49,27 +47,6 @@ function buildBackupId(): string {
     }
 
     return `rejourney-${new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')}`;
-}
-
-function backupStartedAtFromId(backupId: string): Date | null {
-    const match = /^rejourney-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)$/.exec(backupId);
-    if (!match) return null;
-
-    const iso = match[1].replace(
-        /^(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})-(\d{3}Z)$/,
-        '$1$2:$3:$4.$5',
-    );
-    const parsed = new Date(iso);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function backupGroupFromKey(prefix: string, key: string): string | null {
-    const normalizedPrefix = `${trimSlashes(prefix)}/`;
-    if (!key.startsWith(normalizedPrefix)) return null;
-
-    const rest = key.slice(normalizedPrefix.length);
-    const backupId = rest.split('/', 1)[0];
-    return backupId || null;
 }
 
 async function deleteObjectBatch(s3: S3Client, bucket: string, keys: string[]): Promise<void> {
@@ -137,7 +114,7 @@ async function cleanupExpiredBackups(params: {
     let deletedBytes = 0;
 
     for (const [backupId, objects] of objectsByBackup) {
-        if (backupId === params.keepBackupId) continue;
+        if (backupId === params.keepBackupId || backupId === `${params.keepBackupId}${BACKUP_ARCHIVE_SUFFIX}`) continue;
 
         const startedAt = backupStartedAtFromId(backupId);
         if (!startedAt || startedAt.getTime() >= cutoff) continue;
@@ -167,7 +144,7 @@ async function main(): Promise<void> {
     const accessKeyId = requireEnv('AWS_ACCESS_KEY_ID');
     const secretAccessKey = requireEnv('AWS_SECRET_ACCESS_KEY');
     const backupId = buildBackupId();
-    const destination = `${endpoint}/${bucket}/${prefix}/${backupId}`;
+    const destination = `${endpoint}/${bucket}/${prefix}/${backupId}${BACKUP_ARCHIVE_SUFFIX}`;
     const requestTimeout = Number(process.env.CLICKHOUSE_BACKUP_REQUEST_TIMEOUT_MS || process.env.CLICKHOUSE_REQUEST_TIMEOUT_MS || 3600000);
     const retentionDays = optionalPositiveIntegerEnv('CLICKHOUSE_BACKUP_RETENTION_DAYS', 7);
     const region = optionalEnv('BACKUP_S3_REGION', 'us-west-or');
@@ -189,7 +166,6 @@ async function main(): Promise<void> {
                 ${quoteClickHouseString(accessKeyId)},
                 ${quoteClickHouseString(secretAccessKey)}
             )
-            SETTINGS compression_method = 'zstd'
         `;
 
         await client.command({
@@ -224,7 +200,10 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch((error) => {
-    console.error('[clickhouse-backup] failed', error instanceof Error ? error.message : error);
-    process.exit(1);
-});
+// Runs when executed (the CronJob), not when imported by tests.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((error) => {
+        console.error('[clickhouse-backup] failed', error instanceof Error ? error.message : error);
+        process.exit(1);
+    });
+}

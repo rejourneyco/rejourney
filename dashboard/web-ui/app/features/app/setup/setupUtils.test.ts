@@ -67,10 +67,10 @@ describe('completed setup routing', () => {
     expect(shouldRedirectToSetup([waitingProject])).toBe(false);
   });
 
-  it('distinguishes the onboarding wizard from other setup-support routes', () => {
+  it('treats only the onboarding wizard as a setup route', () => {
     expect(isSetupWizardRoute('/dashboard/setup')).toBe(true);
-    expect(isSetupWizardRoute('/dashboard/settings/project-1/github')).toBe(false);
-    expect(isSetupSupportRoute('/dashboard/settings/project-1/github')).toBe(true);
+    expect(isSetupSupportRoute('/dashboard/setup')).toBe(true);
+    expect(isSetupSupportRoute('/dashboard/settings/project-1')).toBe(false);
   });
 });
 

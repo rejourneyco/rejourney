@@ -42,7 +42,7 @@ export const Footer: React.FC = () => {
     { label: "Stability Monitoring", href: "/stability-monitoring" },
     { label: "API Endpoint Insights", href: "/api-endpoint-insights" },
     { label: "Device Insights", href: "/device-insights" },
-    { label: "Rejourney Marlin", href: "/rejourney-marlin" },
+    { label: "MCP Server", href: "/docs/mcp/getting-started" },
     { label: localizedFooterCopy?.pricing ?? copy.pricing, href: pricingPath },
   ];
   const platformLinks = (localizedLocaleCode

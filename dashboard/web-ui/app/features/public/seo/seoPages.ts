@@ -106,7 +106,6 @@ export type SeoPage = {
 };
 
 type CoreFeatureStatuses = {
-  revenueLeakPrediction: SeoComparisonValue;
   frictionAlertEmails: SeoComparisonValue;
   replayFirst: SeoComparisonValue;
   webSessionReplay: SeoComparisonValue;
@@ -122,7 +121,6 @@ type CoreFeatureStatuses = {
 };
 
 const coreFeatureRows = (other: CoreFeatureStatuses): SeoComparisonRow[] => [
-  { feature: "Automated revenue leak prediction", rejourney: "yes", other: other.revenueLeakPrediction },
   { feature: "Replay-linked friction alert emails", rejourney: "yes", other: other.frictionAlertEmails },
   { feature: "Web session replay", rejourney: "yes", other: other.webSessionReplay },
   { feature: "Mobile session replay", rejourney: "yes", other: other.mobileSessionReplay },
@@ -148,7 +146,6 @@ const comparisonRows = (
 ];
 
 const categoryFeatureRows = (otherColumn: SeoComparisonValue): SeoComparisonRow[] => [
-  { feature: "Revenue leak prediction", rejourney: "yes", other: "no" },
   { feature: "Replay-First", rejourney: "yes", other: otherColumn },
   { feature: "Web session replay", rejourney: "yes", other: otherColumn },
   { feature: "Mobile session replay", rejourney: "yes", other: otherColumn },
@@ -1658,7 +1655,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You prefer consolidating many growth tools into one large platform.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -1747,7 +1743,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You want replay primarily as an attachment to errors rather than as a product analytics workflow.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -1841,7 +1836,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You need replay mainly as one component of a full infrastructure observability stack.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -1931,7 +1925,6 @@ export const SEO_PAGES: SeoPage[] = [
       "Session replay is secondary to your event analytics warehouse strategy.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "partial",
       frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -2027,7 +2020,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You do not need mobile replay, heatmaps, or crash context in the same workflow.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -2112,7 +2104,7 @@ export const SEO_PAGES: SeoPage[] = [
       "Compare Pendo with Rejourney for lightweight product analytics, onboarding evidence, web and mobile replay, funnels, and technical context.",
     keywords: ["pendo session replay", "pendo alternatives", "product adoption analytics", "session replay tools"],
     image: "/images/readme-general-demo.png",
-    imageAlt: "Rejourney issue detection inbox with ranked leak signals",
+    imageAlt: "Rejourney issues dashboard with replay evidence",
     proofPoints: ["Replay-led UX", "Team-wide workspace", "Crash + API context"],
     whyParagraphs: [
       "Pendo's pricing is organized around software experience management bundles, monthly active users, analytics, in-app guides, session replays, discovery, sentiment, journey orchestration, and related capabilities.",
@@ -2125,7 +2117,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You want product engagement messaging as a core platform feature.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "partial",
       frictionAlertEmails: "partial",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -2180,7 +2171,7 @@ export const SEO_PAGES: SeoPage[] = [
       {
         question: "How does Pendo Session Replay identify user friction?",
         answer:
-          "Replay can expose hesitation, repeated actions, and failed paths. Rejourney adds ranked leak signals and technical context so teams can move from a friction pattern to the affected onboarding, paywall, checkout, or subscription step.",
+          "Replay can expose hesitation, repeated actions, and failed paths. Rejourney adds journeys, crash and API context so teams can move from a friction pattern to the affected onboarding, paywall, checkout, or subscription step.",
       },
       {
         question: "What privacy controls matter for Pendo Session Replay alternatives?",
@@ -2228,7 +2219,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You only need to maintain existing Smartlook access through the remaining support window and are not ready to migrate.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "partial",
       replayFirst: "yes",
       webSessionReplay: "yes",
@@ -2322,7 +2312,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You prefer a broad experience-analytics platform over a focused replay and product-debugging workspace.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "partial",
       frictionAlertEmails: "yes",
       replayFirst: "no",
       webSessionReplay: "yes",
@@ -2413,7 +2402,6 @@ export const SEO_PAGES: SeoPage[] = [
       "You need its specific enterprise workflow integrations.",
     ],
     comparisonRows: comparisonRows({
-      revenueLeakPrediction: "no",
       frictionAlertEmails: "yes",
       replayFirst: "yes",
       webSessionReplay: "yes",

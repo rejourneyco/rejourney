@@ -8,8 +8,8 @@ interface FaqItem {
 
 const faqs: FaqItem[] = [
     {
-        question: "How can Rejourney fix revenue leaks?",
-        answer: "Rejourney uses a custom-built translation layer (our \"Rosetta Stone\") to parse and analyze your session replays at scale. An AI issue detector identifies the most critical user friction points affecting your checkout funnel and conversions. Rejourney then compiles these insights into a structured, LLM-optimized Markdown payload (.md file) that your developers can copy and paste directly into any AI coding agent (like Cursor, Claude, or Copilot) to automatically generate bug fixes and write verification test cases."
+        question: "How does Rejourney help fix revenue leaks?",
+        answer: "Rejourney records sessions, crashes, ANRs, and API errors and connects them to your funnels and revenue events, so your team can see where users drop off and what they ran into. Through the Rejourney MCP server, an AI client such as Claude Code or Cursor can review the sessions and crashes of the projects you share, which helps your developers get from a problem to a fix faster."
     },
     {
         question: "Can I filter sessions easily and only watch replays that matter, such as pre-churn sessions?",

@@ -4,7 +4,8 @@ const LEGACY_ANALYTICS_ROUTE_ALIASES: Array<{ from: string; to: string }> = [
   { from: '/analytics/geo', to: '/geo' },
   { from: '/analytics/journeys', to: '/journeys' },
   { from: '/analytics/heatmaps', to: '/heatmaps' },
-  { from: '/automations/leaks', to: '/leaks' },
+  { from: '/automations/leaks', to: '/mcp' },
+  { from: '/leaks', to: '/mcp' },
 ];
 
 function splitPathSuffix(path: string): { pathname: string; suffix: string } {

@@ -32,6 +32,19 @@ const MANAGED_PLAN_CHANGE_PORTAL_METADATA_KEY = 'rejourney_managed';
 const MANAGED_PLAN_CHANGE_PORTAL_METADATA_PREFIX = 'plan_change_v1';
 const MANAGED_SUBSCRIPTION_CANCEL_PORTAL_METADATA_VALUE = 'subscription_cancel_v1';
 
+/**
+ * Copy the team's MCP allowance from its (possibly new) plan onto the team row.
+ * Fire-and-forget: a failure is logged and never fails the webhook.
+ * Callers clear the subscription cache first so the sync sees the new plan.
+ */
+function syncMcpLimitsInBackground(teamId: string): void {
+    void import('./mcpEntitlement.js')
+        .then(({ syncTeamMcpLimits }) => syncTeamMcpLimits(teamId))
+        .catch((err: unknown) => {
+            logger.error({ err, teamId }, 'Failed to sync MCP limits after billing change');
+        });
+}
+
 export interface BillingPortalPlanChangeProduct {
     productId: string;
     priceIds: string[];
@@ -1093,6 +1106,8 @@ async function syncTeamToCheckoutSession(
     const { invalidateSessionCache } = await import('./quotaCheck.js');
     await invalidateSessionCache(teamId);
 
+    syncMcpLimitsInBackground(teamId);
+
     logger.info({
         teamId,
         sessionId: session.id,
@@ -1471,10 +1486,14 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
             .set(updateFields)
             .where(eq(teams.id, teamId));
 
+        await invalidateStripeSubscriptionCache(teamId);
+
         if (isPaymentConfirmed) {
             const retentionTier = await resolveSubscriptionRetentionTier(subscription);
             await syncTeamVideoRetention(teamId, retentionTier);
         }
+
+        syncMcpLimitsInBackground(teamId);
 
         logger.info({
             teamId,
@@ -1530,10 +1549,14 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
             .set({ stripePriceId: null, updatedAt: new Date() })
             .where(eq(teams.id, targetTeamId));
 
+        await invalidateStripeSubscriptionCache(targetTeamId);
+
         await syncTeamVideoRetention(targetTeamId, FREE_VIDEO_RETENTION_TIER);
 
         const { invalidateSessionCache } = await import('./quotaCheck.js');
         await invalidateSessionCache(targetTeamId);
+
+        syncMcpLimitsInBackground(targetTeamId);
 
         logger.info({
             teamId: targetTeamId,
@@ -1662,12 +1685,17 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         .set(updateData)
         .where(eq(teams.id, targetTeamId));
 
+    // Clear the cached plan so new limits apply now rather than after the 5-minute TTL.
+    await invalidateStripeSubscriptionCache(targetTeamId);
+
     const retentionTier = await resolveSubscriptionRetentionTier(subscription);
     await syncTeamVideoRetention(targetTeamId, retentionTier);
 
     // Invalidate cache when subscription changes
     const { invalidateSessionCache } = await import('./quotaCheck.js');
     await invalidateSessionCache(targetTeamId);
+
+    syncMcpLimitsInBackground(targetTeamId);
 
     logger.info({
         teamId: targetTeamId,
@@ -1713,11 +1741,15 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
         })
         .where(eq(teams.id, targetTeamId));
 
+    await invalidateStripeSubscriptionCache(targetTeamId);
+
     await syncTeamVideoRetention(targetTeamId, FREE_VIDEO_RETENTION_TIER);
 
     // Invalidate cache
     const { invalidateSessionCache } = await import('./quotaCheck.js');
     await invalidateSessionCache(targetTeamId);
+
+    syncMcpLimitsInBackground(targetTeamId);
 
     logger.info({
         teamId: targetTeamId,
