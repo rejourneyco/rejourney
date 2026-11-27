@@ -41,6 +41,10 @@ function metrics(summary: ResearchLakeV2CycleSummary): WorkerMetric[] {
         { name: 'rejourney_research_lake_v2_failed_jobs_total', help: 'V2 jobs failed', value: summary.failed },
         { name: 'rejourney_research_lake_v2_cleaned_visual_holds_total', help: 'Expired V2 visual holds cleaned', value: summary.cleanedVisualHolds },
         { name: 'rejourney_research_lake_v2_expired_panel_rows_total', help: 'Expired V2 panel observations deleted', value: summary.expiredPanelRows },
+        // Only the primary pod runs the revenue export; the other instances report zero.
+        { name: 'rejourney_research_lake_v2_revenue_outcomes_attempted_total', help: 'Project-day revenue outcome rows attempted', value: summary.revenueOutcomes.attempted },
+        { name: 'rejourney_research_lake_v2_revenue_outcomes_exported_total', help: 'Project-day revenue outcome rows exported', value: summary.revenueOutcomes.exported },
+        { name: 'rejourney_research_lake_v2_revenue_outcomes_failed_total', help: 'Project-day revenue outcome rows failed', value: summary.revenueOutcomes.failed },
     ];
     for (const [lake, lane] of Object.entries(summary.byLake)) {
         values.push(
@@ -57,7 +61,7 @@ async function runCycle(): Promise<ResearchLakeV2CycleSummary | null> {
     await pingWorker(
         'researchLakeV2Worker',
         'up',
-        `attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},durationMs=${summary.durationMs},attemptedPerMinute=${summary.attemptedPerMinute},purgeAtBackfilled=${summary.purgeAtBackfilled}`,
+        `attempted=${summary.attempted},exported=${summary.exported},rejected=${summary.rejected},failed=${summary.failed},durationMs=${summary.durationMs},attemptedPerMinute=${summary.attemptedPerMinute},purgeAtBackfilled=${summary.purgeAtBackfilled},revenueMode=${summary.revenueOutcomes.mode},revenueExported=${summary.revenueOutcomes.exported},revenueFailed=${summary.revenueOutcomes.failed}`,
         undefined,
         metrics(summary),
         { instance: workerInstanceLabel() },

@@ -338,7 +338,6 @@ export interface ResearchLakeCycleSummary extends ResearchLakeLaneSummary {
     durationMs: number;
     attemptedPerMinute: number;
     byLake: Record<ResearchLakeType, ResearchLakeLaneSummary>;
-    revenueOutcomes: RevenueOutcomeExportSummary;
 }
 
 export interface ResearchLakeV2CycleSummary extends ResearchLakeLaneSummary {
@@ -350,6 +349,7 @@ export interface ResearchLakeV2CycleSummary extends ResearchLakeLaneSummary {
     workRuntimeMs: number;
     attemptedPerMinute: number;
     byLake: Record<ResearchLakeV2Type, ResearchLakeLaneSummary>;
+    revenueOutcomes: RevenueOutcomeExportSummary;
 }
 
 let researchLakeClient: S3Client | null = null;
@@ -3173,12 +3173,6 @@ function createCycleSummary(): ResearchLakeCycleSummary {
             interaction: createLaneSummary(),
             behavioral_outcomes: createLaneSummary(),
         },
-        revenueOutcomes: {
-            attempted: 0,
-            exported: 0,
-            failed: 0,
-            mode: 'idle',
-        },
     };
 }
 
@@ -3982,7 +3976,9 @@ function revenueOutcomeBasePath(row: RevenueOutcomeRow): string {
     const date = dateKeyFromDb(row.date);
     const provider = safePartitionSegment(row.source_provider);
     const currency = safePartitionSegment(row.currency);
-    return `${config.RESEARCH_LAKE_PREFIX.replace(/^\/+|\/+$/g, '')}/lake=revenue_outcomes/project_key=${projectKey}/date=${date}/provider=${provider}/currency=${currency}`;
+    // Revenue outcomes are a V2-only lake: the V1 cycle that used to write them
+    // under RESEARCH_LAKE_PREFIX is retired.
+    return `${v2Prefix()}/lake=revenue_outcomes/project_key=${projectKey}/date=${date}/provider=${provider}/currency=${currency}`;
 }
 
 function buildRevenueOutcomeDocuments(row: RevenueOutcomeRow, trend: RevenueTrend) {
@@ -3994,7 +3990,7 @@ function buildRevenueOutcomeDocuments(row: RevenueOutcomeRow, trend: RevenueTren
     const netCents = dbNumber(row.net_amount_cents);
 
     const dailyRevenue = {
-        schema_version: RESEARCH_SCHEMA_VERSION,
+        schema_version: RESEARCH_SCHEMA_VERSION_V2,
         anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
         lake: 'revenue_outcomes',
         project_key: projectKey,
@@ -4029,7 +4025,7 @@ function buildRevenueOutcomeDocuments(row: RevenueOutcomeRow, trend: RevenueTren
     };
 
     const quality = {
-        schema_version: RESEARCH_SCHEMA_VERSION,
+        schema_version: RESEARCH_SCHEMA_VERSION_V2,
         quality_tier: 'aggregate_only',
         pii_scan: 'passed',
         source_row_count: 1,
@@ -4039,7 +4035,7 @@ function buildRevenueOutcomeDocuments(row: RevenueOutcomeRow, trend: RevenueTren
     };
 
     const manifest = {
-        schema_version: RESEARCH_SCHEMA_VERSION,
+        schema_version: RESEARCH_SCHEMA_VERSION_V2,
         anonymization_version: RESEARCH_ANONYMIZATION_VERSION,
         lake: 'revenue_outcomes',
         project_key: projectKey,
@@ -4401,13 +4397,17 @@ async function exportRevenueOutcomeRows(rows: RevenueOutcomeRow[]): Promise<{ ex
     return { exported, failed };
 }
 
-async function runResearchLakeRevenueOutcomesExportCycle(): Promise<RevenueOutcomeExportSummary> {
-    const summary: RevenueOutcomeExportSummary = {
+function createRevenueOutcomeExportSummary(): RevenueOutcomeExportSummary {
+    return {
         attempted: 0,
         exported: 0,
         failed: 0,
         mode: config.RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED ? 'idle' : 'disabled',
     };
+}
+
+async function runResearchLakeRevenueOutcomesExportCycle(): Promise<RevenueOutcomeExportSummary> {
+    const summary = createRevenueOutcomeExportSummary();
     if (!config.RESEARCH_LAKE_REVENUE_OUTCOMES_ENABLED) return summary;
 
     const batchSize = Math.max(1, Math.trunc(config.RESEARCH_LAKE_REVENUE_OUTCOMES_BATCH_SIZE));
@@ -6235,22 +6235,8 @@ export async function runResearchLakeExtractionCycle(): Promise<ResearchLakeCycl
         if (claimedThisRound === 0) break;
     }
 
-    // The revenue export advances a single-row checkpoint and must have one owner.
-    if (isPrimaryShard()) {
-        try {
-            const revenue = await withResearchLakeSectionLock('research-lake:v1:revenue-export', 'skip', runResearchLakeRevenueOutcomesExportCycle);
-            if (revenue.skipped) {
-                logger.info('Research lake revenue outcomes export skipped: another worker owns this section');
-            } else {
-                summary.revenueOutcomes = revenue.result;
-            }
-        } catch (err) {
-            summary.revenueOutcomes.failed++;
-            await recordRevenueExportError(err).catch(() => {});
-            logger.error({ err }, 'Research lake revenue outcomes export cycle failed');
-        }
-    }
-
+    // The revenue outcomes export is owned by the V2 cycle: its single-row
+    // checkpoint must have exactly one writer, so it is not run here.
     addLaneSummaryTotals(summary);
     summary.durationMs = Date.now() - startedAt;
     summary.attemptedPerMinute = summary.durationMs > 0
@@ -6279,6 +6265,7 @@ function createV2CycleSummary(): ResearchLakeV2CycleSummary {
             behavioral_outcomes: createLaneSummary(),
             forward_outcomes: createLaneSummary(),
         },
+        revenueOutcomes: createRevenueOutcomeExportSummary(),
     };
 }
 
@@ -6659,6 +6646,26 @@ export async function runResearchLakeV2ExtractionCycle(): Promise<ResearchLakeV2
         }
         idleRounds = 0;
     }
+
+    // The revenue export advances a single-row checkpoint and must have one
+    // owner: the primary pod, under a lock that also covers a manually created
+    // Job overlapping the scheduled one. It runs after the session lanes because
+    // those race retention and project_revenue_daily does not.
+    if (isPrimaryShard()) {
+        try {
+            const revenue = await withResearchLakeSectionLock('research-lake:v2:revenue-export', 'skip', runResearchLakeRevenueOutcomesExportCycle);
+            if (revenue.skipped) {
+                logger.info('Research lake revenue outcomes export skipped: another worker owns this section');
+            } else {
+                summary.revenueOutcomes = revenue.result;
+            }
+        } catch (err) {
+            summary.revenueOutcomes.failed++;
+            await recordRevenueExportError(err).catch(() => {});
+            logger.error({ err }, 'Research lake revenue outcomes export cycle failed');
+        }
+    }
+
     addV2LaneSummaryTotals(summary);
     summary.durationMs = Date.now() - startedAt;
     summary.workRuntimeMs = workDeadlineAtMs - startedAt;

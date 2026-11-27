@@ -595,6 +595,7 @@ describe('research lake anonymized payload shape', () => {
             eventCount: events.length,
         });
 
+        // V1 session documents stay on schema version 1; only revenue outcomes moved to 2.
         expect(manifest.schema_version).toBe(1);
         expect(manifest.files.events).toMatch(/^v1\//);
         expect(manifest.lake).toBe('behavioral_outcomes');
@@ -1261,7 +1262,17 @@ describe('research lake anonymized payload shape', () => {
             trailing7dDeltaCents: 20000,
         });
 
-        expect(documents.basePath).toContain('/lake=revenue_outcomes/');
+        // Revenue outcomes are V2-only: objects land under the V2 prefix, never the V1 one.
+        expect(documents.basePath).toMatch(
+            /^v2\/lake=revenue_outcomes\/project_key=[0-9a-f]{20}\/date=2026-06-11\/provider=revenuecat\/currency=usd$/,
+        );
+        expect(documents.basePath).not.toMatch(/^v1\//);
+        for (const file of Object.values(documents.manifest.files)) {
+            expect(file.startsWith(`${documents.basePath}`)).toBe(true);
+        }
+        expect(documents.manifest.schema_version).toBe(2);
+        expect(documents.quality.schema_version).toBe(2);
+        expect(documents.dailyRevenue.schema_version).toBe(2);
         expect(documents.basePath).not.toContain('/sample_key=');
         expect(documents.manifest).not.toHaveProperty('sample_key');
         expect(documents.dailyRevenue).not.toHaveProperty('sample_key');
