@@ -99,10 +99,15 @@ export const ingestSessionSelection = {
     anonymousHash: sessions.anonymousHash,
     appVersion: sessions.appVersion,
     backgroundTimeSeconds: sessions.backgroundTimeSeconds,
+    // Server-side row creation time: the presign age cap measures from this,
+    // not from the client-clock startedAt.
+    createdAt: sessions.createdAt,
     deviceId: sessions.deviceId,
     deviceModel: sessions.deviceModel,
     durationSeconds: sessions.durationSeconds,
     endedAt: sessions.endedAt,
+    // Presence marker for "geo already resolved"; see sessionHasGeo().
+    geoCountryCode: sessions.geoCountryCode,
     id: sessions.id,
     isReplayExpired: sessions.isReplayExpired,
     isSampledIn: sessions.isSampledIn,
@@ -304,16 +309,80 @@ export function buildMetadataUpdates(
         updates.observeOnly = false;
     }
 
-    const jsonMetadata = Object.fromEntries(
-        Object.entries(buildSessionJsonMetadata(metadata)).filter(
-            ([key, value]) => existing.metadata?.[key] !== value,
-        ),
-    );
+    const jsonMetadata = buildSessionMetadataPatch(existing, metadata);
     if (Object.keys(jsonMetadata).length > 0) {
         updates.metadata = sql`${sessions.metadata} || ${JSON.stringify(jsonMetadata)}::jsonb`;
     }
 
     return updates;
+}
+
+/**
+ * Flat JSON metadata keys from this request that differ from the row the caller
+ * holds. Values are only strings or booleans, never nested objects.
+ */
+export function buildSessionMetadataPatch(
+    existing: any,
+    metadata: IngestSessionMetadata | undefined,
+): Record<string, string | boolean> {
+    return Object.fromEntries(
+        Object.entries(buildSessionJsonMetadata(metadata)).filter(
+            ([key, value]) => existing.metadata?.[key] !== value,
+        ),
+    );
+}
+
+/**
+ * WHERE clause for the ensureIngestSession metadata write.
+ *
+ * When the JSON metadata merge is the only change, the caller's row may be a
+ * stale cached copy while Postgres already holds the same values. `||` only adds
+ * or overwrites top-level keys and this patch is flat scalars, so the merge is a
+ * no-op exactly when the stored object already contains the patch (`@>`); the
+ * filter then matches zero rows instead of rewriting the row.
+ */
+export function buildEnsureSessionUpdateCondition(
+    sessionId: string,
+    updates: Record<string, unknown>,
+    metadataPatch: Record<string, string | boolean>,
+) {
+    const keys = Object.keys(updates);
+    const metadataOnly = keys.length === 1 && keys[0] === 'metadata' && Object.keys(metadataPatch).length > 0;
+    if (!metadataOnly) {
+        return eq(sessions.id, sessionId);
+    }
+    return sql`${sessions.id} = ${sessionId} AND NOT (${sessions.metadata} @> ${JSON.stringify(metadataPatch)}::jsonb)`;
+}
+
+/**
+ * Store the dashboard user id reported with a completed batch.
+ *
+ * Every batch repeats the same id, so the statement is skipped when the row the
+ * caller loaded already has it, and the SQL repeats the test so a concurrent
+ * identical write does not rewrite the row. Returns whether a statement was sent.
+ */
+export async function setSessionUserDisplayIdIfChanged(
+    session: { id: string; userDisplayId?: string | null },
+    userId: string,
+    now: Date = new Date(),
+): Promise<boolean> {
+    if (session.userDisplayId === userId) return false;
+
+    await db.update(sessions)
+        .set({ userDisplayId: userId, updatedAt: now })
+        .where(sql`${sessions.id} = ${session.id} AND ${sessions.userDisplayId} IS DISTINCT FROM ${userId}`);
+    return true;
+}
+
+/**
+ * Geo is resolved once per session: after a lookup has stored a country, later
+ * requests skip the lookup (and its child processes) entirely. A row without a
+ * stored country (lookup still in flight, lookup miss, or a cached copy from
+ * before the lookup finished) keeps the previous behaviour, where lookupGeoIp's
+ * own per-process dedup bounds repeat work.
+ */
+export function sessionHasGeo(session: { geoCountryCode?: string | null } | null | undefined): boolean {
+    return typeof session?.geoCountryCode === 'string' && session.geoCountryCode.length > 0;
 }
 
 async function maybeRunGeoLookup(sessionId: string, req?: any) {
@@ -579,15 +648,25 @@ export async function ensureIngestSession(
     const updates = buildMetadataUpdates(session, metadata, req, options);
     let updatedSessionMetadata = false;
     if (Object.keys(updates).length > 0) {
-        await db.update(sessions)
+        const metadataPatch = buildSessionMetadataPatch(session, metadata);
+        // RETURNING hands back the fresh row in the same round trip, replacing
+        // the follow-up SELECT.
+        const [updated] = await db.update(sessions)
             .set(updates)
-            .where(eq(sessions.id, sessionId));
-        [session] = await db
-            .select(ingestSessionSelection)
-            .from(sessions)
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
-        updatedSessionMetadata = Boolean(session);
+            .where(buildEnsureSessionUpdateCondition(sessionId, updates, metadataPatch))
+            .returning(ingestSessionSelection);
+        if (updated) {
+            session = updated;
+            updatedSessionMetadata = true;
+        } else {
+            // Zero rows. For a metadata-only merge this means Postgres already
+            // held every patched key (the row we were given was a stale copy), so
+            // nothing was written: reflect the known values locally and skip the
+            // cache refresh and visitor-ledger work that only follow a real write.
+            // (The only other cause is a row deleted mid-request, which the
+            // artifact insert that follows rejects.)
+            session = { ...session, metadata: { ...(session.metadata ?? {}), ...metadataPatch } };
+        }
     }
 
     // Visitor ledger: stamp the lifetime ordinal once identity is known. Runs only when
@@ -620,7 +699,9 @@ export async function ensureIngestSession(
         }
     }
 
-    await maybeRunGeoLookup(session.id, req);
+    if (!sessionHasGeo(session)) {
+        await maybeRunGeoLookup(session.id, req);
+    }
 
     if (session && (created || loadedSessionFromDb || updatedSessionMetadata || !prefetchedWasCacheHit)) {
         setIngestSessionCache(projectId, session as unknown as Record<string, unknown>).catch(() => {});

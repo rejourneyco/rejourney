@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { gunzipSync } from 'zlib';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, errors, recordingArtifacts } from '../db/client.js';
 import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { resolveIssueUserId, trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
@@ -335,6 +335,91 @@ export function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, stri
     return updates;
 }
 
+const DEVICE_INFO_SESSION_COLUMNS = ['appVersion', 'deviceModel', 'platform', 'deviceId', 'osVersion', 'sdkVersion'] as const;
+type DeviceInfoSessionColumn = typeof DEVICE_INFO_SESSION_COLUMNS[number];
+
+export type DeviceInfoSessionUpdate = {
+    /** Columns (and the JSON metadata merge) to write, plus updated_at. */
+    set: Record<string, unknown>;
+    /** Row filter: the session id and "at least one written value differs". */
+    where: ReturnType<typeof and>;
+    /** Flat metadata keys merged by this write (empty when metadata is untouched). */
+    metadataPatch: Record<string, string | boolean>;
+};
+
+/**
+ * Plan the session row write for an events artifact's deviceInfo.
+ *
+ * Only values that differ from the session row the caller just loaded are
+ * written, and the statement repeats that test in SQL (`IS DISTINCT FROM` per
+ * column, `@>` for the flat metadata merge) so a row another writer already
+ * brought up to date is not rewritten. Returns null when nothing differs: the
+ * caller then issues no statement at all, and `updated_at` is left alone.
+ *
+ * `session.metadata` is optional. When the caller did not load it, the whole
+ * metadata patch is sent and the SQL containment test alone decides.
+ */
+export function buildDeviceInfoSessionUpdate(
+    sessionId: string,
+    session: Partial<Record<DeviceInfoSessionColumn, unknown>> & { metadata?: unknown },
+    deviceInfo: any,
+    now: Date = new Date(),
+): DeviceInfoSessionUpdate | null {
+    const candidates: Partial<Record<DeviceInfoSessionColumn, unknown>> = {};
+    const deviceAppVersion = normalizeIngestAppVersion({
+        platform: deviceInfo?.platform,
+        os: deviceInfo?.os,
+        appVersion: deviceInfo?.appVersion,
+        sdkVersion: deviceInfo?.sdkVersion,
+    });
+    if (deviceAppVersion) candidates.appVersion = deviceAppVersion;
+    if (deviceInfo.model) candidates.deviceModel = deviceInfo.model;
+    if (deviceInfo.platform) candidates.platform = deviceInfo.platform;
+    if ((!session.deviceId || session.deviceId === '') && (deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash)) {
+        candidates.deviceId = deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash;
+    }
+    if (deviceInfo.systemVersion) candidates.osVersion = deviceInfo.systemVersion;
+    else if (deviceInfo.osVersion) candidates.osVersion = deviceInfo.osVersion;
+    else if (deviceInfo.os && deviceInfo.os !== 'web') candidates.osVersion = deviceInfo.os;
+
+    const fromDeviceInfo = normalizeIngestSdkVersion(deviceInfo.sdkVersion);
+    if (fromDeviceInfo && !session.sdkVersion) {
+        candidates.sdkVersion = fromDeviceInfo;
+    }
+
+    const set: Record<string, unknown> = {};
+    const differs: Array<ReturnType<typeof sql>> = [];
+    for (const column of DEVICE_INFO_SESSION_COLUMNS) {
+        if (!(column in candidates)) continue;
+        const value = candidates[column];
+        if (session[column] === value) continue;
+        set[column] = value;
+        differs.push(sql`${sessions[column]} is distinct from ${value}`);
+    }
+
+    const deviceMetadataUpdates = buildDeviceMetadataUpdates(deviceInfo);
+    const storedMetadata = session.metadata && typeof session.metadata === 'object' && !Array.isArray(session.metadata)
+        ? session.metadata as Record<string, unknown>
+        : null;
+    const metadataPatch = storedMetadata
+        ? Object.fromEntries(Object.entries(deviceMetadataUpdates).filter(([key, value]) => storedMetadata[key] !== value))
+        : deviceMetadataUpdates;
+    if (Object.keys(metadataPatch).length > 0) {
+        const patchJson = JSON.stringify(metadataPatch);
+        set.metadata = sql`${sessions.metadata} || ${patchJson}::jsonb`;
+        differs.push(sql`not (${sessions.metadata} @> ${patchJson}::jsonb)`);
+    }
+
+    if (differs.length === 0) return null;
+
+    set.updatedAt = now;
+    return {
+        set,
+        where: and(eq(sessions.id, sessionId), or(...differs)),
+        metadataPatch,
+    };
+}
+
 const MOBILE_BATTERY_STATES = new Set(['charging', 'full', 'unplugged', 'unknown']);
 
 export function normalizeBatteryLevelPercent(value: unknown): number | null {
@@ -409,38 +494,15 @@ export async function processEventsArtifact(
     const deviceInfo = payload.deviceInfo;
     // Update session metadata from device info
     if (deviceInfo) {
-        const sessionUpdates: any = { updatedAt: new Date() };
-        const deviceAppVersion = normalizeIngestAppVersion({
-            platform: deviceInfo?.platform,
-            os: deviceInfo?.os,
-            appVersion: deviceInfo?.appVersion,
-            sdkVersion: deviceInfo?.sdkVersion,
-        });
-        if (deviceAppVersion) sessionUpdates.appVersion = deviceAppVersion;
-        if (deviceInfo.model) sessionUpdates.deviceModel = deviceInfo.model;
-        if (deviceInfo.platform) sessionUpdates.platform = deviceInfo.platform;
-        if ((!session.deviceId || session.deviceId === '') && (deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash)) {
-            sessionUpdates.deviceId = deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash;
-        }
-        if (deviceInfo.systemVersion) sessionUpdates.osVersion = deviceInfo.systemVersion;
-        else if (deviceInfo.osVersion) sessionUpdates.osVersion = deviceInfo.osVersion;
-        else if (deviceInfo.os && deviceInfo.os !== 'web') sessionUpdates.osVersion = deviceInfo.os;
-
-        const fromDeviceInfo = normalizeIngestSdkVersion(deviceInfo.sdkVersion);
-        if (fromDeviceInfo && !session.sdkVersion) {
-            sessionUpdates.sdkVersion = fromDeviceInfo;
-        }
-        const deviceMetadataUpdates = buildDeviceMetadataUpdates(deviceInfo);
-        if (Object.keys(deviceMetadataUpdates).length > 0) {
-            sessionUpdates.metadata = sql`${sessions.metadata} || ${JSON.stringify(deviceMetadataUpdates)}::jsonb`;
+        const sessionUpdate = buildDeviceInfoSessionUpdate(job.sessionId, session, deviceInfo);
+        if (sessionUpdate) {
+            await db.update(sessions).set(sessionUpdate.set).where(sessionUpdate.where);
         }
 
-        await db.update(sessions).set(sessionUpdates).where(eq(sessions.id, job.sessionId));
-
-        if (sessionUpdates.deviceId) {
+        if (sessionUpdate?.set.deviceId) {
             // Device identity arrived after the row was created: stamp the visitor
             // ledger ordinal now (no-op if a concurrent path already did).
-            session.deviceId = sessionUpdates.deviceId;
+            session.deviceId = sessionUpdate.set.deviceId;
             await assignSessionVisitorById(job.sessionId, projectId);
         }
 

@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
@@ -22,8 +22,27 @@ import {
 import { computeSessionDurationSeconds, hasStoredClosedTiming, resolveAuthoritativeSessionClose, selectMaxObservabilityMinutes } from './sessionTiming.js';
 import { loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
 import { prepareResearchLakeV2Session } from './researchLakeV2Lifecycle.js';
+import { getCachedProjectSettings } from './projectSettingsCache.js';
 
-export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
+/**
+ * Minimum spacing between pure "ingest activity" writes to one session row.
+ *
+ * Every artifact touches its session four times (presign, relay buffer, flush,
+ * complete). Only the first touch after this interval rewrites
+ * `last_ingest_activity_at` / `updated_at`; the rest match zero rows. The stored
+ * value therefore lags the newest real touch by strictly less than this interval.
+ */
+export const SESSION_TOUCH_MIN_INTERVAL_MS = 15_000;
+
+/**
+ * Server-side idle window before a quiet session may be finalized or have its
+ * Smart Capture evidence treated as settled. `last_ingest_activity_at` can lag
+ * real activity by up to SESSION_TOUCH_MIN_INTERVAL_MS, so that lag is added
+ * here: a stored value this old still proves a full live-ingest window of real
+ * silence. Finalization can only move later (by at most the touch interval),
+ * never earlier.
+ */
+export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS + SESSION_TOUCH_MIN_INTERVAL_MS;
 
 type ReconcileSessionResult = {
     sessionId: string;
@@ -44,6 +63,69 @@ type TouchSessionOptions = {
 
 async function ensureMetricsRow(sessionId: string) {
     await db.insert(sessionMetrics).values({ sessionId }).onConflictDoNothing();
+}
+
+function hasExplicitSessionTiming(options: TouchSessionOptions): boolean {
+    return options.endedAt !== undefined
+        || (options.durationSeconds !== undefined && options.durationSeconds !== null)
+        || (options.backgroundTimeSeconds !== undefined && options.backgroundTimeSeconds !== null);
+}
+
+/**
+ * Row filter for a session touch.
+ *
+ * A touch that carries explicit close timing (`/session/end`) always writes.
+ * A plain activity touch writes only when the stored activity clock is older
+ * than SESSION_TOUCH_MIN_INTERVAL_MS, and a reopen touch additionally writes
+ * whenever the row is not already in the reopened shape (`processing`, no
+ * `ended_at`, no `duration_seconds`). Everything else matches zero rows, so the
+ * statement costs one round trip and no heap or WAL write.
+ */
+export function buildSessionTouchCondition(
+    sessionId: string,
+    options: Pick<TouchSessionOptions, 'at' | 'endedAt' | 'durationSeconds' | 'backgroundTimeSeconds' | 'reopen'> & { at: Date },
+): SQL {
+    const byId = eq(sessions.id, sessionId);
+    if (hasExplicitSessionTiming(options)) {
+        return byId;
+    }
+
+    const staleBefore = new Date(options.at.getTime() - SESSION_TOUCH_MIN_INTERVAL_MS);
+    const needsWrite: Array<SQL | undefined> = [];
+    if (options.reopen) {
+        needsWrite.push(
+            sql`${sessions.status} is distinct from 'processing'`,
+            isNotNull(sessions.endedAt),
+            isNotNull(sessions.durationSeconds),
+        );
+    }
+    needsWrite.push(
+        isNull(sessions.lastIngestActivityAt),
+        lt(sessions.lastIngestActivityAt, staleBefore),
+    );
+
+    return and(byId, or(...needsWrite)) as SQL;
+}
+
+/**
+ * In-memory mirror of buildSessionTouchCondition for an existing row. Keep the
+ * two in step: tests pin the SQL text and use this to model which touches write.
+ */
+export function shouldWriteSessionTouch(
+    row: {
+        status?: string | null;
+        endedAt?: Date | null;
+        durationSeconds?: number | null;
+        lastIngestActivityAt?: Date | null;
+    },
+    options: Pick<TouchSessionOptions, 'at' | 'endedAt' | 'durationSeconds' | 'backgroundTimeSeconds' | 'reopen'> & { at: Date },
+): boolean {
+    if (hasExplicitSessionTiming(options)) return true;
+    if (options.reopen && (row.status !== 'processing' || row.endedAt != null || row.durationSeconds != null)) {
+        return true;
+    }
+    if (row.lastIngestActivityAt == null) return true;
+    return row.lastIngestActivityAt.getTime() < options.at.getTime() - SESSION_TOUCH_MIN_INTERVAL_MS;
 }
 
 export async function markSessionIngestActivity(sessionId: string, options: TouchSessionOptions = {}): Promise<void> {
@@ -69,12 +151,11 @@ export async function markSessionIngestActivity(sessionId: string, options: Touc
         update.durationSeconds = null;
     }
 
-    await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
-        await tx.update(sessions)
-            .set(update)
-            .where(eq(sessions.id, sessionId));
-    });
+    // One autocommit statement: nothing else shares this write, so a wrapping
+    // transaction would only add BEGIN/COMMIT round trips through the pooler.
+    await db.update(sessions)
+        .set(update)
+        .where(buildSessionTouchCondition(sessionId, { ...options, at }));
 }
 
 export async function reconcileSessionState(sessionId: string, now = new Date()): Promise<ReconcileSessionResult | null> {
@@ -138,21 +219,8 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         supersededByNewerVisitorSession,
     } = evidence;
 
-    const [project] = await db.select({
-        id: projects.id,
-        teamId: projects.teamId,
-        maxRecordingMinutes: projects.maxRecordingMinutes,
-        webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
-        smartCaptureEnabled: projects.smartCaptureEnabled,
-        smartCaptureMode: projects.smartCaptureMode,
-        smartCapturePreset: projects.smartCapturePreset,
-        smartCaptureRules: projects.smartCaptureRules,
-        smartCaptureDecisionWindowHours: projects.smartCaptureDecisionWindowHours,
-        sampleRate: projects.sampleRate,
-    })
-        .from(projects)
-        .where(eq(projects.id, session.projectId))
-        .limit(1);
+    // Same columns as before, served from the per-process settings cache.
+    const project = await getCachedProjectSettings(session.projectId);
     const maxRecordingMinutes = selectMaxObservabilityMinutes(project, session.platform);
 
     const smartCaptureEntitled = project?.teamId ? await isSmartCaptureEntitled(project.teamId) : false;
@@ -220,6 +288,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         hasPendingReplayWork: aggregate.hasPendingReplayWork,
         supersededByNewerVisitorSession,
         maxSessionDurationMs: maxRecordingMinutes * 60_000,
+        finalizationIdleMs: SESSION_FINALIZE_IDLE_MS,
         now,
     });
     const shouldFinalize = presentationState.shouldFinalize;
@@ -359,7 +428,10 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
 
 export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Promise<number> {
     const now = new Date();
+    // Activity idleness absorbs the throttled touch writes; the ready-artifact
+    // age below is unrelated to them and keeps the plain live-ingest window.
     const cutoff = new Date(now.getTime() - SESSION_FINALIZE_IDLE_MS);
+    const readyArtifactCutoff = new Date(now.getTime() - SESSION_LIVE_INGEST_WINDOW_MS);
     let processed = 0;
 
     for (let batch = 0; batch < maxBatches; batch += 1) {
@@ -452,7 +524,7 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
                         where ra.session_id = s.id
                           and ra.kind in ('screenshots', 'rrweb')
                           and ra.status = 'ready'
-                          and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${cutoff}
+                          and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${readyArtifactCutoff}
                     )
                 )
             )

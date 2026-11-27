@@ -191,6 +191,9 @@ async function loadSessionRollupContext(sessionId: string) {
                 explicitEndedAt: sessions.explicitEndedAt,
                 id: sessions.id,
                 isReplayExpired: sessions.isReplayExpired,
+                // Lets the events processor skip the device-info write when the
+                // stored metadata already holds every reported key.
+                metadata: sessions.metadata,
                 osVersion: sessions.osVersion,
                 platform: sessions.platform,
                 projectId: sessions.projectId,

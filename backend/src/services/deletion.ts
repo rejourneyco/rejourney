@@ -25,6 +25,7 @@ import {
 import { logger } from '../logger.js';
 import { cancelSubscription } from './stripe.js';
 import { invalidateSessionCache } from './quotaCheck.js';
+import { invalidateProjectSettingsCache } from './projectSettingsCache.js';
 
 export interface ProjectDeletionTarget {
     id: string;
@@ -98,6 +99,7 @@ export async function hardDeleteProject(target: ProjectDeletionTarget): Promise<
         await tx.delete(projectVisitors).where(eq(projectVisitors.projectId, target.id));
         await tx.delete(projects).where(eq(projects.id, target.id));
     });
+    invalidateProjectSettingsCache(target.id);
 
     logger.info(
         { projectId: target.id, teamId: target.teamId, projectName: target.name },

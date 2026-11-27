@@ -27,6 +27,7 @@ import {
     ensureIngestSession,
     ingestSessionSelection,
     maybeBackfillSessionStartedAt,
+    setSessionUserDisplayIdIfChanged,
 } from '../services/ingestSessionLifecycle.js';
 import { checkBillingStatus, getTeamSessionUsage, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
@@ -57,6 +58,7 @@ import {
 import { selectMaxObservabilityMinutes } from '../services/sessionTiming.js';
 import { normalizeArtifactTimeRangeForSession } from '../services/sessionClock.js';
 import { assignSessionVisitorById } from '../services/visitorLedger.js';
+import { checkSessionArtifactCap } from '../services/ingestSessionArtifactCap.js';
 const router = Router();
 
 type ReplayBillingGate = {
@@ -81,6 +83,38 @@ function logIngestPresignSkip(meta: {
         },
         'ingest.presign_skip',
     );
+}
+
+/**
+ * Per-session upload cap. Answers a capped presign with the `skipUpload` body
+ * every SDK already handles (drop the chunk, do not retry) and returns true so
+ * the route stops. The once-per-session log line is written by the cap service;
+ * rejected presigns are not logged individually.
+ */
+async function rejectPresignIfSessionCapped(
+    res: { json: (body: unknown) => unknown },
+    params: {
+        route: string;
+        projectId: string;
+        session: { id: string; createdAt?: Date | string | null };
+        kind: string;
+    },
+): Promise<boolean> {
+    const decision = await checkSessionArtifactCap({
+        projectId: params.projectId,
+        sessionId: params.session.id,
+        sessionCreatedAt: params.session.createdAt ?? null,
+        route: params.route,
+        kind: params.kind,
+    });
+    if (decision.allowed) return false;
+
+    res.json({
+        skipUpload: true,
+        sessionId: params.session.id,
+        reason: decision.message,
+    });
+    return true;
 }
 
 function isProjectSampledOut(project: { sampleRate?: number | null }): boolean {
@@ -319,6 +353,11 @@ router.post(
             }).catch(() => {});
         }
 
+        const presignKind = data.contentType === 'crashes' || data.contentType === 'anrs' ? data.contentType : 'events';
+        if (await rejectPresignIfSessionCapped(res, { route: '/api/ingest/presign', projectId, session, kind: presignKind })) {
+            return;
+        }
+
         if (deviceAuthId) {
             updateDeviceUsage(deviceAuthId, projectId, { requestCount: 1 }).catch(() => {});
         }
@@ -441,10 +480,7 @@ router.post(
             && typeof userId === 'string'
             && !userId.startsWith('anon_')
         ) {
-            db.update(sessions)
-                .set({ userDisplayId: userId, updatedAt: new Date() })
-                .where(eq(sessions.id, sessionId))
-                .catch(() => {});
+            setSessionUserDisplayIdIfChanged(session!, userId).catch(() => {});
         }
 
         updateDeviceUsage(deviceId, projectId, {
@@ -731,6 +767,10 @@ router.post(
 
         if (deviceId) {
             updateDeviceUsage(deviceId, projectId, { requestCount: 1 }).catch(() => {});
+        }
+
+        if (await rejectPresignIfSessionCapped(res, { route: '/api/ingest/rrweb/presign', projectId, session, kind: 'rrweb' })) {
+            return;
         }
 
         const uploadId = buildReplaySegmentId({
@@ -1145,6 +1185,10 @@ router.post(
                 });
                 return;
             }
+        }
+
+        if (await rejectPresignIfSessionCapped(res, { route: '/api/ingest/segment/presign', projectId, session, kind: data.kind })) {
+            return;
         }
 
         let extension: string;

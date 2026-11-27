@@ -205,7 +205,7 @@ describe('processArtifactJobFromBullMQ completion effects', () => {
         expect(runArtifactCompletionEffectsMock).not.toHaveBeenCalled();
     });
 
-    it('keeps replay artifacts on the immediate reconcile path', async () => {
+    it('keeps the first replay artifact of a session on the immediate reconcile path', async () => {
         await processArtifactJobFromBullMQ(makeJob('screenshots') as any, {
             maxAttempts: 5,
             workerId: 'worker-1',
@@ -219,6 +219,134 @@ describe('processArtifactJobFromBullMQ completion effects', () => {
             replayAvailable: true,
             sessionId: 'session-1',
         });
+    });
+
+    function queueSessionWithReplayState(replayState: Record<string, unknown>, artifact: Record<string, unknown> = {}) {
+        limitResults.length = 0;
+        limitResults.push([{ ...sessionResult, replayState }]);
+        limitResults.push([{
+            endpointId: null,
+            frameCount: null,
+            id: 'artifact-1',
+            status: 'uploaded',
+            uploadCompletedAt: null,
+            verifiedAt: null,
+            ...artifact,
+        }]);
+    }
+
+    it('reconciles the first rrweb segment immediately too', async () => {
+        queueSessionWithReplayState({ replayAvailable: false, replayRetentionState: 'not_available' });
+        downloadFromS3ForArtifactMock.mockResolvedValueOnce(
+            Buffer.from(JSON.stringify({ format: 'rrweb', events: [{ timestamp: 1 }] })),
+        );
+
+        await processArtifactJobFromBullMQ(makeJob('rrweb') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(enqueueSessionEffectsJobMock).not.toHaveBeenCalled();
+        expect(reconcileSessionStateMock).toHaveBeenCalledWith('session-1');
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledWith({
+            kind: 'rrweb',
+            replayAvailable: true,
+            sessionId: 'session-1',
+        });
+    });
+
+    it('debounces later screenshot artifacts through the session-effects queue once replay is available', async () => {
+        queueSessionWithReplayState({
+            isReplayExpired: false,
+            recordingDeleted: false,
+            replayAvailable: true,
+            replayQuotaBillingExhausted: false,
+            replayRetentionState: 'saved',
+            smartCaptureStatus: 'not_applicable',
+        });
+
+        await processArtifactJobFromBullMQ(makeJob('screenshots') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(txUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'ready' }));
+        expect(enqueueSessionEffectsJobMock).toHaveBeenCalledTimes(1);
+        expect(enqueueSessionEffectsJobMock).toHaveBeenCalledWith('session-1');
+        expect(reconcileSessionStateMock).not.toHaveBeenCalled();
+        // Cache invalidation and screenshot prewarm still happen now, in this worker,
+        // using the stored replay visibility instead of a fresh reconcile result.
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledTimes(1);
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledWith({
+            kind: 'screenshots',
+            replayAvailable: true,
+            sessionId: 'session-1',
+        });
+    });
+
+    it('always debounces hierarchy snapshots, which never decide replay availability', async () => {
+        queueSessionWithReplayState({ replayAvailable: false, replayRetentionState: 'not_available' });
+
+        await processArtifactJobFromBullMQ(makeJob('hierarchy') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(enqueueSessionEffectsJobMock).toHaveBeenCalledWith('session-1');
+        expect(reconcileSessionStateMock).not.toHaveBeenCalled();
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledWith({
+            kind: 'hierarchy',
+            replayAvailable: false,
+            sessionId: 'session-1',
+        });
+    });
+
+    it('does not prewarm a hidden Smart Capture buffer on the debounced path', async () => {
+        queueSessionWithReplayState({
+            replayAvailable: true,
+            replayRetentionState: 'buffered',
+            smartCaptureStatus: 'pending',
+        });
+
+        await processArtifactJobFromBullMQ(makeJob('screenshots') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(enqueueSessionEffectsJobMock).toHaveBeenCalledWith('session-1');
+        expect(reconcileSessionStateMock).not.toHaveBeenCalled();
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledWith({
+            kind: 'screenshots',
+            replayAvailable: false,
+            sessionId: 'session-1',
+        });
+    });
+
+    it('keeps reconciling immediately while a screenshots session has no available replay', async () => {
+        queueSessionWithReplayState({
+            replayAvailable: false,
+            replayRetentionState: 'analytics_only',
+            smartCaptureStatus: 'discarded',
+        });
+
+        await processArtifactJobFromBullMQ(makeJob('screenshots') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(enqueueSessionEffectsJobMock).not.toHaveBeenCalled();
+        expect(reconcileSessionStateMock).toHaveBeenCalledWith('session-1');
+    });
+
+    it('falls back to the immediate reconcile when the session-effects queue cannot be reached', async () => {
+        queueSessionWithReplayState({ replayAvailable: true, replayRetentionState: 'saved' });
+        enqueueSessionEffectsJobMock.mockRejectedValueOnce(new Error('redis unavailable'));
+
+        await processArtifactJobFromBullMQ(makeJob('screenshots') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(reconcileSessionStateMock).toHaveBeenCalledWith('session-1');
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledTimes(1);
+        expect(runArtifactCompletionEffectsMock).toHaveBeenCalledWith({
+            kind: 'screenshots',
+            replayAvailable: true,
+            sessionId: 'session-1',
+        });
+    });
+
+    it('applies the same debounce when a retried job finds its replay artifact already ready', async () => {
+        queueSessionWithReplayState({ replayAvailable: true, replayRetentionState: 'saved' }, { status: 'ready' });
+
+        await processArtifactJobFromBullMQ(makeJob('screenshots') as any, { maxAttempts: 5, workerId: 'worker-1' });
+
+        expect(processRecoveredReplayArtifactMock).not.toHaveBeenCalled();
+        expect(txUpdateSetMock).not.toHaveBeenCalled();
+        expect(enqueueSessionEffectsJobMock).toHaveBeenCalledWith('session-1');
+        expect(reconcileSessionStateMock).not.toHaveBeenCalled();
     });
 
     it('does not let an exhausted retry overwrite an artifact that already became ready', async () => {

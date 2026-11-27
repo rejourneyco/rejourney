@@ -715,6 +715,71 @@ export async function setIngestProjectCache(projectId: string, project: Record<s
 }
 
 // =============================================================================
+// Per-session artifact counter
+//
+// Backs the presign cap in services/ingestSessionArtifactCap.ts. Redis runs with
+// `noeviction`, so both keys are always written together with a TTL.
+// =============================================================================
+
+function sessionArtifactCountKey(projectId: string, sessionId: string): string {
+    return `ingest:session:artifacts:${projectId}:${sessionId}`;
+}
+
+function sessionArtifactCapLoggedKey(projectId: string, sessionId: string): string {
+    return `ingest:session:artifact_cap_logged:${projectId}:${sessionId}`;
+}
+
+/**
+ * Count one more accepted presign for a session and return the new total.
+ *
+ * INCR and EXPIRE run in one MULTI/EXEC, so the counter can never be left
+ * without a TTL. The TTL slides: it restarts on every presign. Returns null when
+ * Redis is unavailable or answers unexpectedly; callers must then fail open.
+ */
+export async function incrementSessionArtifactCount(
+    projectId: string,
+    sessionId: string,
+    ttlSeconds: number,
+): Promise<number | null> {
+    const redisClient = getRedis();
+    const key = sessionArtifactCountKey(projectId, sessionId);
+
+    try {
+        const results = await redisClient.multi().incr(key).expire(key, ttlSeconds).exec();
+        const incrResult = results?.[0];
+        const expireResult = results?.[1];
+        if (!incrResult || incrResult[0] || !expireResult || expireResult[0]) {
+            throw incrResult?.[0] ?? expireResult?.[0] ?? new Error('Redis MULTI returned no results');
+        }
+        const count = Number(incrResult[1]);
+        return Number.isFinite(count) ? count : null;
+    } catch (err) {
+        logRedisOperationFailed('increment_session_artifact_count', err, { projectId });
+        return null;
+    }
+}
+
+/**
+ * Claim the one "cap tripped" log line for a session (SET NX with a TTL).
+ * Returns true for the single caller that should log; false otherwise,
+ * including when Redis is unavailable (better silent than a log per request).
+ */
+export async function claimSessionArtifactCapLog(
+    projectId: string,
+    sessionId: string,
+    ttlSeconds: number,
+): Promise<boolean> {
+    const redisClient = getRedis();
+    try {
+        const result = await redisClient.set(sessionArtifactCapLoggedKey(projectId, sessionId), '1', 'EX', ttlSeconds, 'NX');
+        return result === 'OK';
+    } catch (err) {
+        logRedisOperationFailed('claim_session_artifact_cap_log', err, { projectId });
+        return false;
+    }
+}
+
+// =============================================================================
 // S3 endpoint cache
 //
 // getEndpointForProject() runs a SELECT on storage_endpoints on every presign.

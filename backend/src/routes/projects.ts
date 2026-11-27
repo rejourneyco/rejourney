@@ -35,6 +35,7 @@ import {
 import { eraseVisitor } from '../services/visitorErasure.js';
 import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { hardDeleteProject } from '../services/deletion.js';
+import { invalidateProjectSettingsCache } from '../services/projectSettingsCache.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
 import { sendDeveloperSetupEmail } from '../services/email.js';
 import {
@@ -1866,6 +1867,7 @@ router.put(
             })
             .where(eq(projects.id, req.params.id))
             .returning();
+        invalidateProjectSettingsCache(req.params.id);
 
         try {
             await getRedis().del(
@@ -2024,6 +2026,7 @@ router.put(
             .set(updateData)
             .where(eq(projects.id, req.params.id))
             .returning();
+        invalidateProjectSettingsCache(req.params.id);
 
         const shouldInvalidateConfig =
             data.sampleRate !== undefined ||

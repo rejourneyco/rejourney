@@ -47,6 +47,14 @@ type DeriveSessionPresentationStateInput = {
      * still be resumed by the same tab. Keep finalization separate from "not live".
      */
     maxSessionDurationMs?: number;
+    /**
+     * Idle window that must elapse before ingest counts as quiescent for
+     * finalization. Defaults to the live-ingest window. Server-side
+     * reconciliation passes a wider window to absorb the throttled
+     * `last_ingest_activity_at` writes; values below the live window are ignored.
+     * The LIVE badge always uses the live-ingest window.
+     */
+    finalizationIdleMs?: number;
     now?: Date;
 };
 
@@ -69,6 +77,10 @@ export function deriveSessionPresentationState(
     const lastIngestActivityAt = toDateOrNull(input.lastIngestActivityAt);
     const startedAt = toDateOrNull(input.startedAt);
     const cutoffMs = now.getTime() - SESSION_LIVE_INGEST_WINDOW_MS;
+    const quiescentCutoffMs = now.getTime() - Math.max(
+        SESSION_LIVE_INGEST_WINDOW_MS,
+        toFiniteNumber(input.finalizationIdleMs) ?? SESSION_LIVE_INGEST_WINDOW_MS,
+    );
     const liveClockMs = lastIngestActivityAt?.getTime() ?? 0;
     const hasPendingWork = Boolean(input.hasPendingWork);
     const hasPendingProcessingWork = input.hasPendingProcessingWork ?? hasPendingWork;
@@ -103,7 +115,7 @@ export function deriveSessionPresentationState(
         && status !== 'ready'
         && status !== 'completed'
         && liveClockMs > cutoffMs;
-    const isIngestQuiescent = !isSdkPaused && (superseded || recordingClosed || liveClockMs <= cutoffMs);
+    const isIngestQuiescent = !isSdkPaused && (superseded || recordingClosed || liveClockMs <= quiescentCutoffMs);
     const isIdle = isIngestQuiescent;
     const canFinalizeIdleSession =
         !isWebSession

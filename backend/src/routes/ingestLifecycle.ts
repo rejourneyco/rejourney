@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, projects, sessionMetrics, sessions } from '../db/client.js';
+import { db, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler } from '../middleware/index.js';
 import { ingestLifecycleProjectRateLimiter } from '../middleware/rateLimit.js';
@@ -21,6 +21,7 @@ import { hasStoredClosedTiming, resolveAuthoritativeSessionClose, selectMaxObser
 import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
+import { getCachedProjectSettings } from '../services/projectSettingsCache.js';
 import { getRedisDiagnosticsForLog, invalidateSessionEndpointCache, invalidateSessionExistsCache } from '../db/redis.js';
 import { normalizeClientEpochMsForSession } from '../services/sessionClock.js';
 import {
@@ -238,13 +239,7 @@ router.post(
             return;
         }
 
-        const [project] = await db.select({
-            maxRecordingMinutes: projects.maxRecordingMinutes,
-            webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
-        })
-            .from(projects)
-            .where(eq(projects.id, session.projectId))
-            .limit(1);
+        const project = await getCachedProjectSettings(session.projectId);
         const maxObservabilityMinutes = selectMaxObservabilityMinutes(project, session.platform);
         const aggregate = await loadSessionWorkAggregate(session.id);
         const successorStartedAt = await loadSuccessorSessionStartedAt({

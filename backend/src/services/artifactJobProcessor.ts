@@ -274,6 +274,78 @@ function isReplayArtifactKind(kind: string | null | undefined): boolean {
     return kind === 'screenshots' || kind === 'hierarchy' || kind === 'rrweb';
 }
 
+type SessionReplayState = {
+    isReplayExpired?: boolean | null;
+    recordingDeleted?: boolean | null;
+    replayAvailable?: boolean | null;
+    replayQuotaBillingExhausted?: boolean | null;
+    replayRetentionState?: string | null;
+    smartCaptureStatus?: string | null;
+};
+
+/**
+ * A replay artifact reconciles its session right away only when it can be the
+ * one that makes replay available: a screenshots/rrweb artifact for a session
+ * whose stored `replay_available` is not yet true. That keeps first-replay
+ * availability, the once-only quota count, and the first prewarm exactly as
+ * prompt as before.
+ *
+ * Every other replay artifact (later screenshots/rrweb segments, and all
+ * hierarchy snapshots, which never decide availability) only refreshes counters
+ * and re-evaluates an already established state, so its reconcile is coalesced
+ * into the per-session, per-bucket session-effects job.
+ */
+export function shouldReconcileReplayArtifactImmediately(
+    kind: string | null | undefined,
+    replayState: SessionReplayState,
+): boolean {
+    return (kind === 'screenshots' || kind === 'rrweb') && replayState.replayAvailable !== true;
+}
+
+/**
+ * Session follow-up for a replay artifact that just became (or already was) ready.
+ *
+ * Deferred path: enqueue the debounced session-effects job (one reconcile per
+ * session per bucket) and still run the cheap local completion effects now, so
+ * cached replay manifests are dropped as soon as the artifact is ready and
+ * screenshot prewarm stays in this worker. If the queue cannot be reached, fall
+ * back to the immediate reconcile so no artifact depends on the queue alone.
+ */
+async function runReplayArtifactSessionEffects(
+    kind: string,
+    sessionId: string,
+    replayState: SessionReplayState,
+    log: any,
+): Promise<{ sessionEffects: 'deferred' | 'immediate'; sessionEffectsQueued?: boolean }> {
+    if (isReplayArtifactKind(kind) && !shouldReconcileReplayArtifactImmediately(kind, replayState)) {
+        let sessionEffectsQueued: boolean | null = null;
+        try {
+            sessionEffectsQueued = await enqueueSessionEffectsJob(sessionId);
+        } catch (err) {
+            log.warn(
+                { err, event: 'artifact.session_effects_enqueue_failed' },
+                'artifact.session_effects_enqueue_failed',
+            );
+        }
+        if (sessionEffectsQueued !== null) {
+            await runArtifactCompletionEffects({
+                kind,
+                replayAvailable: canOpenReplayFromSessionFields(replayState),
+                sessionId,
+            });
+            return { sessionEffects: 'deferred', sessionEffectsQueued };
+        }
+    }
+
+    const reconcileResult = await reconcileSessionState(sessionId);
+    await runArtifactCompletionEffects({
+        kind,
+        replayAvailable: canOpenReplayFromSessionFields(reconcileResult),
+        sessionId,
+    });
+    return { sessionEffects: 'immediate' };
+}
+
 export async function runArtifactProcessorByKind(
     kind: string | null | undefined,
     context: ArtifactProcessorContext,
@@ -349,6 +421,16 @@ export async function processArtifactJobFromBullMQ(
                 startedAt: sessions.startedAt,
                 userDisplayId: sessions.userDisplayId,
             },
+            // Stored replay visibility, read with the row we already load: it
+            // decides whether this artifact reconciles now or via the debounced job.
+            replayState: {
+                isReplayExpired: sessions.isReplayExpired,
+                recordingDeleted: sessions.recordingDeleted,
+                replayAvailable: sessions.replayAvailable,
+                replayQuotaBillingExhausted: sessions.replayQuotaBillingExhausted,
+                replayRetentionState: sessions.replayRetentionState,
+                smartCaptureStatus: sessions.smartCaptureStatus,
+            },
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
@@ -361,6 +443,7 @@ export async function processArtifactJobFromBullMQ(
     }
 
     const { session } = sessionResult;
+    const replayState: SessionReplayState = sessionResult.replayState ?? {};
     const projectId = session.projectId;
 
     const [artifact] = await db
@@ -433,13 +516,8 @@ export async function processArtifactJobFromBullMQ(
             );
             return;
         }
-        const reconcileResult = await reconcileSessionState(session.id);
-        await runArtifactCompletionEffects({
-            kind,
-            replayAvailable: canOpenReplayFromSessionFields(reconcileResult),
-            sessionId: session.id,
-        });
-        artifactLog.info('Artifact already ready; running completion effects');
+        const readyEffects = await runReplayArtifactSessionEffects(kind, session.id, replayState, artifactLog);
+        artifactLog.info(readyEffects, 'Artifact already ready; running completion effects');
         return;
     }
 
@@ -510,18 +588,14 @@ export async function processArtifactJobFromBullMQ(
         return;
     }
 
-    const reconcileResult = await reconcileSessionState(session.id);
-    await runArtifactCompletionEffects({
-        kind,
-        replayAvailable: canOpenReplayFromSessionFields(reconcileResult),
-        sessionId: session.id,
-    });
+    const sessionEffects = await runReplayArtifactSessionEffects(kind, session.id, replayState, artifactLog);
 
     artifactLog.info(
         {
             event: 'artifact.processed',
             replayArtifact: isReplayArtifactKind(kind),
             actualObjectSize: sizeBytes,
+            ...sessionEffects,
         },
         'artifact.processed',
     );
